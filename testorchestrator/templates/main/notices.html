@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Third-party notices · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>Third-party notices and licences</h1>
+<p>TestOrchestrator bundles the following third-party components. Their
+   notices and licence texts are distributed locally with the application and
+   are readable offline.</p>
+{% if license_files %}
+<ul class="notice-list">
+  {% for name in license_files %}
+  <li><a href="{{ url_for('main.thirdparty_file', filename=name) }}">{{ name }}</a></li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="muted">No bundled licence files were found — packaging error.</p>
+{% endif %}
+{% endblock %}

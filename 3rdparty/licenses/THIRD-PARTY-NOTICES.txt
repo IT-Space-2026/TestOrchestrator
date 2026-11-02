@@ -1,0 +1,17 @@
+THIRD-PARTY NOTICES — TestOrchestrator
+
+TestOrchestrator bundles the third-party components listed below. Licence
+texts are shipped alongside this file in 3rdparty/licenses/ and are readable
+in the application under "Third-party notices" (works fully offline).
+
+Python runtime components (see requirements.txt for pinned versions):
+  Flask, Flask-Login, Flask-SQLAlchemy, Flask-Migrate, Flask-WTF, Werkzeug,
+  Jinja2, itsdangerous, click, blinker, WTForms, MarkupSafe — BSD-3-Clause
+  SQLAlchemy — MIT
+  alembic, Mako — MIT
+  argon2-cffi, argon2-cffi-bindings, cffi, pycparser — MIT
+  typing_extensions — PSF
+  waitress — ZPL-2.1-derived (see waitress-*-LICENSE.txt)
+
+Reverse proxy / TLS terminator (binary, see 3rdparty/caddy/):
+  Caddy — Apache License 2.0

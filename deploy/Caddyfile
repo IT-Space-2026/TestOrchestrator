@@ -1,0 +1,35 @@
+# TestOrchestrator — Caddy reverse-proxy configuration template.
+#
+# Installed to the persistent configuration area by the installer; edit the
+# installed copy, not this template. Validate before reload:
+#   caddy validate --config /etc/testorchestrator/Caddyfile
+#
+# Request flow:  Browser --HTTPS--> Caddy --HTTP loopback--> Waitress :8080
+
+{
+	# Do NOT expose the admin API. Loopback-only, and disabled by default.
+	admin off
+}
+
+{$TO_HOSTNAME:testorchestrator.local} {
+	# Certificates:
+	#  - Organization-issued: point tls at the deployed cert/key pair.
+	#  - Unique locally generated: `tls internal` (requires the documented
+	#    client trust setup for the local CA).
+	# Private keys live under the protected config area, not the payload.
+	tls {$TO_TLS_MODE:internal}
+
+	reverse_proxy 127.0.0.1:8080
+
+	# Security response headers (defence in depth; the app sets its own).
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		-Server
+	}
+}
+
+# HTTP: redirect-only listener (no application traffic over plain HTTP).
+http://{$TO_HOSTNAME:testorchestrator.local} {
+	redir https://{host}{uri} permanent
+}

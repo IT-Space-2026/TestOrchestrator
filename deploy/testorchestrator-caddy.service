@@ -1,0 +1,28 @@
+[Unit]
+Description=TestOrchestrator public web server (Caddy)
+After=network.target testorchestrator-web.service
+
+[Service]
+Type=exec
+User=testorchestrator
+Group=testorchestrator
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+# Bundled pinned binary; config lives in the persistent config area.
+ExecStart=/opt/testorchestrator/3rdparty/caddy/caddy run \
+    --config /etc/testorchestrator/Caddyfile \
+    --adapter caddyfile
+ExecReload=/opt/testorchestrator/3rdparty/caddy/caddy reload \
+    --config /etc/testorchestrator/Caddyfile \
+    --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/testorchestrator /etc/testorchestrator
+
+[Install]
+WantedBy=multi-user.target

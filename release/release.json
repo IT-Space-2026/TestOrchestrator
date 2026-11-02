@@ -1,0 +1,6 @@
+{
+  "version": "1.7.0",
+  "build": "source-checkout",
+  "spec": "v1.7",
+  "notes": "Bundled release metadata. scripts/stamp_release.py rewrites 'build' with the packaged commit at release time; upgrades/rollbacks replace this file with the payload's own copy."
+}

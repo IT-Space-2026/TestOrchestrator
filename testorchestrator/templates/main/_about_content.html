@@ -1,0 +1,40 @@
+<section class="about-content" aria-labelledby="about-title">
+  <div class="about-logo-wrap">
+    <img src="{{ url_for('static', filename=about.logo_path) }}"
+         alt="IT-Space Kft. logo" class="about-logo" width="192" height="64">
+    {% if not about.logo_approved %}
+    <p class="about-placeholder-note">
+      Temporary placeholder — the official IT-Space Kft. logo has not been
+      supplied yet. Production branding remains pending owner approval.
+    </p>
+    {% endif %}
+  </div>
+  <h2 id="about-title">About {{ about.app_name }}</h2>
+  <dl class="about-facts">
+    <dt>Application</dt>
+    <dd>{{ about.app_name }}</dd>
+    <dt>Company</dt>
+    <dd>{{ about.company_name }}</dd>
+    <dt>Homepage</dt>
+    <dd>
+      <a href="{{ about.company_homepage }}" target="_blank"
+         rel="noopener noreferrer">{{ about.company_homepage }}<span
+          class="visually-hidden"> (opens in a new tab)</span></a>
+    </dd>
+    <dt>Version</dt>
+    <dd>{{ about.release.version }}</dd>
+    <dt>Build</dt>
+    <dd>{{ about.release.build }}</dd>
+  </dl>
+  <nav class="about-links" aria-label="About links">
+    <a href="{{ url_for('main.notices') }}">Third-party notices and licences</a>
+    {% if about.is_admin %}
+    <a href="{{ url_for('main.changelog') }}">System &rarr; Changelog</a>
+    {% endif %}
+  </nav>
+  {% if from_dialog %}
+  <div class="dialog-actions">
+    <button type="button" id="about-close" class="button">Close</button>
+  </div>
+  {% endif %}
+</section>

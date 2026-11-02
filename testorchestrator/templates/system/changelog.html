@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Changelog · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>System &rarr; Changelog</h1>
+{% if changelog_text %}
+<pre class="changelog">{{ changelog_text }}</pre>
+{% else %}
+<p class="muted">No changelog is bundled with this build.</p>
+{% endif %}
+{% endblock %}

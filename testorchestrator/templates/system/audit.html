@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Audit · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>System &rarr; Audit</h1>
+{% if events %}
+<table class="audit-table">
+  <thead>
+    <tr><th scope="col">Time (UTC)</th><th scope="col">User</th>
+        <th scope="col">Event</th><th scope="col">Detail</th></tr>
+  </thead>
+  <tbody>
+    {% for event in events %}
+    <tr>
+      <td>{{ event.occurred_at }}</td>
+      <td>{{ event.username }}</td>
+      <td>{{ event.event }}</td>
+      <td>{{ event.detail }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No audit events recorded yet.</p>
+{% endif %}
+{% endblock %}

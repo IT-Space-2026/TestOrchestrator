@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}TestOrchestrator{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<div class="layout">
+  {% if current_user.is_authenticated %}
+  <aside class="sidebar">
+    <a class="sidebar-brand" href="{{ url_for('main.dashboard') }}">TestOrchestrator</a>
+    <nav aria-label="Main navigation">
+      <ul class="nav-list">
+        <li><a href="{{ url_for('main.dashboard') }}">Dashboard</a></li>
+        <li><a href="{{ url_for('main.notices') }}">Third-party notices</a></li>
+        {% if current_user.is_admin %}
+        <li class="nav-section" aria-hidden="true">System</li>
+        <li><a href="{{ url_for('main.changelog') }}">Changelog</a></li>
+        <li><a href="{{ url_for('main.audit') }}">Audit</a></li>
+        {% endif %}
+      </ul>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-menu">
+        <button type="button" id="user-menu-button" aria-haspopup="menu"
+                aria-expanded="false" aria-controls="user-menu-list">
+          <span class="user-name">{{ current_user.display_name or current_user.username }}</span>
+          <span class="user-role">{{ current_user.role.label }}</span>
+        </button>
+        <ul id="user-menu-list" role="menu" aria-labelledby="user-menu-button" hidden>
+          <li role="none">
+            <a role="menuitem" href="{{ url_for('main.about') }}" id="about-menu-item">About</a>
+          </li>
+          <li role="none">
+            <form method="post" action="{{ url_for('auth.logout') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" role="menuitem" class="menu-button">Sign out</button>
+            </form>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </aside>
+  {% endif %}
+  <main class="content" id="main-content">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+
+{% if current_user.is_authenticated %}
+<div class="dialog-backdrop" id="about-dialog" role="dialog" aria-modal="true"
+     aria-labelledby="about-title" hidden>
+  <div class="dialog-panel">
+    {% set from_dialog = True %}
+    {% include "main/_about_content.html" %}
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/user-menu.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/about.js') }}" defer></script>
+{% endif %}
+</body>
+</html>
