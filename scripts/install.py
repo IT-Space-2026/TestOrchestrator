@@ -75,16 +75,82 @@ def main() -> None:
                 shutil.copy2(src, dst)
         os.chmod(data / "certs", 0o700)
 
+        # Offline venv from the bundled runtime + vendored wheels —
+        # no host python/pip and no network required.
+        try:
+            venv = create_venv_offline(payload)
+            print(f"[install] venv: {venv}")
+        except SystemExit as exc:
+            print(f"[install] WARNING: {exc} — venv step skipped")
+
+        # Tested Dagu provisioning path (scripts/provision_dagu.py):
+        # binary, basic-auth server.yaml, 0600 credentials, workflow,
+        # systemd unit — into the persistent config/data areas.
+        dagu_bin = REPO / "3rdparty" / "dagu" / "dagu_2.25.2_linux_amd64.tar.gz"
+        if dagu_bin.exists():
+            import tarfile, tempfile
+            with tempfile.TemporaryDirectory() as td:
+                with tarfile.open(dagu_bin) as t:
+                    t.extractall(td, filter="data")
+                sys.path.insert(0, str(REPO / "scripts"))
+                import provision_dagu
+                provision_dagu.main([
+                    "--home", str(data / "dagu"),
+                    "--config", str(config / "dagu"),
+                    "--binary", str(Path(td) / "dagu")])
+            print(f"[install] dagu provisioned: {config/'dagu'}")
+        else:
+            print("[install] WARNING: bundled dagu tarball missing — "
+                  "orchestration not provisioned")
+
+        # Service units: web, worker, dagu, caddy — full lifecycle wiring,
+        # activation needs root on the target host.
         for unit in ("testorchestrator-web.service",
                      "testorchestrator-caddy.service"):
             shutil.copy2(REPO / "deploy" / unit, config / unit)
+        (config / "testorchestrator-worker.service").write_text(
+            f"[Unit]\nDescription=TestOrchestrator dispatch worker\n"
+            f"After=network.target\n\n[Service]\nType=simple\n"
+            f"User=testorchestrator\nGroup=testorchestrator\n"
+            f"WorkingDirectory={payload}\n"
+            f"EnvironmentFile={config}/web.env\n"
+            f"Environment=FLASK_APP=wsgi:app\n"
+            f"ExecStart={payload}/venv/bin/flask worker\n"
+            f"Restart=on-failure\nRestartSec=5\n"
+            f"NoNewPrivileges=true\nPrivateTmp=true\n"
+            f"ProtectSystem=strict\nProtectHome=true\n"
+            f"ReadWritePaths={data}\n\n"
+            f"[Install]\nWantedBy=multi-user.target\n")
         shutil.copy2(REPO / "deploy" / "Caddyfile", config / "Caddyfile")
 
     print(f"[install] local URL: https://localhost"
           f"{'' if args.https_port == 443 else f':{args.https_port}'}/")
-    print("[install] next: install units, run `flask db upgrade`, "
-          "bootstrap Admin via local browser or "
-          "`flask set-admin-password` (headless).")
+    print("[install] next: copy units from "
+          f"{config} to /etc/systemd/system, systemctl enable --now "
+          "testorchestrator-web testorchestrator-worker "
+          "testorchestrator-dagu testorchestrator-caddy; bootstrap Admin "
+          "via local browser or `flask set-admin-password` (headless).")
+
+
+def bundled_python(payload: Path) -> Path:
+    rt = payload / "3rdparty" / "python-runtime" / "python" / "bin" / "python3"
+    return rt if rt.exists() else None
+
+
+def create_venv_offline(payload: Path) -> Path:
+    """Create the app venv from the BUNDLED runtime + vendored wheels —
+    no host python/pip and no network required."""
+    rt = bundled_python(payload)
+    venv = payload / "venv"
+    if rt is None:
+        raise SystemExit("bundled runtime missing — package incomplete")
+    if not venv.exists():
+        subprocess.check_call([str(rt), "-m", "venv", str(venv)])
+    subprocess.check_call([
+        str(venv / "bin" / "pip"), "install", "--no-index",
+        "--find-links", str(payload / "3rdparty" / "python-wheels"),
+        "-r", str(payload / "requirements.txt")])
+    return venv
 
 
 if __name__ == "__main__":
