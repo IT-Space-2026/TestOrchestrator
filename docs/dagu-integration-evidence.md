@@ -50,3 +50,20 @@ full restore-path test).
 - HTTP cancel route unresolved (CLI `dagu stop` verified — acceptable).
 - Reconciliation coverage of RUNNING/CANCEL_REQUESTED states beyond
   DISPATCHED is coded but not all cases live-tested.
+
+## Closure status (milestone: Dagu/fixture integration)
+- Success demo run: dagRunId `034r6dpMcLxcMTkFseVGMx` -> COMPLETED/passed.
+- Cancel demo: agent-path CANCELED/incomplete + tree kill (documented).
+- Reconcile tests: 4 pass (UNKNOWN never re-dispatches; RUNNING and
+  CANCEL_REQUESTED expired-lease -> UNKNOWN; terminal-result guard).
+- Contract test tests/contract/test_dagu_contract.py PASSES vs bundled
+  2.25.2 (self-starts, submit->dagRunId->status->CLI stop->aborted);
+  DAGU_COORDINATOR_ENABLED=false documented for multi-instance.
+- Token audit: no token material in dagu run data/logs; delivery only
+  via 0600 agent.toml.
+- scripts/provision_dagu.py: DAGU_HOME + protected creds + workflow
+  placement + systemd unit + health pointer (scaffold; root/service
+  activation needs target host).
+MILESTONE: Dagu/fixture integration = COMPLETE at fixture level.
+Remaining gates: real KRE, live ReportPortal attachments, second runner
+host, full-stack target-OS install.

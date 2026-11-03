@@ -39,7 +39,8 @@ def test_submit_status_cancel(tmp_path):
     (home / "dags" / "to-contract.yaml").write_text(
         "steps:\n  - name: s\n    command: sleep 30\n")
     (home / "server.yaml").write_text("auth:\n  mode: none\n")
-    env = {**os.environ, "DAGU_HOME": str(home)}
+    env = {**os.environ, "DAGU_HOME": str(home),
+           "DAGU_COORDINATOR_ENABLED": "false"}
     proc = subprocess.Popen(
         [exe, "start-all", "--port", str(PORT),
          "--config", str(home / "server.yaml"),
