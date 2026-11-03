@@ -89,3 +89,24 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# --- bundled-runtime path (no host python required) --------------------
+def bundled_python(payload: Path) -> Path:
+    rt = payload / "3rdparty" / "python-runtime" / "python" / "bin" / "python3"
+    return rt if rt.exists() else None
+
+def create_venv_offline(payload: Path) -> Path:
+    """Create the app venv from the BUNDLED runtime + vendored wheels —
+    no host python/pip and no network required."""
+    import subprocess
+    rt = bundled_python(payload)
+    venv = payload / "venv"
+    if rt is None:
+        raise SystemExit("bundled runtime missing — package incomplete")
+    if not venv.exists():
+        subprocess.check_call([str(rt), "-m", "venv", str(venv)])
+    subprocess.check_call([
+        str(venv / "bin" / "pip"), "install", "--no-index",
+        "--find-links", str(payload / "3rdparty" / "python-wheels"),
+        "-r", str(payload / "requirements.txt")])
+    return venv
