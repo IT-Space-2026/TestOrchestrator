@@ -32,10 +32,15 @@ Var /GLOBAL DATA_DIR
 !insertmacro MUI_LANGUAGE "English"
 
 ; ---- unattended options ---------------------------------------------
-; /S silent · /D=C:\path (install dir) · ORCH_URL/AGENT_TOKEN via
-; ${GetOptions} — documented in docs/windows-worker-installer.md
+; /S silent · /D=C:\path · /ORCH_URL= · /ENROLL_FILE=path
+; SECURITY: a reusable agent token is NEVER taken on the command line
+; (visible in process lists/logs and would end up inside the task
+; definition). Enrollment uses a short-lived, single-use enrollment
+; credential supplied via /ENROLL_FILE=<path> (read once, deleted) or,
+; interactively, via a password-style input page — never echoed.
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
+Var /GLOBAL ENROLL_FILE
 
 Section "Install worker payload" SecMain
     SetOutPath "$INSTDIR"
@@ -48,10 +53,16 @@ Section "Install worker payload" SecMain
     CreateDirectory "$DATA_DIR\work"
 
     ${GetOptions} $CMDLINE "/ORCH_URL=" $ORCH_URL
-    ${GetOptions} $CMDLINE "/AGENT_TOKEN=" $AGENT_TOKEN
+    ${GetOptions} $CMDLINE "/ENROLL_FILE=" $ENROLL_FILE
     ${If} $ORCH_URL == ""
         StrCpy $ORCH_URL "https://localhost"
     ${EndIf}
+
+    ; Enrollment credential is read once by the registration script and
+    ; exchanged for a stored worker credential — the file is deleted by
+    ; register_agent.py after a successful handshake. When absent and
+    ; /S is NOT used, the UI can collect it interactively (password
+    ; field, never echoed, never written to install.log).
 
     ; worker.conf — connectivity config (token NOT persisted here;
     ; registration is exchanged for a stored credential post-install).
@@ -63,11 +74,25 @@ Section "Install worker payload" SecMain
 
     ; Register execution mechanism: scheduled task at boot running the
     ; bundled agent (no third-party service wrapper dependency).
-    nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\register_agent.py" --url "$ORCH_URL"'
+    ; register_agent.py performs the one-time enrollment: reads the
+    ; enrollment credential from /ENROLL_FILE (or secure interactive
+    ; input), exchanges it for a stored worker credential (DPAPI-
+    ; protected file under $DATA_DIR, ACL'd to the task account), and
+    ; deletes the enrollment file. The reusable agent token never
+    ; appears on this command line.
+    ${If} $ENROLL_FILE != ""
+        nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\register_agent.py" --url "$ORCH_URL" --enroll-file "$ENROLL_FILE" --credential-store "$DATA_DIR"'
+    ${Else}
+        nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\register_agent.py" --url "$ORCH_URL" --interactive --credential-store "$DATA_DIR"'
+    ${EndIf}
     Pop $0
     ${If} $0 != "0"
-        MessageBox MB_ICONEXCLAMATION "Agent registration task failed — see $DATA_DIR\logs\install.log"
+        MessageBox MB_ICONEXCLAMATION "Agent enrollment failed — see $DATA_DIR\logs\install.log (worker not registered)"
     ${EndIf}
+    ; Task account: a dedicated least-privilege account is the design
+    ; target (see docs/windows-worker-installer.md) — SYSTEM is used
+    ; only if KRE licensing/execution proves to require it, and that
+    ; requirement must be evidenced, not assumed.
     nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python\python.exe\" \"$INSTDIR\agent_service.py\" --config \"$DATA_DIR\worker.conf\""'
     Pop $0
     ${If} $0 != "0"

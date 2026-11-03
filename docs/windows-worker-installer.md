@@ -27,13 +27,40 @@ validated. Windows 11 acceptance is a separate gate.
 - Data dirs under `%PROGRAMDATA%\TestOrchestrator` — preserved across
   uninstall by default; `/PURGEDATA=1` + explicit confirm to delete.
 
+## Credential & account model (security-reviewed)
+
+- **No reusable token on the command line.** `/AGENT_TOKEN=` is removed:
+  command lines land in process lists, install logs, and (worse) inside
+  the generated Scheduled Task definition. Enrollment instead uses a
+  **short-lived, single-use enrollment credential**:
+  - unattended: `/ENROLL_FILE=<path>` — read once by
+    `register_agent.py`, exchanged for a worker credential, then
+    **deleted**;
+  - interactive: a password-style input page — never echoed, never
+    written to `install.log`.
+- **Stored credential:** the exchanged worker credential lives as a
+  DPAPI-protected file under `%PROGRAMDATA%\TestOrchestrator`, ACL'd to
+  the task account only. Rotation = re-run `register_agent.py --rotate`
+  (invalidates the old credential server-side); rotation is also forced
+  when a new enrollment credential is issued for the worker.
+- **Task account:** SYSTEM is NOT assumed required. Design target is a
+  **dedicated least-privilege account** (e.g. `TO-WORKER` service
+  account with log-on-as-batch). SYSTEM is kept in the script only
+  until KRE licence activation, repository access, and execution are
+  proven under the dedicated account — that evidence is an open gate.
+- **Headless vs interactive desktop:** the worker runs suites headless
+  by design. Any suite requiring an interactive desktop session is
+  explicitly out of the task-account model and must be run under an
+  interactive logon configuration — a documented separate mode, not a
+  silent fallback.
+
 ## Unattended options (documented contract)
 ```
-worker-setup.exe /S /D=C:\TO\worker /ORCH_URL=https://orch.example /AGENT_TOKEN=...
+worker-setup.exe /S /D=C:\TO\worker /ORCH_URL=https://orch.example /ENROLL_FILE=C:\secure\enroll.cred
 uninstall.exe /S [/PURGEDATA=1]
 ```
 `/S` = silent, `/D` = install dir, `/ORCH_URL` = central Orchestrator,
-`/AGENT_TOKEN` = one-time registration token.
+`/ENROLL_FILE` = short-lived enrollment credential (deleted after use).
 
 ## Java on the worker
 A worker does **not** require Java when report generation (Allure)

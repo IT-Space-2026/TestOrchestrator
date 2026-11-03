@@ -230,23 +230,38 @@ def enable_services(args, config: Path) -> bool:
 
 
 def readiness_check(args) -> str:
-    """Post-start probe: units active + app answers on its loopback
-    port. Returns 'ok ...' or an actionable failure string."""
-    import time, urllib.request
+    """Post-start probe, in order: every unit active -> app answers on
+    loopback -> the configured PUBLIC HTTPS endpoint serves through
+    Caddy. A reachable login page alone is NOT readiness — workers,
+    dagu, and the TLS endpoint are each verified."""
+    import time, urllib.request, ssl
     time.sleep(2)
-    for u in UNITS:
-        r = subprocess.run(["systemctl", "is-active", "--quiet", u])
-        if r.returncode != 0:
-            return (f"unit {u} not active — "
-                    f"journalctl -u {u} -n 50 --no-pager")
+    failed = [u for u in UNITS
+              if subprocess.run(["systemctl", "is-active", "--quiet", u]
+                                ).returncode != 0]
+    if failed:
+        return (f"units not active: {', '.join(failed)} — "
+                f"journalctl -u {failed[0]} -n 50 --no-pager")
     try:
         with urllib.request.urlopen(
-                f"http://127.0.0.1:18080/login", timeout=5) as r:
-            if r.status == 200:
-                return "ok — login page served"
+                "http://127.0.0.1:18080/login", timeout=5) as r:
+            if r.status != 200:
+                return f"app returned {r.status} on 18080"
     except Exception as exc:
         return f"app not answering on 18080: {exc}"
-    return "units active"
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE     # readiness only — trust config is separate
+    url = f"https://localhost:{args.https_port}/login" \
+        if args.https_port != 443 else "https://localhost/login"
+    try:
+        with urllib.request.urlopen(url, timeout=5, context=ctx) as r:
+            if r.status != 200:
+                return f"HTTPS endpoint returned {r.status} at {url}"
+    except Exception as exc:
+        return (f"HTTPS endpoint unreachable at {url}: {exc} — check "
+                "caddy unit + cert provisioning")
+    return f"ok — all units active; app + HTTPS endpoint serving ({url})"
 
 
 def copy_payload_tree(src: Path, dst: Path) -> None:
