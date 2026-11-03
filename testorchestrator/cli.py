@@ -30,9 +30,13 @@ def cmd_web(args) -> int:
 
 def cmd_worker(args) -> int:
     # The worker is a registered flask CLI command — invoke it in-process.
+    import traceback
     app = _app()
-    res = app.test_cli_runner().invoke(args=["worker"] + list(args.extra or []))
+    res = app.test_cli_runner().invoke(
+        args=["worker"] + list(args.extra or []))
     sys.stdout.write(res.output)
+    if res.exception:
+        traceback.print_exception(res.exception)
     return res.exit_code or 0
 
 
@@ -85,6 +89,37 @@ def cmd_recover(args) -> int:
     res = recover(Path(args.from_file), Path(args.into))
     print(res)
     return 0
+
+
+def cmd_java_probe(args) -> int:
+    """JSON Java detection/probe — runs under whatever account invoked
+    it (service-account verification = run it AS that account)."""
+    import json
+    app = _app()
+    with app.app_context():
+        from . import allure_runtime
+        cands = [str(c) for c in allure_runtime.detect_java_homes()]
+        home = args.java_home or (cands[0] if cands else "")
+        rec = allure_runtime.select_and_validate(home) if home else             {"ok": False, "error": "no Java runtime candidates found"}
+        print(json.dumps({"candidates": cands,
+                          "selected": home, **rec}))
+    return 0 if rec.get("ok") else 1
+
+
+def _run_toctl(cmd: list, env: dict, timeout: int = 900):
+    """Re-execute this CLI for env-dependent steps — env is resolved
+    at the CHILD's import time (module constants bind at import).
+    Frozen: sys.executable IS toctl. Source: python toctl.py."""
+    import subprocess
+    from pathlib import Path
+    if getattr(sys, "frozen", False):
+        argv = [sys.executable, *cmd]
+    else:
+        argv = [sys.executable,
+                str(Path(__file__).resolve().parent.parent / "toctl.py"),
+                *cmd]
+    return subprocess.run(argv, env=env, capture_output=True,
+                          text=True, timeout=timeout)
 
 
 def cmd_install_info(args) -> int:
@@ -153,40 +188,41 @@ def cmd_install(args) -> int:
         env_file.write_text("\n".join(env_lines) + "\n")
         os.chmod(env_file, 0o640)
 
-    # 3+4) migrations + Java probe — both need an application context
-    #      (settings live in the DB).
+    # 3+4) migrations + Java probe — as CHILD toctl processes so env
+    #      (TO_INSTANCE_DIR) resolves at their import time. In-process
+    #      env-setting is too late: config constants bind at import.
     java_home = args.java_home or ""
     if not args.dry_run:
-        os.environ["TO_INSTANCE_DIR"] = str(data)
-        os.environ["TO_SECRET_KEY"] = env_lines[2].split("=", 1)[1]
-        app = _app()
-        with app.app_context():
-            rc = cmd_db_upgrade(args)
-            if rc != 0:
-                print("[install] migration failed", file=sys.stderr)
-                return 2
+        env = dict(os.environ,
+                   TO_INSTANCE_DIR=str(data),
+                   TO_SECRET_KEY=env_lines[2].split("=", 1)[1])
+        res = _run_toctl(["db-upgrade"], env)
+        if res.returncode != 0:
+            sys.stderr.write(res.stderr[-2000:])
+            print("[install] migration failed", file=sys.stderr)
+            return 2
+        if res.stderr.strip():
+            sys.stderr.write(res.stderr)
 
-            if not args.no_allure and not java_home:
-                from . import allure_runtime
-                cands = allure_runtime.detect_java_homes()
-                if cands:
-                    rec = allure_runtime.select_and_validate(
-                        str(cands[0]))
-                    if rec.get("ok"):
-                        java_home = str(cands[0])
-                        print(f"[install] allure java: {java_home} "
-                              f"({rec.get('java_version', '?')}) — "
-                              "validated by generation probe")
-                    else:
-                        print(f"[install] Java probe failed for "
-                              f"{cands[0]}: {rec.get('error','')} — "
-                              "continuing with Allure disabled (select "
-                              "Java in Admin → Reporting)")
-                else:
-                    print("[install] no Java runtime found — "
-                          "continuing with Allure disabled; "
-                          "install/select Java then recheck in "
-                          "Admin → Reporting")
+        if not args.no_allure:
+            jcmd = ["java-probe"] + (["--java-home", java_home]
+                                     if java_home else [])
+            jr = _run_toctl(jcmd, env, timeout=600)
+            try:
+                jrec = json.loads(jr.stdout.strip().splitlines()[-1])
+            except (json.JSONDecodeError, IndexError):
+                jrec = {"ok": False,
+                        "error": jr.stderr.strip()[:200] or
+                                 "probe produced no output"}
+            if jrec.get("ok"):
+                java_home = jrec.get("selected") or java_home
+                print(f"[install] allure java: {java_home} "
+                      f"({jrec.get('java_version', '?')}) — validated "
+                      "by generation probe")
+            else:
+                print(f"[install] Java probe: {jrec.get('error','')} — "
+                      "continuing with Allure disabled (install/select "
+                      "Java then recheck in Admin → Reporting)")
     if java_home and not args.dry_run:
         with open(env_file, "a") as f:
             f.write(f"TO_ALLURE_JAVA_HOME={java_home}\n")
@@ -270,10 +306,17 @@ def _copy_tree(src, dst) -> None:
 
 
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    extra = []
+    if argv and argv[0] == "worker":
+        # forwarded verbatim to the flask worker command — argparse
+        # must not consume its --flags
+        extra, argv = argv[1:], argv[:1]
     ap = argparse.ArgumentParser(prog="toctl")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("web").add_argument("--listen")
-    p = sub.add_parser("worker"); p.add_argument("extra", nargs="*")
+    sub.add_parser("worker",
+                   help="dispatch/outbox worker (extra args forwarded)")
     sub.add_parser("db-upgrade")
     p = sub.add_parser("readiness"); p.add_argument("--url",
                                                   default="http://127.0.0.1:18080")
@@ -282,6 +325,9 @@ def main(argv=None) -> int:
                                                 required=True)
     p.add_argument("--into", required=True)
     sub.add_parser("install-info")
+    p = sub.add_parser("java-probe",
+                       help="detect + validate Java for Allure (JSON)")
+    p.add_argument("--java-home", default="")
     p = sub.add_parser(
         "install",
         help="install the frozen package — payload, config, "
@@ -299,10 +345,11 @@ def main(argv=None) -> int:
     p.add_argument("--url", default="http://127.0.0.1:18080")
     p.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
+    args.extra = extra if args.cmd == "worker" else []
     fn = {"web": cmd_web, "worker": cmd_worker, "db-upgrade": cmd_db_upgrade,
           "readiness": cmd_readiness, "backup": cmd_backup,
           "recover": cmd_recover, "install-info": cmd_install_info,
-          "install": cmd_install}
+          "install": cmd_install, "java-probe": cmd_java_probe}
     return fn[args.cmd](args)
 
 
