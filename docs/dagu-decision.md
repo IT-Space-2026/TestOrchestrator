@@ -1,30 +1,27 @@
-# Dagu architecture decision — AWAITING OWNER APPROVAL
+# Dagu architecture decision — APPROVED: Option B
 
-Status: **proposal pending**. The portal's durable worker is the active
-orchestrator today; Dagu is an unexercised REST client. Two options are
-presented for explicit owner decision — neither is claimed proven.
+Owner decision (2026-11-03): **Dagu is the mandatory, active orchestration
+backend.** Not an optional seam; the custom worker must not independently
+orchestrate a competing KRE path.
 
-## Option A — permanent custom-worker orchestration (Dagu removed from mandatory scope)
+## Required execution path
+portal -> durable outbox -> Dagu workflow run -> authorized runner ->
+existing KRE -> collect -> local results + ReportPortal -> Git.
 
-- Durable requirements (§7) are already satisfied and tested by the worker:
-  transactional execution+outbox persistence, lease/heartbeat
-  reconciliation, process-tree cancel, ambiguous-state handling.
-- Consequences: no external orchestration dependency; portal permanently
-  owns scheduling/retries/reconciliation correctness; Dagu-specific UI
-  (DAG visualization, upstream scheduling) is never available; the
-  `dagu-dispatch`/`dagu_endpoint` code paths are deleted, not dormant.
+## Implemented wiring (`dispatch.py`)
+- Every execution enqueue is `dagu-dispatch` when the endpoint is set OR
+  `dagu_mandatory` is on (default True — disabling requires an explicit
+  settings change).
+- `_handle_event` submits to Dagu FIRST, persists `executions.dispatch_id`
+  as the workflow-run identity, THEN `run_execution` acts as
+  executor/reconciler under that correlation.
+- Unreachable/unconfigured Dagu while mandatory -> execution FAILED with
+  an actionable error; ambiguous submission is never blindly resubmitted.
 
-## Option B — active Dagu integration
-
-- Dagu submits/schedules runs; the worker becomes the executor tier.
-  Requires, before any activation claim: pinned operator Dagu version,
-  verified API schema (`health()`), and live acceptance evidence.
-- Consequences: extra service to install/monitor/secure; two sources of
-  scheduling truth to reconcile; KRE subprocess control on runners stays
-  portal/agent-owned regardless.
-
-## Explicitly NOT claimed
-
-- Future scheduling compatibility is unproven — `dagu-dispatch` events
-  and `dispatch_id` fields exist in the schema but have never been
-  exercised end-to-end; adopting Option B may still require design work.
+## Still required before live acceptance
+- Verify dagu v2.25.2 API/workflow schema (bundled binary pinned;
+  `3rdparty/dagu/README_SCHEMA.md`) — client calls unverified.
+- Status-sync, logs, cancellation, restart-reconciliation calls exist as
+  adapter methods but have no live evidence.
+- Installer: Dagu service auth/connectivity/state/startup/health/
+  backup — not yet wired.

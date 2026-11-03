@@ -43,6 +43,13 @@ def seed_users(app, setup_complete=True):
 @pytest.fixture()
 def app(tmp_path):
     application = make_app(tmp_path)
+    with application.app_context():
+        _db.create_all()
+        # Test mode: Dagu mandatory-orchestration off (no live backend in
+        # CI) — the durable dispatch path is exercised directly instead.
+        from testorchestrator import settings as _s
+        _s.set("dagu_mandatory", False)
+        _db.session.commit()
     seed_users(application)
     yield application
 

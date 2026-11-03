@@ -80,7 +80,8 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
 
     # Dispatch route: Dagu when configured, else the local runner outbox.
     # Persisted in the same transaction as the execution (§7).
-    kind = "dagu-dispatch" if _dagu_configured() else "local-dispatch"
+    kind = "dagu-dispatch" if (_dagu_configured() or _dagu_mandatory()) \
+        else "local-dispatch"
     db.session.add(OutboxEvent(
         kind=kind, payload_json=json.dumps({"execution_id": execution.id})))
     db.session.commit()
@@ -89,6 +90,12 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
 
 def _dagu_configured() -> bool:
     return bool(settings_mod.get("dagu_endpoint"))
+
+
+def _dagu_mandatory() -> bool:
+    """Owner decision (Option B): Dagu is the required orchestrator.
+    Deployments may disable only via an explicit setting — not silently."""
+    return bool(settings_mod.get("dagu_mandatory", True))
 
 
 def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
@@ -459,15 +466,26 @@ def _handle_event(event: OutboxEvent) -> None:
     payload = event.payload()
     if event.kind in ("local-dispatch", "dagu-dispatch"):
         if event.kind == "dagu-dispatch":
+            # Owner-approved Option B: Dagu is the MANDATORY orchestrator.
+            # Submission creates the workflow-run identity FIRST; the
+            # worker then executes under that correlation. A missing or
+            # unreachable Dagu fails the dispatch honestly — no silent
+            # self-orchestration, no blind resubmission on ambiguity.
+            ex = db.session.get(Execution, payload["execution_id"])
             try:
                 dispatch_id = DaguAdapter.from_settings().submit(payload)
-                ex = db.session.get(Execution, payload["execution_id"])
                 if ex:
                     ex.dispatch_id = dispatch_id
                     db.session.commit()
-            except DaguNotConfigured:
-                # Endpoint removed after creation — fall back to local run.
-                pass
+            except Exception as exc:
+                if _dagu_mandatory():
+                    if ex:
+                        _fail(ex, "infrastructure",
+                              f"Dagu orchestrator unreachable/not "
+                              f"configured — reconcile before retry: "
+                              f"{str(exc)[:300]}")
+                    return
+                # Non-mandatory dev/test mode: fall back to local path.
         run_execution(payload["execution_id"])
     elif event.kind == "git-sync":
         from . import gitsync

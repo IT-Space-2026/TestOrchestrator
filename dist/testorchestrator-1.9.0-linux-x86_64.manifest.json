@@ -15,13 +15,14 @@
     "README.md",
     "CHANGELOG.md",
     "assets",
-    "tests"
+    "tests",
+    "dagu-2.25.2"
   ],
   "exclusions": {
     "embedded-python": "host python3.12 required (gap)",
     "git-binary": "host git required by GitPython (gap)",
     "reportportal-stack": "container backend + images not bundled (gap)",
-    "dagu": "excluded pending owner decision (Option A/B)",
+    "dagu": "bundled (Option B approved); unpacks at install",
     "kre": "external by requirement \u2014 operator installed"
   }
 }

@@ -21,12 +21,12 @@ suite run -> create_execution (immutable snapshot + outbox row, same txn)
      its own machine, heartbeats, uploads results+evidence
 ```
 
-**Dagu does NOT orchestrate jobs today.** A REST client exists
-(`adapters/dagu.py`) but no dispatch path calls it when the endpoint is
-unconfigured, and even configured it has never been exercised live — the
-Python worker is the orchestrator of record right now. Dagu is an
-integration seam, not the active dispatcher. That is recorded below as
-missing live integration, not as done.
+Dagu is the OWNER-APPROVED mandatory orchestrator (Option B, 2026-11-03):
+the outbox submits to Dagu first and persists the workflow-run id before
+the worker executes under that correlation; with Dagu unreachable and
+mandatory mode on, dispatch fails honestly — no self-orchestration, no
+blind resubmission. The Dagu client is still unverified against the
+pinned v2.25.2 API — marked so, not claimed integrated.
 
 ## Status table
 
@@ -37,7 +37,7 @@ missing live integration, not as done.
 | Execution pipeline: snapshot, outbox, state machine, local runner, cancel, reconcile | complete | test_pipeline.py (6 tests incl. cancel-tree kill, lease→UNKNOWN) | none — local only | none |
 | Remote runner transport | complete | test_agent.py (5 tests: auth, tasks, heartbeat, artifact, cancel, reconcile) | unverified vs. a real remote host | none |
 | KRE adapter | complete for invocation mechanics | test_pipeline.py via fixture executable | **unverified vs. real KRE** | operator KRE binary + licence |
-| Dagu adapter | client only | none | **missing live orchestration** | live Dagu instance + version pin |
+| Dagu orchestrator (OWNER-APPROVED Option B, mandatory) | dispatch submits to Dagu first, dispatch_id persisted, fail-closed when unreachable; worker is executor/reconciler only | executor path tested; Dagu calls stubbed only | **unverified vs. live Dagu 2.25.2** (binary pinned in 3rdparty/dagu/) | live Dagu instance to verify API schema |
 | ReportPortal adapter | client + resume-safe ID persistence | unit shape only | **unverified vs. real RP** | live RP instance |
 | Git persistence | export + push + conflict + restore | test_infra.py (local repos); push/conflict code paths | unverified vs. remote remote | real remote repo + credentials |
 | Credential store | complete | test_infra.py (4 tests) | n/a | none |

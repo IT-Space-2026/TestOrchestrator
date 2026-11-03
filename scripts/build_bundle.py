@@ -36,10 +36,13 @@ def main():
             "embedded-python": "host python3.12 required (gap)",
             "git-binary": "host git required by GitPython (gap)",
             "reportportal-stack": "container backend + images not bundled (gap)",
-            "dagu": "excluded pending owner decision (Option A/B)",
+            "embedded-python": "bundled linux x86_64 only",
             "kre": "external by requirement — operator installed",
         }}, indent=2))
     print(bundle)
 
 if __name__ == "__main__":
     main()
+
+# Dagu is shipped as its release tarball under 3rdparty/dagu/ — extract
+# during bundle assembly/install, not committed uncompressed (>100MB).
