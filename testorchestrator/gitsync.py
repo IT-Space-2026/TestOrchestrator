@@ -65,10 +65,16 @@ def sync_binding(binding_id: str) -> dict:
     worktree = binding_worktree(binding_id)
     try:
         if worktree.exists() and (worktree / ".git").exists():
-            repo = git.Repo(worktree)
-            repo.remotes.origin.fetch(binding.ref)
-            repo.git.checkout(f"origin/{binding.ref}" if binding.ref
-                              else "HEAD")
+            if _backend() == "dulwich":
+                from . import git_backend
+                git_backend.run("update", worktree,
+                                binding.ref or "")
+                repo = git.Repo(worktree)
+            else:
+                repo = git.Repo(worktree)
+                repo.remotes.origin.fetch(binding.ref)
+                repo.git.checkout(f"origin/{binding.ref}" if binding.ref
+                                  else "HEAD")
         else:
             worktree.parent.mkdir(parents=True, exist_ok=True)
             if _backend() == "dulwich":
@@ -269,13 +275,17 @@ def push_export() -> str:
     try:
         branch = repo.active_branch.name
         remote_ref = f"origin/{branch}"
-        repo.remotes.origin.fetch()
+        from . import git_backend
+        git_backend.run("fetch", Path(repo.working_dir))
         if remote_ref in {str(r) for r in repo.remotes.origin.refs}:
             # Fast-forward/merge only — conflicts surface, never force-push.
             repo.git.merge(remote_ref, no_edit=True)
-            repo.remotes.origin.push()
+            git_backend.run("push", Path(repo.working_dir),
+                            f"HEAD:refs/heads/{branch}")
         else:
             # First push: establish the upstream branch.
+            git_backend.run("push", Path(repo.working_dir),
+                            f"HEAD:refs/heads/{branch}")
             repo.git.push("--set-upstream", "origin", branch)
         return "pushed"
     except git.GitCommandError as exc:

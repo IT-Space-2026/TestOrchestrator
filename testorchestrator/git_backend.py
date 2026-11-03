@@ -122,6 +122,38 @@ def dulwich_resolve(repo: Path, ref: str = "HEAD") -> str:
         raise GitBackendError(f"dulwich resolve {ref}: {exc}")
 
 
+def dulwich_update(repo: Path, ref: str = "") -> None:
+    """Fetch + hard-reset the worktree to origin/<ref> — the binding
+    worktree stays a real repository for the next update (unlike
+    tree-export checkouts which have no .git)."""
+    from dulwich import porcelain
+    try:
+        porcelain.fetch(str(repo), "origin")
+        target = (f"origin/{ref}" if ref else "HEAD")
+        porcelain.reset(str(repo), mode="hard", treeish=target)
+    except Exception as exc:
+        raise GitBackendError(f"dulwich update failed: {exc}")
+
+
+def dulwich_push(repo: Path, refspec: str = "HEAD:refs/heads/master")         -> None:
+    """Push local commits to origin — used by the git-export workflow.
+    Never force-pushes; a rejected push surfaces as GitBackendError."""
+    from dulwich import porcelain
+    try:
+        porcelain.push(str(repo), "origin", refspec)
+    except Exception as exc:
+        raise GitBackendError(f"dulwich push failed: {exc}")
+
+
+def cli_update(repo: Path, ref: str = "") -> None:
+    _cli(["fetch", "--", "origin"], cwd=repo)
+    _cli(["checkout", f"origin/{ref}" if ref else "HEAD"], cwd=repo)
+
+
+def cli_push(repo: Path, refspec: str = "HEAD:refs/heads/master") -> None:
+    _cli(["push", "origin", refspec], cwd=repo)
+
+
 # ---------- facade ----------------------------------------------------
 
 OPS = {
@@ -129,6 +161,8 @@ OPS = {
     "fetch": {"cli": cli_fetch, "dulwich": dulwich_fetch},
     "checkout": {"cli": cli_checkout, "dulwich": dulwich_checkout},
     "resolve": {"cli": cli_resolve, "dulwich": dulwich_resolve},
+    "update": {"cli": cli_update, "dulwich": dulwich_update},
+    "push": {"cli": cli_push, "dulwich": dulwich_push},
 }
 
 _BACKENDS = ("cli", "dulwich")
