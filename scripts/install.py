@@ -217,38 +217,43 @@ def _probe_python(payload: Path) -> str:
     return sys.executable
 
 
-def _run_as(user: str, cmd: list) -> subprocess.CompletedProcess:
+def _run_as(user: str, cmd: list) -> tuple[subprocess.CompletedProcess, str]:
     """Run cmd as the service account when we can (root + runuser);
-    otherwise run it directly. The probe must prove the SERVICE account
-    can execute Java — running it as root alone is not evidence."""
+    otherwise run it directly. Returns (result, account actually used)
+    — the account is recorded so the probe evidence is honest: a check
+    run as the installing user is not proof for the service account."""
     import pwd
     if os.geteuid() == 0:
         try:
             pwd.getpwnam(user)
-            return subprocess.run(["runuser", "-u", user, "--"] + cmd,
-                                  capture_output=True, text=True)
+            return (subprocess.run(["runuser", "-u", user, "--"] + cmd,
+                                   capture_output=True, text=True), user)
         except KeyError:
             pass
-    return subprocess.run(cmd, capture_output=True, text=True)
+    return (subprocess.run(cmd, capture_output=True, text=True),
+            pwd.getpwuid(os.geteuid()).pw_name)
 
 
 def probe_java(payload: Path, java_home: str, user: str) -> dict:
     """Actual-generation probe via the standalone launcher — validates
     that THIS Java produces a report with the pinned bundled Allure,
-    executed as the application service account."""
+    executed as the application service account whenever possible."""
     cmd = [_probe_python(payload),
            str(payload / "scripts" / "java_probe.py"),
            "--runtime", str(payload / "testorchestrator" /
                             "allure_runtime.py")]
     if java_home:
         cmd += ["--java-home", java_home]
-    res = _run_as(user, cmd)
+    res, ran_as = _run_as(user, cmd)
     try:
         record = json.loads(res.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError, json.JSONDecodeError):
         record = {"ok": False,
                   "error": (res.stderr or res.stdout or
                             "probe failed to run")[-300:]}
+    record["probed_as"] = ran_as
+    if ran_as != user:
+        record["service_account_unverified"] = True
     return record
 
 
@@ -312,10 +317,13 @@ def configure_java(args, payload: Path, data: Path, config: Path) -> None:
         attempted.append((cand, record.get("ok"), record.get("error", "")))
         if record.get("ok"):
             persist_java(config, record["java_home"], record, payload)
+            svc_note = "" if record.get("probed_as") == args.service_user \
+                else f" — WARNING: probed as {record.get('probed_as')}, " \
+                     f"NOT the service account {args.service_user}"
             print(f"[install] allure java: {record['java_home']} "
                   f"(Java {record.get('java_version', '?')}) — validated "
-                  "by report-generation probe as "
-                  f"{args.service_user}")
+                  f"by report-generation probe as "
+                  f"{record.get('probed_as')}{svc_note}")
             return
     # Nothing validated: interactive recheck, or continue disabled.
     for cand, ok, err in attempted:
