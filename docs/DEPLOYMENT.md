@@ -64,6 +64,11 @@ Admin -> System -> Network & certificates supports:
   deployed under `/var/lib/testorchestrator/certs`) with 0700/0600
   permissions, outside the repo, images, and Git exports; preserved through
   backup/restore/rotation. Operator keys are never baked into installers.
+Update backups: `backup_state` writes `backup-*.tar.gz` atomically
+(.part then rename), excludes the backups dir itself, and retains the
+newest 10 archives (`BACKUP_RETENTION`) — older pattern-matched
+archives are pruned, stale `.part` files cleared; `recover()` rejects
+truncated/corrupt archives before extracting.
 - **Config apply** — changes render a Caddyfile via
   `testorchestrator/caddyconf.py` (`tls <fullchain> <key>` for managed
   modes, `tls internal` fallback), validate with the bundled `caddy

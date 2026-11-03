@@ -59,6 +59,12 @@ def main() -> None:
                              "reporting disabled when no compatible "
                              "Java runtime is found")
     parser.add_argument("--service-user", default=SERVICE_USER)
+    parser.add_argument("--no-service-start", action="store_true",
+                        help="provision files/units but do not enable "
+                             "or start systemd services")
+    parser.add_argument("--yes", action="store_true",
+                        help="noninteractive — never prompt; fail "
+                             "instead of asking")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -90,12 +96,9 @@ def main() -> None:
         for item in steps[0][2]:
             src, dst = REPO / item, payload / item
             if src.is_dir():
-                # symlinks=True: vendored runtimes contain links
-                # (relative + a documented external cacerts target) that
-                # must be preserved verbatim, never dereferenced.
-                shutil.copytree(src, dst, dirs_exist_ok=True,
-                                symlinks=True)
+                copy_payload_tree(src, dst)
             elif src.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
         os.chmod(data / "certs", 0o700)
 
@@ -154,13 +157,30 @@ def main() -> None:
             f"[Install]\nWantedBy=multi-user.target\n")
         shutil.copy2(REPO / "deploy" / "Caddyfile", config / "Caddyfile")
 
+        # Enable + start when authorized; --no-service-start or non-root
+        # leaves units staged under config for manual activation.
+        services_ok = enable_services(args, config)
+
     print(f"[install] local URL: https://localhost"
           f"{'' if args.https_port == 443 else f':{args.https_port}'}/")
-    print("[install] next: copy units from "
-          f"{config} to /etc/systemd/system, systemctl enable --now "
-          "testorchestrator-web testorchestrator-worker "
-          "testorchestrator-dagu testorchestrator-caddy; bootstrap Admin "
-          "via local browser or `flask set-admin-password` (headless).")
+    print(f"[install] logs: journalctl -u testorchestrator-web "
+          "-u testorchestrator-worker -u testorchestrator-dagu "
+          "-u testorchestrator-caddy")
+    if args.dry_run or not args.no_service_start and os.geteuid() == 0:
+        ready = readiness_check(args)
+        print(f"[install] readiness: {ready}")
+        if not ready.startswith("ok"):
+            print("[install] ACTION: service(s) not ready — inspect "
+                  "logs above, then re-run install.sh (safe to repeat)",
+                  file=sys.stderr)
+            sys.exit(3)
+    else:
+        print("[install] next: copy units from "
+              f"{config} to /etc/systemd/system, systemctl enable --now "
+              "testorchestrator-web testorchestrator-worker "
+              "testorchestrator-dagu testorchestrator-caddy; bootstrap "
+              "Admin via local browser or `flask set-admin-password` "
+              "(headless).")
 
 
 def bundled_python(payload: Path) -> Path:
@@ -182,6 +202,73 @@ def create_venv_offline(payload: Path) -> Path:
         "--find-links", str(payload / "3rdparty" / "python-wheels"),
         "-r", str(payload / "requirements.txt")])
     return venv
+
+
+# --- services + readiness ------------------------------------------------
+
+UNITS = ("testorchestrator-web", "testorchestrator-worker",
+         "testorchestrator-dagu", "testorchestrator-caddy")
+
+
+def enable_services(args, config: Path) -> bool:
+    """Install units and enable/start them — only when authorized
+    (root + systemd present) and not --no-service-start."""
+    if args.no_service_start or args.dry_run:
+        return False
+    if os.geteuid() != 0 or not shutil.which("systemctl"):
+        print("[install] units staged only — enable manually when "
+              "root/systemd is available")
+        return False
+    for u in UNITS:
+        src = config / "dagu" / f"{u}.service" if "dagu" in u             else config / f"{u}.service"
+        if src.exists():
+            shutil.copy2(src, f"/etc/systemd/system/{u}.service")
+    subprocess.check_call(["systemctl", "daemon-reload"])
+    subprocess.check_call(["systemctl", "enable", "--now", *UNITS])
+    print(f"[install] services enabled+started: {', '.join(UNITS)}")
+    return True
+
+
+def readiness_check(args) -> str:
+    """Post-start probe: units active + app answers on its loopback
+    port. Returns 'ok ...' or an actionable failure string."""
+    import time, urllib.request
+    time.sleep(2)
+    for u in UNITS:
+        r = subprocess.run(["systemctl", "is-active", "--quiet", u])
+        if r.returncode != 0:
+            return (f"unit {u} not active — "
+                    f"journalctl -u {u} -n 50 --no-pager")
+    try:
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:18080/login", timeout=5) as r:
+            if r.status == 200:
+                return "ok — login page served"
+    except Exception as exc:
+        return f"app not answering on 18080: {exc}"
+    return "units active"
+
+
+def copy_payload_tree(src: Path, dst: Path) -> None:
+    """Idempotent payload copy: rerun-safe — existing files are
+    overwritten, existing symlinks replaced (copytree chokes on them),
+    symlinks preserved verbatim, never dereferenced."""
+    dst.mkdir(parents=True, exist_ok=True)
+    for member in src.rglob("*"):
+        rel = member.relative_to(src)
+        target = dst / rel
+        if member.is_symlink():
+            if target.exists() or target.is_symlink():
+                target.unlink()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.symlink_to(member.readlink())
+        elif member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif member.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.is_symlink():
+                target.unlink()
+            shutil.copy2(member, target)
 
 
 # --- Java prerequisite for Allure (external runtime, scoped) ----------
@@ -263,7 +350,7 @@ def detect_java(payload: Path, user: str) -> list:
            "--runtime", str(payload / "testorchestrator" /
                             "allure_runtime.py"),
            "--detect"]
-    res = _run_as(user, cmd)
+    res, _ran_as = _run_as(user, cmd)
     try:
         return json.loads(res.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError, json.JSONDecodeError):
@@ -299,6 +386,16 @@ def persist_java(config: Path, java_home: str, record: dict,
             pass
 
 
+def under_user_home(path: str) -> bool:
+    try:
+        p = Path(path).resolve()
+    except OSError:
+        return False
+    parts = p.parts
+    return len(parts) > 2 and parts[1] == "home" or \
+        str(p).startswith("/root/") or str(p).startswith("/users/")
+
+
 def _allure_version(payload: Path) -> str:
     dirs = sorted((payload / "3rdparty" / "allure").glob("allure-*"))
     return dirs[-1].name.split("-", 1)[1] if dirs else ""
@@ -313,9 +410,19 @@ def configure_java(args, payload: Path, data: Path, config: Path) -> None:
                   else detect_java(payload, args.service_user))
     record = {"ok": False, "error": "no Java runtime candidates found"}
     for cand in candidates:
+        home_note = ""
+        if under_user_home(cand):
+            home_note = (" — under a user home directory; a system "
+                         "service account may not reach it")
         record = probe_java(payload, cand, args.service_user)
-        attempted.append((cand, record.get("ok"), record.get("error", "")))
+        attempted.append((cand, record.get("ok"), record.get("error", "")
+                          + home_note))
         if record.get("ok"):
+            if under_user_home(record["java_home"]):
+                print(f"[install] WARNING: selected Java is under a "
+                      f"user's home ({record['java_home']}); verified "
+                      f"as {record.get('probed_as')} — prefer a "
+                      "system-wide location like /usr/lib/jvm")
             persist_java(config, record["java_home"], record, payload)
             svc_note = "" if record.get("probed_as") == args.service_user \
                 else f" — WARNING: probed as {record.get('probed_as')}, " \
@@ -328,7 +435,7 @@ def configure_java(args, payload: Path, data: Path, config: Path) -> None:
     # Nothing validated: interactive recheck, or continue disabled.
     for cand, ok, err in attempted:
         print(f"[install] java probe FAILED at {cand}: {err}")
-    if not args.no_allure and sys.stdin.isatty():
+    if not args.no_allure and sys.stdin.isatty() and not args.yes:
         while True:
             ans = input("[install] No compatible Java found for Allure. "
                         "Enter a JAVA_HOME path, 'r' to re-scan, or 'c' "
