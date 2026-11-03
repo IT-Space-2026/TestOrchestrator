@@ -36,11 +36,21 @@ def cmd_worker(args) -> int:
     return res.exit_code or 0
 
 
+def _migrations_dir() -> str:
+    """Alembic scripts path — inside _MEIPASS when frozen, repo root
+    otherwise."""
+    import sys
+    from pathlib import Path
+    base = Path(getattr(sys, "_MEIPASS",
+                        Path(__file__).resolve().parent.parent))
+    return str(base / "migrations")
+
+
 def cmd_db_upgrade(args) -> int:
     app = _app()
     with app.app_context():
         from flask_migrate import upgrade
-        upgrade()
+        upgrade(directory=_migrations_dir())
     return 0
 
 
