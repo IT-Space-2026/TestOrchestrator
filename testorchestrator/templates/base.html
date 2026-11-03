@@ -5,12 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}TestOrchestrator{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <link rel="icon" type="image/png"
+        href="{{ url_for('static', filename='branding/iT-space-logo.png') }}">
 </head>
 <body>
 <div class="layout">
   {% if current_user.is_authenticated %}
   <aside class="sidebar">
-    <a class="sidebar-brand" href="{{ url_for('main.dashboard') }}">TestOrchestrator</a>
+    <a class="sidebar-brand" href="{{ url_for('main.dashboard') }}">
+      <img src="{{ url_for('static', filename='branding/iT-space-logo.png') }}"
+           alt="IT-Space Kft. logo" class="brand-logo">
+      <span>TestOrchestrator</span></a>
     <nav aria-label="Main navigation">
       <ul class="nav-list">
         <li><a href="{{ url_for('main.dashboard') }}">Dashboard</a></li>

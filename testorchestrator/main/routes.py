@@ -18,11 +18,11 @@ COMPANY_NAME = "IT-Space Kft."
 COMPANY_HOMEPAGE = "https://it-space.info"
 APP_NAME = "TestOrchestrator"
 
-# assets/branding/README.md tracks approval status. The shipped asset is a
-# clearly labelled development placeholder (AB07: production branding stays
-# blocked until the owner-approved logo replaces it).
-LOGO_APPROVED = False
-LOGO_STATIC_PATH = "branding/it-space-logo.placeholder.svg"
+# assets/branding/README.md tracks approval status. The official
+# owner-supplied logo (iT-space-logo-400x400.png, RGBA, transparency
+# preserved) replaces the development placeholder (AB07 resolved).
+LOGO_APPROVED = True
+LOGO_STATIC_PATH = "branding/iT-space-logo.png"
 
 
 @main_bp.app_context_processor

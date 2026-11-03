@@ -8,6 +8,8 @@
 </head>
 <body class="login-page">
 <main class="login-card">
+  <img src="{{ url_for('static', filename='branding/iT-space-logo.png') }}"
+       alt="IT-Space Kft. logo" class="login-logo">
   <h1>TestOrchestrator</h1>
   <form method="post" novalidate>
     {{ form.csrf_token }}

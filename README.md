@@ -1,5 +1,7 @@
 # TestOrchestrator
 
+<p align="center"><img src="assets/branding/iT-space-logo-400x400.png" alt="IT-Space Kft. logo" width="120"></p>
+
 Test orchestration web application for **IT-Space Kft.** — Flask + Jinja2
 server-rendered UI, locally bundled CSS, minimal vanilla JavaScript. No
 Node.js, npm, frontend build server, or SPA.
@@ -42,8 +44,8 @@ Flask / TestOrchestrator (testorchestrator/)
     integrations inside Flask views.
   - `models.py` — `User` (roles: Admin, Test Manager, Tester, PO),
     `AuditEvent`, `Setting`
-- `assets/branding/` — owner-approved branding assets (approval tracked in
-  its README; the official logo is **not yet supplied**, see AB07)
+- `assets/branding/` — owner-supplied branding assets (official logo
+  `iT-space-logo-400x400.png`, approved; tracked in its README)
 - `3rdparty/` — bundled third-party notices/licences and the pinned Caddy
   binary (`3rdparty/caddy/`)
 - `release/release.json` — bundled version/build metadata shown in About
@@ -80,10 +82,10 @@ trusted only from the loopback proxy, and persistent config/data lives in
 `/etc/testorchestrator` + `/var/lib/testorchestrator`, separate from the
 replaceable payload in `/opt/testorchestrator`.
 
-## Known incomplete requirement (AB07)
+## Branding (AB07 — resolved)
 
-The official IT-Space Kft. logo has not been supplied/approved. A clearly
-labelled temporary placeholder ships in its place; production branding
-acceptance is blocked until the approved asset lands in `assets/branding/`
-and replaces `LOGO_APPROVED = False` in
-`testorchestrator/main/routes.py`. Do not invent, redraw, or download a logo.
+The official owner-supplied IT-Space Kft. logo ships at
+`assets/branding/iT-space-logo-400x400.png` and is served from
+`testorchestrator/static/branding/iT-space-logo.png` on the login page,
+application header/sidebar, About dialog, and as the favicon
+(`LOGO_APPROVED = True` in `testorchestrator/main/routes.py`).

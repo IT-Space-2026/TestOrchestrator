@@ -8,12 +8,13 @@ branding).
 
 | Asset | Status |
 |---|---|
-| Official IT-Space Kft. logo | **MISSING — awaiting owner-supplied/approved asset** |
+| Official IT-Space Kft. logo | **SUPPLIED** — `iT-space-logo-400x400.png` (1667x1667 RGBA PNG, transparency); served from `testorchestrator/static/branding/iT-space-logo.png` |
 
 ## Placeholder
 
-`testorchestrator/static/branding/it-space-logo.placeholder.svg` is a clearly
-labelled temporary placeholder for development only. It is **not** the
+`testorchestrator/static/branding/it-space-logo.placeholder.svg` was the
+development-only placeholder; the official asset now ships alongside it
+and is the active logo. It is **not** the
 official IT-Space Kft. logo and makes no claim to be.
 
 Per specification v1.7 (AB07): production branding acceptance is **blocked**
