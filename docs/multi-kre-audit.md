@@ -34,16 +34,37 @@ probe is never labelled a licensed execution.
 An Orchestrator Plan = ordered set of suite entries with dispatch
 policy: sequential or bounded-parallel across workers, per-entry
 failure policy (stop-plan vs continue), single cancel scope, no
-automatic retry (retries live in KRE config only — never multiplied),
-aggregate outcome = worst of entries (failed > broken > passed;
-any-failed ⇒ plan failed). Worker selection = project scope +
-capacity + non-draining. A plan is NOT assumed equivalent to a Katalon
-suite collection or TestOps object.
+automatic retry (retries live in KRE config only — never multiplied).
+Worker selection = project scope + capacity + non-draining. A plan is
+NOT assumed equivalent to a Katalon suite collection or TestOps object.
+
+**Aggregate outcome ("worst entry") — precedence, highest wins:**
+```
+failed      — any entry execution FAILED
+error/broken — entry could not be assessed (infrastructure error)
+cancelled   — any entry cancelled (even partially)
+unknown     — entry outcome indeterminate (lost/reconcile)
+skipped     — entry never dispatched due to earlier failure policy
+passed      — every entry passed AND none of the above
+not-started — plan still running / pending (never a result)
+```
+An uncertain or partially cancelled plan is therefore NEVER
+"successful": cancelled/unknown/broken all outrank passed.
 
 ## Licence/concurrency rules implemented
 
 - `capacity_limit` = min(max_slots, license_slots); licence seats are
   operator-declared, never probed/invented.
+- **Capacity scope:** `license_slots` is a **per-worker configured
+  allowance**, not an organizational pool and not discovered seats.
+  If licences are shared across workers, per-worker independent
+  allowances can over-allocate the pool — the Orchestrator does NOT
+  see sessions started outside it, so the correct operator posture is
+  to budget each worker's `license_slots` conservatively so the sum
+  never exceeds purchased seats. A shared central semaphore is
+  backlog, not implemented.
+- Reported as "configured licence allowance" in UI/notes — never as
+  "available seats discovered".
 - Nested concurrency: Orchestrator limits concurrent KRE processes;
   `-testSuiteCollectionPath` parallel mode inside KRE is out of our
   dispatch control — flagged for version-gated validation.
