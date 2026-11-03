@@ -119,3 +119,41 @@ def test_drain_and_health(app, monkeypatch):
     with app.app_context():
         assert updater.drain(2) is True  # no active executions
         assert updater.health_check(app) in (True, False)
+
+
+def test_interrupted_update_recovery_decision(app, tmp_path, keypair):
+    """Crash-after-stage scenario: checkpoint says 'staged' and recovery
+    restores the backed-up STATE (DB + instance + certs) — payload
+    rollback is activate()'s retired-copy path, a separate function."""
+    key, pub = keypair
+    b = _bundle(tmp_path, key, {"payload/app.py": b"v2"},
+                manifest={"version": "2.0"})
+    with tarfile.open(b / "update.tar.gz", "w:gz") as t:
+        import io
+        c = b"v2"; ti = tarfile.TarInfo("payload/app.py")
+        ti.size = len(c); t.addfile(ti, io.BytesIO(c))
+    (tmp_path / "staged").mkdir()
+    with app.app_context():
+        db_file = Path(app.config["SQLALCHEMY_DATABASE_URI"]
+                       .replace("sqlite:///", ""))
+        res = updater.apply_update(app, b, tmp_path / "live", pub,
+                                   tmp_path / "staged")
+        backup = Path(res["backup"])
+        resumed = updater.resume_from_checkpoint(app)
+        assert resumed["checkpoint"]["status"] == "staged"
+        assert "activate or recover" in resumed["action"]
+        # Interruption damage: DB file corrupted mid-update.
+        db_file.write_bytes(b"CORRUPT")
+        updater.recover(backup, tmp_path / "restore")
+        restored = tmp_path / "restore" / db_file.name
+        assert restored.exists()
+        body = restored.read_bytes()
+        assert body != b"CORRUPT"
+        assert body.startswith(b"SQLite format 3")  # real DB image
+        # Payload rollback is activate()'s retired copy — verify it too:
+        stage = tmp_path / "staged"
+        live = tmp_path / "live2"
+        (live / "app").mkdir(parents=True)
+        (live / "app" / "x").write_text("old")
+        res2 = updater.activate(stage, live, tmp_path / "bk")
+        assert Path(res2["retired"]).exists()  # rollback point kept
