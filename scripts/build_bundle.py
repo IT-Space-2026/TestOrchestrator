@@ -29,8 +29,17 @@ def main():
             if p.exists():
                 tar.add(p, arcname=f"{name}/{item}",
                         filter=lambda i: None if "__pycache__" in i.name else i)
+    import hashlib
+    sha = hashlib.sha256(bundle.read_bytes()).hexdigest()
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=REPO,
+        capture_output=True, text=True).stdout.strip()
     (OUT / f"{name}.manifest.json").write_text(json.dumps({
         "name": name, "version": meta["version"], "platform": plat,
+        "file": bundle.name,
+        "size_bytes": bundle.stat().st_size,
+        "sha256": sha,
+        "source_commit": commit,
         "includes": INCLUDE,
         "exclusions": {
             "embedded-python": "host python3.12 required (gap)",

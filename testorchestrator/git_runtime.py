@@ -18,14 +18,18 @@ BUNDLE_ROOT = Path(__file__).resolve().parent.parent / "3rdparty" / "git"
 
 
 def _rootfs() -> Path | None:
-    """Bundled runtime for this platform, if shipped."""
+    """Bundled runtime for this platform, if shipped. Bundle dirs are
+    named ubuntu-<suite>-<deb-arch>; map the kernel machine name to the
+    deb architecture (x86_64 -> amd64) — a silent miss must never fall
+    back to host git unnoticed."""
     if not BUNDLE_ROOT.is_dir():
         return None
-    plat = f"{sys.platform}-{os.uname().machine}" if os.name == "posix" \
-        else sys.platform
+    arch = {"x86_64": "amd64", "aarch64": "arm64",
+            "armv7l": "armhf"}.get(
+        os.uname().machine if os.name == "posix" else "",
+        os.uname().machine if os.name == "posix" else "")
     matches = [d for d in BUNDLE_ROOT.iterdir()
-               if (d / "rootfs").is_dir() and
-               (plat in d.name or os.uname().machine in d.name)]
+               if (d / "rootfs").is_dir() and d.name.endswith(arch)]
     if not matches:
         return None
     return sorted(matches)[-1] / "rootfs"
