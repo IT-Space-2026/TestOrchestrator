@@ -42,6 +42,11 @@ class SyncError(RuntimeError):
     pass
 
 
+def _backend() -> str:
+    from . import git_backend
+    return git_backend.backend()
+
+
 # ---------- source binding indexing ----------
 
 def binding_worktree(binding_id: str) -> Path:
@@ -66,10 +71,17 @@ def sync_binding(binding_id: str) -> dict:
                               else "HEAD")
         else:
             worktree.parent.mkdir(parents=True, exist_ok=True)
-            repo = git.Repo.clone_from(
-                binding.url, worktree, branch=binding.ref or None,
-                depth=1,  # shallow index; full history not required
-            )
+            if _backend() == "dulwich":
+                # Selected backend clone — failure surfaces honestly,
+                # never a silent fallback to the CLI path (§8).
+                from . import git_backend
+                git_backend.run("clone", binding.url, worktree)
+                repo = git.Repo(worktree)
+            else:
+                repo = git.Repo.clone_from(
+                    binding.url, worktree, branch=binding.ref or None,
+                    depth=1,  # shallow index; full history not required
+                )
         sha = repo.head.commit.hexsha
         binding.worktree_path = str(worktree)
         binding.last_synced_sha = sha

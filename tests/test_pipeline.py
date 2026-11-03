@@ -284,3 +284,19 @@ def test_capacity_limit_licence_aware(app):
         assert capacity_limit(r) == 4      # hardware limits
         r.license_slots = 0
         assert capacity_limit(r) == 4      # 0 = declared-unconstrained
+
+
+def test_plan_outcome_aggregation():
+    """Every required entry must reach an acceptable terminal state —
+    incomplete work can never hide behind 'passed'."""
+    from testorchestrator.results import plan_outcome as po
+    assert po(["passed", "passed"]) == "passed"
+    assert po(["passed", "not-started"]) == "not-started"
+    assert po(["passed", "unknown"]) == "unknown"
+    assert po(["passed", "cancelled"]) == "cancelled"
+    assert po(["passed", "skipped"]) == "skipped"
+    assert po(["skipped", "skipped"]) == "skipped"   # all skipped
+    assert po([]) == "empty"                          # empty plan
+    assert po(["passed", "failed", "cancelled"]) == "failed"
+    assert po(["unknown", "error"]) == "error"
+    assert po(["bogus"]) == "unknown"                 # unmapped state

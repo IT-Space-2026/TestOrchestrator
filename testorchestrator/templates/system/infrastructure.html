@@ -48,6 +48,11 @@
     </fieldset>
     <div class="field">{{ runner_form.workspace_root.label }} {{ runner_form.workspace_root() }}</div>
     <div class="field">{{ runner_form.max_slots.label }} {{ runner_form.max_slots() }}</div>
+    <p class="muted">Licence note: per-worker slot values are a
+    configured allowance — the first release is scoped to
+    operator-partitioned seats. Sum of allowances across workers must
+    not exceed purchased floating seats; no shared-pool enforcement and
+    no visibility into sessions started outside the Orchestrator.</p>
     <div class="field">{{ runner_form.allowed_projects.label }} {{ runner_form.allowed_projects(size=4) }}</div>
     <button type="submit" class="button">Register runner</button>
   </form>

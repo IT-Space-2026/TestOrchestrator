@@ -30,7 +30,7 @@ for src, dest in (("testorchestrator/templates","testorchestrator/templates"),
             datas.append((str(f), dest if f.parent == __import__("pathlib").Path(p)
                           else str(f.parent.relative_to(ROOT))))
 
-a = Analysis([os.path.join(ROOT, "wsgi.py")], pathex=[ROOT], binaries=binaries,
+a = Analysis([os.path.join(ROOT, "toctl.py")], pathex=[ROOT], binaries=binaries,
              datas=datas, hiddenimports=hiddenimports +
              ["testorchestrator.main.routes","testorchestrator.portal.routes",
               "testorchestrator.system.routes","testorchestrator.agent_api",

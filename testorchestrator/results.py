@@ -191,3 +191,28 @@ def build_evidence_manifest(report_root: Path, junit_files: set = None) -> list:
             }
         )
     return manifest
+
+
+# ---------- plan aggregation (terminal vs severity kept distinct) -----
+
+# Severity precedence — highest wins. Any entry not reaching an
+# acceptable terminal state (cancelled/unknown/skipped/not-started)
+# outranks "passed"; an empty plan is "empty", never "passed".
+_PLAN_SEVERITY = {"failed": 60, "error": 50, "cancelled": 40,
+                  "unknown": 30, "skipped": 20, "passed": 10,
+                  "not-started": 0}
+
+
+def plan_outcome(entry_states) -> str:
+    """Aggregate plan outcome from entry terminal states.
+
+    entry_states: iterable of strings in {passed, failed, error,
+    cancelled, unknown, skipped, not-started}. 'not-started' means
+    still running/pending — returned verbatim (never a result)."""
+    states = [s if s in _PLAN_SEVERITY else "unknown"
+              for s in entry_states]
+    if not states:
+        return "empty"
+    if "not-started" in states:
+        return "not-started"
+    return max(states, key=lambda s: _PLAN_SEVERITY[s])
