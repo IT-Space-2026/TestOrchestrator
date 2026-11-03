@@ -126,8 +126,19 @@ def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
 
 # ---------- runner selection (§6) ----------
 
+def capacity_limit(runner: Runner) -> int:
+    """Dispatch ceiling = min(hardware slots, declared licence seats).
+    Unset licence means unconstrained, never an assumed seat count."""
+    if runner.license_slots:
+        return min(runner.max_slots, runner.license_slots)
+    return runner.max_slots
+
+
 def effective_slots(runner: Runner) -> int:
-    """Free capacity = max_slots - currently leased running executions."""
+    """Free capacity = capacity_limit - currently leased executions.
+    A floating KRE licence is consumed per concurrent SESSION — the
+    limit here prevents dispatching more KRE processes than either the
+    hardware or the licence allowance permits (never multiplied)."""
     active = Execution.query.filter(
         Execution.runner_id == runner.id,
         Execution.state.in_([
@@ -136,7 +147,7 @@ def effective_slots(runner: Runner) -> int:
             ExecutionState.NORMALIZING, ExecutionState.CANCEL_REQUESTED,
         ]),
     ).count()
-    return max(0, runner.max_slots - active)
+    return max(0, capacity_limit(runner) - active)
 
 
 def pick_runner(execution: Execution) -> Runner | None:

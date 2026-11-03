@@ -137,6 +137,11 @@ class Runner(db.Model):
     capabilities = db.Column(db.Text, nullable=False, default="[]")
     workspace_root = db.Column(db.String(512), nullable=False, default="")
     max_slots = db.Column(db.Integer, nullable=False, default=1)
+    # Operator-declared KRE licence allowance for this worker (§3):
+    # floating licences are per concurrent SESSION — max_slots (hardware
+    # capacity) and licence seats are independent limits. NULL/0 = the
+    # operator declared no licence constraint (never assumed seats).
+    license_slots = db.Column(db.Integer, nullable=True)
     health = db.Column(db.String(16), nullable=False, default="unknown")
     heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
     draining = db.Column(db.Boolean, nullable=False, default=False)

@@ -268,3 +268,19 @@ def test_runner_capacity_and_drain(app, pipeline_env):
         runner.draining = True
         db.session.commit()
         assert dispatch.pick_runner(ex) is None
+
+
+def test_capacity_limit_licence_aware(app):
+    """Floating KRE licences cap dispatch independently of hardware:
+    min(max_slots, license_slots); unset licence = unconstrained."""
+    from testorchestrator.dispatch import capacity_limit
+    from testorchestrator.execution import Runner
+    with app.app_context():
+        r = Runner(name="r-cap", max_slots=4, license_slots=None)
+        assert capacity_limit(r) == 4
+        r.license_slots = 2
+        assert capacity_limit(r) == 2      # licence seats limit
+        r.license_slots = 8
+        assert capacity_limit(r) == 4      # hardware limits
+        r.license_slots = 0
+        assert capacity_limit(r) == 4      # 0 = declared-unconstrained
