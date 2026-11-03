@@ -384,6 +384,15 @@ def _normalize(ex: Execution) -> None:
 def _publish(ex: Execution) -> None:
     """ReportPortal publication — local canonical results are authoritative;
     an outage leaves evidence intact and never reruns tests (§9, A03)."""
+    # Automatic retry is BLOCKED on ambiguous state (§9): a lost response
+    # may mean remote work was accepted; an operator must reconcile or
+    # explicitly clear it before publication resumes.
+    if ex.rp_state == SyncState.AMBIGUOUS:
+        ex.error_text = (ex.error_text
+                         + " | publish blocked: ambiguous remote state "
+                           "requires reconciliation")[:2000]
+        db.session.commit()
+        return
     try:
         adapter = ReportPortalAdapter.from_settings()
         adapter.publish_execution(ex)

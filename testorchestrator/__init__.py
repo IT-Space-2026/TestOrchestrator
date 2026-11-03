@@ -265,3 +265,51 @@ def register_cli(app: Flask) -> None:
         except Exception as exc:
             raise click.ClickException(str(exc))
         click.echo(f"restored: {restored}")
+
+    @app.cli.command("update-apply")
+    @click.argument("bundle_dir")
+    @click.option("--key", "pubkey", default=None,
+                  help="trusted public key (default TO_UPDATE_KEY)")
+    @click.option("--live", "live_dir", default="/opt/testorchestrator")
+    @click.option("--drain-timeout", default=120, type=int)
+    def update_apply(bundle_dir, pubkey, live_dir, drain_timeout):
+        """Wired update lifecycle (§14): verify -> drain -> backup -> stage
+        -> activate -> health check -> recover on failure. Local CLI, no
+        web UI required."""
+        import os
+        from pathlib import Path
+        from . import updater
+        bundle = Path(bundle_dir)
+        key = Path(pubkey or os.environ.get("TO_UPDATE_KEY", ""))
+        if not key.exists():
+            raise click.ClickException("trusted update key not found")
+        try:
+            verified = updater.verify_bundle(bundle, key)
+            click.echo("bundle signature+digests verified")
+            if not updater.drain(drain_timeout):
+                raise updater.UpdateError("drain timeout — active runs remain")
+            click.echo("drained")
+            result = updater.apply_update(
+                app, bundle, bundle / "payload", key,
+                Path(INSTANCE_DIR) / "update-staged")
+            click.echo(f"staged v{result['version']} (backup {result['backup']})")
+            act = updater.activate(
+                Path(INSTANCE_DIR) / "update-staged", Path(live_dir),
+                Path(INSTANCE_DIR) / "backups")
+            click.echo(f"activated; previous at {act['retired']}")
+            if not updater.health_check(app):
+                rec = updater.recover(Path(result["backup"]), Path(live_dir))
+                click.echo(f"health check FAILED — recovered: {rec}")
+                raise click.ClickException("health check failed; rolled back")
+            click.echo("health check ok — update complete")
+        except updater.UpdateError as exc:
+            raise click.ClickException(str(exc))
+
+    @app.cli.command("update-recover")
+    @click.argument("backup_tar")
+    @click.option("--into", "target", default="/opt/testorchestrator")
+    def update_recover(backup_tar, target):
+        """Offline recovery: restore a backup tarball without the web UI."""
+        from pathlib import Path
+        from . import updater
+        click.echo(updater.recover(Path(backup_tar), Path(target)))

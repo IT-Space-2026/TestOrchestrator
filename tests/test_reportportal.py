@@ -205,3 +205,17 @@ def test_clean_failure_marks_failed(app, tmp_path):
             m.requests.post = orig_post
         assert ex.rp_state == SyncState.FAILED
         assert ex.rp_launch_id == ""
+
+
+def test_ambiguous_blocks_automatic_retry(app, tmp_path):
+    """Item 3: once ambiguous, _publish refuses to run until reconciled —
+    remote acceptance without a local marker blocks blind retry."""
+    from testorchestrator import dispatch
+    with app.app_context():
+        ex, r2, artifact = _execution_with_results(app, tmp_path)
+        ex.rp_state = SyncState.AMBIGUOUS
+        ex.rp_launch_id = "launch-1"
+        db.session.commit()
+        dispatch._publish(ex)  # must NOT attempt adapter work
+        assert ex.rp_state == SyncState.AMBIGUOUS
+        assert "ambiguous" in ex.error_text.lower()

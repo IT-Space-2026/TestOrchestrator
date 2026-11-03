@@ -413,3 +413,31 @@ def add_plan_entry(plan_id):
         record_audit(current_user.username, "plan.entry_added", plan.id)
     return redirect(url_for("portal.project_detail",
                           project_id=plan.project_id))
+
+
+@portal_bp.route("/releases/<release_id>/run", methods=["POST"])
+@role_required(*RUN_ROLES)
+def run_release(release_id):
+    """Run-from-release: queues the release's linked plan (§10)."""
+    release = db.session.get(Release, release_id)
+    if release is None or release.plan_id is None:
+        abort(404)
+    _project_or_404(release.project_id)
+    PlainForm().validate_on_submit()
+    return run_plan(release.plan_id)
+
+
+@portal_bp.route("/suite-entries/<entry_id>/toggle", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def toggle_suite_entry(entry_id):
+    entry = db.session.get(SuiteEntry, entry_id)
+    if entry is None or entry.suite.readonly:
+        abort(404 if entry is None else 409)
+    _project_or_404(entry.suite.project_id)
+    PlainForm().validate_on_submit()
+    entry.enabled = not entry.enabled
+    entry.suite.version += 1
+    entry.suite.content_hash = _suite_hash(entry.suite)
+    db.session.commit()
+    return redirect(url_for("portal.suite_detail",
+                          suite_id=entry.suite_id))
