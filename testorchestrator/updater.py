@@ -65,33 +65,63 @@ def verify_bundle(bundle_dir: Path, pubkey_path: Path) -> dict:
     return {"digests": digests, "manifest": manifest}
 
 
+BACKUP_RETENTION = 10  # keep newest N backup archives (§14 policy)
+
+
 def backup_state(target_dir: Path, paths: list) -> Path:
     """Consistent backup of DB, protected keys, config, artifacts metadata
     (§14). Recovery must not silently reactivate bootstrap credentials —
-    the backup preserves the users/settings tables as-is."""
+    the backup preserves the users/settings tables as-is.
+
+    Atomic publish: the archive is written to ``.part`` and renamed only
+    on success — a failed or disk-full backup raises and leaves no
+    complete-looking archive behind. Retention keeps the newest
+    ``BACKUP_RETENTION`` ``backup-*.tar.gz`` files."""
     target_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out = target_dir / f"backup-{stamp}.tar.gz"
+    part = out.with_name(out.name + ".part")
     tdir = target_dir.resolve()
-    with tarfile.open(out, "w:gz") as tar:
-        for p in paths:
-            p = Path(p)
-            if not p.exists():
-                continue
-            try:
-                rel = tdir.relative_to(p.resolve())
-            except ValueError:
-                tar.add(p, arcname=p.name)
-                continue
-            # Never archive the backups dir inside a path being backed
-            # up — self-inclusion made every backup contain all previous
-            # ones (geometric growth until the disk filled).
-            prefix = str(Path(p.name) / rel)
-            tar.add(p, arcname=p.name,
-                    filter=lambda i, _pf=prefix: None
-                    if i.name == _pf or i.name.startswith(_pf + "/")
-                    else i)
+    try:
+        with tarfile.open(part, "w:gz") as tar:
+            for p in paths:
+                p = Path(p)
+                if not p.exists():
+                    continue
+                try:
+                    rel = tdir.relative_to(p.resolve())
+                except ValueError:
+                    tar.add(p, arcname=p.name)
+                    continue
+                # Never archive the backups dir inside a path being
+                # backed up — self-inclusion made every backup contain
+                # all previous ones (geometric disk-filling growth).
+                prefix = str(Path(p.name) / rel)
+                tar.add(p, arcname=p.name,
+                        filter=lambda i, _pf=prefix: None
+                        if i.name == _pf or i.name.startswith(_pf + "/")
+                        else i)
+        part.replace(out)
+    except (OSError, tarfile.TarError):
+        part.unlink(missing_ok=True)
+        raise
+    _prune_backups(target_dir)
     return out
+
+
+def _prune_backups(target_dir: Path) -> int:
+    """Retention: newest BACKUP_RETENTION `backup-*.tar.gz` survive;
+    stale `.part` files are cleared. Only pattern-matched files are
+    ever touched — never arbitrary content in the dir."""
+    backups = sorted(target_dir.glob("backup-*.tar.gz"),
+                     key=lambda p: p.name, reverse=True)
+    removed = 0
+    for old in backups[BACKUP_RETENTION:]:
+        old.unlink(missing_ok=True)
+        removed += 1
+    for stale in target_dir.glob("backup-*.tar.gz.part"):
+        stale.unlink(missing_ok=True)
+    return removed
 
 
 def apply_update(app, bundle_dir: Path, payload_dir: Path,
@@ -178,13 +208,24 @@ def activate(stage_dir: Path, live_dir: Path, backups_dir: Path) -> dict:
 
 
 def recover(backup_tar: Path, target_dir: Path) -> dict:
-    """Restore a backup tarball (recovery works without the web UI)."""
+    """Restore a backup tarball (recovery works without the web UI).
+    Incomplete/corrupt archives are rejected BEFORE extraction — a
+    truncated file never produces a silent half-restore."""
     if not backup_tar.exists():
         raise UpdateError(f"backup missing: {backup_tar}")
     target_dir.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(backup_tar) as tar:
-        tar.extractall(target_dir, filter="data")
-    return {"restored": str(backup_tar), "into": str(target_dir)}
+    try:
+        with tarfile.open(backup_tar) as tar:
+            names = tar.getnames()          # full scan = integrity check
+            if not names:
+                raise UpdateError(
+                    f"backup empty or unreadable: {backup_tar}")
+            tar.extractall(target_dir, filter="data")
+    except (tarfile.TarError, EOFError, OSError) as exc:
+        raise UpdateError(
+            f"backup archive unreadable/incomplete: {exc}") from exc
+    return {"restored": str(backup_tar), "into": str(target_dir),
+            "members": len(names)}
 
 
 def resume_from_checkpoint(app) -> dict:

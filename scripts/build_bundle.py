@@ -32,11 +32,13 @@ OUT = REPO / "dist"
 INCLUDE = [
     ("testorchestrator", "app"),
     ("wsgi.py", "app"),
+    ("install.sh", "install"),
     ("requirements.txt", "app"),
     ("release", "app"),
     ("migrations", "install"),
     ("deploy", "install"),
     ("scripts", "install"),
+    ("packaging", "install"),
     ("docs", "docs"),
     ("README.md", "docs"),
     ("CHANGELOG.md", "docs"),
@@ -54,7 +56,7 @@ INCLUDE = [
 # Hard gate: the bundle is invalid without every one of these.
 REQUIRED = [
     "wsgi.py", "testorchestrator/__init__.py", "requirements.txt",
-    "release/release.json", "scripts/install.py",
+    "release/release.json", "install.sh", "scripts/install.py",
     "scripts/java_probe.py", "migrations", "deploy/Caddyfile",
     "3rdparty/caddy/caddy",
     "3rdparty/python-runtime/python/bin/python3",
