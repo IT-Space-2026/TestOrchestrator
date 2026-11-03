@@ -1,0 +1,178 @@
+{
+  "tool": "acquire_git.py",
+  "target": "ubuntu-resolute-amd64",
+  "suite": "resolute",
+  "arch": "amd64",
+  "mirror": "http://archive.ubuntu.com/ubuntu",
+  "root_package": {
+    "name": "openjdk-25-jre-headless",
+    "version": "25.0.3~7ea-2"
+  },
+  "release_authenticity": "InRelease gpg-verified vs ubuntu-archive-keyring",
+  "bundle": [
+    {
+      "name": "openjdk-25-jre-headless",
+      "version": "25.0.3~7ea-2",
+      "filename": "pool/main/o/openjdk-25/openjdk-25-jre-headless_25.0.3~7ea-2_amd64.deb",
+      "sha256": "41ba649aed100b2522ed8302d1a6b0d9d0153bdc24cd83e3bf891874a8ff9261"
+    },
+    {
+      "name": "libpcsclite1",
+      "version": "2.4.1-1",
+      "filename": "pool/main/p/pcsc-lite/libpcsclite1_2.4.1-1_amd64.deb",
+      "sha256": "9287a7219e33c52f2a647bdfbaf4b6156de843b191d69aa60d101baeb5160032"
+    },
+    {
+      "name": "libnss3",
+      "version": "2:3.120-1ubuntu2",
+      "filename": "pool/main/n/nss/libnss3_3.120-1ubuntu2_amd64.deb",
+      "sha256": "2d6d4480a86b0fbc9d36a61c50d5480b2f8c931845bc5392c5374f7a2108e22b"
+    },
+    {
+      "name": "libnspr4",
+      "version": "2:4.38.2-1ubuntu1",
+      "filename": "pool/main/n/nspr/libnspr4_4.38.2-1ubuntu1_amd64.deb",
+      "sha256": "2f28284b35765aaccad1785ab017425e1ca378c395256331f9c662d04335d43f"
+    },
+    {
+      "name": "libjpeg8",
+      "version": "8c-2ubuntu12",
+      "filename": "pool/main/libj/libjpeg8-empty/libjpeg8_8c-2ubuntu12_amd64.deb",
+      "sha256": "1403d44d2c2d3eba6a7a8aea97fab0bac2e89e144a3bf600adfdd3ecdc3d9394"
+    },
+    {
+      "name": "libjpeg-turbo8",
+      "version": "2.1.5-4ubuntu4",
+      "filename": "pool/main/libj/libjpeg-turbo/libjpeg-turbo8_2.1.5-4ubuntu4_amd64.deb",
+      "sha256": "07672ce1f4d187e005ea0cc35d03e515ba056f3d3e7a9a25d3ef386e184da8c5"
+    },
+    {
+      "name": "liblcms2-2",
+      "version": "2.17-1",
+      "filename": "pool/main/l/lcms2/liblcms2-2_2.17-1_amd64.deb",
+      "sha256": "6beb06e118c5a49abc312d029d6dc1ba47009e51a284d598bf394465522292f2"
+    },
+    {
+      "name": "java-common",
+      "version": "0.77",
+      "filename": "pool/main/j/java-common/java-common_0.77_all.deb",
+      "sha256": "e66ae63c63acd7c52949a33a2027997d6b8fb1d12e0666b5d14179fb3d9c468f"
+    },
+    {
+      "name": "ca-certificates-java",
+      "version": "20260311",
+      "filename": "pool/main/c/ca-certificates-java/ca-certificates-java_20260311_all.deb",
+      "sha256": "5e4083293a546869640629590000b0bec0e71398175cc2bf3763ba51fa9771f1"
+    }
+  ],
+  "host_boundary": [
+    "zlib1g",
+    "libstdc++6",
+    "gcc-16-base",
+    "libgcc-s1",
+    "libc6",
+    "libc-gconv-modules-extra",
+    "util-linux",
+    "libsqlite3-0",
+    "ca-certificates",
+    "debconf",
+    "openssl",
+    "libssl3t64",
+    "openssl-provider-legacy",
+    "libzstd1"
+  ],
+  "unresolved": [],
+  "licences": [
+    "libjpeg8.copyright",
+    "libjpeg-turbo8.copyright",
+    "java-common.copyright",
+    "openjdk-25-jre-headless.copyright",
+    "libnspr4.copyright",
+    "libnss3.copyright",
+    "liblcms2-2.copyright",
+    "ca-certificates-java.copyright",
+    "libpcsclite1.copyright"
+  ],
+  "acquired": true,
+  "runtime_verified": true,
+  "downloads": [
+    {
+      "package": "openjdk-25-jre-headless",
+      "version": "25.0.3~7ea-2",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/o/openjdk-25/openjdk-25-jre-headless_25.0.3~7ea-2_amd64.deb",
+      "sha256_index": "41ba649aed100b2522ed8302d1a6b0d9d0153bdc24cd83e3bf891874a8ff9261",
+      "sha256_actual": "41ba649aed100b2522ed8302d1a6b0d9d0153bdc24cd83e3bf891874a8ff9261",
+      "verified": true
+    },
+    {
+      "package": "libpcsclite1",
+      "version": "2.4.1-1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/p/pcsc-lite/libpcsclite1_2.4.1-1_amd64.deb",
+      "sha256_index": "9287a7219e33c52f2a647bdfbaf4b6156de843b191d69aa60d101baeb5160032",
+      "sha256_actual": "9287a7219e33c52f2a647bdfbaf4b6156de843b191d69aa60d101baeb5160032",
+      "verified": true
+    },
+    {
+      "package": "libnss3",
+      "version": "2:3.120-1ubuntu2",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/n/nss/libnss3_3.120-1ubuntu2_amd64.deb",
+      "sha256_index": "2d6d4480a86b0fbc9d36a61c50d5480b2f8c931845bc5392c5374f7a2108e22b",
+      "sha256_actual": "2d6d4480a86b0fbc9d36a61c50d5480b2f8c931845bc5392c5374f7a2108e22b",
+      "verified": true
+    },
+    {
+      "package": "libnspr4",
+      "version": "2:4.38.2-1ubuntu1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/n/nspr/libnspr4_4.38.2-1ubuntu1_amd64.deb",
+      "sha256_index": "2f28284b35765aaccad1785ab017425e1ca378c395256331f9c662d04335d43f",
+      "sha256_actual": "2f28284b35765aaccad1785ab017425e1ca378c395256331f9c662d04335d43f",
+      "verified": true
+    },
+    {
+      "package": "libjpeg8",
+      "version": "8c-2ubuntu12",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/libj/libjpeg8-empty/libjpeg8_8c-2ubuntu12_amd64.deb",
+      "sha256_index": "1403d44d2c2d3eba6a7a8aea97fab0bac2e89e144a3bf600adfdd3ecdc3d9394",
+      "sha256_actual": "1403d44d2c2d3eba6a7a8aea97fab0bac2e89e144a3bf600adfdd3ecdc3d9394",
+      "verified": true
+    },
+    {
+      "package": "libjpeg-turbo8",
+      "version": "2.1.5-4ubuntu4",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/libj/libjpeg-turbo/libjpeg-turbo8_2.1.5-4ubuntu4_amd64.deb",
+      "sha256_index": "07672ce1f4d187e005ea0cc35d03e515ba056f3d3e7a9a25d3ef386e184da8c5",
+      "sha256_actual": "07672ce1f4d187e005ea0cc35d03e515ba056f3d3e7a9a25d3ef386e184da8c5",
+      "verified": true
+    },
+    {
+      "package": "liblcms2-2",
+      "version": "2.17-1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/l/lcms2/liblcms2-2_2.17-1_amd64.deb",
+      "sha256_index": "6beb06e118c5a49abc312d029d6dc1ba47009e51a284d598bf394465522292f2",
+      "sha256_actual": "6beb06e118c5a49abc312d029d6dc1ba47009e51a284d598bf394465522292f2",
+      "verified": true
+    },
+    {
+      "package": "java-common",
+      "version": "0.77",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/j/java-common/java-common_0.77_all.deb",
+      "sha256_index": "e66ae63c63acd7c52949a33a2027997d6b8fb1d12e0666b5d14179fb3d9c468f",
+      "sha256_actual": "e66ae63c63acd7c52949a33a2027997d6b8fb1d12e0666b5d14179fb3d9c468f",
+      "verified": true
+    },
+    {
+      "package": "ca-certificates-java",
+      "version": "20260311",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates-java/ca-certificates-java_20260311_all.deb",
+      "sha256_index": "5e4083293a546869640629590000b0bec0e71398175cc2bf3763ba51fa9771f1",
+      "sha256_actual": "5e4083293a546869640629590000b0bec0e71398175cc2bf3763ba51fa9771f1",
+      "verified": true
+    }
+  ],
+  "symlinks_fixed": 25,
+  "status": "acquired+verified",
+  "runtime_check": {
+    "verified": true,
+    "output": "openjdk 25.0.3-ea 2026-04-21\nOpenJDK Runtime Environment (build 25.0.3-ea+7-Ubuntu-2)\nOpenJDK 64-Bit Server VM (build 25.0.3-ea+7-Ubuntu-2, mixed mode, sharing)"
+  }
+}

@@ -57,6 +57,13 @@ DEFAULTS = {
     "reportportal_endpoint": "",
     "reportportal_project": "",
     "reportportal_credential_ref": "",
+    # Reporting settings (Admin -> Reporting page). Enable flags gate the
+    # optional backends; local native-KRE reporting is always on.
+    "allure_enabled": False,
+    "reportportal_enabled": False,
+    "rp_launch_name": "{project} / {suite} / {execution}",
+    "rp_verify_tls": True,
+    "rp_ca_ref": "",
     "git_export_repo": "",
     "git_export_credential_ref": "",
     "git_export_ref": "main",

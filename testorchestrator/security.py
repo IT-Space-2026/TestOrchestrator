@@ -37,18 +37,24 @@ def security_headers(response):
     load, so it is unaffected.
     """
 
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "img-src 'self'; "
-        "style-src 'self'; "
-        "script-src 'self'; "
-        "connect-src 'self'; "
-        "font-src 'self'; "
-        "object-src 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self'; "
-        "frame-ancestors 'none'"
-    )
+    # Baseline policy; a view may set a stricter one (e.g. `sandbox` on
+    # hosted report HTML) — explicit response policies win.
+    if "Content-Security-Policy" in response.headers:
+        csp = response.headers["Content-Security-Policy"]
+    else:
+        csp = (
+            "default-src 'self'; "
+            "img-src 'self'; "
+            "style-src 'self'; "
+            "script-src 'self'; "
+            "connect-src 'self'; "
+            "font-src 'self'; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "frame-ancestors 'none'")
+    response.headers["Content-Security-Policy"] = csp
+
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"

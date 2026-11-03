@@ -241,6 +241,18 @@ class Execution(db.Model):
     dispatch_id = db.Column(db.String(64), nullable=False, default="")
     workspace_path = db.Column(db.String(512), nullable=False, default="")
     report_dir = db.Column(db.String(512), nullable=False, default="")
+    # Local-report status is INDEPENDENT of execution state/outcome (§9):
+    # pending|ready|partial|missing|failed. A collection failure never
+    # rewrites the actual test outcome.
+    report_status = db.Column(db.String(16), nullable=False,
+                              default="pending")
+    report_path = db.Column(db.String(512), nullable=False, default="")
+    # Allure reporting is a third independent status (besides execution
+    # and local-native report) — ready|partial|missing|failed.
+    allure_status = db.Column(db.String(16), nullable=False,
+                              default="pending")
+    allure_path = db.Column(db.String(512), nullable=False, default="")
+    allure_version = db.Column(db.String(32), nullable=False, default="")
     exit_status = db.Column(db.Integer, nullable=True)
     error_kind = db.Column(db.String(32), nullable=False, default="")
     error_text = db.Column(db.Text, nullable=False, default="")

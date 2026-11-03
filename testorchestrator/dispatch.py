@@ -381,6 +381,15 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             mapped=item["kind"] == "junit",
         ))
     db.session.commit()
+    # Local-report status is tracked separately from state/outcome.
+    try:
+        from . import reporting
+        reporting.refresh_report_status(ex)
+    except Exception as exc:
+        try:
+            reporting.refresh_failed(ex, exc)
+        except Exception:
+            pass  # reporting must never break the execution pipeline
 
 
 def _normalize(ex: Execution) -> None:
