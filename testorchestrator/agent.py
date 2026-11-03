@@ -143,21 +143,25 @@ def run_task(client: AgentClient, task: dict, work_root: Path) -> None:
         client.post("/api/agent/result", json=payload)
 
 
-def poll_once(client: AgentClient, work_root: Path) -> int:
+def poll_once(client: AgentClient, work_root: Path,
+              execution_id: str = "") -> int:
     resp = client.get("/api/agent/tasks")
     resp.raise_for_status()
     tasks = resp.json().get("tasks", [])
+    if execution_id:
+        tasks = [t for t in tasks if t["execution_id"] == execution_id]
     for task in tasks:
         run_task(client, task, work_root)
     return len(tasks)
 
 
 def run(portal: str, token: str, work_root: Path, once: bool = False,
-        interval: float = 5.0, verify_tls: bool = True) -> None:
+        interval: float = 5.0, verify_tls: bool = True,
+        execution_id: str = "") -> None:
     client = AgentClient(portal, token, verify_tls=verify_tls)
     client.register()
     while True:
-        poll_once(client, work_root)
+        poll_once(client, work_root, execution_id)
         if once:
             return
         time.sleep(interval)

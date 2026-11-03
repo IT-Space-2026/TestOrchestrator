@@ -94,10 +94,19 @@ class DaguAdapter:
         return resp.text
 
     def cancel(self, dispatch_id: str) -> bool:
-        resp = requests.post(
-            self._url(
-                f"/dags/testorchestrator-execution/dag-runs/{dispatch_id}/stop"
-            ),
-            headers=self._headers(), timeout=self.timeout,
-        )
-        return resp.ok
+        """Verified mechanism: `dagu stop <dag> --run-id <id>` via the
+        bundled binary (HTTP cancel path unresolved on 2.25.2)."""
+        import os
+        import shutil
+        import subprocess
+        exe = (shutil.which("dagu")
+               or os.environ.get("DAGU_BIN")
+               or "3rdparty/dagu/dagu")
+        try:
+            r = subprocess.run(
+                [exe, "stop", "testorchestrator-execution",
+                 "--run-id", dispatch_id],
+                capture_output=True, timeout=30)
+            return r.returncode == 0
+        except Exception:
+            return False

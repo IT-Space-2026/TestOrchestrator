@@ -107,6 +107,11 @@ def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
     if ex.state in (ExecutionState.COMPLETED, ExecutionState.FAILED,
                     ExecutionState.CANCELED):
         return False
+    if ex.dispatch_id:
+        try:
+            DaguAdapter.from_settings().cancel(ex.dispatch_id)
+        except Exception:
+            pass  # flag + lease expiry still bound the run
     ex.state = ExecutionState.CANCEL_REQUESTED
     ex.cancel_reason = reason[:256]
     db.session.commit()
@@ -546,3 +551,31 @@ def worker_loop(interval: float = 2.0) -> None:
     while True:
         worker_once()
         time.sleep(interval)
+
+
+def reconcile_dagu_runs() -> int:
+    """Poll DISPATCHED executions' dagu runs (§7 restart/reconciliation):
+    finished-without-result -> UNKNOWN (never silently re-run); running
+    leases get extended only while the run is actually alive."""
+    adapter = None
+    fixed = 0
+    for ex in Execution.query.filter_by(
+            state=ExecutionState.DISPATCHED).all():
+        if not ex.dispatch_id:
+            continue
+        adapter = adapter or DaguAdapter.from_settings()
+        remote = adapter.status(ex.dispatch_id)
+        label = (remote.get("statusLabel") or remote.get("status"))
+        if label in ("succeeded", "failed", "aborted", "error"):
+            # Dagu finished but the portal has no result -> ambiguous:
+            # reconcile to UNKNOWN, not a re-dispatch.
+            ex.state = ExecutionState.UNKNOWN
+            ex.error_kind = "infrastructure"
+            ex.error_text = f"dagu run {ex.dispatch_id} ended '{label}' " \
+                            "without portal result"
+            fixed += 1
+        elif label == "running":
+            ex.lease_expires_at = utcnow() + timedelta(
+                seconds=LEASE_SECONDS)
+    db.session.commit()
+    return fixed

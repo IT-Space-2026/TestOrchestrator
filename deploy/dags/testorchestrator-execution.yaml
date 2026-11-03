@@ -1,16 +1,12 @@
-# TestOrchestrator execution workflow — submitted by the portal outbox.
-# Ownership: Dagu coordinates; the portal worker/agent is the executor.
-# The step invokes the AUTHORIZED agent endpoint (bearer token, fixed
-# immutable task snapshot — no arbitrary command execution).
+# TestOrchestrator execution workflow — one run per execution_id.
+# Ownership: Dagu coordinates; agent is the authenticated executor.
 params:
-  - EXECUTION_ID: ""
-  - PORTAL_URL: ""
-  - AGENT_TOKEN: ""
+  - execution_id: ""
+  - portal_url: ""
+  - agent_token: ""      # injected at submit time; never in this file
 steps:
-  - name: fetch-and-run-task
-    # Fixed command shape; payload is the portal's immutable snapshot.
+  - name: execute-assigned-task
     command: >-
-      python3 -m testorchestrator.agent --portal "$PORTAL_URL"
-      --token "$AGENT_TOKEN" --once
+      python3 -m testorchestrator.agent --portal "$portal_url"
+      --token "$agent_token" --once --execution-id "$execution_id"
     dir: ~
-    # Long-running; portal polls status via dag-run API using dagRunId.
