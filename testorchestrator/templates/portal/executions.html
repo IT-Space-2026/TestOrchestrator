@@ -5,7 +5,7 @@
 {% if executions %}
 <table class="audit-table">
   <thead><tr><th>ID</th><th>Suite</th><th>State</th><th>Outcome</th>
-      <th>Results</th><th>RP</th><th>Git</th><th>By</th></tr></thead>
+      <th>Results</th><th>Git</th><th>By</th></tr></thead>
   <tbody>
     {% for e in executions %}
     <tr>
@@ -14,7 +14,7 @@
       <td>{{ e.state.value }}</td>
       <td>{{ e.outcome.value }}</td>
       <td>{{ e.results | length }} cases</td>
-      <td>{{ e.rp_state.value }}</td><td>{{ e.git_state.value }}</td>
+      <td>{{ e.git_state.value }}</td>
       <td>{{ e.created_by }}</td>
     </tr>
     {% endfor %}

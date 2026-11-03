@@ -54,9 +54,6 @@ DEFAULTS = {
     # auth.mode: basic username (password lives in the SecretRef). Empty =
     # Bearer token mode (builtin auth API key).
     "dagu_username": "",
-    "reportportal_endpoint": "",
-    "reportportal_project": "",
-    "reportportal_credential_ref": "",
     # Reporting settings (Admin -> Reporting page). Enable flags gate the
     # optional backends; local native-KRE reporting is always on.
     "allure_enabled": False,
@@ -65,10 +62,6 @@ DEFAULTS = {
     # path via TO_ALLURE_JAVA_HOME instead — admin selection wins.
     "allure_java_home": "",
     "allure_java_probe": {},
-    "reportportal_enabled": False,
-    "rp_launch_name": "{project} / {suite} / {execution}",
-    "rp_verify_tls": True,
-    "rp_ca_ref": "",
     "git_export_repo": "",
     "git_export_credential_ref": "",
     "git_export_ref": "main",

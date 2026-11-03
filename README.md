@@ -39,7 +39,7 @@ Flask / TestOrchestrator (testorchestrator/)
   - `certs.py` — local CA/leaf generation and PEM import validation
     (`cryptography`)
   - `caddyconf.py` — Caddyfile renderer + staged apply/rollback
-  - `adapters/` — seams for Dagu, ReportPortal, KRE, runner agent, updater.
+  - `adapters/` — seams for Dagu, Allure, KRE, runner agent, updater.
     Long-running work runs outside request handlers; do not implement
     integrations inside Flask views.
   - `models.py` — `User` (roles: Admin, Test Manager, Tester, PO),

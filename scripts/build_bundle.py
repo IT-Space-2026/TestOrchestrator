@@ -122,10 +122,6 @@ DEPENDENCIES = {
                        "Engine — never installed or altered by the "
                        "product",
     },
-    "reportportal": {
-        "required_for": "optional remote publication",
-        "requirement": "operator-provided endpoint + credentials",
-    },
     "git": {
         "required_for": "none on ubuntu targets — vendored; other "
                         "platforms fall back to declared host git",
@@ -194,7 +190,6 @@ def main():
                                 "already packaged",
             "tests": "source-repo content, not runtime",
             "kre": "external by requirement — operator installed",
-            "reportportal-stack": "container backend + images not bundled",
             "windows-sles": "linux x86_64 only",
         }}, indent=2))
 

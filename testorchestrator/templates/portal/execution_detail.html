@@ -19,7 +19,6 @@
   <dt>Started</dt><dd>{{ ex.started_at or "—" }}</dd>
   <dt>Finished</dt><dd>{{ ex.finished_at or "—" }}</dd>
   <dt>Exit status</dt><dd>{{ ex.exit_status if ex.exit_status is not none else "—" }}</dd>
-  <dt>ReportPortal</dt><dd>{{ ex.rp_state.value }}</dd>
   <dt>Git sync</dt><dd>{{ ex.git_state.value }}</dd>
   {% if ex.error_kind %}
   <dt>Error</dt><dd>{{ ex.error_kind }} — {{ ex.error_text }}</dd>
@@ -88,9 +87,6 @@
     {% if ex.allure_status == 'ready' %}Regenerate{% else %}Generate{% endif %}
     Allure report</button>
 </form>
-<p class="muted">ReportPortal: {{ ex.rp_state or 'none' }}
-  {% if ex.rp_launch_id %}(launch {{ ex.rp_launch_id }}){% endif %}
-  — independent of execution outcome and local reports.</p>
 
 <h2>Logs</h2>
 <ul class="notice-list">
@@ -102,14 +98,13 @@
 <h2>Evidence ({{ ex.artifacts | length }} files)</h2>
 {% if ex.artifacts %}
 <table class="audit-table">
-  <thead><tr><th>File</th><th>Kind</th><th>Size</th><th>SHA-256</th><th>RP</th><th></th></tr></thead>
+  <thead><tr><th>File</th><th>Kind</th><th>Size</th><th>SHA-256</th><th></th></tr></thead>
   <tbody>
     {% for a in ex.artifacts %}
     <tr>
       <td><code>{{ a.rel_path }}</code>{% if not a.mapped %} <em>(unmapped)</em>{% endif %}</td>
       <td>{{ a.kind }}</td><td>{{ a.size }}</td>
       <td><code>{{ a.sha256[:12] }}</code></td>
-      <td>{{ a.rp_state.value }}</td>
       <td><a href="{{ url_for('portal.download_artifact', execution_id=ex.id, artifact_id=a.id) }}">download</a></td>
     </tr>
     {% endfor %}

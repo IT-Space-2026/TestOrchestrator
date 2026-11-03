@@ -201,12 +201,10 @@ def export_execution(execution: Execution) -> dict:
         } for r in execution.results
     ], indent=2), encoding="utf-8")
     (base / "reporting.json").write_text(json.dumps({
-        "reportportal_state": execution.rp_state.value,
         "artifacts": [
             {
                 "rel_path": a.rel_path, "kind": a.kind,
                 "sha256": a.sha256, "size": a.size,
-                "rp_state": a.rp_state.value,
             } for a in execution.artifacts
         ],
         "schema": 1,

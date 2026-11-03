@@ -4,7 +4,7 @@ Everything here is supplied and maintained by the operator. TestOrchestrator
 never installs, licenses, upgrades, or removes KRE, and no installer or
 updater may alter it.
 
-## For A01/A02 (real execution + ReportPortal screenshot)
+## For A01/A02 (real execution evidence)
 
 | Input | Used by | Form |
 |---|---|---|
@@ -13,7 +13,6 @@ updater may alter it.
 | Representative Katalon project | GitBinding URL | repo cloneable by the host |
 | Approved execution environment | runner host | OS user allowed to launch KRE |
 | Runner host | Agent | reachable `flask agent` runtime |
-| ReportPortal endpoint + project + API token | `reportportal_*` settings + SecretRef | e.g. `https://rp.example.com`, project name |
 | Git remote + credential (optional) | `git_export_repo` + SecretRef | HTTPS/SSH URL + scoped token |
 | Dagu endpoint (optional seam) | `dagu_endpoint` + SecretRef | version to pin and verify |
 | Java runtime (optional, for Allure reports) | `allure_java_home` setting / `TO_ALLURE_JAVA_HOME` | JRE/JDK compatible with bundled Allure — OpenJDK 21+ recommended; the installer detects or takes `--java-home`, validates with a real report-generation probe as the `testorchestrator` service account, or continues with Allure disabled (`--no-allure`). Scoped to Allure only — never a global Java change, never touches KRE |

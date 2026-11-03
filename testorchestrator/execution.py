@@ -1,7 +1,7 @@
 """Execution domain model (handoff §4–§11).
 
 Durable schema for the source-to-execution-to-evidence pipeline. Execution
-state, test outcome, ReportPortal publication, and Git synchronization are
+state, test outcome, and Git synchronization are
 independent state fields — a reporting outage never rewrites the recorded
 execution evidence.
 """
@@ -233,14 +233,12 @@ class Execution(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     started_at = db.Column(db.DateTime(timezone=True), nullable=True)
     finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    # Independent state fields (§8): execution, outcome, RP publication,
-    # Git sync — tracked separately.
+    # Independent state fields (§8): execution, outcome and Git sync —
+    # tracked separately.
     state = db.Column(db.Enum(ExecutionState), nullable=False,
                       default=ExecutionState.QUEUED)
     outcome = db.Column(db.Enum(Outcome), nullable=False,
                         default=Outcome.NONE)
-    rp_state = db.Column(db.Enum(SyncState), nullable=False,
-                         default=SyncState.NONE)
     git_state = db.Column(db.Enum(SyncState), nullable=False,
                           default=SyncState.NONE)
     dispatch_id = db.Column(db.String(64), nullable=False, default="")
@@ -266,16 +264,6 @@ class Execution(db.Model):
     # heartbeat means UNKNOWN, never silent duplicate dispatch.
     lease_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
     heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    # ReportPortal mapping (§9): persisted launch/item IDs so retries resume
-    # without duplicating hierarchy or rerunning tests.
-    rp_launch_id = db.Column(db.String(64), nullable=False, default="")
-    # Destination pinning: the endpoint this run published to. A settings
-    # change can never silently redirect a retry to another instance.
-    rp_endpoint_used = db.Column(db.String(512), nullable=False,
-                                 default="")
-    rp_project_used = db.Column(db.String(128), nullable=False,
-                                default="")
-
     project = db.relationship("Project")
     suite = db.relationship("Suite")
     runner = db.relationship("Runner")
@@ -312,8 +300,6 @@ class TestResult(db.Model):
     # Unresolved when producer output cannot be mapped to a source case
     # deterministically — exposed honestly, never guessed (§8).
     unresolved = db.Column(db.Boolean, nullable=False, default=False)
-    # Persisted ReportPortal item id for resume-safe retries (§9).
-    rp_remote_id = db.Column(db.String(64), nullable=False, default="")
     execution = db.relationship("Execution", backref=db.backref(
         "results", cascade="all, delete-orphan"))
 
@@ -336,9 +322,6 @@ class Artifact(db.Model):
     # Filename association alone is insufficient; unmapped files stay at
     # run/suite level and are labelled unmapped.
     mapped = db.Column(db.Boolean, nullable=False, default=True)
-    rp_state = db.Column(db.Enum(SyncState), nullable=False,
-                         default=SyncState.NONE)
-    rp_remote_id = db.Column(db.String(64), nullable=False, default="")
     collected_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     execution = db.relationship("Execution", backref=db.backref(
         "artifacts", cascade="all, delete-orphan"))
@@ -371,7 +354,7 @@ class SecretRef(db.Model):
     __tablename__ = "secret_refs"
     id = db.Column(db.String(32), primary_key=True, default=new_id)
     name = db.Column(db.String(64), nullable=False, unique=True)
-    kind = db.Column(db.String(32), nullable=False)      # git|dagu|reportportal|runner|runtime
+    kind = db.Column(db.String(32), nullable=False)      # git|dagu|runner|runtime
     encrypted = db.Column(db.LargeBinary, nullable=False)
     meta_json = db.Column(db.Text, nullable=False, default="{}")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)

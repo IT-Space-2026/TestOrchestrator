@@ -293,8 +293,8 @@ def download_ca():
 @system_bp.route("/reporting")
 @role_required(Role.ADMIN)
 def reporting_page():
-    """Admin -> Reporting settings (consolidated §2). Configures OPTIONAL
-    backends only; it never implies a ReportPortal instance exists."""
+    """Admin -> Reporting settings (consolidated §2). Configures the
+    OPTIONAL Allure backend only — Java path, probe, readiness."""
     from .. import allure_runtime
     return render_template(
         "system/reporting.html",
@@ -309,27 +309,10 @@ def reporting_save():
     """Persist reporting config. Saving NEVER publishes — publication is
     a separate explicit action."""
     from flask import request
-    cred_ref = request.form.get("rp_credential_ref", "").strip()
-    if cred_ref:
-        from ..secrets_store import SecretError, read_secret
-        try:
-            read_secret(current_app, cred_ref)
-        except SecretError as exc:
-            flash(f"ReportPortal credential ref unusable: {exc}", "error")
-            return redirect(url_for("system.reporting_page"))
     java_home = request.form.get("allure_java_home", "").strip()
     settings_mod.update({
         "allure_enabled": bool(request.form.get("allure_enabled")),
         "allure_java_home": java_home,
-        "reportportal_enabled": bool(request.form.get("rp_enabled")),
-        "reportportal_endpoint":
-            request.form.get("rp_endpoint", "").strip().rstrip("/"),
-        "reportportal_project": request.form.get("rp_project", "").strip(),
-        "reportportal_credential_ref": cred_ref,
-        "rp_launch_name": request.form.get(
-            "rp_launch_name", "").strip() or "{project} / {suite} / {execution}",
-        "rp_verify_tls": bool(request.form.get("rp_verify_tls")),
-        "rp_ca_ref": request.form.get("rp_ca_ref", "").strip(),
     })
     record_audit(current_user.username, "reporting.config.saved",
                  "reporting settings updated (no values)")
@@ -357,7 +340,6 @@ def reporting_check():
     The Java check is a REAL generation probe with the pinned bundled
     Allure, run as the service account would run it."""
     from .. import allure_runtime
-    from ..adapters.reportportal import ReportPortalAdapter
     home, _src = allure_runtime.selected_java()
     rec = allure_runtime.select_and_validate(
         str(home) if home else "")
@@ -368,33 +350,6 @@ def reporting_check():
               f"(probe {rec.get('checked_at', '')})", "info")
     else:
         flash(f"Allure: NOT ready — {a['reason']}", "error")
-    if settings_mod.get("reportportal_enabled"):
-        try:
-            s = ReportPortalAdapter.from_settings().status()
-            flash(f"ReportPortal: reachable — project {s['project']}",
-                  "info")
-        except Exception as exc:
-            flash(f"ReportPortal: {exc}", "error")
-    else:
-        flash("ReportPortal: disabled — check skipped.", "info")
-    return redirect(url_for("system.reporting_page"))
-
-
-@system_bp.route("/reporting/test-publish", methods=["POST"])
-@role_required(Role.ADMIN)
-def reporting_test_publish():
-    """EXPLICIT action creating a remote record — separate from save."""
-    from ..adapters.reportportal import ReportPortalAdapter
-    try:
-        adapter = ReportPortalAdapter.from_settings()
-        launch_id = adapter.launch("orchestrator-readiness-probe")
-        adapter.finish_launch(launch_id)
-        record_audit(current_user.username, "reporting.test_publish",
-                     f"launch {launch_id}")
-        flash(f"Test launch published to ReportPortal: {launch_id}",
-              "info")
-    except Exception as exc:
-        flash(f"Test publish failed: {exc}", "error")
     return redirect(url_for("system.reporting_page"))
 
 

@@ -163,23 +163,31 @@ def test_ab06_logo_and_dialog_accessibility(client, login_as):
     )
     src = (logo_src.group(1) or logo_src.group(2)) if logo_src else ""
     assert src.startswith("/static/"), f"logo not local: {src}"
-    # Bundled asset fetches and is the tracked placeholder file.
+    # Bundled asset fetches and is the owner-supplied official PNG.
     resp = client.get(src)
     assert resp.status_code == 200
-    assert b"PLACEHOLDER" in resp.data.upper()
+    assert resp.data[:4] == b"\x89PNG"
+    assert "iT-space-logo" in src
 
 
-# AB07 — missing/unapproved official logo is recorded, not silently swapped.
-def test_ab07_placeholder_tracked_as_incomplete_requirement():
+# AB07 — the owner-supplied official logo is tracked and active.
+def test_ab07_official_logo_tracked_and_supplied():
     readme = (BASE_DIR / "assets" / "branding" / "README.md").read_text(
         encoding="utf-8"
     )
-    assert "MISSING" in readme
-    assert "blocked" in readme.lower() or "pending" in readme.lower()
+    assert "SUPPLIED" in readme
+    assert (BASE_DIR / "assets" / "branding"
+            / "iT-space-logo-400x400.png").exists()
+    from testorchestrator.main.routes import (LOGO_APPROVED,
+                                              LOGO_STATIC_PATH)
+    assert LOGO_APPROVED is True
+    assert LOGO_STATIC_PATH == "branding/iT-space-logo.png"
 
 
-def test_ab07_placeholder_labelled_in_ui(client, login_as):
+def test_ab07_official_logo_in_ui_no_placeholder_disclaimer(
+        client, login_as):
     login_as("admin")
     html = client.get("/about").data.decode()
-    assert "Temporary placeholder" in html
-    assert "it-space-logo.placeholder.svg" in html
+    assert "iT-space-logo.png" in html
+    assert "Temporary placeholder" not in html
+    assert "it-space-logo.placeholder.svg" not in html

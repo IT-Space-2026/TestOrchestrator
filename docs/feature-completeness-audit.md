@@ -24,7 +24,7 @@ exists inside an Allure report or a ReportPortal instance.
 | Allure reports | DONE | adapter convert+generate, atomic publish, single-file, view+zip+regen (`adapters/allure.py`, `allure_runtime.py`) | test_allure_reporting: real generation via host Java 21 | requires external validated Java (new prerequisite model) |
 | Screenshots/logs/artifacts | DONE | `Artifact` registry, evidence manifest sha256+MIME, `artifacts.zip`, per-artifact download | test_reporting, test_results_parser | — |
 | Original-artifact downloads | DONE | `artifacts.zip` = original evidence + checksum manifest | test_reporting | distinguished from regenerated reports |
-| ReportPortal config & optional publication | DONE | Admin → Reporting (endpoint/project/cred-ref/TLS/CA/test launch); per-execution pin, AMBIGUOUS state (`adapters/reportportal.py`) | test_reportportal: pin-block, ambiguity, retry semantics | Live RP publish = GATE (candidate compose file only) |
+| ~~ReportPortal~~ | REMOVED (scope change) | Allure is the sole enhanced backend; adapter/UI/settings/tests/compose removed; forward migration `8b9c0d1e2f3a` drops columns + rp_* settings | removal verified by suite | shared credentials/infrastructure preserved |
 
 ## Report/export formats (generated vs retained)
 
@@ -34,7 +34,7 @@ exists inside an Allure report or a ReportPortal instance.
 | Allure single-file HTML | **generated** | needs external Java, validated probe |
 | artifacts.zip (original evidence + manifest) | packaged | originals retained verbatim |
 | JUnit results (canonical normalized) | generated from KRE output | feeds cases/Allure/RP |
-| ReportPortal launch | **generated** remotely | optional; orchestrator-side config only |
+
 | Trends/comparison/flaky exports | ABSENT | out of scope for first release |
 
 ## Out-of-scope (explicitly declared, not silently missing)

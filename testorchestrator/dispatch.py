@@ -1,6 +1,6 @@
 """Execution pipeline: dispatch, state machine, local runner (§4–§8).
 
-Workflow: prepare -> execute -> collect -> normalize -> publish -> finalize.
+Workflow: prepare -> execute -> collect -> normalize -> finalize.
 Collection continues after failed tests; the final verdict comes from
 recorded execution evidence, not from a wrapper that hides failures.
 
@@ -24,8 +24,6 @@ from flask import current_app
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
 from .adapters.dagu import DaguAdapter, NotConfigured as DaguNotConfigured
-from .adapters.reportportal import (NotConfigured as RpNotConfigured,
-                                    ReportPortalAdapter)
 from .execution import (Artifact, Execution, ExecutionState, GitBinding,
                         OutboxEvent, Outcome, Runner, RuntimeConnection,
                         Suite, SyncState, TestResult, utcnow)
@@ -306,11 +304,8 @@ def run_execution(execution_id: str) -> None:
                 ex.error_text = f"KRE reported a {error_kind} error"
                 db.session.commit()
 
-        # Evidence publish/export still runs for canceled executions —
+        # Evidence export still runs for canceled executions —
         # partial evidence is real. Only the terminal state differs.
-        _transition(ex, ExecutionState.PUBLISHING)
-        _publish(ex)
-
         _transition(ex, ExecutionState.FINALIZING)
         _sync_git(ex)
 
@@ -440,36 +435,6 @@ def _normalize(ex: Execution) -> None:
     db.session.commit()
 
 
-def _publish(ex: Execution) -> None:
-    """ReportPortal publication — local canonical results are authoritative;
-    an outage leaves evidence intact and never reruns tests (§9, A03)."""
-    # Automatic retry is BLOCKED on ambiguous state (§9): a lost response
-    # may mean remote work was accepted; an operator must reconcile or
-    # explicitly clear it before publication resumes.
-    if ex.rp_state == SyncState.AMBIGUOUS:
-        ex.error_text = (ex.error_text
-                         + " | publish blocked: ambiguous remote state "
-                           "requires reconciliation")[:2000]
-        db.session.commit()
-        return
-    try:
-        adapter = ReportPortalAdapter.from_settings()
-        adapter.publish_execution(ex)
-        ex.rp_state = SyncState.DONE
-    except RpNotConfigured:
-        ex.rp_state = SyncState.NOT_CONFIGURED
-    except Exception as exc:
-        # If any remote side-effects may already exist (launch/item IDs
-        # persisted earlier), the outcome is AMBIGUOUS, not a clean FAILED
-        # — blind retry could duplicate accepted remote work (§9).
-        partial = bool(ex.rp_launch_id) or any(
-            r.rp_remote_id for r in ex.results) or any(
-            a.rp_state == SyncState.DONE for a in ex.artifacts)
-        ex.rp_state = SyncState.AMBIGUOUS if partial else SyncState.FAILED
-        ex.error_text = (ex.error_text + f" | publish: {exc}")[:2000]
-    db.session.commit()
-
-
 def _sync_git(ex: Execution) -> None:
     """Git export outbox (§11). Sync state is independent of outcome."""
     from . import gitsync
@@ -564,9 +529,7 @@ def _handle_event(event: OutboxEvent) -> None:
         from . import gitsync
         gitsync.sync_binding(payload["binding_id"])
     elif event.kind == "rp-publish":
-        ex = db.session.get(Execution, payload["execution_id"])
-        if ex:
-            _publish(ex)
+        pass  # removed integration — absorb stale queued events harmlessly
     elif event.kind == "runner-heartbeat":
         runner = db.session.get(Runner, payload["runner_id"])
         if runner:

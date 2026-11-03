@@ -137,7 +137,6 @@ def test_full_pipeline_pass_and_fail_collected(app, pipeline_env):
         junit = next(a for a in artifacts if a.kind == "junit")
         assert junit.size > 0
         # Independent state fields: no external endpoints configured.
-        assert ex.rp_state == SyncState.NOT_CONFIGURED
         assert ex.git_state == SyncState.NOT_CONFIGURED
         # Immutable snapshot recorded the source SHA.
         assert ex.snapshot()["source_sha"] == "abc123def456"

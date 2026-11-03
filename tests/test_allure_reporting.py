@@ -154,24 +154,6 @@ def test_regenerate_failure_preserves_last_usable(app, tmp_path, monkeypatch):
         assert ex.outcome == Outcome.FAILED  # outcome untouched
 
 
-def test_rp_destination_pin_blocks_redirect(app, tmp_path, monkeypatch):
-    """After publishing to one endpoint, a settings change must not
-    silently redirect the retry to another instance."""
-    from testorchestrator.adapters.reportportal import (
-        NotConfigured, ReportPortalAdapter)
-    ex_id = _mk(app, tmp_path)
-    with app.app_context():
-        ex = db.session.get(Execution, ex_id)
-        ex.rp_endpoint_used = "https://rp-old.example.com"
-        db.session.commit()
-        adapter = ReportPortalAdapter("https://rp-new.example.com",
-                                      "p", "tok")
-        monkeypatch.setattr(adapter, "launch", lambda *a, **k: "L1")
-        import pytest as _pt
-        with _pt.raises(NotConfigured, match="endpoint changed"):
-            adapter.publish_execution(ex)
-
-
 def test_missing_when_no_results(app, tmp_path):
     ex_id = _mk(app, tmp_path, results=[])
     with app.app_context():
@@ -208,15 +190,10 @@ def test_allure_routes_and_settings_authz(client, login_as, app, tmp_path):
     assert resp.status_code == 200
     # Saving config persists refs — never publishes, never stores values.
     resp = client.post("/system/reporting/save", data={
-        "allure_enabled": "1", "rp_enabled": "1",
-        "rp_endpoint": "https://rp.example.com/", "rp_project": "p1",
-        "rp_credential_ref": "", "rp_launch_name": "{project}/{suite}",
-        "rp_verify_tls": "1"}, follow_redirects=True)
+        "allure_enabled": "1"}, follow_redirects=True)
     assert resp.status_code == 200
     with app.app_context():
         assert S.get("allure_enabled") is True
-        assert S.get("reportportal_endpoint") == "https://rp.example.com"
-        assert S.get("rp_launch_name") == "{project}/{suite}"
     # Allure generate action on the run page.
     if allure_runtime.available():
         resp = client.post(f"/executions/{ex_id}/allure/generate",
@@ -239,10 +216,9 @@ def test_authenticated_nonadmin_denied_settings(client, login_as, app):
     login_as("tester")
     assert client.get("/system/reporting").status_code == 403
     assert client.post("/system/reporting/save", data={
-        "rp_endpoint": "https://evil.example.com"}).status_code == 403
-    assert client.post("/system/reporting/test-publish").status_code == 403
+        "allure_enabled": "1"}).status_code == 403
     with app.app_context():
-        assert not S.get("reportportal_endpoint")  # nothing persisted
+        assert S.get("allure_enabled") is False  # nothing persisted
 
 
 def test_settings_survive_restart_and_secrets_never_render(
@@ -250,22 +226,16 @@ def test_settings_survive_restart_and_secrets_never_render(
     """Settings persist across a fresh app context (restart); secret
     values never appear in pages, flashes, or downloads — only refs."""
     login_as("admin")
-    client.post("/system/reporting/save", data={
-        "allure_enabled": "1", "rp_endpoint": "https://rp.example.com",
-        "rp_project": "p1", "rp_credential_ref": "",
-        "rp_launch_name": "{project}/{suite}"})
+    client.post("/system/reporting/save", data={"allure_enabled": "1"})
     with app.app_context():            # new context ~ restart
         assert S.get("allure_enabled") is True
-        assert S.get("rp_launch_name") == "{project}/{suite}"
-    # Store a real credential, then prove it never renders.
+    # Store a real credential, then prove its VALUE never renders.
     with app.app_context():
         from testorchestrator.secrets_store import store_secret
         from flask import current_app
         store_secret(current_app, "rp-token", "rp", "TOPSECRET-9x")
-        S.update({"reportportal_credential_ref": "rp-token"})
     resp = client.get("/system/reporting")
     assert b"TOPSECRET-9x" not in resp.data
-    assert b"rp-token" in resp.data          # the REF renders, not value
     resp2 = client.post("/system/reporting/check", follow_redirects=True)
     assert b"TOPSECRET-9x" not in resp2.data
 

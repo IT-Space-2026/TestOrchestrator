@@ -107,7 +107,7 @@ class SecretForm(FlaskForm):
     kind = RadioField(
         "Kind",
         choices=[("git", "Git"), ("dagu", "Dagu"),
-                 ("reportportal", "ReportPortal"), ("runner", "Runner"),
+                 ("runner", "Runner"),
                  ("runtime", "Runtime invocation")],
         default="git",
     )

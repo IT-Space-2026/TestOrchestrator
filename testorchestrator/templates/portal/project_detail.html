@@ -138,14 +138,14 @@
   <h2>Recent executions</h2>
   {% if executions %}
   <table class="audit-table">
-    <thead><tr><th>ID</th><th>Suite</th><th>State</th><th>Outcome</th><th>RP</th><th>Git</th><th>By</th><th>Started</th></tr></thead>
+    <thead><tr><th>ID</th><th>Suite</th><th>State</th><th>Outcome</th><th>Git</th><th>By</th><th>Started</th></tr></thead>
     <tbody>
       {% for e in executions %}
       <tr>
         <td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
         <td>{{ e.snapshot().get('suite_name', '') }}</td>
         <td>{{ e.state.value }}</td><td>{{ e.outcome.value }}</td>
-        <td>{{ e.rp_state.value }}</td><td>{{ e.git_state.value }}</td>
+        <td>{{ e.git_state.value }}</td>
         <td>{{ e.created_by }}</td>
         <td>{{ e.started_at or "—" }}</td>
       </tr>

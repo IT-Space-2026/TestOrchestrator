@@ -4,7 +4,7 @@
   partial output, skipped cases, discrepant producer totals.
 - Case names alone are NOT unique — unresolved items are exposed honestly
   rather than guessed.
-- Independent state fields: execution state, test outcome, ReportPortal
+- Independent state fields: execution state, test outcome
   publication, Git sync. All-skipped is not passed; incomplete execution is
   never silently green.
 - Evidence manifest associates files to execution/case where verifiable;
