@@ -1,0 +1,27 @@
+{
+  "name": "testorchestrator-1.9.0-linux-x86_64",
+  "version": "1.9.0",
+  "platform": "linux-x86_64",
+  "includes": [
+    "testorchestrator",
+    "wsgi.py",
+    "requirements.txt",
+    "release",
+    "3rdparty",
+    "migrations",
+    "deploy",
+    "scripts",
+    "docs",
+    "README.md",
+    "CHANGELOG.md",
+    "assets",
+    "tests"
+  ],
+  "exclusions": {
+    "embedded-python": "host python3.12 required (gap)",
+    "git-binary": "host git required by GitPython (gap)",
+    "reportportal-stack": "container backend + images not bundled (gap)",
+    "dagu": "excluded pending owner decision (Option A/B)",
+    "kre": "external by requirement \u2014 operator installed"
+  }
+}
