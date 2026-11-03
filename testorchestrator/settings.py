@@ -60,6 +60,11 @@ DEFAULTS = {
     # Reporting settings (Admin -> Reporting page). Enable flags gate the
     # optional backends; local native-KRE reporting is always on.
     "allure_enabled": False,
+    # Operator-supplied Java for Allure (JAVA_HOME path) + the last
+    # generation-probe record. Empty/{} = unset; installer may seed the
+    # path via TO_ALLURE_JAVA_HOME instead — admin selection wins.
+    "allure_java_home": "",
+    "allure_java_probe": {},
     "reportportal_enabled": False,
     "rp_launch_name": "{project} / {suite} / {execution}",
     "rp_verify_tls": True,

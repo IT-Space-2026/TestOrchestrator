@@ -21,6 +21,14 @@
   (projects/bindings/suites/plans/releases/executions/artifacts).
 - Docs: implementation-status, integration-contracts, compatibility
   inventory per handoff section 3.
+- Packaging: bundled JRE removed from the distribution (and unpublished
+  Git history) — Java is an operator prerequisite for Allure reporting:
+  installer detects/selects (`--java-home`), validates via a real
+  report-generation probe as the service account, persists
+  `TO_ALLURE_JAVA_HOME` scoped to the app services, or continues with
+  Allure disabled (`--no-allure`) + warning. Admin → Reporting shows
+  Java path/version/readiness and re-validates on change. No global
+  Java settings change; KRE runtime untouched; `dist/` kept out of Git.
 
 ## 1.8.0 — 2026-11-03
 
