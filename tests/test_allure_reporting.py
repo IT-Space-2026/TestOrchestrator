@@ -231,6 +231,18 @@ def test_allure_routes_and_settings_authz(client, login_as, app, tmp_path):
         assert "index.html" in zipfile.ZipFile(io.BytesIO(z.data)).namelist()
 
 
+def test_authenticated_nonadmin_denied_settings(client, login_as, app):
+    """An authenticated but UNAUTHORIZED user (not anonymous) is refused
+    reporting settings + mutations — scope check, not just anon 401."""
+    login_as("tester")
+    assert client.get("/system/reporting").status_code == 403
+    assert client.post("/system/reporting/save", data={
+        "rp_endpoint": "https://evil.example.com"}).status_code == 403
+    assert client.post("/system/reporting/test-publish").status_code == 403
+    with app.app_context():
+        assert not S.get("reportportal_endpoint")  # nothing persisted
+
+
 def test_settings_survive_restart_and_secrets_never_render(
         client, login_as, app):
     """Settings persist across a fresh app context (restart); secret

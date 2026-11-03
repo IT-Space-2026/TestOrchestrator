@@ -135,6 +135,13 @@ class ReportPortalAdapter:
                 f"({execution.rp_endpoint_used} -> {self.endpoint}); "
                 "retrying would split the run across instances. Resolve "
                 "explicitly — no silent redirect.")
+        if execution.rp_project_used and \
+                execution.rp_project_used != self.project:
+            raise NotConfigured(
+                "ReportPortal project changed since first publication "
+                f"({execution.rp_project_used} -> {self.project}); "
+                "retrying would split the run across projects. Resolve "
+                "explicitly — no silent redirect.")
         # Resume-safe: an existing launch ID means a previous attempt may
         # have created hierarchy — skip item creation for results that
         # already carry remote IDs (§9; no duplicate trees, no reruns).
@@ -145,6 +152,7 @@ class ReportPortalAdapter:
         if not execution.rp_launch_id:
             execution.rp_launch_id = launch_id
             execution.rp_endpoint_used = self.endpoint
+            execution.rp_project_used = self.project
             from ..extensions import db as _db
             _db.session.commit()
         artifacts_by_result = {}
