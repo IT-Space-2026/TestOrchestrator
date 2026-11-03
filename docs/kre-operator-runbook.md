@@ -15,17 +15,24 @@
 | dagu_endpoint | your Dagu URL | mandatory orchestrator (Option B) |
 | git_binding / suite | clone/index your project, build a suite | TestManager/Admin |
 
+## Two different checks — do not conflate
+**A. Direct CLI smoke (no orchestration):** `flask kre-smoke` only probes
+the binary and does a bare invocation — it bypasses portal/Dagu/agent.
+Expected: "probe: detected version X.Y.Z", exit code, discovered reports.
+
+**B. The real acceptance run:** portal execution -> outbox ->
+Dagu workflow -> assigned agent -> existing KRE -> canonical results ->
+portal final state. This is the A01 gate; the CLI check above is not it.
+
 ## Smoke sequence
 ```bash
-# 1. Probe the binary (no licence action):
+# A) probe only:
 flask kre-smoke /opt/katalon/katalonc --project /path/to/project
-# expect: "probe: detected version X.Y.Z", exit=0, reports discovered []
 
-# 2. In the portal: register RuntimeConnection with the same path ->
-#    Test connection -> should report version + writable workspace.
-
-# 3. Dispatch one suite on that runner (portal -> outbox -> Dagu ->
-#    agent/local -> KRE console invocation).
+# B) real run: register RuntimeConnection in the portal (same path),
+#    dispatch one operator-selected suite, watch the execution detail.
+#    Readiness: dagu_endpoint reachable, runner token issued + agent up,
+#    workspace writable, git binding synced.
 ```
 
 ## Expected outputs (sanitized evidence to return)

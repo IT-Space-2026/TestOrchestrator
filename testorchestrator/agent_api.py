@@ -145,6 +145,30 @@ def result():
     if ex.state in (ExecutionState.COMPLETED, ExecutionState.FAILED,
                     ExecutionState.CANCELED):
         return jsonify({"status": "already-terminal"})
+    if ex.state == ExecutionState.UNKNOWN:
+        # Late-arriving evidence after ambiguous termination is REAL data
+        # — preserve it for reconciliation/Admin review, but never reopen
+        # the execution, overwrite a finalized outcome, or rerun tests.
+        for case in data.get("results", []):
+            from .execution import TestResult, CaseStatus
+            db.session.add(TestResult(
+                execution_id=ex.id,
+                case_ref=case.get("case_ref", ""),
+                case_name=case.get("case_name", "<unnamed>"),
+                classname=case.get("classname", ""),
+                iteration=case.get("iteration", 0),
+                attempt=case.get("attempt", 1),
+                status=CaseStatus(case.get("status", "failed")),
+                duration_s=case.get("duration_s", 0.0),
+                message=case.get("message", "")[:4000],
+                unresolved=True,
+            ))
+        ex.error_text = (ex.error_text +
+            " | late result preserved for review")[:2000]
+        db.session.commit()
+        record_audit(f"agent:{g.runner.name}",
+                     "execution.late_result_received", ex.id)
+        return jsonify({"status": "preserved-for-review"})
 
     from .execution import Outcome, TestResult, CaseStatus
     from . import dispatch

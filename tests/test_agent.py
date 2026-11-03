@@ -148,3 +148,27 @@ def test_draining_runner_gets_no_tasks(client, remote_env):
     resp = client.get("/api/agent/tasks", headers=_auth(env["token"]))
     assert resp.json["draining"] is True
     assert resp.json["tasks"] == []
+
+
+def test_late_result_on_unknown_preserved_not_reopened(client, remote_env):
+    """UNKNOWN + late valid result -> preserved for review, never
+    reopened, never rerun, terminal states still refused."""
+    env = remote_env
+    with client.application.app_context():
+        ex = dispatch.create_execution("admin", env["suite"])
+        ex.state = ExecutionState.UNKNOWN
+        ex.runner_id = env["runner"].id
+        db.session.commit()
+        ex_id = ex.id
+    resp = client.post("/api/agent/result", json={
+        "execution_id": ex_id, "exit_status": 0,
+        "outcome": "passed", "canceled": False,
+        "results": [{"case_name": "late1", "status": "passed"}],
+    }, headers=_auth(env["token"]))
+    assert resp.json["status"] == "preserved-for-review"
+    with client.application.app_context():
+        ex = db.session.get(Execution, ex_id)
+        assert ex.state == ExecutionState.UNKNOWN   # not reopened
+        assert ex.outcome is None or ex.outcome.value != "passed"
+        assert len(ex.results) == 1                 # evidence kept
+        assert ex.results[0].unresolved is True
