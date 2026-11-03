@@ -264,6 +264,10 @@ class Execution(db.Model):
     # ReportPortal mapping (§9): persisted launch/item IDs so retries resume
     # without duplicating hierarchy or rerunning tests.
     rp_launch_id = db.Column(db.String(64), nullable=False, default="")
+    # Destination pinning: the endpoint this run published to. A settings
+    # change can never silently redirect a retry to another instance.
+    rp_endpoint_used = db.Column(db.String(512), nullable=False,
+                                 default="")
 
     project = db.relationship("Project")
     suite = db.relationship("Suite")
