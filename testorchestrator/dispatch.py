@@ -546,6 +546,9 @@ def reconcile_stale() -> int:
     for ex in stale:
         ex.state = ExecutionState.UNKNOWN
         ex.error_kind = "infrastructure"
+        # Durable audit trail for ambiguous resolution (§18): every
+        # UNKNOWN is attributable, never silent or auto-rerun.
+        record_audit("system", "execution.reconciled_unknown", ex.id)
         ex.error_text = (
             ex.error_text + " | lease expired; state uncertain "
             "(reconciled, not re-run)").strip(" |")[:2000]

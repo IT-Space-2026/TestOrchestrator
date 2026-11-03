@@ -72,3 +72,37 @@ def test_late_valid_result_not_accepted_as_second_run(app, env):
         # terminal guard in agent_api.result path mirrored here:
         assert ex.state in (ExecutionState.COMPLETED, ExecutionState.FAILED,
                             ExecutionState.CANCELED)
+
+
+def test_restart_recover_stale_lease(app, env):
+    """Portal restart scenario: an abandoned RUNNING lease outlives the
+    process — reconcile_stale marks UNKNOWN rather than re-dispatching."""
+    from datetime import timedelta
+    from testorchestrator.execution import utcnow
+    with app.app_context():
+        ex = _mk(env, ExecutionState.RUNNING)
+        ex_id = ex.id
+        ex.lease_expires_at = utcnow() - timedelta(seconds=60)
+        db.session.commit()
+    # new app context ~ restart; reconcile must not duplicate the run
+    with app.app_context():
+        assert dispatch.reconcile_stale() == 1
+        ex = db.session.get(Execution, ex_id)
+        assert ex.state == ExecutionState.UNKNOWN
+
+
+def test_audit_history_persists_transitions(app, env):
+    """State transitions emit durable audit rows (§18); an UNKNOWN
+    resolution leaves an auditable trail, not silence."""
+    with app.app_context():
+        ex = _mk(env, ExecutionState.RUNNING)
+        from datetime import timedelta
+        from testorchestrator.execution import utcnow
+        ex.lease_expires_at = utcnow() - timedelta(seconds=5)
+        db.session.commit()
+        dispatch.reconcile_stale()
+        # The creation event itself is audited; UNKNOWN transitions carry
+        # error_text evidence on the execution record.
+        ex = db.session.get(Execution, ex.id)
+        assert AuditEvent.query.filter_by(
+            event="execution.reconciled_unknown").count() >= 1
