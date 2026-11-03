@@ -45,10 +45,11 @@ class DispatchError(RuntimeError):
 # ---------- creation / snapshot ----------
 
 def create_execution(username: str, suite: Suite, binding: GitBinding = None,
-                     source_sha: str = "") -> Execution:
+                     source_sha: str = "", run_config: dict = None) -> Execution:
     """Create an immutable execution snapshot (§4, A07). Later suite edits
     create new suite versions; this row's snapshot never changes."""
 
+    rc = dict(run_config or {})
     snapshot = {
         "suite_id": suite.id,
         "suite_name": suite.name,
@@ -63,6 +64,10 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
             }
             for e in suite.entries
         ],
+        "run_config": {
+            "profile": str(rc.get("profile") or "default")[:128],
+            "browser": str(rc.get("browser") or "Chrome (headless)")[:128],
+        },
         "binding_id": binding.id if binding else None,
         "source_sha": source_sha,
         "created_by": username,
@@ -247,11 +252,14 @@ def run_execution(execution_id: str) -> None:
         ex.report_dir = str(report_dir)
         ex.started_at = utcnow()
 
+        rc = ex.snapshot().get("run_config") or {}
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             project_path=str(project_dir),
             suite_path=_snapshot_suite_path(ex),
             report_dir=str(report_dir),
+            profile=rc.get("profile", "default"),
+            browser=rc.get("browser", "Chrome (headless)"),
         )
 
         _transition(ex, ExecutionState.RUNNING)
@@ -263,7 +271,7 @@ def run_execution(execution_id: str) -> None:
 
         # Collection ALWAYS runs — including after failures (§5, §7).
         _transition(ex, ExecutionState.COLLECTING)
-        _collect(ex, report_dir, log_dir, result)
+        _collect(ex, report_dir, log_dir)
 
         _transition(ex, ExecutionState.NORMALIZING)
         _normalize(ex)
@@ -330,22 +338,21 @@ def _snapshot_suite_path(ex: Execution) -> str:
     return first or "Test Suites/suite"
 
 
-def _collect(ex: Execution, report_dir: Path, log_dir: Path, result) -> None:
+def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
     """Evidence collection: JUnit discovery + manifest with checksums;
     every file is registered, unmapped files stay at run level (§9)."""
     junit_files = set(kre_adapter.discover_reports(report_dir))
     manifest = results_mod.build_evidence_manifest(report_dir, junit_files)
-    # Runner logs are evidence too.
-    for log_path in (Path(result.stdout_path), Path(result.stderr_path)):
-        if log_path.exists():
-            manifest.append({
-                "rel_path": f"logs/{log_path.name}",
-                "kind": "log",
-                "sha256": results_mod.sha256_file(log_path),
-                "size": log_path.stat().st_size,
-                "mime": "text/plain",
-                "active_content": False,
-            })
+    # Runner logs are evidence too — including the recorded argv.
+    for log_path in sorted(log_dir.glob("kre-*.log")):
+        manifest.append({
+            "rel_path": f"logs/{log_path.name}",
+            "kind": "log",
+            "sha256": results_mod.sha256_file(log_path),
+            "size": log_path.stat().st_size,
+            "mime": "text/plain",
+            "active_content": False,
+        })
     for item in manifest:
         db.session.add(Artifact(
             execution_id=ex.id,

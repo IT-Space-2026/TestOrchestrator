@@ -28,9 +28,12 @@ class DaguAdapter:
 
     DEFAULT_TIMEOUT = 30
 
-    def __init__(self, endpoint: str, token: str = "", timeout: int = None):
+    def __init__(self, endpoint: str, token: str = "", username: str = "",
+                 password: str = "", timeout: int = None):
         self.endpoint = endpoint.rstrip("/")
         self.token = token
+        self.username = username
+        self.password = password
         self.timeout = timeout or self.DEFAULT_TIMEOUT
 
     @classmethod
@@ -38,29 +41,55 @@ class DaguAdapter:
         endpoint = settings_mod.get("dagu_endpoint") or ""
         if not endpoint:
             raise NotConfigured("dagu_endpoint is not configured")
-        token = ""
+        username = settings_mod.get("dagu_username") or ""
+        secret = ""
         ref = settings_mod.get("dagu_credential_ref") or ""
         if ref:
-            token = read_secret(current_app._get_current_object(), ref)
-        return cls(endpoint, token)
+            secret = read_secret(current_app._get_current_object(), ref)
+        if username:
+            # auth.mode: basic — verified against bundled Dagu 2.25.2.
+            return cls(endpoint, username=username, password=secret)
+        # auth.mode: builtin — Bearer API key/JWT issued by Dagu.
+        return cls(endpoint, token=secret)
 
     def _headers(self) -> dict:
         headers = {"Accept": "application/json"}
-        if self.token:
+        if not self.username and self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
+
+    def _auth(self):
+        return (self.username, self.password) if self.username else None
 
     def _url(self, path: str) -> str:
         return f"{self.endpoint}/api/v1{path}"
 
     def health(self) -> dict:
-        """Version/health probe — verifies reachability + schema era."""
+        """Health probe — verifies reachability, authentication, version,
+        AND that the orchestration workflow is installed (verified paths
+        on bundled Dagu 2.25.2)."""
         resp = requests.get(
-            self._url("/version"), headers=self._headers(),
-            timeout=self.timeout,
+            self._url("/health"), headers=self._headers(),
+            auth=self._auth(), timeout=self.timeout,
         )
         resp.raise_for_status()
-        return {"reachable": True, "version": resp.text.strip()[:64]}
+        info = resp.json() if resp.content else {}
+        dags = requests.get(
+            self._url("/dags"), headers=self._headers(),
+            auth=self._auth(), timeout=self.timeout,
+        )
+        dags.raise_for_status()
+        names = [
+            (d.get("dag") or {}).get("name") or d.get("fileName", "")
+            for d in (dags.json().get("dags") or [])
+        ]
+        installed = "testorchestrator-execution" in names
+        return {
+            "reachable": True,
+            "status": info.get("status", ""),
+            "version": str(info.get("version", ""))[:64],
+            "workflow_installed": installed,
+        }
 
     def submit(self, payload: dict) -> str:
         """Submit a workflow run; returns the external run identity which the
@@ -68,7 +97,7 @@ class DaguAdapter:
         resp = requests.post(
             self._url("/dags/testorchestrator-execution/start"),
             json={"params": "execution_id=" + str(payload.get("execution_id",""))},
-            headers=self._headers(),
+            headers=self._headers(), auth=self._auth(),
             timeout=self.timeout,
         )
         resp.raise_for_status()
@@ -78,7 +107,7 @@ class DaguAdapter:
     def status(self, dispatch_id: str) -> dict:
         resp = requests.get(
             self._url(f"/dags/testorchestrator-execution/dag-runs/{dispatch_id}"),
-            headers=self._headers(), timeout=self.timeout,
+            headers=self._headers(), auth=self._auth(), timeout=self.timeout,
         )
         resp.raise_for_status()
         return resp.json()
@@ -88,7 +117,7 @@ class DaguAdapter:
             self._url(
                 f"/dags/testorchestrator-execution/dag-runs/{dispatch_id}/log"
             ),
-            headers=self._headers(), timeout=self.timeout,
+            headers=self._headers(), auth=self._auth(), timeout=self.timeout,
         )
         resp.raise_for_status()
         return resp.text

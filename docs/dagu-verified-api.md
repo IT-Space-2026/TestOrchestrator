@@ -1,7 +1,20 @@
 # Dagu 2.25.2 API — verified against the bundled binary (2026-11-03)
 
 Server: `dagu start-all --port 29999 --config server.yaml --dags <dir>`
-(auth.mode: none used for dev probing only — production wiring pending).
+(auth.mode: none used for dev probing only).
+
+## Authentication (verified 2026-11-03, runbook path)
+
+- `auth.mode: basic` + `auth.basic.username/password` (or
+  `DAGU_AUTH_BASIC_*` env): API accepts `Authorization: Basic`, rejects
+  no/wrong credentials with 401. **This is the provisioned mode** —
+  `scripts/provision_dagu.py` and the adapter's `dagu_username` setting.
+- `auth.mode: builtin` uses `token.secret` as the **JWT signing secret** —
+  a static Bearer against it returns 401; builtin requires an issued API
+  key/JWT (adapter supports Bearer for that case).
+- Health/version endpoint is `GET /api/v1/health`
+  (`{"status":"healthy","version":"2.25.2",...}`); `/api/v1/version`
+  does NOT exist on 2.25.2 (404).
 
 ## Verified live
 - `POST /api/v1/dags/{name}/start` → `{"dagRunId":"034r5YZLmYSiJgWtO63bLI"}`

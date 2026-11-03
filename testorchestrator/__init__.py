@@ -194,30 +194,60 @@ def register_cli(app: Flask) -> None:
 
     @app.cli.command("kre-smoke")
     @click.argument("executable")
-    @click.option("--project", default=".", help="Katalon project dir")
-    @click.option("--timeout", default=300, type=int)
-    def kre_smoke(executable, project, timeout):
-        """Operator smoke test against an EXISTING KRE installation (§5,
-        A01 prerequisite): probes the version, runs one console invocation
-        into an isolated report dir, and prints what was collected. Does
-        not install or license anything. Example:
+    @click.option("--timeout", default=30, type=int)
+    def kre_smoke(executable, timeout):
+        """Probe an EXISTING KRE installation (§5, A01 prerequisite).
 
-            flask kre-smoke /opt/katalon/katalonc --project /srv/proj
+        Probe ONLY: runs ``<exe> -version`` and reports the detected
+        version. It never starts project tests, never installs, and never
+        licenses anything. For a real smoke execution use ``flask
+        kre-exec`` with an explicitly selected suite.
         """
         from pathlib import Path
         from .adapters import kre as kre_adapter
         exe = str(Path(executable).resolve())
         try:
-            version = kre_adapter.probe_version(exe)
+            version = kre_adapter.probe_version(exe, timeout=timeout)
             click.echo(f"probe: detected version {version}")
         except kre_adapter.KreError as exc:
             raise click.ClickException(str(exc))
-        work = Path(INSTANCE_DIR) / "kre-smoke"
+        click.echo(
+            "Verify the detected version matches the installed/licensed "
+            "KRE before registering the runtime connection."
+        )
+
+    @app.cli.command("kre-exec")
+    @click.argument("executable")
+    @click.option("--project", required=True, help="Katalon project dir")
+    @click.option("--suite", required=True,
+                  help="Suite path, e.g. 'Test Suites/Smoke'")
+    @click.option("--profile", default="default",
+                  help="Execution profile name")
+    @click.option("--browser", default="Chrome (headless)",
+                  help="KRE browserType value")
+    @click.option("--timeout", default=300, type=int)
+    def kre_exec(executable, project, suite, profile, browser, timeout):
+        """Direct smoke EXECUTION against an EXISTING KRE install (§5):
+        one console invocation of the explicitly selected suite into an
+        isolated report dir under the instance dir. Bypasses
+        portal/Dagu/agent entirely — it is NOT the A01 acceptance run,
+        only a CLI check of the console arguments against the installed
+        KRE version. Example:
+
+            flask kre-exec /opt/katalon/katalonc --project /srv/proj \\
+                --suite "Test Suites/Smoke" --browser "Chrome (headless)"
+        """
+        from pathlib import Path
+        from .adapters import kre as kre_adapter
+        exe = str(Path(executable).resolve())
+        work = Path(INSTANCE_DIR) / "kre-exec"
         work.mkdir(parents=True, exist_ok=True)
         report_dir = work / "Reports"
         args = kre_adapter.build_args(
             executable=exe, project_path=str(Path(project).resolve()),
-            suite_path="Test Suites/smoke", report_dir=str(report_dir))
+            suite_path=suite, report_dir=str(report_dir),
+            profile=profile, browser=browser)
+        click.echo(f"argv: {' '.join(args)}")
         result = kre_adapter.run_invocation(args, work / "logs",
                                           timeout_s=timeout)
         reports = kre_adapter.discover_reports(report_dir)
@@ -226,6 +256,53 @@ def register_cli(app: Flask) -> None:
         click.echo(f"reports discovered: {[r.name for r in reports]}")
         click.echo("NOTE: pass/fail verdict requires real JUnit output; "
                    "this smoke run only proves invocation + collection.")
+
+    @app.cli.command("dagu-config")
+    @click.option("--endpoint", required=True,
+                  help="Dagu base URL, e.g. http://127.0.0.1:29877")
+    @click.option("--credential-ref", default="",
+                  help="SecretRef name holding the Dagu credential "
+                       "(basic-mode password, or bearer API key)")
+    @click.option("--username", default="",
+                  help="Dagu basic-auth username; empty = Bearer token mode")
+    @click.option("--check", is_flag=True,
+                  help="Probe /api/v1/version after saving")
+    def dagu_config(endpoint, credential_ref, username, check):
+        """Point the portal at the Dagu orchestrator (§7, Option B).
+        The credential itself is stored via System -> Credentials —
+        only the SecretRef NAME is recorded here. With --username the
+        secret must hold that account's password (auth.mode: basic);
+        without it the secret must hold a Bearer API key (builtin)."""
+        from . import settings as settings_mod
+        from .adapters.dagu import DaguAdapter
+        from .secrets_store import read_secret
+        if credential_ref:
+            try:
+                read_secret(app, credential_ref)
+            except Exception as exc:
+                raise click.ClickException(
+                    f"credential reference unusable: {exc}")
+        settings_mod.update({
+            "dagu_endpoint": endpoint.rstrip("/"),
+            "dagu_credential_ref": credential_ref,
+            "dagu_username": username,
+        })
+        click.echo(f"saved dagu_endpoint={endpoint.rstrip('/')} "
+                   f"dagu_username={username or '(bearer)'} "
+                   f"dagu_credential_ref={credential_ref or '(none)'}")
+        if check:
+            try:
+                info = DaguAdapter.from_settings().health()
+            except Exception as exc:
+                raise click.ClickException(f"Dagu health check failed: {exc}")
+            click.echo(
+                f"health: {info.get('status') or 'reachable'}, "
+                f"version {info['version']}, "
+                f"workflow_installed={info['workflow_installed']}")
+            if not info["workflow_installed"]:
+                raise click.ClickException(
+                    "testorchestrator-execution workflow is not installed "
+                    "in the Dagu dags directory")
 
     @app.cli.command("caddy-rollback")
     def caddy_rollback():

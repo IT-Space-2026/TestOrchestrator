@@ -87,12 +87,15 @@ def run_task(client: AgentClient, task: dict, work_root: Path) -> None:
         source_dir.mkdir(parents=True, exist_ok=True)
         project_dir = kre_adapter.prepare_workspace(
             source_dir, attempt_dir, task.get("source_sha", ""))
+        rc = (task.get("snapshot") or {}).get("run_config") or {}
         args = kre_adapter.build_args(
             executable=runtime["executable_path"],
             project_path=str(project_dir),
             suite_path=task["snapshot"]["entries"][0]["case_ref"]
             if task["snapshot"].get("entries") else "",
             report_dir=str(report_dir),
+            profile=rc.get("profile", "default"),
+            browser=rc.get("browser", "Chrome (headless)"),
         )
         result = kre_adapter.run_invocation(
             args, log_dir,
@@ -123,15 +126,23 @@ def run_task(client: AgentClient, task: dict, work_root: Path) -> None:
                 else "incomplete" if statuses == {"skipped"}
                 else "passed")
         # Evidence upload: authenticated artifact transfer (§9).
-        for item in build_evidence_manifest(report_dir):
-            path = report_dir / item["rel_path"]
+        uploads = [
+            (report_dir / item["rel_path"], item["rel_path"], item["kind"],
+             item["mime"])
+            for item in build_evidence_manifest(report_dir)
+        ]
+        # Runner logs (recorded argv + captured stdout/stderr) are evidence.
+        uploads += [
+            (p, f"logs/{p.name}", "log", "text/plain")
+            for p in sorted(log_dir.glob("kre-*.log"))
+        ]
+        for path, rel_path, kind, mime in uploads:
             try:
                 client.post(
                     f"/api/agent/artifact/{ex_id}",
-                    files={"file": (Path(item["rel_path"]).name,
+                    files={"file": (Path(rel_path).name,
                                     path.read_bytes())},
-                    data={"rel_path": item["rel_path"], "kind": item["kind"],
-                          "mime": item["mime"]},
+                    data={"rel_path": rel_path, "kind": kind, "mime": mime},
                 )
             except requests.RequestException:
                 pass  # retry on next poll cycle — evidence stays local

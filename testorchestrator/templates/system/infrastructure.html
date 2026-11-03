@@ -11,13 +11,21 @@
 <section class="card">
   <h2>Runners</h2>
   <table class="audit-table">
-    <thead><tr><th>Name</th><th>Mode</th><th>OS/arch</th><th>Slots</th><th>Health</th><th>Heartbeat</th><th>Drain</th></tr></thead>
+    <thead><tr><th>Name</th><th>Mode</th><th>OS/arch</th><th>Slots</th><th>Health</th><th>Heartbeat</th><th>Agent</th><th>Drain</th></tr></thead>
     <tbody>
       {% for r in runners %}
       <tr>
         <td>{{ r.name }}</td><td>{{ r.connection_mode }}</td>
         <td>{{ r.os_arch }}</td><td>{{ r.max_slots }}</td>
         <td>{{ r.health }}</td><td>{{ r.heartbeat_at or "—" }}</td>
+        <td>
+          {% if r.agent_token_hash %}issued{% else %}none{% endif %}
+          {{ "· v" + r.agent_version if r.agent_version else "" }}
+          <form method="post" action="{{ url_for('system.issue_token', runner_id=r.id) }}" class="inline">
+            {{ runner_form.csrf_token }}
+            <button type="submit" class="button secondary">Issue token</button>
+          </form>
+        </td>
         <td>
           <form method="post" action="{{ url_for('system.drain_runner', runner_id=r.id) }}" class="inline">
             {{ runner_form.csrf_token }}

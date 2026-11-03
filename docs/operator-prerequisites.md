@@ -20,8 +20,14 @@ updater may alter it.
 ## Smoke checks the operator can run first
 
 ```bash
-# Probe an existing KRE install (no licence action taken):
-flask kre-smoke /opt/katalon/katalonc --project /srv/your-project
+# Probe an existing KRE install (version probe only — never runs tests,
+# no licence action taken):
+flask kre-smoke /opt/katalon/katalonc
+
+# Optional direct smoke EXECUTION of an explicitly selected suite
+# (bypasses portal/Dagu/agent — not the A01 acceptance run):
+flask kre-exec /opt/katalon/katalonc --project /srv/your-project \
+    --suite "Test Suites/Smoke"
 
 # Register runtime in the UI, then use "Test connection" — it probes the
 # executable only, never installs or licenses.

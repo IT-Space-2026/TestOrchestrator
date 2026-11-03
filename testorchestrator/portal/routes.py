@@ -87,10 +87,16 @@ def project_detail(project_id):
     project = _project_or_404(project_id)
     can_edit = current_user.role.value in ("admin", "test_manager")
     can_run = current_user.role.value in ("admin", "test_manager", "tester")
+    suite_form = SuiteForm()
+    # Case choices mirror create_suite's selection: the project's first
+    # binding's synced worktree (read-only listing, never executed).
+    first_binding = GitBinding.query.filter_by(project_id=project.id).first()
+    cases = gitsync.list_test_cases(first_binding) if first_binding else []
+    suite_form.case_refs.choices = [(c, c) for c in cases]
     return render_template(
         "portal/project_detail.html", project=project,
         binding_form=BindingForm(), plan_form=PlanForm(),
-        suite_form=SuiteForm(), plain_form=PlainForm(),
+        suite_form=suite_form, plain_form=PlainForm(),
         can_edit=can_edit, can_run=can_run,
         executions=Execution.query.filter_by(project_id=project_id)
         .order_by(Execution.created_at.desc()).limit(25).all(),
@@ -156,11 +162,11 @@ def create_suite(project_id):
         suite = Suite(project_id=project.id, name=form.name.data.strip(),
                       description=form.description.data or "",
                       imported=bool(binding))
+        db.session.add(suite)
+        db.session.flush()  # id assigned before entries reference it
         for i, ref in enumerate(form.case_refs.data):
             db.session.add(SuiteEntry(
                 suite_id=suite.id, order=i, case_ref=ref))
-        db.session.add(suite)
-        db.session.flush()
         suite.content_hash = _suite_hash(suite)
         db.session.commit()
         record_audit(current_user.username, "suite.created", suite.id)
@@ -174,7 +180,11 @@ def suite_detail(suite_id):
     if suite is None:
         abort(404)
     _project_or_404(suite.project_id)
-    return render_template("portal/suite_detail.html", suite=suite)
+    can_run = current_user.role.value in ("admin", "test_manager", "tester")
+    binding = GitBinding.query.filter_by(project_id=suite.project_id).first()
+    return render_template(
+        "portal/suite_detail.html", suite=suite, can_run=can_run,
+        binding=binding, plain_form=PlainForm())
 
 
 # ---------- executions ----------
@@ -199,8 +209,13 @@ def launch_execution(suite_id):
     binding = GitBinding.query.filter_by(
         project_id=suite.project_id).first()
     sha = binding.last_synced_sha if binding else ""
+    run_config = {
+        "profile": request.form.get("execution_profile") or "default",
+        "browser": request.form.get("browser_type") or "Chrome (headless)",
+    }
     ex = dispatch.create_execution(
-        current_user.username, suite, binding=binding, source_sha=sha)
+        current_user.username, suite, binding=binding, source_sha=sha,
+        run_config=run_config)
     record_audit(current_user.username, "execution.queued", ex.id)
     flash(f"Execution {ex.id[:8]} queued.", "info")
     return redirect(url_for("portal.execution_detail", execution_id=ex.id))
@@ -270,9 +285,13 @@ def download_artifact(execution_id, artifact_id):
 def view_log(execution_id, name):
     """stdout/stderr served as text/plain — never rendered as HTML."""
     ex = _execution_or_404(execution_id)
-    if name not in ("kre-stdout.log", "kre-stderr.log"):
+    if name not in ("kre-stdout.log", "kre-stderr.log",
+                    "kre-invocation.log"):
         abort(404)
     path = Path(ex.workspace_path or "") / "logs" / name
+    if not path.is_file():
+        # Remote executions: logs arrive as uploaded evidence artifacts.
+        path = Path(ex.report_dir or "") / "logs" / name
     if not path.is_file():
         abort(404)
     record_audit(current_user.username, "log.view", f"{execution_id}/{name}")

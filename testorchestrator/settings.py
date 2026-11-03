@@ -51,6 +51,9 @@ DEFAULTS = {
     # success. Values are endpoints/references — secrets live in SecretRef.
     "dagu_endpoint": "",
     "dagu_credential_ref": "",
+    # auth.mode: basic username (password lives in the SecretRef). Empty =
+    # Bearer token mode (builtin auth API key).
+    "dagu_username": "",
     "reportportal_endpoint": "",
     "reportportal_project": "",
     "reportportal_credential_ref": "",

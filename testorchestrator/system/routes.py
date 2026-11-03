@@ -499,6 +499,30 @@ def probe_runtime(runtime_id):
     return redirect(url_for("system.infrastructure"))
 
 
+@system_bp.route("/infrastructure/runners/<runner_id>/issue-token",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def issue_token(runner_id):
+    """Issue a new agent bearer token for this runner (§6, §12). The
+    plaintext is shown ONCE in the flash below — only its SHA-256 digest
+    is persisted. Re-issuing replaces the token (old agents lose access).
+    Required for BOTH modes: the Dagu-launched local agent and the
+    remote agent daemon authenticate with it."""
+    from ..agent_api import issue_agent_token
+    from ..execution import Runner
+    ApplyForm().validate_on_submit()
+    runner = db.session.get(Runner, runner_id)
+    if runner is None:
+        abort(404)
+    token = issue_agent_token(runner)
+    record_audit(current_user.username, "runner.agent_token_issued",
+                 runner.name)
+    flash(
+        f"Agent token for {runner.name} — copy it now, it is never stored "
+        f"or shown again: {token}", "info")
+    return redirect(url_for("system.infrastructure"))
+
+
 @system_bp.route("/infrastructure/runners/<runner_id>/drain",
                  methods=["POST"])
 @role_required(Role.ADMIN)

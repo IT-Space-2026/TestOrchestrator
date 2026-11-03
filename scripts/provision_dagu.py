@@ -14,13 +14,16 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     home, cfg = Path(a.home), Path(a.config)
+    user = "testorchestrator"
+    # auth.mode: basic (verified vs bundled 2.25.2 — builtin's token.secret
+    # is a JWT signing secret, not a static bearer credential).
     token = "to-dagu-" + secrets.token_urlsafe(32)
     steps = [
         ("mkdirs", home/"dags", home/"data"),
         ("install binary", cfg/"dagu"),
         ("server config", cfg/"server.yaml"),
         ("workflow", home/"dags"/"testorchestrator-execution.yaml"),
-        ("token file (0600)", cfg/"token"),
+        ("credential file (0600)", cfg/"credentials"),
         ("systemd unit", cfg/"testorchestrator-dagu.service"),
     ]
     for s in steps:
@@ -28,8 +31,12 @@ def main():
     if a.dry_run: return
     for d in (home/"dags", home/"data", cfg): d.mkdir(parents=True, exist_ok=True)
     shutil.copy2(a.binary, cfg/"dagu"); os.chmod(cfg/"dagu", 0o755)
-    (cfg/"server.yaml").write_text(f"auth:\n  mode: builtin\n  token:\n    secret: {token}\n")
-    (cfg/"token").write_text(token); os.chmod(cfg/"token", 0o600)
+    (cfg/"server.yaml").write_text(
+        f"auth:\n  mode: basic\n  basic:\n"
+        f"    username: {user}\n    password: {token}\n")
+    os.chmod(cfg/"server.yaml", 0o600)
+    (cfg/"credentials").write_text(f"username={user}\npassword={token}\n")
+    os.chmod(cfg/"credentials", 0o600)
     shutil.copy2("deploy/dags/testorchestrator-execution.yaml",
                  home/"dags"/"testorchestrator-execution.yaml")
     (cfg/"testorchestrator-dagu.service").write_text(f"""[Unit]

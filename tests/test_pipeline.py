@@ -127,11 +127,11 @@ def test_full_pipeline_pass_and_fail_collected(app, pipeline_env):
         assert len(results) == 3
         statuses = sorted(r.status.value for r in results)
         assert statuses == ["failed", "passed", "skipped"]
-        # Evidence: JUnit + PNG screenshot + 2 stdout/stderr logs.
+        # Evidence: JUnit + PNG screenshot + invocation/stdout/stderr logs.
         artifacts = Artifact.query.filter_by(execution_id=ex_id).all()
         kinds = sorted(a.kind for a in artifacts)
         assert "junit" in kinds and "screenshot" in kinds
-        assert kinds.count("log") == 2
+        assert kinds.count("log") == 3
         # stderr may legitimately be empty — integrity is the checksum.
         assert all(a.sha256 and a.size is not None for a in artifacts)
         junit = next(a for a in artifacts if a.kind == "junit")
@@ -191,6 +191,30 @@ def test_cancel_kills_process_tree(app, pipeline_env, tmp_path):
 
 import subprocess
 import threading
+
+
+def test_run_config_profile_browser_reach_invocation(app, pipeline_env):
+    """Operator-selected profile/browser land in the recorded argv
+    (kre-invocation.log), not silently defaulted."""
+    with app.app_context():
+        ex = dispatch.create_execution(
+            "admin", pipeline_env["suite"], binding=pipeline_env["binding"],
+            source_sha="abc123def456",
+            run_config={"profile": "smoke-profile", "browser": "Firefox"})
+        ex_id = ex.id
+        assert ex.snapshot()["run_config"] == {
+            "profile": "smoke-profile", "browser": "Firefox"}
+    _run_worker(app)
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        assert ex.state == ExecutionState.COMPLETED
+        inv = Path(ex.workspace_path) / "logs" / "kre-invocation.log"
+        argv = inv.read_text()
+        assert "-executionProfile=smoke-profile" in argv
+        assert "-browserType=Firefox" in argv
+        # The invocation record itself is collected as checksummed evidence.
+        kinds = [a.rel_path for a in ex.artifacts]
+        assert "logs/kre-invocation.log" in kinds
 
 
 def test_missing_runtime_is_actionable_error(app, pipeline_env):

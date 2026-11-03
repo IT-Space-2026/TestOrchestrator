@@ -6,7 +6,28 @@
 <dl class="about-facts">
   <dt>Content hash</dt><dd><code>{{ suite.content_hash[:16] }}</code></dd>
   <dt>Imported</dt><dd>{{ "yes (read-only)" if suite.imported else "no" }}</dd>
+  <dt>Pinned source</dt><dd>
+    {% if binding %}binding <code>{{ binding.name }}</code> @
+    <code>{{ binding.last_synced_sha or "never synced" }}</code>
+    {% else %}no git binding — workspace copy only{% endif %}
+  </dd>
 </dl>
+{% if can_run %}
+<section class="card">
+  <h2>Start execution</h2>
+  <p class="muted">An immutable snapshot of the entries below (v{{ suite.version }},
+     pinned source above) is dispatched through Dagu to an eligible
+     registered runner/runtime.</p>
+  <form method="post" action="{{ url_for('portal.launch_execution', suite_id=suite.id) }}">
+    {{ plain_form.csrf_token }}
+    <div class="field"><label for="execution_profile">Execution profile</label>
+      <input type="text" name="execution_profile" id="execution_profile" value="default"></div>
+    <div class="field"><label for="browser_type">Browser</label>
+      <input type="text" name="browser_type" id="browser_type" value="Chrome (headless)"></div>
+    <button type="submit" class="button">Run suite</button>
+  </form>
+</section>
+{% endif %}
 <h2>Entries</h2>
 <table class="audit-table">
   <thead><tr><th>#</th><th>Case reference</th><th>Enabled</th></tr></thead>

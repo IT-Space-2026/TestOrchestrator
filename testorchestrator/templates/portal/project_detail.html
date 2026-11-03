@@ -64,6 +64,27 @@
     {% endfor %}
   </ul>
   {% else %}<p class="muted">No suites yet.</p>{% endif %}
+  {% if can_edit %}
+  <form method="post" action="{{ url_for('portal.create_suite', project_id=project.id) }}">
+    {{ suite_form.csrf_token }}
+    <div class="field">{{ suite_form.name.label }} {{ suite_form.name() }}</div>
+    <div class="field">{{ suite_form.description.label }} {{ suite_form.description() }}</div>
+    {% if project.bindings %}
+    <div class="field"><label for="binding_id">Source binding</label>
+      <select name="binding_id" id="binding_id">
+        <option value="">(none)</option>
+        {% for b in project.bindings %}
+        <option value="{{ b.id }}">{{ b.name }}</option>
+        {% endfor %}
+      </select>
+      <small class="muted">Case list below comes from the project's first
+        synced binding.</small>
+    </div>
+    {% endif %}
+    <div class="field">{{ suite_form.case_refs.label }} {{ suite_form.case_refs(size=8) }}</div>
+    <button type="submit" class="button">Create suite</button>
+  </form>
+  {% endif %}
 </section>
 
 <section class="card">

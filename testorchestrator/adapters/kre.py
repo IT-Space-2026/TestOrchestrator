@@ -18,6 +18,7 @@ not prove KRE CLI compatibility (A14).
 
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -125,6 +126,10 @@ def run_invocation(
 
     log_dir.mkdir(parents=True, exist_ok=True)
     result = InvocationResult()
+    # Record the exact argv used — sanitized (paths/flags only, no
+    # secrets) so reviewers can inspect the actual KRE invocation.
+    (log_dir / "kre-invocation.log").write_text(
+        f"argv={shlex.join(str(a) for a in args)}\n", encoding="utf-8")
     stdout_f = open(log_dir / "kre-stdout.log", "wb")
     stderr_f = open(log_dir / "kre-stderr.log", "wb")
     result.stdout_path = str(stdout_f.name)

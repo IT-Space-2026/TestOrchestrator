@@ -13,6 +13,7 @@
   <dt>Source SHA</dt><dd><code>{{ ex.source_sha or "—" }}</code></dd>
   <dt>State</dt><dd><strong>{{ ex.state.value }}</strong></dd>
   <dt>Outcome</dt><dd>{{ ex.outcome.value }}</dd>
+  <dt>Dagu run</dt><dd><code>{{ ex.dispatch_id or "—" }}</code></dd>
   <dt>Runner</dt><dd>{{ ex.runner.name if ex.runner else "—" }}</dd>
   <dt>Runtime</dt><dd>{{ ex.runtime.name if ex.runtime else "—" }}</dd>
   <dt>Started</dt><dd>{{ ex.started_at or "—" }}</dd>
@@ -54,6 +55,7 @@
 
 <h2>Logs</h2>
 <ul class="notice-list">
+  <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-invocation.log') }}">kre-invocation.log</a> (recorded argv)</li>
   <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-stdout.log') }}">kre-stdout.log</a></li>
   <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-stderr.log') }}">kre-stderr.log</a></li>
 </ul>
