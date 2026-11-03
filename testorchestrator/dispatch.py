@@ -477,6 +477,17 @@ def _handle_event(event: OutboxEvent) -> None:
                 if ex:
                     ex.dispatch_id = dispatch_id
                     db.session.commit()
+                    # OWNERSHIP (Option B): Dagu now owns the run. The
+                    # workflow step invokes the authorized executor
+                    # (agent/tasks endpoint, bearer-auth'd, immutable
+                    # snapshot — no arbitrary commands). The portal does
+                    # NOT independently call run_execution here.
+                    if _dagu_mandatory():
+                        ex.state = ExecutionState.DISPATCHED
+                        ex.lease_expires_at = utcnow() + timedelta(
+                            seconds=LEASE_SECONDS)
+                        db.session.commit()
+                        return
             except Exception as exc:
                 if _dagu_mandatory():
                     if ex:
