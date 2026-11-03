@@ -72,11 +72,25 @@ def backup_state(target_dir: Path, paths: list) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out = target_dir / f"backup-{stamp}.tar.gz"
+    tdir = target_dir.resolve()
     with tarfile.open(out, "w:gz") as tar:
         for p in paths:
             p = Path(p)
-            if p.exists():
+            if not p.exists():
+                continue
+            try:
+                rel = tdir.relative_to(p.resolve())
+            except ValueError:
                 tar.add(p, arcname=p.name)
+                continue
+            # Never archive the backups dir inside a path being backed
+            # up — self-inclusion made every backup contain all previous
+            # ones (geometric growth until the disk filled).
+            prefix = str(Path(p.name) / rel)
+            tar.add(p, arcname=p.name,
+                    filter=lambda i, _pf=prefix: None
+                    if i.name == _pf or i.name.startswith(_pf + "/")
+                    else i)
     return out
 
 
