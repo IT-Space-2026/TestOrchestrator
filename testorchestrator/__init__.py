@@ -65,11 +65,13 @@ def create_app(config_object=Config) -> Flask:
     from .main import main_bp
     from .system import system_bp
     from .portal import portal_bp
+    from .agent_api import agent_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(system_bp)
     app.register_blueprint(portal_bp)
+    app.register_blueprint(agent_bp)
 
     # v1.8 bootstrap + network gates (loopback-only until setup completes and
     # external access is enabled; host allowlist; forced password change).
@@ -171,3 +173,95 @@ def register_cli(app: Flask) -> None:
         else:
             click.echo("worker loop started (Ctrl-C to stop)")
             dispatch.worker_loop()
+
+    @app.cli.command("agent")
+    @click.option("--portal", required=True, help="Portal base URL, e.g. https://tests.example.com")
+    @click.option("--token", required=True, help="Issued agent bearer token (toa_...)")
+    @click.option("--work-root", default=None, help="Agent workspace directory")
+    @click.option("--once", is_flag=True)
+    def agent(portal, token, work_root, once):
+        """Remote runner agent (§6): polls for assigned executions and
+        invokes the operator-installed KRE on this machine. Never installs
+        or updates KRE itself."""
+        from pathlib import Path
+        from . import agent as agent_mod
+        root = Path(work_root or INSTANCE_DIR / "agent-work")
+        root.mkdir(parents=True, exist_ok=True)
+        agent_mod.run(portal, token, root, once=once)
+
+    @app.cli.command("kre-smoke")
+    @click.argument("executable")
+    @click.option("--project", default=".", help="Katalon project dir")
+    @click.option("--timeout", default=300, type=int)
+    def kre_smoke(executable, project, timeout):
+        """Operator smoke test against an EXISTING KRE installation (§5,
+        A01 prerequisite): probes the version, runs one console invocation
+        into an isolated report dir, and prints what was collected. Does
+        not install or license anything. Example:
+
+            flask kre-smoke /opt/katalon/katalonc --project /srv/proj
+        """
+        from pathlib import Path
+        from .adapters import kre as kre_adapter
+        exe = str(Path(executable).resolve())
+        try:
+            version = kre_adapter.probe_version(exe)
+            click.echo(f"probe: detected version {version}")
+        except kre_adapter.KreError as exc:
+            raise click.ClickException(str(exc))
+        work = Path(INSTANCE_DIR) / "kre-smoke"
+        work.mkdir(parents=True, exist_ok=True)
+        report_dir = work / "Reports"
+        args = kre_adapter.build_args(
+            executable=exe, project_path=str(Path(project).resolve()),
+            suite_path="Test Suites/smoke", report_dir=str(report_dir))
+        result = kre_adapter.run_invocation(args, work / "logs",
+                                          timeout_s=timeout)
+        reports = kre_adapter.discover_reports(report_dir)
+        click.echo(f"exit={result.exit_status} canceled={result.canceled} "
+                   f"timeout={result.timed_out}")
+        click.echo(f"reports discovered: {[r.name for r in reports]}")
+        click.echo("NOTE: pass/fail verdict requires real JUnit output; "
+                   "this smoke run only proves invocation + collection.")
+
+    @app.cli.command("caddy-rollback")
+    def caddy_rollback():
+        """Local recovery: restore the last known good Caddy config when
+        the UI is unreachable (v1.8 staged-apply rollback)."""
+        from .caddyconf import rollback_config, CaddyApplyError
+        try:
+            result = rollback_config(app)
+        except CaddyApplyError as exc:
+            raise click.ClickException(str(exc))
+        click.echo(f"rolled back: {result['restored']}")
+
+    @app.cli.command("set-admin-password")
+    @click.argument("password")
+    def set_admin_password(password):
+        """Headless bootstrap: replace the Admin bootstrap credential from
+        the local console (v1.8). Marks setup complete and revokes any
+        bootstrap session."""
+        from .models import User
+        from .settings import mark_setup_complete
+        if len(password) < 12:
+            raise click.ClickException("password must be >= 12 characters")
+        admin = User.query.filter_by(username="Admin").first()
+        if admin is None:
+            raise click.ClickException("no bootstrap Admin exists")
+        admin.set_password(password)
+        admin.must_change_password = False
+        admin.session_version += 1
+        mark_setup_complete()
+        db.session.commit()
+        click.echo("Admin password set; setup marked complete.")
+
+    @app.cli.command("git-restore")
+    @click.argument("project_id")
+    def git_restore(project_id):
+        """Restore versioned definitions from the export repo (§11, A08)."""
+        from . import gitsync
+        try:
+            restored = gitsync.restore_definitions(project_id)
+        except Exception as exc:
+            raise click.ClickException(str(exc))
+        click.echo(f"restored: {restored}")

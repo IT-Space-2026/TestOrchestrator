@@ -1,67 +1,72 @@
 # Implementation status inventory
 
-Date: 2026-11-03. Required by handoff §3. Statuses: **implemented+tested** /
-**implemented, unverified** / **partial** / **stub** / **missing** /
-**blocked**. Nothing below claims success without executable evidence (A14).
+Date: 2026-11-03. Required by handoff §3. Latest implementation commit:
+`1c88f1e` (+ follow-up commit on `main`).
 
-## Working and tested (pytest suite)
+Columns per request: **implementation** (code completeness),
+**automated tests** (suite evidence), **live integration** (against real
+services), **external blockers**. "Implemented" here means code exists and
+is exercised — never a claim of live verification (A14).
 
-| Capability | Files | Tests | Status |
-|---|---|---|---|
-| v1.7 About + IT-Space branding (all roles, offline, notices, admin changelog) | `testorchestrator/main/routes.py`, `templates/main/_about_content.html`, `static/js/about.js` | `test_about.py` (AB01–AB07) | implemented+tested — official logo still owner-blocked (AB07) |
-| v1.8 bootstrap Admin/Admin + mandatory change + loopback gate + rate limit | `bootstrap.py`, `auth/routes.py` | `test_bootstrap.py` (BOOT01–04) | implemented+tested |
-| Address model, ports (443/8080/18080), redirect-only HTTP rendering | `network.py`, `caddyconf.py`, `settings.py` | `test_network.py` (NET01–05) | implemented+tested |
-| Certificate generate/import, SAN/expiry/chain checks, protected keys | `certs.py`, `system/routes.py` | `test_certs.py` (CERT01–04) | implemented+tested |
-| Four roles, Argon2id, CSRF, secure sessions, session revocation, last-Admin protection | `models.py`, `auth/`, `system/routes.py` | `test_infra.py`, `test_security.py` | implemented+tested |
-| Admin user management (create/reset/deactivate) | `system/routes.py`, `templates/system/users.html` | `test_infra.py` | implemented+tested |
-| Fernet secret store (key outside DB, rotation metadata, not-configured errors) | `secrets_store.py` | `test_infra.py` | implemented+tested |
-| Canonical JUnit parser + outcome semantics (skip≠pass, no zero-test pass) | `results.py` | `test_results_parser.py` | implemented+tested |
-| Evidence manifest (checksums, MIME, active-content flags, path safety) | `results.py`, `portal/routes.py` | `test_results_parser.py`, `test_infra.py` | implemented+tested |
-| Immutable execution snapshots, independent state fields | `execution.py`, `dispatch.py` | `test_pipeline.py` | implemented+tested |
-| Local runner: capacity, drain, leases, reconciliation to UNKNOWN | `dispatch.py`, `adapters/runner.py` | `test_pipeline.py` | implemented+tested |
-| Process-tree cancellation via process groups | `adapters/kre.py`, `dispatch.py` | `test_pipeline.py::test_cancel_kills_process_tree` | implemented+tested |
-| Durable outbox + `flask worker` (dispatch outside request handlers) | `execution.py`, `dispatch.py`, `__init__.py` | `test_pipeline.py` | implemented+tested |
-| Git export `TestOrchestrator/` layout, whitelist kinds, checksum verify | `gitsync.py` | `test_infra.py::test_git_export_layout` | implemented+tested (local repo paths) |
-| Git binding clone/index, read-only case/suite listing | `gitsync.py` | covered by local-path clone path | implemented+tested for local/file URLs; HTTPS/SSH auth paths unverified |
-| Portal UI: projects/bindings/suites/plans/releases/executions/artifacts | `portal/`, `templates/portal/` | `test_infra.py::test_project_scope_enforced` | implemented+tested |
+## Execution call path (clarification, item 2)
 
-## Implemented but unverified (requires operator-supplied services)
+Current actual path for a dispatched execution:
 
-| Capability | Files | Blocker |
-|---|---|---|
-| KRE CLI compatibility (argument spelling, exit meanings, version probes) | `adapters/kre.py` | needs real operator-supplied KRE executable; fixture proves mechanics only |
-| Dagu adapter (health/submit/status/logs/cancel) | `adapters/dagu.py` | needs live Dagu instance + pinned version verification |
-| ReportPortal adapter (launch/items/logs/attachments/finish) | `adapters/reportportal.py` | needs live ReportPortal instance; A02 screenshot mapping unproven |
-| HTTPS/SSH Git credential transports | `gitsync.py`, `secrets_store.py` | needs real remote repos + credentials |
+```
+suite run -> create_execution (immutable snapshot + outbox row, same txn)
+  -> flask worker -> pick_runner (capacity/drain/project scope)
+  -> local: KRE adapter subprocess -> collect -> normalize -> publish -> finalize
+  -> remote: execution stays DISPATCHED under lease; the authenticated
+     agent polls /api/agent/tasks, invokes the operator-installed KRE on
+     its own machine, heartbeats, uploads results+evidence
+```
 
-## Partial
+**Dagu does NOT orchestrate jobs today.** A REST client exists
+(`adapters/dagu.py`) but no dispatch path calls it when the endpoint is
+unconfigured, and even configured it has never been exercised live — the
+Python worker is the orchestrator of record right now. Dagu is an
+integration seam, not the active dispatcher. That is recorded below as
+missing live integration, not as done.
 
-| Capability | Gap |
-|---|---|
-| Remote runner transport | architecture decision made (secured Python agent, §6 option A); not implemented — remote runners never get assigned |
-| Plan parallelism | plan entries queue sequentially; bounded parallelism beyond capacity selection not implemented |
-| Evidence→case mapping | screenshots attach per `result_id` when mapped; filename association not attempted (per §9); richer manifest mapping pending |
-| Releases | native CRUD + mark-released + plan links; no run-from-release reports view yet |
-| `development-insecure` HTTP mode | selectable but renderer emits no listener — needs explicit approval gate |
+## Status table
 
-## Missing / blocked
+| Capability | Implementation | Automated tests | Live integration | External blockers |
+|---|---|---|---|---|
+| About/branding (v1.7) | complete | test_about.py AB01–AB07 (29 tests) | n/a (all local) | official logo (owner input) |
+| Bootstrap/network/certs (v1.8) | complete | test_bootstrap/test_network/test_certs (BOOT01–04, NET01–05, CERT01–04) | n/a | none |
+| Execution pipeline: snapshot, outbox, state machine, local runner, cancel, reconcile | complete | test_pipeline.py (6 tests incl. cancel-tree kill, lease→UNKNOWN) | none — local only | none |
+| Remote runner transport | complete | test_agent.py (5 tests: auth, tasks, heartbeat, artifact, cancel, reconcile) | unverified vs. a real remote host | none |
+| KRE adapter | complete for invocation mechanics | test_pipeline.py via fixture executable | **unverified vs. real KRE** | operator KRE binary + licence |
+| Dagu adapter | client only | none | **missing live orchestration** | live Dagu instance + version pin |
+| ReportPortal adapter | client + resume-safe ID persistence | unit shape only | **unverified vs. real RP** | live RP instance |
+| Git persistence | export + push + conflict + restore | test_infra.py (local repos); push/conflict code paths | unverified vs. remote remote | real remote repo + credentials |
+| Credential store | complete | test_infra.py (4 tests) | n/a | none |
+| Users/roles/audit | complete | test_infra.py, test_security.py | n/a | none |
+| Portal UI (projects→executions) | complete | test_infra.py scope tests | n/a | none |
+| Suite/plan/release builders | partial — create + run + mark-released; no rich builder UI | test_infra.py | n/a | none |
+| Installer | scaffold `scripts/install.py` | dry-run only | **missing per-OS validation** | Windows/SLES test hosts |
+| Updater | signed-bundle verify + backup/stage/rollback scaffold | none | **missing live update test** | signed release bundle + target hosts |
+| PQ transport check | documented pending | none | missing | PQ-capable client matrix |
 
-| Capability | Blocker |
-|---|---|
-| Real KRE execution evidence (A01, A02) | operator inputs: installed KRE, licence, browsers, project |
-| Installer (§13), updater/recovery flow (§14) | not implemented; deploy assets only |
-| PQ transport verification (§15) | needs bundled-Caddy TLS negotiation testing with supported clients |
-| Remote agent, containerized ReportPortal baseline | platform decisions + infrastructure |
+## Reclassified (item 6)
 
-## Acceptance A01–A14
+Remote transport and installer/updater are **missing implementations**,
+not operator-blocked validation — now coded (agent + scaffolds) with live
+verification still open. Operator-blocked items are only: real KRE
+binary/licence, live Dagu, live ReportPortal, owner-approved logo, PQ
+client matrix.
 
-- **A01, A02, A04**: blocked on operator KRE/Dagu/ReportPortal inputs.
-- **A03**: implemented — local canonical results authoritative; RP/Git failures recorded independently, no rerun.
-- **A05, A06**: tested locally (cancel tree kill, lease reconciliation to UNKNOWN).
-- **A07**: partial — snapshot pins SHA per binding; multi-binding plan resolution exists only as one binding per project today.
-- **A08**: partial — export writes layout; full restore-from-clone not implemented.
-- **A09, A10**: blocked — installer/updater not implemented.
-- **A11**: partial — four roles enforced server-side incl. artifact paths; full matrix test pending.
-- **A12**: tested (BOOT02/04 + reset/self-service).
-- **A13**: partial — cert import works; PQ gate explicitly open.
-- **A14**: enforced — unverified integrations are marked so, here and in code.
+## Acceptance evidence (item 10)
+
+- **A01/A02**: blocked on real KRE + ReportPortal (operator inputs).
+- **A03**: `test_pipeline` — RP/Git failures leave evidence + state fields.
+- **A04**: partial — multiple runners supported; second-runtime live run unverified.
+- **A05/A06**: `test_pipeline.py::test_cancel_kills_process_tree`,
+  `test_lease_expiry_reconciles_unknown_not_rerun`.
+- **A07**: snapshot SHA pinned per binding; multi-binding resolution partial.
+- **A08**: `restore_definitions` implemented; full-clone restore tested on local repos.
+- **A09/A10**: scaffolded; per-OS validation open.
+- **A11**: roles + project scope enforced server-side; matrix partially tested.
+- **A12**: test_bootstrap.py + reset/self-service tests.
+- **A13**: cert import/network rollback tested; PQ explicitly open.
+- **A14**: unverified integrations labelled here and in code/docs.

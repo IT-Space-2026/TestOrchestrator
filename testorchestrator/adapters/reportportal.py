@@ -115,10 +115,17 @@ class ReportPortalAdapter:
         Retries reconcile against persisted remote IDs — a remote timeout
         may mean the request was accepted, so nothing is blindly recreated.
         """
-        launch_id = self.launch(
+        # Resume-safe: an existing launch ID means a previous attempt may
+        # have created hierarchy — skip item creation for results that
+        # already carry remote IDs (§9; no duplicate trees, no reruns).
+        launch_id = execution.rp_launch_id or self.launch(
             f"TO {execution.id}",
             {"suite": execution.snapshot().get("suite_name", "")},
         )
+        if not execution.rp_launch_id:
+            execution.rp_launch_id = launch_id
+            from ..extensions import db as _db
+            _db.session.commit()
         artifacts_by_result = {}
         for artifact in execution.artifacts:
             artifacts_by_result.setdefault(
@@ -127,7 +134,10 @@ class ReportPortalAdapter:
         from pathlib import Path
         from ..execution import SyncState
         for result in execution.results:
-            item_id = self.start_item(launch_id, result.case_name, "STEP")
+            item_id = result.rp_remote_id or self.start_item(
+                launch_id, result.case_name, "STEP")
+            if not result.rp_remote_id:
+                result.rp_remote_id = item_id
             status = {
                 "passed": "PASSED", "failed": "FAILED",
                 "error": "FAILED", "skipped": "SKIPPED",

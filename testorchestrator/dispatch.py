@@ -123,6 +123,8 @@ def effective_slots(runner: Runner) -> int:
 
 
 def pick_runner(execution: Execution) -> Runner | None:
+    """Enabled, non-draining runners with project scope and free slots —
+    local and remote modes both eligible (remote requires a live agent)."""
     runners = Runner.query.filter_by(enabled=True, draining=False).all()
     for runner in runners:
         allowed = json.loads(runner.allowed_projects or "[]")
@@ -200,6 +202,18 @@ def run_execution(execution_id: str) -> None:
     ex.runtime_id = runtime.id
     ex.lease_expires_at = utcnow() + timedelta(seconds=LEASE_SECONDS)
     db.session.commit()
+
+    if runner.connection_mode != "local":
+        # Remote transport (§6): the assigned agent picks the task up via
+        # /api/agent/tasks; the portal holds the lease, heartbeats renew
+        # it, expiry reconciles to UNKNOWN — never silent re-dispatch.
+        if not runner.agent_token_hash:
+            _fail(ex, "infrastructure",
+                  f"remote runner {runner.name!r} has no issued agent token")
+            return
+        ex.state = ExecutionState.DISPATCHED
+        db.session.commit()
+        return
 
     workspace_root = Path(
         runtime.workspace_root or runner.workspace_root

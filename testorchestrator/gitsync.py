@@ -234,3 +234,70 @@ def export_definitions(project) -> dict:
                 json.dumps(data, indent=2, default=str), encoding="utf-8")
     sha = _commit(repo, f"project {project.id} definitions")
     return {"commit": sha, "path": str(base)}
+
+
+# ---------- push, conflict handling, restore ----------
+
+def push_export() -> str:
+    """Push the export repo to its configured remote (§11). Reconciles
+    external edits via fetch+merge — NEVER force-push. Returns a status
+    string; conflicts surface honestly rather than being overwritten."""
+    repo = _export_repo()
+    if not repo.remotes:
+        raise NotConfigured("export repo has no remote 'origin'")
+    try:
+        repo.remotes.origin.fetch()
+        # Fast-forward/merge only — a non-ff pull is a conflict surfaced
+        # to the Admin, not silently resolved or force-pushed (§11).
+        merge = repo.git.merge(f"origin/{repo.active_branch.name}",
+                               no_edit=True)
+        repo.remotes.origin.push()
+        return "pushed"
+    except git.GitCommandError as exc:
+        text = str(exc)
+        if "CONFLICT" in text or "conflict" in text.lower():
+            repo.git.merge("--abort")
+            raise SyncError(
+                "remote has conflicting edits — reconcile manually in "
+                f"{repo.working_dir}; automatic force-push is forbidden"
+            )
+        raise
+
+
+def restore_definitions(project_id: str) -> dict:
+    """Restore suite/plan/release definitions from the export clone (A08).
+    Reads exported JSON back into the DB — the inverse of
+    export_definitions. Only definition objects are restored; users,
+    secrets, sessions, keys and audit data are never in the export."""
+    repo = _export_repo()
+    base = (Path(repo.working_dir) / EXPORT_ROOT / "projects" / project_id)
+    if not base.exists():
+        raise NotConfigured(f"no exported definitions for {project_id}")
+
+    from .execution import Plan, Release, Suite, SuiteEntry
+    counts = {"suites": 0, "plans": 0, "releases": 0}
+    for name, model, counter in (
+        ("suites", Suite, "suites"),
+        ("plans", Plan, "plans"),
+        ("releases", Release, "releases"),
+    ):
+        src = base / name
+        if not src.exists():
+            continue
+        for path in src.glob("*.json"):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            row = model.query.get(data["id"])
+            if row is None:
+                row = model(id=data["id"], project_id=project_id)
+                db.session.add(row)
+            for key, value in data.items():
+                if key in ("id", "project_id"):
+                    continue
+                if hasattr(row, key):
+                    try:
+                        setattr(row, key, value)
+                    except (AttributeError, TypeError):
+                        pass
+            counts[counter] += 1
+    db.session.commit()
+    return counts

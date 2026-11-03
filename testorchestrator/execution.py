@@ -142,6 +142,11 @@ class Runner(db.Model):
     draining = db.Column(db.Boolean, nullable=False, default=False)
     enabled = db.Column(db.Boolean, nullable=False, default=True)
     credential_ref = db.Column(db.String(64), nullable=False, default="")
+    # Remote transport (§6): hashed agent bearer token + last seen version.
+    # The plaintext token is shown to the Admin once at issuance — never
+    # stored or logged.
+    agent_token_hash = db.Column(db.String(64), nullable=False, default="")
+    agent_version = db.Column(db.String(32), nullable=False, default="")
 
 
 class RuntimeConnection(db.Model):
@@ -243,6 +248,9 @@ class Execution(db.Model):
     # heartbeat means UNKNOWN, never silent duplicate dispatch.
     lease_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
     heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # ReportPortal mapping (§9): persisted launch/item IDs so retries resume
+    # without duplicating hierarchy or rerunning tests.
+    rp_launch_id = db.Column(db.String(64), nullable=False, default="")
 
     project = db.relationship("Project")
     suite = db.relationship("Suite")
@@ -280,6 +288,8 @@ class TestResult(db.Model):
     # Unresolved when producer output cannot be mapped to a source case
     # deterministically — exposed honestly, never guessed (§8).
     unresolved = db.Column(db.Boolean, nullable=False, default=False)
+    # Persisted ReportPortal item id for resume-safe retries (§9).
+    rp_remote_id = db.Column(db.String(64), nullable=False, default="")
     execution = db.relationship("Execution", backref=db.backref(
         "results", cascade="all, delete-orphan"))
 
