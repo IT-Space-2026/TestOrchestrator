@@ -268,6 +268,8 @@ class Execution(db.Model):
     # change can never silently redirect a retry to another instance.
     rp_endpoint_used = db.Column(db.String(512), nullable=False,
                                  default="")
+    rp_project_used = db.Column(db.String(128), nullable=False,
+                                default="")
 
     project = db.relationship("Project")
     suite = db.relationship("Suite")
