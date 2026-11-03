@@ -97,9 +97,13 @@ def run_task(client: AgentClient, task: dict, work_root: Path) -> None:
             profile=rc.get("profile", "default"),
             browser=rc.get("browser", "Chrome (headless)"),
         )
+        creds = task.get("redact") or []
+        if creds:
+            args = args + [f"-apiKey={creds[0]}"]
         result = kre_adapter.run_invocation(
             args, log_dir,
-            cancel_event=RemoteCancelEvent(client, ex_id))
+            cancel_event=RemoteCancelEvent(client, ex_id),
+            redact=creds)
         payload["exit_status"] = result.exit_status
         payload["canceled"] = result.canceled
         payload["error_kind"] = kre_adapter.classify_error(result)
@@ -178,6 +182,44 @@ def run(portal: str, token: str, work_root: Path, once: bool = False,
         time.sleep(interval)
 
 
+TERMINAL_STATES = {"completed", "failed", "canceled"}
+
+
+def monitor(portal: str, token: str, execution_id: str,
+            verify_tls: bool = True, interval: float = 10.0,
+            timeout: float = 7200.0) -> int:
+    """Dagu monitor step (Option B remote targeting): poll the portal-side
+    execution state until a terminal outcome or explicit uncertainty —
+    the dagu run must NOT finish after mere dispatch. Returns a process
+    exit code: 0 terminal, 2 unknown/timeout (dagu run fails honestly)."""
+    import sys
+    client = AgentClient(portal, token, verify_tls=verify_tls)
+    client.register()
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            resp = client.get(f"/api/agent/state/{execution_id}")
+            if resp.status_code == 404:
+                print(f"monitor: execution {execution_id} not visible to "
+                      "this runner credential", file=sys.stderr)
+                return 2
+            resp.raise_for_status()
+            state = resp.json().get("state", "")
+            print(f"monitor: execution {execution_id} state={state}",
+                  flush=True)
+            if state in TERMINAL_STATES:
+                return 0
+            if state == "unknown":
+                return 2  # explicit uncertainty — never a silent success
+        except requests.RequestException:
+            pass  # portal unreachable: uncertainty, keep polling
+        if time.monotonic() > deadline:
+            print("monitor: timeout — execution state unresolved",
+                  file=sys.stderr)
+            return 2
+        time.sleep(interval)
+
+
 def load_agent_config(path: str):
     """Protected token delivery: agent reads portal URL + token from a
     0600 config file provisioned at install time — not from CLI args,
@@ -193,6 +235,9 @@ def main(argv=None):
     ap.add_argument("--config", default="/etc/testorchestrator/agent.toml")
     ap.add_argument("--portal"); ap.add_argument("--token")
     ap.add_argument("--once", action="store_true")
+    ap.add_argument("--monitor", action="store_true",
+                    help="after polling once, keep watching --execution-id "
+                         "until terminal/unknown (Dagu step mode)")
     ap.add_argument("--execution-id", default="")
     ap.add_argument("--work-root", default=None)
     a = ap.parse_args(argv)
@@ -203,6 +248,16 @@ def main(argv=None):
         work = work or c_work
     if not portal or not token:
         ap.error("portal/token required (config file or explicit args)")
+    if a.monitor:
+        # The step first gives THIS host a chance to execute the task
+        # (local mode), then monitors whatever runner owns it (remote).
+        client = AgentClient(portal, token)
+        try:
+            poll_once(client, Path(work or "/var/lib/testorchestrator/agent"),
+                      a.execution_id)
+        except Exception:
+            pass  # task may belong to a remote runner — monitor decides
+        raise SystemExit(monitor(portal, token, a.execution_id))
     run(portal, token, Path(work or "/var/lib/testorchestrator/agent"),
         once=a.once, execution_id=a.execution_id)
 

@@ -141,9 +141,15 @@ An agent is required in **both** modes — it is the only executor:
   token. You do not start a daemon; Dagu spawns it.
 - **Remote mode**: a persistent agent daemon you start on the remote host
   polls `/api/agent/tasks` every 5 s and picks up executions assigned to
-  its runner. Its `agent.toml` holds the **remote** runner's token. The
-  Dagu run record is the dispatch correlation only — the remote daemon
-  does the work and posts results back.
+  its runner. Its `agent.toml` holds the **remote** runner's token.
+  The Dagu workflow step still runs on the Dagu host: its agent finds no
+  task for the remote runner, then `--monitor` keeps polling the
+  execution state until a terminal outcome (`completed`/`failed`/
+  `canceled` → step success) or explicit uncertainty (`unknown`/timeout →
+  step fails honestly). The dagu run therefore mirrors the remote run's
+  fate — it never finishes after mere dispatch. The local-runner token in
+  the step's `agent.toml` is the orchestration credential that may read
+  any execution's state label for this purpose.
 
 In both cases:
 
@@ -257,7 +263,10 @@ Git synchronization; those are separate state fields and separate gates.
 - **Timeout:** `run_invocation` default 3600 s per invocation
   (`flask kre-exec --timeout` for the CLI check). The dispatch lease is
   60 s, renewed to +90 s by the agent's 30 s heartbeats; an expired lease
-  reconciles to `unknown` — **never** a silent re-dispatch.
+  reconciles to `unknown` — **never** a silent re-dispatch. The worker
+  also reconciles Dagu runs each cycle: a finished dagu run with no
+  portal result → `unknown`. A *running* dagu run never extends the
+  lease — an agent disconnect still surfaces as `unknown` within ~60 s.
 - **Diagnostics:** `error_kind`/`error_text` on the execution page;
   `kre-*.log` links and artifacts; System → Audit rows
   (`execution.*`, `runner.*`, `runtime.probe`); on the runner host

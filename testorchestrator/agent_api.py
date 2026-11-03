@@ -59,6 +59,17 @@ def require_agent(view):
 
 def _task_payload(ex: Execution) -> dict:
     runtime = ex.runtime
+    # Invocation credentials resolve to VALUES only inside this scoped,
+    # authenticated task — used solely to redact recorded argv/logs so
+    # secret material never lands in evidence (§5, §9, §12).
+    redact = []
+    if runtime and runtime.credential_ref:
+        from .secrets_store import read_secret, SecretError
+        try:
+            redact = [read_secret(current_app._get_current_object(),
+                                  runtime.credential_ref)]
+        except SecretError:
+            pass  # unresolved ref — invocation still proceeds
     return {
         "execution_id": ex.id,
         "snapshot": ex.snapshot(),
@@ -68,6 +79,7 @@ def _task_payload(ex: Execution) -> dict:
             "executable_path": runtime.executable_path if runtime else "",
             "workspace_root": runtime.workspace_root if runtime else "",
         },
+        "redact": redact,
         "cancel_url": f"/api/agent/cancel/{ex.id}",
     }
 
@@ -119,6 +131,23 @@ def heartbeat():
             renewed.append(ex_id)
     db.session.commit()
     return jsonify({"renewed": renewed})
+
+
+@agent_bp.route("/state/<execution_id>")
+@require_agent
+def state(execution_id):
+    """Execution state label for the Dagu monitor step (Option B remote
+    targeting). Returns ONLY the state label — a remote runner may read
+    its own executions; a LOCAL runner token (the orchestration-host
+    credential the Dagu step authenticates with) may observe any
+    dispatched execution so the dagu run tracks it to terminal state or
+    explicit uncertainty."""
+    ex = db.session.get(Execution, execution_id)
+    if ex is None:
+        abort(404)
+    if ex.runner_id != g.runner.id and g.runner.connection_mode != "local":
+        abort(404)
+    return jsonify({"state": ex.state.value, "outcome": ex.outcome.value})
 
 
 @agent_bp.route("/cancel/<execution_id>")

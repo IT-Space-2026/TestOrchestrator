@@ -6,6 +6,6 @@ params:
 steps:
   - name: execute-assigned-task
     command: >-
-      python3 -m testorchestrator.agent --once
+      python3 -m testorchestrator.agent --once --monitor
       --execution-id "$execution_id" --config /etc/testorchestrator/agent.toml
     working_dir: ~

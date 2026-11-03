@@ -263,8 +263,15 @@ def run_execution(execution_id: str) -> None:
         )
 
         _transition(ex, ExecutionState.RUNNING)
+        # Invocation credential (§5): the VALUE reaches the subprocess via
+        # -apiKey= argv as KRE expects, but is scrubbed from every log/
+        # artifact by run_invocation's redact pass.
+        creds = _redact_values(runtime)
+        if creds:
+            args = args + [f"-apiKey={creds[0]}"]
         result = kre_adapter.run_invocation(
             args, log_dir, cancel_event=_DbCancelEvent(ex.id),
+            redact=creds,
         )
         ex.exit_status = result.exit_status
         ex.finished_at = utcnow()
@@ -308,6 +315,19 @@ def run_execution(execution_id: str) -> None:
         runner.heartbeat_at = utcnow()
         runner.health = "ok"
         db.session.commit()
+
+
+def _redact_values(runtime: RuntimeConnection) -> list:
+    """Resolve a runtime credential ref to VALUES for log scrubbing only —
+    the secret itself never enters argv, artifacts, audit, or exports."""
+    if not runtime or not runtime.credential_ref:
+        return []
+    from .secrets_store import SecretError, read_secret
+    try:
+        return [read_secret(current_app._get_current_object(),
+                            runtime.credential_ref)]
+    except SecretError:
+        return []
 
 
 def _fail(ex: Execution, kind: str, text: str) -> None:
@@ -564,7 +584,16 @@ def reconcile_stale() -> int:
 
 
 def worker_once() -> int:
-    return reconcile_stale() + process_outbox()
+    n = reconcile_stale() + process_outbox()
+    # Dagu-side reconciliation (§7): a finished dagu run with no portal
+    # result is ambiguous -> UNKNOWN, never a blind re-dispatch. Agent
+    # heartbeats — not dagu run state — own lease renewal.
+    if _dagu_configured():
+        try:
+            n += reconcile_dagu_runs()
+        except Exception:
+            pass  # orchestrator unreachable — retry next cycle
+    return n
 
 
 def worker_loop(interval: float = 2.0) -> None:
@@ -594,8 +623,9 @@ def reconcile_dagu_runs() -> int:
             ex.error_text = f"dagu run {ex.dispatch_id} ended '{label}' " \
                             "without portal result"
             fixed += 1
-        elif label == "running":
-            ex.lease_expires_at = utcnow() + timedelta(
-                seconds=LEASE_SECONDS)
+        # NOTE: a "running" dagu run does NOT extend the execution lease —
+        # the monitor step keeps the dagu run alive while the remote
+        # agent may be dead. Agent heartbeats own lease renewal; expiry
+        # still reconciles to UNKNOWN via reconcile_stale.
     db.session.commit()
     return fixed

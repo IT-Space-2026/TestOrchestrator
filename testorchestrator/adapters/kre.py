@@ -108,12 +108,22 @@ def prepare_workspace(source_dir: Path, dest: Path, sha: str) -> Path:
     return workspace
 
 
+def _scrub(text: str, redact: list) -> str:
+    """Replace every occurrence of a sensitive value before it can land
+    in evidence. Empty strings are ignored."""
+    for value in redact or []:
+        if value:
+            text = text.replace(str(value), "***REDACTED***")
+    return text
+
+
 def run_invocation(
     args: list,
     log_dir: Path,
     timeout_s: int = 3600,
     cancel_event=None,
     env_extra: dict | None = None,
+    redact: list | None = None,
 ) -> InvocationResult:
     """Execute an invocation and capture evidence (§5).
 
@@ -121,6 +131,8 @@ def run_invocation(
     - own process group so cancel kills the tree
     - stdout/stderr captured to files (never logged to app logs verbatim
       if they could carry secrets — artifact collection handles policy)
+    - ``redact`` values are scrubbed from the recorded argv AND from the
+      captured stdout/stderr files before they become artifacts
     - cancel stays pending-aware: process termination is awaited
     """
 
@@ -129,7 +141,8 @@ def run_invocation(
     # Record the exact argv used — sanitized (paths/flags only, no
     # secrets) so reviewers can inspect the actual KRE invocation.
     (log_dir / "kre-invocation.log").write_text(
-        f"argv={shlex.join(str(a) for a in args)}\n", encoding="utf-8")
+        f"argv={_scrub(shlex.join(str(a) for a in args), redact or [])}\n",
+        encoding="utf-8")
     stdout_f = open(log_dir / "kre-stdout.log", "wb")
     stderr_f = open(log_dir / "kre-stderr.log", "wb")
     result.stdout_path = str(stdout_f.name)
@@ -169,7 +182,24 @@ def run_invocation(
 
     result.finished_at = datetime.now(timezone.utc).isoformat()
     stdout_f.close(); stderr_f.close()
+    _scrub_file(Path(result.stdout_path), redact)
+    _scrub_file(Path(result.stderr_path), redact)
     return result
+
+
+def _scrub_file(path: Path, redact: list, max_bytes: int = 64 << 20) -> None:
+    """Rewrite a captured output file with sensitive values removed —
+    the child process may echo its own argv (KRE logs the command line)."""
+    if not redact or not path.exists() or path.stat().st_size > max_bytes:
+        return
+    raw = path.read_bytes()
+    out = raw
+    for value in redact:
+        if value:
+            out = out.replace(str(value).encode("utf-8", "replace"),
+                              b"***REDACTED***")
+    if out != raw:
+        path.write_bytes(out)
 
 
 def _kill_tree(proc, force: bool = False) -> None:

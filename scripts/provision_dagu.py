@@ -5,14 +5,14 @@ Honest scaffold — writes artifacts; service activation needs root."""
 import argparse, os, secrets, shutil, subprocess
 from pathlib import Path
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", default="/var/lib/dagu")
     ap.add_argument("--config", default="/etc/testorchestrator/dagu")
     ap.add_argument("--port", type=int, default=29877)
     ap.add_argument("--binary", default="3rdparty/dagu/dagu")
     ap.add_argument("--dry-run", action="store_true")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     home, cfg = Path(a.home), Path(a.config)
     user = "testorchestrator"
     # auth.mode: basic (verified vs bundled 2.25.2 — builtin's token.secret

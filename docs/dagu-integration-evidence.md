@@ -1,5 +1,9 @@
 # Integrated fixture run — live evidence (2026-11-03)
 
+**Label: live Dagu/agent FIXTURE execution.** The chain below ran for real
+against bundled Dagu 2.25.2, but the executable was a bash fixture — KRE
+CLI compatibility and the A01 real-KRE gate remain **unverified**.
+
 Chain demonstrated live against bundled Dagu 2.25.2 (port 29999):
 
 ```
@@ -67,3 +71,43 @@ full restore-path test).
 MILESTONE: Dagu/fixture integration = COMPLETE at fixture level.
 Remaining gates: real KRE, live ReportPortal attachments, second runner
 host, full-stack target-OS install.
+
+## Option B completion — remote monitoring + reconciliation (2026-11-03)
+
+- The DAG step is now `--once --monitor`: the step executes a locally
+  assigned task if present, then polls `/api/agent/state/<id>` until a
+  terminal outcome or explicit uncertainty (`unknown`/timeout → step
+  fails). The dagu run mirrors the run's fate; it no longer finishes
+  after dispatch. Local-runner tokens are the orchestration credential
+  that may read any execution's state label; foreign remote runners get
+  404.
+- `reconcile_dagu_runs` is wired into `flask worker` cycles (skipped
+  when Dagu unconfigured/unreachable). A *running* dagu run no longer
+  extends the execution lease — heartbeats own renewal, so a dead agent
+  still reconciles to UNKNOWN within ~60 s.
+- Sanitization: runtime `credential_ref` resolves to the invocation
+  credential only inside the scoped task; the value reaches argv as
+  `-apiKey=…` (KRE activation form) while `run_invocation` redacts it
+  from `kre-invocation.log` AND post-scrubs captured stdout/stderr.
+- Dagu auth corrected to `auth.mode: basic` (verified vs bundled 2.25.2);
+  `provision_dagu.py` emits basic config + 0600 credential file.
+
+### Live fixture demos (same session)
+
+| Scenario | Execution | Result | Dagu run |
+|---|---|---|---|
+| remote success/failure | `27bf2d75` (runner rem-1, daemon) | `COMPLETED` / `failed` (1 pass + 1 fail collected) | `034r9iwAhJKmkauieuLTMm` succeeded |
+| agent disconnect mid-run | `881923bd` (daemon killed during 300 s fixture) | `UNKNOWN`, "lease expired; state uncertain" — never re-run | `034r9jhhuWZbSpqLxmxbtA` failed |
+| local mode (earlier run) | `5fb35a1f` (local-1, Dagu-launched agent) | `COMPLETED` / `failed`, profile/browser argv verified | `034r8xn1yT3TsouFs8mmJA` succeeded |
+| cancellation | covered by tests (cancel poll → process-tree kill → `canceled`) | — | — |
+
+### Regression coverage added
+
+- `tests/contract/test_dagu_provisioning.py`: provision → boot bundled
+  2.25.2 → 401 without/with wrong creds → basic-auth health + dags +
+  workflow presence — no mocks.
+- `tests/test_runbook_wiring.py`: probe-only smoke, explicit `kre-exec`
+  suite, `dagu-config`, token issuance, state-endpoint scoping,
+  reconcile-wired worker (running dagu never masks disconnect),
+  secret-bearing-arg scrub across logs/artifacts/audit/UI/Git export,
+  full runbook fixture path e2e.
