@@ -33,7 +33,15 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-BUNDLE_ROOT = Path(__file__).resolve().parent.parent / "3rdparty"
+# 3rdparty resolution: repo layout uses ../3rdparty beside the package;
+# the installed frozen layout is <payload>/app/toctl with resources at
+# <payload>/3rdparty — resolve via sys.executable, not __file__
+# (which points into _MEIPASS).
+if getattr(sys, "frozen", False):
+    BUNDLE_ROOT = (Path(sys.executable).resolve().parent.parent
+                   / "3rdparty")
+else:
+    BUNDLE_ROOT = Path(__file__).resolve().parent.parent / "3rdparty"
 ENV_JAVA_HOME = "TO_ALLURE_JAVA_HOME"
 ENV_RECORD = "TO_ALLURE_JAVA_RECORD"   # installer-written probe record path
 PROBE_TIMEOUT = 300

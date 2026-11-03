@@ -45,6 +45,7 @@ INCLUDE = [
     ("assets", "app"),
     ("3rdparty/python-runtime", "python-runtime"),
     ("3rdparty/python-wheels", "python-deps"),
+    # --frozen candidate swaps the two entries above for the onedir.
     ("3rdparty/git", "git"),
     ("3rdparty/caddy", "caddy"),
     ("3rdparty/dagu", "dagu"),
@@ -59,7 +60,7 @@ REQUIRED = [
     "release/release.json", "install.sh", "scripts/install.py",
     "scripts/java_probe.py", "migrations", "deploy/Caddyfile",
     "3rdparty/caddy/caddy",
-    "3rdparty/python-runtime/python/bin/python3",
+    "3rdparty/python-runtime/python/bin/python3",  # swapped for app/toctl under --frozen
     "3rdparty/dagu",
     "3rdparty/allure",
 ]
@@ -81,11 +82,31 @@ def _excluded(rel: Path) -> bool:
     return False
 
 
-def collect() -> tuple[list[tuple[Path, str, str]], list[str]]:
+def candidate_includes(frozen: bool) -> list:
+    """--frozen: the PyInstaller onedir replaces bundled CPython +
+    vendored wheels. Everything else — git, dagu, caddy, allure,
+    installer/docs — is unchanged. Bundled git STAYS: internal repo
+    ops still shell out via GitPython -> bundled git."""
+    if not frozen:
+        return INCLUDE
+    out = [("dist/frozen/testorchestrator", "frozen-app")]
+    return out + [(i, c) for i, c in INCLUDE
+                  if not i.startswith("3rdparty/python")]
+
+
+def required_list(frozen: bool) -> list:
+    reqs = [r for r in REQUIRED
+            if r != "3rdparty/python-runtime/python/bin/python3"]
+    return reqs + ["dist/frozen/testorchestrator/toctl"] if frozen \
+        else reqs
+
+
+def collect(frozen: bool = False
+            ) -> tuple[list[tuple[Path, str, str]], list[str]]:
     """(abs path, arc rel, category) for everything the policy includes,
     plus the list of missing REQUIRED entries."""
     files, missing = [], []
-    for item, category in INCLUDE:
+    for item, category in candidate_includes(frozen):
         src = REPO / item
         if not src.exists():
             if item in REQUIRED:
@@ -95,6 +116,11 @@ def collect() -> tuple[list[tuple[Path, str, str]], list[str]]:
             for p in sorted(src.rglob("*")):
                 if p.is_dir() and not p.is_symlink():
                     continue
+                if category == "frozen-app":
+                    # the onedir lands as app/ inside the package
+                    rel = Path("app") / p.relative_to(src)
+                    files.append((p, str(rel), category))
+                    continue
                 rel = p.relative_to(REPO)
                 if not _excluded(rel):
                     files.append((p, str(rel), category))
@@ -102,7 +128,7 @@ def collect() -> tuple[list[tuple[Path, str, str]], list[str]]:
             rel = src.relative_to(REPO)
             if not _excluded(rel):
                 files.append((src, str(rel), category))
-    for req in REQUIRED:
+    for req in required_list(frozen):
         if not (REPO / req).exists():
             missing.append(req)
     return files, missing
@@ -130,13 +156,20 @@ DEPENDENCIES = {
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--frozen", action="store_true",
+                    help="candidate: frozen onedir replaces "
+                         "python-runtime + vendored wheels")
+    args, _ = ap.parse_known_args()
     meta = json.loads((REPO / "release" / "release.json").read_text())
     plat = f"{platform.system().lower()}-{platform.machine()}"
-    name = f"testorchestrator-{meta['version']}-{plat}"
+    name = f"testorchestrator-{meta['version']}-{plat}" \
+        + ("-frozen" if args.frozen else "")
     OUT.mkdir(exist_ok=True)
     bundle = OUT / f"{name}.tar.gz"
 
-    files, missing = collect()
+    files, missing = collect(frozen=args.frozen)
     if missing:
         raise SystemExit(f"bundle build FAILED — required files missing: "
                          f"{missing}")
@@ -159,6 +192,20 @@ def main():
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=REPO,
         capture_output=True, text=True).stdout.strip()
+    bundled = {
+        "git": "vendored ubuntu-resolute-amd64 rootfs",
+        "caddy": "pinned binary + licence + sha256",
+        "dagu": "pinned 2.25.2 release tarball",
+        "allure": "pinned allure-commandline generator",
+    }
+    if args.frozen:
+        bundled["frozen-app"] = ("PyInstaller onedir — toctl "
+                                 "web/worker/db-upgrade/install/"
+                                 "readiness/backup/recover")
+    else:
+        bundled["python-runtime"] = ("python-build-standalone 3.12 "
+                                     "linux x86_64")
+        bundled["python-wheels"] = "vendored, pip --no-index install"
     (OUT / f"{name}.inventory.json").write_text(json.dumps({
         "name": name, "files": [
             {"path": rel, "category": cat, "size": src.lstat().st_size}
@@ -173,15 +220,8 @@ def main():
         "source_commit": commit,
         "build_seconds": build_s,
         "categories": categories,
-        "includes": [i for i, _c in INCLUDE],
-        "bundled": {
-            "python-runtime": "python-build-standalone 3.12 linux x86_64",
-            "python-wheels": "vendored, pip --no-index install",
-            "git": "vendored ubuntu-resolute-amd64 rootfs",
-            "caddy": "pinned binary + licence + sha256",
-            "dagu": "pinned 2.25.2 release tarball",
-            "allure": "pinned allure-commandline generator",
-        },
+        "includes": [i for i, _c in candidate_includes(args.frozen)],
+        "bundled": bundled,
         "dependencies": DEPENDENCIES,
         "exclusions": {
             "java-runtime": "operator prerequisite — never bundled; "

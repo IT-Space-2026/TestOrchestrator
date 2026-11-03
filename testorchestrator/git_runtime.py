@@ -14,7 +14,14 @@ import os
 import sys
 from pathlib import Path
 
-BUNDLE_ROOT = Path(__file__).resolve().parent.parent / "3rdparty" / "git"
+# Same frozen-layout fix as allure_runtime: installed payload puts
+# 3rdparty at <payload>/3rdparty, outside the onedir.
+if getattr(sys, "frozen", False):
+    BUNDLE_ROOT = (Path(sys.executable).resolve().parent.parent
+                   / "3rdparty" / "git")
+else:
+    BUNDLE_ROOT = (Path(__file__).resolve().parent.parent
+                   / "3rdparty" / "git")
 
 
 def _rootfs() -> Path | None:
