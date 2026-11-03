@@ -1,27 +1,32 @@
 # TestOrchestrator — Caddy reverse-proxy configuration template.
 #
-# Installed to the persistent configuration area by the installer; edit the
-# installed copy, not this template. Validate before reload:
-#   caddy validate --config /etc/testorchestrator/Caddyfile
+# This static template mirrors the renderer in
+# testorchestrator/caddyconf.py — in installed deployments the Admin ->
+# System -> Network & certificates page renders the actual Caddyfile from
+# settings and validates it with the bundled binary (staged apply +
+# previous_good rollback). Edit the installed copy, not this template.
 #
-# Request flow:  Browser --HTTPS--> Caddy --HTTP loopback--> Waitress :8080
+# Request flow:  Browser --HTTPS--> Caddy --HTTP loopback--> Waitress :18080
 
 {
-	# Do NOT expose the admin API. Loopback-only, and disabled by default.
+	# Do NOT expose the admin API.
 	admin off
+	# No automatic listeners/redirects — only explicitly configured
+	# site blocks open ports (v1.8 §4).
+	auto_https disable_redirects
 }
 
-{$TO_HOSTNAME:testorchestrator.local} {
+# HTTPS site (public HTTPS port default 443; configured aliases only).
+{$TO_HTTPS_SITE:https://localhost} {
 	# Certificates:
-	#  - Organization-issued: point tls at the deployed cert/key pair.
-	#  - Unique locally generated: `tls internal` (requires the documented
-	#    client trust setup for the local CA).
-	# Private keys live under the protected config area, not the payload.
+	#  - Imported/local-generated: tls <fullchain> <key> with managed
+	#    paths under the protected cert dir (never user-supplied paths).
+	#  - Fallback: tls internal (unique per-installation local CA,
+	#    requires documented client trust-store installation).
 	tls {$TO_TLS_MODE:internal}
 
-	reverse_proxy 127.0.0.1:8080
+	reverse_proxy 127.0.0.1:18080
 
-	# Security response headers (defence in depth; the app sets its own).
 	header {
 		X-Content-Type-Options nosniff
 		Referrer-Policy same-origin
@@ -29,7 +34,9 @@
 	}
 }
 
-# HTTP: redirect-only listener (no application traffic over plain HTTP).
-http://{$TO_HOSTNAME:testorchestrator.local} {
-	redir https://{host}{uri} permanent
+# HTTP listener (default port 8080, redirect-only): never serves login or
+# mutations. The redirect target is the configured HTTPS address — the
+# inbound Host header is NOT reflected (v1.8 §4, NET04).
+{$TO_HTTP_SITE:http://localhost:8080} {
+	redir {$TO_HTTPS_TARGET:https://localhost}{uri} permanent
 }

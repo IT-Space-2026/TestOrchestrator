@@ -41,6 +41,10 @@ def create_app(config_object=Config) -> Flask:
     )
 
     INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
+    # Protected certificate/key storage (CERT03): 0700 dir, 0600 keys.
+    cert_dir = Path(app.config["CERT_DIR"])
+    cert_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(cert_dir, 0o700)
 
     db.init_app(app)
     migrate.init_app(app, db)
@@ -59,9 +63,19 @@ def create_app(config_object=Config) -> Flask:
     from . import models  # noqa: F401  (register models with SQLAlchemy)
     from .auth import auth_bp
     from .main import main_bp
+    from .system import system_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
+    app.register_blueprint(system_bp)
+
+    # v1.8 bootstrap + network gates (loopback-only until setup completes and
+    # external access is enabled; host allowlist; forced password change).
+    from .bootstrap import ensure_bootstrap_admin, install_gates
+
+    install_gates(app)
+    with app.app_context():
+        ensure_bootstrap_admin()
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -90,14 +104,15 @@ def register_cli(app: Flask) -> None:
         --dev-defaults is a development convenience only.
         """
 
+        # The Admin account is owned by the v1.8 bootstrap flow
+        # (Admin/Admin -> mandatory change); seeding only covers the
+        # remaining roles.
         dev_passwords = {
-            Role.ADMIN: "DevOnly-Admin!1",
             Role.TEST_MANAGER: "DevOnly-Manager!1",
             Role.TESTER: "DevOnly-Tester!1",
             Role.PO: "DevOnly-Po!1",
         }
         usernames = {
-            Role.ADMIN: "admin",
             Role.TEST_MANAGER: "manager",
             Role.TESTER: "tester",
             Role.PO: "po",

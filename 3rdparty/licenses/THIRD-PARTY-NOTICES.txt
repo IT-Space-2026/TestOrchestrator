@@ -15,3 +15,4 @@ Python runtime components (see requirements.txt for pinned versions):
 
 Reverse proxy / TLS terminator (binary, see 3rdparty/caddy/):
   Caddy — Apache License 2.0
+  cryptography — Apache-2.0 OR BSD-3-Clause (dual-licensed, see files)

@@ -37,7 +37,8 @@ class Config:
     PREFERRED_URL_SCHEME = "https"
 
     # Waitress binds loopback only; Caddy is the sole public entry point.
-    WAITRESS_LISTEN = os.environ.get("TO_WAITRESS_LISTEN", "127.0.0.1:8080")
+    # v1.8: internal app port defaults to 18080 (public HTTP owns 8080).
+    WAITRESS_LISTEN = os.environ.get("TO_WAITRESS_LISTEN", "127.0.0.1:18080")
 
     # Proxy handling: forwarding headers are honoured only from these peers
     # (the local Caddy reverse proxy). Anything else is untrusted.
@@ -48,3 +49,29 @@ class Config:
     )
 
     WTF_CSRF_TIME_LIMIT = None  # CSRF token lifetime is bound to the session.
+
+    # Protected storage for imported/generated private keys (OS ACLs 0700,
+    # keys 0600). Lives in application data, never in the repo, images, or
+    # Git exports (CERT03).
+    CERT_DIR = Path(
+        os.environ.get("TO_CERT_DIR", str(INSTANCE_DIR / "certs"))
+    )
+
+    # Optional installer path (v1.8 §2): when set before first provisioning,
+    # replaces the Admin/Admin bootstrap credential outright. >= 12 chars.
+    ADMIN_INITIAL_PASSWORD = os.environ.get("TO_ADMIN_PASSWORD")
+
+    # Login bootstrap rate limit (attempts per window, per username).
+    LOGIN_RATE_LIMIT_ATTEMPTS = 5
+    LOGIN_RATE_LIMIT_WINDOW_S = 60
+
+    # Rendered Caddy configuration staging directory (installer-owned).
+    CADDY_CONFIG_DIR = Path(
+        os.environ.get(
+            "TO_CADDY_CONFIG_DIR", str(INSTANCE_DIR / "caddy")
+        )
+    )
+    # Path to the bundled Caddy binary used for `caddy validate`.
+    CADDY_BIN = os.environ.get(
+        "TO_CADDY_BIN", str(BASE_DIR / "3rdparty" / "caddy" / "caddy")
+    )

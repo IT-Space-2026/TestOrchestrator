@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Network & certificates · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>System &rarr; Network &amp; certificates</h1>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+
+<section class="card" aria-labelledby="links-h">
+  <h2 id="links-h">Access links</h2>
+  <dl class="about-facts">
+    <dt>Local URL</dt>
+    <dd><code>{{ links.local }}</code></dd>
+    <dt>External URL</dt>
+    <dd>
+      {% if links.external %}<code>{{ links.external }}</code>
+      {% else %}<span class="muted">disabled — enable below after setup completes</span>{% endif %}
+    </dd>
+    <dt>HTTP redirect</dt>
+    <dd>
+      {% if links.http_redirect %}<code>{{ links.http_redirect }}</code> &rarr; {{ links.external }}
+      {% else %}<span class="muted">no HTTP listener for the external address</span>{% endif %}
+    </dd>
+    <dt>Setup</dt>
+    <dd>{{ "complete" if settings.setup_completed else "pending — Admin password still bootstrap" }}</dd>
+    <dt>Config version</dt><dd>v{{ settings.network_config_version }}</dd>
+  </dl>
+</section>
+
+<section class="card" aria-labelledby="addr-h">
+  <h2 id="addr-h">External/LAN address</h2>
+  <p class="muted">An IP address or DNS hostname — not a URL. A private LAN IP
+     is allowed; it does not make the site Internet-accessible. DNS must
+     resolve for clients, and NAT/firewall forwarding is configured outside
+     this application (CERT04).</p>
+  {% if candidates %}
+  <h3>Detected server addresses</h3>
+  <p class="muted">
+    {% if multi_candidate %}Multiple interfaces/addresses detected — choose
+    one explicitly. {% endif %}
+    These are suggestions only; a detected private address is not the public
+    Internet IP.
+  </p>
+  {% endif %}
+  <form method="post" action="{{ url_for('system.save_address') }}">
+    {{ address_form.csrf_token }}
+    <div class="field checkbox">
+      {{ address_form.external_enabled() }}
+      {{ address_form.external_enabled.label }}
+    </div>
+    {% for c in candidates %}
+    <div class="field checkbox">
+      <input type="radio" name="candidate" id="cand-{{ loop.index }}"
+             value="{{ c.address }}">
+      <label for="cand-{{ loop.index }}">
+        <code>{{ c.address }}</code> ({{ c.kind }}{% if c.is_private %}, private{% endif %}, {{ c.source }})
+      </label>
+    </div>
+    {% endfor %}
+    <div class="field">
+      {{ address_form.external_host.label }} — or enter manually
+      {{ address_form.external_host(placeholder="192.0.2.10 or tests.example.com") }}
+    </div>
+    <button type="submit" class="button">Save address</button>
+  </form>
+</section>
+
+<section class="card" aria-labelledby="ports-h">
+  <h2 id="ports-h">Ports &amp; HTTP mode</h2>
+  <form method="post" action="{{ url_for('system.save_ports') }}">
+    {{ ports_form.csrf_token }}
+    <div class="field">{{ ports_form.https_port.label }} {{ ports_form.https_port() }}</div>
+    <div class="field">{{ ports_form.http_port.label }} {{ ports_form.http_port() }}</div>
+    <div class="field">{{ ports_form.internal_app_port.label }} {{ ports_form.internal_app_port() }}</div>
+    <fieldset class="field">
+      <legend>{{ ports_form.http_mode.label }}</legend>
+      {% for sub in ports_form.http_mode %}
+      <div class="checkbox">{{ sub() }} {{ sub.label }}</div>
+      {% endfor %}
+    </fieldset>
+    <button type="submit" class="button">Save ports</button>
+  </form>
+</section>
+
+<section class="card" aria-labelledby="cert-h">
+  <h2 id="cert-h">Certificate</h2>
+  {% if cert_meta %}
+  <dl class="about-facts">
+    <dt>Mode</dt><dd>{{ cert_meta.mode }}</dd>
+    <dt>Subject</dt><dd>{{ cert_meta.subject }}</dd>
+    <dt>Issuer</dt><dd>{{ cert_meta.issuer }}</dd>
+    <dt>SANs</dt><dd>{{ cert_meta.sans | join(', ') }}</dd>
+    <dt>Valid until</dt>
+    <dd>{{ cert_meta.not_after }}{% if cert_meta.expired %} (expired){% endif %}
+        — {{ cert_meta.days_until_expiry }} days left</dd>
+    <dt>SHA-256 fingerprint</dt><dd><code class="fingerprint">{{ cert_meta.fingerprint_sha256 }}</code></dd>
+  </dl>
+  {% if settings.certificate_mode == "local" %}
+  <p><a href="{{ url_for('system.download_ca') }}">Download the local CA
+     certificate</a> (public certificate only — install it into client trust
+     stores explicitly). The private key is never offered for download.</p>
+  {% endif %}
+  {% else %}
+  <p class="muted">No certificate configured yet — Caddy falls back to its
+     internal CA until you generate or import one.</p>
+  {% endif %}
+
+  <h3>Generate locally</h3>
+  <form method="post" action="{{ url_for('system.generate_certificate') }}">
+    {{ generate_form.csrf_token }}
+    <div class="field">
+      {{ generate_form.san_hosts.label }}
+      {{ generate_form.san_hosts(size=6) }}
+      <p class="muted">Hold Ctrl/Cmd to select multiple. A unique per-install
+         CA signs a leaf for these SANs; clients must trust the CA.</p>
+    </div>
+    <button type="submit" class="button">Generate local certificate</button>
+  </form>
+
+  <h3>Import existing</h3>
+  <form method="post" action="{{ url_for('system.import_certificate') }}"
+        enctype="multipart/form-data">
+    {{ import_form.csrf_token }}
+    <div class="field">{{ import_form.certificate.label }} {{ import_form.certificate() }}</div>
+    <div class="field">{{ import_form.private_key.label }} {{ import_form.private_key() }}</div>
+    <div class="field">{{ import_form.intermediates.label }} {{ import_form.intermediates() }}</div>
+    <p class="muted">PEM only. The key must match the certificate; SANs must
+       cover the advertised host; the chain must be complete. Keys are stored
+       with restrictive permissions and never appear in logs or exports.
+       PKCS#12/PFX is not supported.</p>
+    <button type="submit" class="button">Validate &amp; import</button>
+  </form>
+</section>
+
+<section class="card" aria-labelledby="apply-h">
+  <h2 id="apply-h">Apply &amp; recovery</h2>
+  <form method="post" action="{{ url_for('system.apply') }}" class="inline">
+    {{ apply_form.csrf_token }}
+    <button type="submit" class="button">Render &amp; apply Caddy config</button>
+  </form>
+  <form method="post" action="{{ url_for('system.rollback') }}" class="inline">
+    {{ apply_form.csrf_token }}
+    <button type="submit" class="button secondary"
+            {% if not settings.previous_good_config %}disabled{% endif %}>
+      Roll back to last known good
+    </button>
+  </form>
+  <p class="muted">Renders into {{ cert_dir.parent }}/caddy, validates with the
+     bundled Caddy binary, then installs. A failed apply keeps the current
+     configuration.</p>
+</section>
+{% endblock %}

@@ -5,8 +5,10 @@ from pathlib import Path
 from flask import current_app, render_template, request, send_from_directory
 from flask_login import current_user, login_required
 
+from .. import settings as settings_mod
 from ..config import BASE_DIR
 from ..models import AuditEvent, Role, record_audit
+from ..network import access_links
 from ..security import role_required
 from . import main_bp
 
@@ -48,7 +50,11 @@ def about_context():
 @main_bp.route("/")
 @login_required
 def dashboard():
-    return render_template("main/dashboard.html")
+    # Approved navigation links are visible to every role; internal bind
+    # details (Waitress host/port) are not exposed here (v1.8 §6).
+    return render_template(
+        "main/dashboard.html", links=access_links(settings_mod.all_settings())
+    )
 
 
 @main_bp.route("/about")

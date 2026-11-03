@@ -6,32 +6,42 @@ Node.js, npm, frontend build server, or SPA.
 
 This repository currently implements the v1.0–v1.6 foundation (roles,
 authentication, audit, System pages, deployment assets, integration seams)
-plus the **v1.7 About and IT-Space branding requirements** in full. See
-`docs/ACCEPTANCE-v1.7.md` for the acceptance-criteria mapping.
+plus **v1.7 About/IT-Space branding** and **v1.8 bootstrap Admin, access
+URLs, and certificate setup**. See `docs/ACCEPTANCE-v1.7.md` and
+`docs/ACCEPTANCE-v1.8.md` for the acceptance-criteria mappings.
 
 ## Architecture
 
 ```text
 Browser
-   │ HTTPS
+   │ HTTPS (443, configurable)
    ▼
-Caddy (3rdparty/caddy/)          — TLS termination, HTTP→HTTPS redirect
+Caddy (3rdparty/caddy/)          — TLS termination, HTTP→HTTPS redirect (8080)
    │ HTTP over loopback
    ▼
-Waitress — 127.0.0.1:8080        — production WSGI server (never public)
+Waitress — 127.0.0.1:18080       — production WSGI server (never public)
    │ WSGI
    ▼
 Flask / TestOrchestrator (testorchestrator/)
 ```
 
 - `testorchestrator/` — application package (factory in `__init__.py`)
-  - `auth/` — login/logout (Flask-Login, Flask-WTF CSRF, Argon2id hashing)
+  - `auth/` — login/logout, forced + self-service password change
+    (Flask-Login, Flask-WTF CSRF, Argon2id hashing)
   - `main/` — dashboard, About, third-party notices, admin System pages
+  - `system/` — Admin -> System -> Network & certificates
+  - `bootstrap.py` — Admin/Admin provisioning, loopback/host gates, rate
+    limiting (v1.8)
+  - `settings.py` — durable settings schema (v1.8 §6)
+  - `network.py` — address model, candidates, URL builders, validation
+  - `certs.py` — local CA/leaf generation and PEM import validation
+    (`cryptography`)
+  - `caddyconf.py` — Caddyfile renderer + staged apply/rollback
   - `adapters/` — seams for Dagu, ReportPortal, KRE, runner agent, updater.
     Long-running work runs outside request handlers; do not implement
     integrations inside Flask views.
   - `models.py` — `User` (roles: Admin, Test Manager, Tester, PO),
-    `AuditEvent`
+    `AuditEvent`, `Setting`
 - `assets/branding/` — owner-approved branding assets (approval tracked in
   its README; the official logo is **not yet supplied**, see AB07)
 - `3rdparty/` — bundled third-party notices/licences and the pinned Caddy
@@ -51,9 +61,14 @@ python3 -m virtualenv .venv          # or: python3 -m venv .venv
 export FLASK_APP=wsgi:app
 export TO_SECURE_COOKIES=0           # local HTTP dev only
 .venv/bin/flask db upgrade
-.venv/bin/flask seed-users --dev-defaults   # dev-only passwords, see warning
+.venv/bin/flask seed-users --dev-defaults   # seeds manager/tester/po only
 .venv/bin/waitress-serve --listen=127.0.0.1:18080 wsgi:app
 ```
+
+On a fresh database the first request provisions the bootstrap account
+`Admin`/`Admin`; signing in forces a strong password change before anything
+else is reachable (v1.8). To skip the shared bootstrap credential during a
+headless install, set `TO_ADMIN_PASSWORD` (≥12 chars) before first start.
 
 Run tests: `.venv/bin/python -m pytest tests/ -q`
 
