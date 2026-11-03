@@ -496,13 +496,15 @@ def test_discovery_order_java_home_then_path_then_platform(
     assert homes == [a, b, c]          # order is contract
 
 
-def test_version_check_blocks_generation_probe(app, monkeypatch):
+def test_version_check_blocks_generation_probe(app, monkeypatch,
+                                               tmp_path):
     """A java binary that cannot start fails BEFORE generation is
     attempted — actionable error, still recorded."""
+    home = _fake_jh(tmp_path)
     monkeypatch.setattr(allure_runtime, "java_version",
                         lambda h, timeout=15: ("", "spawn failed"))
     with app.app_context():
-        rec = allure_runtime.probe(str(Path("/anywhere")))
+        rec = allure_runtime.probe(str(home))
         assert rec["ok"] is False
         assert "version check" in rec["error"]
 
