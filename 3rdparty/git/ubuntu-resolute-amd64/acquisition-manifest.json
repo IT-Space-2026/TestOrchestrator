@@ -1,0 +1,327 @@
+{
+  "tool": "acquire_git.py",
+  "target": "ubuntu-resolute-amd64",
+  "suite": "resolute",
+  "arch": "amd64",
+  "mirror": "http://archive.ubuntu.com/ubuntu",
+  "root_package": {
+    "name": "git",
+    "version": "1:2.53.0-1ubuntu1"
+  },
+  "release_authenticity": "InRelease gpg-verified vs ubuntu-archive-keyring",
+  "bundle": [
+    {
+      "name": "git",
+      "version": "1:2.53.0-1ubuntu1",
+      "filename": "pool/main/g/git/git_2.53.0-1ubuntu1_amd64.deb",
+      "sha256": "c3b36d7357dea773eefe6c4f97ebff416e5afee22489dc1f729e31d6f47872e9"
+    },
+    {
+      "name": "git-man",
+      "version": "1:2.53.0-1ubuntu1",
+      "filename": "pool/main/g/git/git-man_2.53.0-1ubuntu1_all.deb",
+      "sha256": "cc2870c52d3d6845bd792e861930dd6afc5fe165edb0c8c3700332c3bfbd666e"
+    },
+    {
+      "name": "liberror-perl",
+      "version": "0.17030-1",
+      "filename": "pool/main/libe/liberror-perl/liberror-perl_0.17030-1_all.deb",
+      "sha256": "cb85c869fe056e9e466efcfa3403408b0a87db1da1cafa585140a9be59fe58a1"
+    },
+    {
+      "name": "perl",
+      "version": "5.40.1-7build1",
+      "filename": "pool/main/p/perl/perl_5.40.1-7build1_amd64.deb",
+      "sha256": "b1def6b47f4f45852e4f79127fad9b947e2b9c1d5e2282e986b8bdb0ddd51b24"
+    },
+    {
+      "name": "libperl5.40",
+      "version": "5.40.1-7build1",
+      "filename": "pool/main/p/perl/libperl5.40_5.40.1-7build1_amd64.deb",
+      "sha256": "7562e7f3c551b2e005d71c5c20c5f34fa9d7926bf93e7eae4ab0a9f0ab061232"
+    },
+    {
+      "name": "libgdbm6t64",
+      "version": "1.26-1build1",
+      "filename": "pool/main/g/gdbm/libgdbm6t64_1.26-1build1_amd64.deb",
+      "sha256": "0752eddff4c494d682f433cac2f1d25196f0a405eb8c6b0b10ec46432f6fec71"
+    },
+    {
+      "name": "libgdbm-compat4t64",
+      "version": "1.26-1build1",
+      "filename": "pool/main/g/gdbm/libgdbm-compat4t64_1.26-1build1_amd64.deb",
+      "sha256": "e9ef750cc8ba426dee52f56aba0150e7e463b2658173bed8c4ca2927eec1c447"
+    },
+    {
+      "name": "perl-modules-5.40",
+      "version": "5.40.1-7build1",
+      "filename": "pool/main/p/perl/perl-modules-5.40_5.40.1-7build1_all.deb",
+      "sha256": "1f40a027bc0b31bec572baadb8d9dff7477e4fe00fa389a33a2e5f78607301b6"
+    },
+    {
+      "name": "libcurl3t64-gnutls",
+      "version": "8.18.0-1ubuntu2",
+      "filename": "pool/main/c/curl/libcurl3t64-gnutls_8.18.0-1ubuntu2_amd64.deb",
+      "sha256": "866fd07f5d3367fa42f1b0957007478b110f30918c08bedff566a2d6217bc3da"
+    },
+    {
+      "name": "libssh2-1t64",
+      "version": "1.11.1-1build2",
+      "filename": "pool/main/libs/libssh2/libssh2-1t64_1.11.1-1build2_amd64.deb",
+      "sha256": "63ece6297e34148e2cad22968059b7ac4e631b0ce2aaffa8424774fa2e02dacf"
+    },
+    {
+      "name": "librtmp1",
+      "version": "2.4+20151223.gitfa8646d.1-3",
+      "filename": "pool/main/r/rtmpdump/librtmp1_2.4+20151223.gitfa8646d.1-3_amd64.deb",
+      "sha256": "77cbd0ddf7e7487079ec300ff7751322de5e7d67f0f46749591b78ff1442cbe8"
+    },
+    {
+      "name": "libpsl5t64",
+      "version": "0.21.2-1.1build2",
+      "filename": "pool/main/libp/libpsl/libpsl5t64_0.21.2-1.1build2_amd64.deb",
+      "sha256": "1ae62705714f660ecdfd70273fce5b226b6cb7b9fe53776531799093edc99774"
+    },
+    {
+      "name": "libnghttp2-14",
+      "version": "1.68.0-2",
+      "filename": "pool/main/n/nghttp2/libnghttp2-14_1.68.0-2_amd64.deb",
+      "sha256": "d2328ad5c97b9df2decbfdcd3a849cbf38f6c823aa96eef7fe2143b791aac96f"
+    },
+    {
+      "name": "libldap2",
+      "version": "2.6.10+dfsg-1ubuntu5",
+      "filename": "pool/main/o/openldap/libldap2_2.6.10+dfsg-1ubuntu5_amd64.deb",
+      "sha256": "8d3a361e8655a0ff4a390243059949fa6f22d42d0e266f58b57c124eb21d2993"
+    },
+    {
+      "name": "libldap-common",
+      "version": "2.6.10+dfsg-1ubuntu5",
+      "filename": "pool/main/o/openldap/libldap-common_2.6.10+dfsg-1ubuntu5_all.deb",
+      "sha256": "919b209f5040c1dca1d9c3912521e4bc476028c2e16905ab09347004a599a722"
+    },
+    {
+      "name": "libsasl2-2",
+      "version": "2.1.28+dfsg1-9ubuntu3",
+      "filename": "pool/main/c/cyrus-sasl2/libsasl2-2_2.1.28+dfsg1-9ubuntu3_amd64.deb",
+      "sha256": "11b9b2ce6702d86dd3dea60e08bd15255d7fd9545431a9e555eec47770404de0"
+    },
+    {
+      "name": "libsasl2-modules-db",
+      "version": "2.1.28+dfsg1-9ubuntu3",
+      "filename": "pool/main/c/cyrus-sasl2/libsasl2-modules-db_2.1.28+dfsg1-9ubuntu3_amd64.deb",
+      "sha256": "1de7b83844537091315210afb466ff2cd022874db5a6a785ce06b41bd3507eb3"
+    },
+    {
+      "name": "libbrotli1",
+      "version": "1.2.0-3build1",
+      "filename": "pool/main/b/brotli/libbrotli1_1.2.0-3build1_amd64.deb",
+      "sha256": "858242571fc2585c1f8eb83ae01d020f0f4a92679d0de8fe31146f6687bdd84a"
+    }
+  ],
+  "host_boundary": [
+    "libdb5.3t64",
+    "libcrypt1",
+    "libbz2-1.0",
+    "perl-base",
+    "zlib1g",
+    "libpcre2-8-0",
+    "libexpat1",
+    "libzstd1",
+    "libssl3t64",
+    "openssl-provider-legacy",
+    "libhogweed6t64",
+    "libgmp10",
+    "libunistring5",
+    "libnettle8t64",
+    "libidn2-0",
+    "libgssapi-krb5-2",
+    "libkrb5support0",
+    "libk5crypto3",
+    "libcom-err2",
+    "libkrb5-3",
+    "libkeyutils1",
+    "libgnutls30t64",
+    "libtasn1-6",
+    "libp11-kit0",
+    "libffi8",
+    "libc6",
+    "libc-gconv-modules-extra",
+    "libgcc-s1",
+    "gcc-16-base"
+  ],
+  "unresolved": [],
+  "licences": [
+    "libldap2.copyright",
+    "libgdbm6t64.copyright",
+    "libbrotli1.copyright",
+    "git-man.copyright",
+    "libssh2-1t64.copyright",
+    "libpsl5t64.copyright",
+    "libnghttp2-14.copyright",
+    "libcurl3t64-gnutls.copyright",
+    "git.copyright",
+    "libsasl2-modules-db.copyright",
+    "libgdbm-compat4t64.copyright",
+    "liberror-perl.copyright",
+    "perl-modules-5.40.copyright",
+    "libldap-common.copyright",
+    "libsasl2-2.copyright",
+    "perl.copyright",
+    "libperl5.40.copyright",
+    "librtmp1.copyright"
+  ],
+  "acquired": true,
+  "runtime_verified": true,
+  "downloads": [
+    {
+      "package": "git",
+      "version": "1:2.53.0-1ubuntu1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/g/git/git_2.53.0-1ubuntu1_amd64.deb",
+      "sha256_index": "c3b36d7357dea773eefe6c4f97ebff416e5afee22489dc1f729e31d6f47872e9",
+      "sha256_actual": "c3b36d7357dea773eefe6c4f97ebff416e5afee22489dc1f729e31d6f47872e9",
+      "verified": true
+    },
+    {
+      "package": "git-man",
+      "version": "1:2.53.0-1ubuntu1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/g/git/git-man_2.53.0-1ubuntu1_all.deb",
+      "sha256_index": "cc2870c52d3d6845bd792e861930dd6afc5fe165edb0c8c3700332c3bfbd666e",
+      "sha256_actual": "cc2870c52d3d6845bd792e861930dd6afc5fe165edb0c8c3700332c3bfbd666e",
+      "verified": true
+    },
+    {
+      "package": "liberror-perl",
+      "version": "0.17030-1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/libe/liberror-perl/liberror-perl_0.17030-1_all.deb",
+      "sha256_index": "cb85c869fe056e9e466efcfa3403408b0a87db1da1cafa585140a9be59fe58a1",
+      "sha256_actual": "cb85c869fe056e9e466efcfa3403408b0a87db1da1cafa585140a9be59fe58a1",
+      "verified": true
+    },
+    {
+      "package": "perl",
+      "version": "5.40.1-7build1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/p/perl/perl_5.40.1-7build1_amd64.deb",
+      "sha256_index": "b1def6b47f4f45852e4f79127fad9b947e2b9c1d5e2282e986b8bdb0ddd51b24",
+      "sha256_actual": "b1def6b47f4f45852e4f79127fad9b947e2b9c1d5e2282e986b8bdb0ddd51b24",
+      "verified": true
+    },
+    {
+      "package": "libperl5.40",
+      "version": "5.40.1-7build1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/p/perl/libperl5.40_5.40.1-7build1_amd64.deb",
+      "sha256_index": "7562e7f3c551b2e005d71c5c20c5f34fa9d7926bf93e7eae4ab0a9f0ab061232",
+      "sha256_actual": "7562e7f3c551b2e005d71c5c20c5f34fa9d7926bf93e7eae4ab0a9f0ab061232",
+      "verified": true
+    },
+    {
+      "package": "libgdbm6t64",
+      "version": "1.26-1build1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/g/gdbm/libgdbm6t64_1.26-1build1_amd64.deb",
+      "sha256_index": "0752eddff4c494d682f433cac2f1d25196f0a405eb8c6b0b10ec46432f6fec71",
+      "sha256_actual": "0752eddff4c494d682f433cac2f1d25196f0a405eb8c6b0b10ec46432f6fec71",
+      "verified": true
+    },
+    {
+      "package": "libgdbm-compat4t64",
+      "version": "1.26-1build1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/g/gdbm/libgdbm-compat4t64_1.26-1build1_amd64.deb",
+      "sha256_index": "e9ef750cc8ba426dee52f56aba0150e7e463b2658173bed8c4ca2927eec1c447",
+      "sha256_actual": "e9ef750cc8ba426dee52f56aba0150e7e463b2658173bed8c4ca2927eec1c447",
+      "verified": true
+    },
+    {
+      "package": "perl-modules-5.40",
+      "version": "5.40.1-7build1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/p/perl/perl-modules-5.40_5.40.1-7build1_all.deb",
+      "sha256_index": "1f40a027bc0b31bec572baadb8d9dff7477e4fe00fa389a33a2e5f78607301b6",
+      "sha256_actual": "1f40a027bc0b31bec572baadb8d9dff7477e4fe00fa389a33a2e5f78607301b6",
+      "verified": true
+    },
+    {
+      "package": "libcurl3t64-gnutls",
+      "version": "8.18.0-1ubuntu2",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/c/curl/libcurl3t64-gnutls_8.18.0-1ubuntu2_amd64.deb",
+      "sha256_index": "866fd07f5d3367fa42f1b0957007478b110f30918c08bedff566a2d6217bc3da",
+      "sha256_actual": "866fd07f5d3367fa42f1b0957007478b110f30918c08bedff566a2d6217bc3da",
+      "verified": true
+    },
+    {
+      "package": "libssh2-1t64",
+      "version": "1.11.1-1build2",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/libs/libssh2/libssh2-1t64_1.11.1-1build2_amd64.deb",
+      "sha256_index": "63ece6297e34148e2cad22968059b7ac4e631b0ce2aaffa8424774fa2e02dacf",
+      "sha256_actual": "63ece6297e34148e2cad22968059b7ac4e631b0ce2aaffa8424774fa2e02dacf",
+      "verified": true
+    },
+    {
+      "package": "librtmp1",
+      "version": "2.4+20151223.gitfa8646d.1-3",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/r/rtmpdump/librtmp1_2.4+20151223.gitfa8646d.1-3_amd64.deb",
+      "sha256_index": "77cbd0ddf7e7487079ec300ff7751322de5e7d67f0f46749591b78ff1442cbe8",
+      "sha256_actual": "77cbd0ddf7e7487079ec300ff7751322de5e7d67f0f46749591b78ff1442cbe8",
+      "verified": true
+    },
+    {
+      "package": "libpsl5t64",
+      "version": "0.21.2-1.1build2",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/libp/libpsl/libpsl5t64_0.21.2-1.1build2_amd64.deb",
+      "sha256_index": "1ae62705714f660ecdfd70273fce5b226b6cb7b9fe53776531799093edc99774",
+      "sha256_actual": "1ae62705714f660ecdfd70273fce5b226b6cb7b9fe53776531799093edc99774",
+      "verified": true
+    },
+    {
+      "package": "libnghttp2-14",
+      "version": "1.68.0-2",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/n/nghttp2/libnghttp2-14_1.68.0-2_amd64.deb",
+      "sha256_index": "d2328ad5c97b9df2decbfdcd3a849cbf38f6c823aa96eef7fe2143b791aac96f",
+      "sha256_actual": "d2328ad5c97b9df2decbfdcd3a849cbf38f6c823aa96eef7fe2143b791aac96f",
+      "verified": true
+    },
+    {
+      "package": "libldap2",
+      "version": "2.6.10+dfsg-1ubuntu5",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/o/openldap/libldap2_2.6.10+dfsg-1ubuntu5_amd64.deb",
+      "sha256_index": "8d3a361e8655a0ff4a390243059949fa6f22d42d0e266f58b57c124eb21d2993",
+      "sha256_actual": "8d3a361e8655a0ff4a390243059949fa6f22d42d0e266f58b57c124eb21d2993",
+      "verified": true
+    },
+    {
+      "package": "libldap-common",
+      "version": "2.6.10+dfsg-1ubuntu5",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/o/openldap/libldap-common_2.6.10+dfsg-1ubuntu5_all.deb",
+      "sha256_index": "919b209f5040c1dca1d9c3912521e4bc476028c2e16905ab09347004a599a722",
+      "sha256_actual": "919b209f5040c1dca1d9c3912521e4bc476028c2e16905ab09347004a599a722",
+      "verified": true
+    },
+    {
+      "package": "libsasl2-2",
+      "version": "2.1.28+dfsg1-9ubuntu3",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/c/cyrus-sasl2/libsasl2-2_2.1.28+dfsg1-9ubuntu3_amd64.deb",
+      "sha256_index": "11b9b2ce6702d86dd3dea60e08bd15255d7fd9545431a9e555eec47770404de0",
+      "sha256_actual": "11b9b2ce6702d86dd3dea60e08bd15255d7fd9545431a9e555eec47770404de0",
+      "verified": true
+    },
+    {
+      "package": "libsasl2-modules-db",
+      "version": "2.1.28+dfsg1-9ubuntu3",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/c/cyrus-sasl2/libsasl2-modules-db_2.1.28+dfsg1-9ubuntu3_amd64.deb",
+      "sha256_index": "1de7b83844537091315210afb466ff2cd022874db5a6a785ce06b41bd3507eb3",
+      "sha256_actual": "1de7b83844537091315210afb466ff2cd022874db5a6a785ce06b41bd3507eb3",
+      "verified": true
+    },
+    {
+      "package": "libbrotli1",
+      "version": "1.2.0-3build1",
+      "url": "http://archive.ubuntu.com/ubuntu/pool/main/b/brotli/libbrotli1_1.2.0-3build1_amd64.deb",
+      "sha256_index": "858242571fc2585c1f8eb83ae01d020f0f4a92679d0de8fe31146f6687bdd84a",
+      "sha256_actual": "858242571fc2585c1f8eb83ae01d020f0f4a92679d0de8fe31146f6687bdd84a",
+      "verified": true
+    }
+  ],
+  "status": "acquired+verified",
+  "runtime_check": {
+    "verified": true,
+    "output": "git version 2.53.0"
+  }
+}
