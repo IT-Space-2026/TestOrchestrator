@@ -46,6 +46,17 @@ DEFAULTS = {
     "network_config_version": 0,
     # Snapshot of the last successfully applied config for rollback.
     "previous_good_config": {},
+    # Integration endpoints (handoff §5–§9, §11). Empty = not configured;
+    # adapters report an actionable not-configured status, never a fake
+    # success. Values are endpoints/references — secrets live in SecretRef.
+    "dagu_endpoint": "",
+    "dagu_credential_ref": "",
+    "reportportal_endpoint": "",
+    "reportportal_project": "",
+    "reportportal_credential_ref": "",
+    "git_export_repo": "",
+    "git_export_credential_ref": "",
+    "git_export_ref": "main",
 }
 
 

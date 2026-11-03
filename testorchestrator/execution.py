@@ -1,0 +1,344 @@
+"""Execution domain model (handoff §4–§11).
+
+Durable schema for the source-to-execution-to-evidence pipeline. Execution
+state, test outcome, ReportPortal publication, and Git synchronization are
+independent state fields — a reporting outage never rewrites the recorded
+execution evidence.
+"""
+
+import enum
+import json
+import uuid
+from datetime import datetime, timezone
+
+from .extensions import db
+
+
+def utcnow():
+    return datetime.now(timezone.utc)
+
+
+def new_id() -> str:
+    return uuid.uuid4().hex
+
+
+class Project(db.Model):
+    __tablename__ = "projects"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    name = db.Column(db.String(128), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+class GitBinding(db.Model):
+    """Per-project Katalon repository binding (§10–§11). Separate from
+    connection credentials — references a SecretRef by name only."""
+
+    __tablename__ = "git_bindings"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
+                           nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    url = db.Column(db.String(512), nullable=False)          # https/ssh/local
+    ref = db.Column(db.String(128), nullable=False, default="main")
+    subdirectory = db.Column(db.String(256), nullable=False, default="")
+    prj_path = db.Column(db.String(256), nullable=False, default="")  # .prj
+    credential_ref = db.Column(db.String(64), nullable=False, default="")
+    worktree_path = db.Column(db.String(512), nullable=False, default="")
+    last_synced_sha = db.Column(db.String(64), nullable=False, default="")
+    status = db.Column(db.String(32), nullable=False, default="never-synced")
+    last_error = db.Column(db.Text, nullable=False, default="")
+    project = db.relationship("Project", backref="bindings")
+
+
+class Suite(db.Model):
+    __tablename__ = "suites"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
+                           nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    # Immutable versioning: edits create a new version row; imported suites
+    # are read-only and can only be duplicated.
+    version = db.Column(db.Integer, nullable=False, default=1)
+    content_hash = db.Column(db.String(64), nullable=False, default="")
+    imported = db.Column(db.Boolean, nullable=False, default=False)
+    readonly = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    project = db.relationship("Project", backref="suites")
+
+
+class SuiteEntry(db.Model):
+    """Ordered case membership; repeated entries are allowed."""
+
+    __tablename__ = "suite_entries"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    suite_id = db.Column(db.String(32), db.ForeignKey("suites.id"),
+                         nullable=False)
+    order = db.Column(db.Integer, nullable=False, default=0)
+    case_ref = db.Column(db.String(512), nullable=False)   # repo-relative path
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    config_json = db.Column(db.Text, nullable=False, default="{}")
+    suite = db.relationship("Suite", backref=db.backref(
+        "entries", order_by="SuiteEntry.order", cascade="all, delete-orphan"))
+
+
+class Plan(db.Model):
+    __tablename__ = "plans"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
+                           nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    parallelism = db.Column(db.Integer, nullable=False, default=1)  # sequential
+    project = db.relationship("Project", backref="plans")
+
+
+class PlanEntry(db.Model):
+    __tablename__ = "plan_entries"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    plan_id = db.Column(db.String(32), db.ForeignKey("plans.id"),
+                        nullable=False)
+    order = db.Column(db.Integer, nullable=False, default=0)
+    suite_id = db.Column(db.String(32), db.ForeignKey("suites.id"),
+                         nullable=False)
+    config_json = db.Column(db.Text, nullable=False, default="{}")
+    plan = db.relationship("Plan", backref=db.backref(
+        "entries", order_by="PlanEntry.order", cascade="all, delete-orphan"))
+    suite = db.relationship("Suite")
+
+
+class Release(db.Model):
+    __tablename__ = "releases"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
+                           nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    owner = db.Column(db.String(64), nullable=False, default="")
+    status = db.Column(db.String(32), nullable=False, default="draft")
+    plan_id = db.Column(db.String(32), db.ForeignKey("plans.id"), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    released_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    project = db.relationship("Project", backref="releases")
+
+
+class Runner(db.Model):
+    """Registered execution host (§6). Local mode first."""
+
+    __tablename__ = "runners"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    name = db.Column(db.String(128), nullable=False, unique=True)
+    description = db.Column(db.Text, nullable=False, default="")
+    os_arch = db.Column(db.String(64), nullable=False, default="")
+    connection_mode = db.Column(db.String(16), nullable=False, default="local")
+    allowed_projects = db.Column(db.Text, nullable=False, default="[]")
+    tags = db.Column(db.Text, nullable=False, default="[]")
+    capabilities = db.Column(db.Text, nullable=False, default="[]")
+    workspace_root = db.Column(db.String(512), nullable=False, default="")
+    max_slots = db.Column(db.Integer, nullable=False, default=1)
+    health = db.Column(db.String(16), nullable=False, default="unknown")
+    heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    draining = db.Column(db.Boolean, nullable=False, default=False)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    credential_ref = db.Column(db.String(64), nullable=False, default="")
+
+
+class RuntimeConnection(db.Model):
+    """Registered *existing* KRE installation on a runner (§5). Connect-only:
+    never installs, licenses, upgrades, or removes KRE."""
+
+    __tablename__ = "runtime_connections"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    name = db.Column(db.String(128), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    runner_id = db.Column(db.String(32), db.ForeignKey("runners.id"),
+                          nullable=False)
+    transport = db.Column(db.String(16), nullable=False, default="local")
+    executable_path = db.Column(db.String(512), nullable=False)
+    workspace_root = db.Column(db.String(512), nullable=False, default="")
+    credential_ref = db.Column(db.String(64), nullable=False, default="")
+    detected_version = db.Column(db.String(64), nullable=False, default="")
+    verified_capabilities = db.Column(db.Text, nullable=False, default="[]")
+    allowed_projects = db.Column(db.Text, nullable=False, default="[]")
+    concurrency = db.Column(db.Integer, nullable=False, default=1)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    last_diagnostic = db.Column(db.Text, nullable=False, default="")
+    runner = db.relationship("Runner", backref="runtimes")
+
+
+class ExecutionState(str, enum.Enum):
+    QUEUED = "queued"
+    DISPATCHED = "dispatched"      # handed to Dagu/outbox, awaiting runner
+    PREPARING = "preparing"
+    RUNNING = "running"
+    COLLECTING = "collecting"      # continues after failed tests (§7)
+    NORMALIZING = "normalizing"
+    PUBLISHING = "publishing"      # external publish; local results already safe
+    FINALIZING = "finalizing"
+    COMPLETED = "completed"
+    FAILED = "failed"              # infrastructure/execution failure
+    CANCEL_REQUESTED = "cancel_requested"
+    CANCELED = "canceled"
+    UNKNOWN = "unknown"            # ambiguous after timeout/restart
+
+
+class Outcome(str, enum.Enum):
+    NONE = "none"
+    PASSED = "passed"
+    FAILED = "failed"
+    INCOMPLETE = "incomplete"      # partial/canceled — never silently green
+
+
+class SyncState(str, enum.Enum):
+    NONE = "none"
+    PENDING = "pending"
+    DONE = "done"
+    FAILED = "failed"
+    NOT_CONFIGURED = "not-configured"
+
+
+class Execution(db.Model):
+    """Immutable execution snapshot + live state (§4, §8)."""
+
+    __tablename__ = "executions"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
+                           nullable=False)
+    suite_id = db.Column(db.String(32), db.ForeignKey("suites.id"),
+                         nullable=False)
+    # Immutable snapshot: suite content hash + resolved source SHA per
+    # binding — never mutated by later definition edits (A07).
+    snapshot_json = db.Column(db.Text, nullable=False, default="{}")
+    source_sha = db.Column(db.String(64), nullable=False, default="")
+    binding_id = db.Column(db.String(32), db.ForeignKey("git_bindings.id"),
+                           nullable=True)
+    runner_id = db.Column(db.String(32), db.ForeignKey("runners.id"),
+                          nullable=True)
+    runtime_id = db.Column(db.String(32),
+                           db.ForeignKey("runtime_connections.id"),
+                           nullable=True)
+    created_by = db.Column(db.String(64), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    started_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Independent state fields (§8): execution, outcome, RP publication,
+    # Git sync — tracked separately.
+    state = db.Column(db.Enum(ExecutionState), nullable=False,
+                      default=ExecutionState.QUEUED)
+    outcome = db.Column(db.Enum(Outcome), nullable=False,
+                        default=Outcome.NONE)
+    rp_state = db.Column(db.Enum(SyncState), nullable=False,
+                         default=SyncState.NONE)
+    git_state = db.Column(db.Enum(SyncState), nullable=False,
+                          default=SyncState.NONE)
+    dispatch_id = db.Column(db.String(64), nullable=False, default="")
+    workspace_path = db.Column(db.String(512), nullable=False, default="")
+    report_dir = db.Column(db.String(512), nullable=False, default="")
+    exit_status = db.Column(db.Integer, nullable=True)
+    error_kind = db.Column(db.String(32), nullable=False, default="")
+    error_text = db.Column(db.Text, nullable=False, default="")
+    cancel_reason = db.Column(db.String(256), nullable=False, default="")
+    # Runner lease (§6): heartbeats keep the assignment alive; offline
+    # heartbeat means UNKNOWN, never silent duplicate dispatch.
+    lease_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    project = db.relationship("Project")
+    suite = db.relationship("Suite")
+    runner = db.relationship("Runner")
+    runtime = db.relationship("RuntimeConnection")
+
+    def snapshot(self) -> dict:
+        return json.loads(self.snapshot_json or "{}")
+
+
+class CaseStatus(str, enum.Enum):
+    PASSED = "passed"
+    FAILED = "failed"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
+class TestResult(db.Model):
+    """Canonical parsed result row (§8). Source case identity is kept
+    verbatim — case names alone are not unique."""
+
+    __tablename__ = "test_results"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    execution_id = db.Column(db.String(32), db.ForeignKey("executions.id"),
+                             nullable=False, index=True)
+    suite_entry_order = db.Column(db.Integer, nullable=True)
+    case_ref = db.Column(db.String(512), nullable=False, default="")
+    case_name = db.Column(db.String(512), nullable=False)
+    classname = db.Column(db.String(512), nullable=False, default="")
+    iteration = db.Column(db.Integer, nullable=False, default=0)
+    attempt = db.Column(db.Integer, nullable=False, default=1)
+    status = db.Column(db.Enum(CaseStatus), nullable=False)
+    duration_s = db.Column(db.Float, nullable=False, default=0.0)
+    message = db.Column(db.Text, nullable=False, default="")
+    # Unresolved when producer output cannot be mapped to a source case
+    # deterministically — exposed honestly, never guessed (§8).
+    unresolved = db.Column(db.Boolean, nullable=False, default=False)
+    execution = db.relationship("Execution", backref=db.backref(
+        "results", cascade="all, delete-orphan"))
+
+
+class Artifact(db.Model):
+    """Evidence file with integrity metadata and per-artifact publication
+    state (§9). Paths are validated; content checksummed."""
+
+    __tablename__ = "artifacts"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    execution_id = db.Column(db.String(32), db.ForeignKey("executions.id"),
+                             nullable=False, index=True)
+    result_id = db.Column(db.String(32), db.ForeignKey("test_results.id"),
+                          nullable=True)
+    kind = db.Column(db.String(32), nullable=False)  # junit|log|screenshot|video|har|html|other
+    rel_path = db.Column(db.String(512), nullable=False)
+    sha256 = db.Column(db.String(64), nullable=False)
+    size = db.Column(db.Integer, nullable=False)
+    mime = db.Column(db.String(128), nullable=False, default="")
+    # Filename association alone is insufficient; unmapped files stay at
+    # run/suite level and are labelled unmapped.
+    mapped = db.Column(db.Boolean, nullable=False, default=True)
+    rp_state = db.Column(db.Enum(SyncState), nullable=False,
+                         default=SyncState.NONE)
+    rp_remote_id = db.Column(db.String(64), nullable=False, default="")
+    collected_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    execution = db.relationship("Execution", backref=db.backref(
+        "artifacts", cascade="all, delete-orphan"))
+
+
+class OutboxEvent(db.Model):
+    """Durable dispatch/sync/publish outbox (§7, §11). Processed by
+    `flask worker` outside request handlers; survives restarts."""
+
+    __tablename__ = "outbox_events"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    kind = db.Column(db.String(32), nullable=False)      # dagu-dispatch|local-dispatch|git-sync|rp-publish|binding-sync|runner-heartbeat
+    payload_json = db.Column(db.Text, nullable=False, default="{}")
+    status = db.Column(db.String(16), nullable=False, default="pending")
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    last_error = db.Column(db.Text, nullable=False, default="")
+    available_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    processed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    def payload(self) -> dict:
+        return json.loads(self.payload_json or "{}")
+
+
+class SecretRef(db.Model):
+    """Protected secret store (§12). Values encrypted with a key held OUTSIDE
+    the database; only references appear in settings/snapshots. Rotation is
+    audited by metadata only — secret bytes never enter logs."""
+
+    __tablename__ = "secret_refs"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    name = db.Column(db.String(64), nullable=False, unique=True)
+    kind = db.Column(db.String(32), nullable=False)      # git|dagu|reportportal|runner|runtime
+    encrypted = db.Column(db.LargeBinary, nullable=False)
+    meta_json = db.Column(db.Text, nullable=False, default="{}")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    rotated_at = db.Column(db.DateTime(timezone=True), nullable=True)

@@ -64,22 +64,31 @@ def create_app(config_object=Config) -> Flask:
     from .auth import auth_bp
     from .main import main_bp
     from .system import system_bp
+    from .portal import portal_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(system_bp)
+    app.register_blueprint(portal_bp)
 
     # v1.8 bootstrap + network gates (loopback-only until setup completes and
     # external access is enabled; host allowlist; forced password change).
-    from .bootstrap import ensure_bootstrap_admin, install_gates
+    # Provisioning happens inside the request gate, not here — a CLI/migration
+    # invocation must never try to write users before the schema is current.
+    from .bootstrap import install_gates
 
     install_gates(app)
-    with app.app_context():
-        ensure_bootstrap_admin()
 
     @login_manager.user_loader
     def load_user(user_id):
-        return db.session.get(models.User, int(user_id))
+        user = db.session.get(models.User, int(user_id))
+        if user is None or not user.is_active:
+            return None
+        # Session revocation: cookie must carry the current version.
+        from flask import session
+        if session.get("session_version") != user.session_version:
+            return None
+        return user
 
     register_cli(app)
     return app
@@ -149,3 +158,16 @@ def register_cli(app: Flask) -> None:
         """Exit 0 when the app and its database are reachable (installer use)."""
         db.session.execute(db.text("SELECT 1"))
         click.echo("ok")
+
+    @app.cli.command("worker")
+    @click.option("--once", is_flag=True,
+                  help="Process the durable outbox once and exit.")
+    def worker(once: bool) -> None:
+        """Durable dispatch/sync worker — runs OUTSIDE request handlers
+        (handoff §7): outbox events, runner assignment, reconciliation."""
+        from . import dispatch
+        if once:
+            click.echo(f"processed: {dispatch.worker_once()}")
+        else:
+            click.echo("worker loop started (Ctrl-C to stop)")
+            dispatch.worker_loop()

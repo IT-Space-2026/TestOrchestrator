@@ -1,17 +1,31 @@
-"""Runner agent dispatch and status adapter.
+"""Runner adapter (§6).
 
-Placeholder seam pending the corresponding specification sections. Web request
-handlers must not perform this work inline; dispatch to a worker process.
+Local mode is implemented completely: the portal worker claims queued
+executions against registered runners honoring capacity, allowed projects,
+drain state, leases, and heartbeats. Cancellation targets the actual
+process tree via the KRE adapter.
+
+Remote transport: the architecture decision is a secured Python agent
+(option A in §6) — NOT pretending KRE exposes a remote HTTP service.
+Status: not implemented; remote runners stay `not-configured` until the
+agent lands. A registered remote-mode runner simply never gets assigned.
 """
 
 
-class NotConfiguredError(RuntimeError):
-    """Raised when the integration is invoked before it is configured."""
+class RunnerAdapter:
+    """Capacity/eligibility helpers; scheduling itself lives in dispatch."""
 
+    def __init__(self, runner) -> None:
+        self.runner = runner
 
-class Adapter:
-    def __init__(self, config: dict | None = None) -> None:
-        self.config = config or {}
+    def is_local(self) -> bool:
+        return self.runner.connection_mode == "local"
 
-    def status(self) -> str:
-        return "not-configured"
+    def assignable(self) -> bool:
+        """Only local runners can receive work today — remote transport is
+        an explicit pending architecture item, not a stub pretending."""
+        return (
+            self.runner.enabled
+            and not self.runner.draining
+            and self.is_local()
+        )

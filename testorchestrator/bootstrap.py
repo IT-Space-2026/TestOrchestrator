@@ -58,22 +58,23 @@ def ensure_bootstrap_admin() -> bool:
     try:
         if db.session.query(User.id).first() is not None:
             return False
-    except SQLAlchemyError:
-        return False  # Schema not migrated yet; try again next request.
 
-    admin = User(username=BOOTSTRAP_USERNAME, role=Role.ADMIN)
-    installer_password = current_app.config.get("ADMIN_INITIAL_PASSWORD")
-    if installer_password and len(installer_password) >= 12:
-        admin.set_password(installer_password)
-        admin.must_change_password = False
-        settings_mod.set("setup_completed", True)
-    else:
-        admin.set_password(BOOTSTRAP_PASSWORD)
-        admin.must_change_password = True
-    db.session.add(admin)
-    db.session.commit()
-    record_audit(BOOTSTRAP_USERNAME, "bootstrap.admin_provisioned")
-    return True
+        admin = User(username=BOOTSTRAP_USERNAME, role=Role.ADMIN)
+        installer_password = current_app.config.get("ADMIN_INITIAL_PASSWORD")
+        if installer_password and len(installer_password) >= 12:
+            admin.set_password(installer_password)
+            admin.must_change_password = False
+            settings_mod.set("setup_completed", True)
+        else:
+            admin.set_password(BOOTSTRAP_PASSWORD)
+            admin.must_change_password = True
+        db.session.add(admin)
+        db.session.commit()
+        record_audit(BOOTSTRAP_USERNAME, "bootstrap.admin_provisioned")
+        return True
+    except SQLAlchemyError:
+        db.session.rollback()
+        return False  # Schema not migrated yet; try again next request.
 
 
 def rate_limit_exceeded(username: str) -> bool:

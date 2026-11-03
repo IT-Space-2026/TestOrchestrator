@@ -4,9 +4,11 @@ All mutations are Admin-only, validated, staged through the Caddy renderer,
 audited without secrets, and recoverable via previous_good_config.
 """
 
-from flask import (current_app, flash, redirect, render_template,
+from flask import (abort, current_app, flash, redirect, render_template,
                    send_file, url_for)
 from flask_login import current_user
+
+from ..extensions import db
 
 from .. import settings as settings_mod
 from ..caddyconf import (CaddyApplyError, apply_config, render_caddyfile,
@@ -19,7 +21,8 @@ from ..network import (ValidationError, access_links, check_port_conflicts,
 from ..security import role_required
 from . import system_bp
 from .forms import (AddressForm, ApplyForm, GenerateCertForm, ImportCertForm,
-                    PortsForm)
+                    PortsForm, ResetForm, RunnerForm, RuntimeForm, SecretForm,
+                    UserForm)
 
 
 def _context():
@@ -283,3 +286,230 @@ def download_ca():
         return redirect(url_for("system.network"))
     return send_file(ca_path, as_attachment=True,
                      download_name="testorchestrator-local-ca.pem")
+
+
+# ---------- users (§16) ----------
+
+@system_bp.route("/users")
+@role_required(Role.ADMIN)
+def users():
+    from ..models import User
+    record_audit(current_user.username, "page.users")
+    return render_template(
+        "system/users.html",
+        users=User.query.order_by(User.username).all(),
+        form=UserForm(), reset_form=ResetForm(), apply_form=ApplyForm())
+
+
+@system_bp.route("/users", methods=["POST"])
+@role_required(Role.ADMIN)
+def create_user():
+    from ..models import User
+    form = UserForm()
+    if form.validate_on_submit():
+        username = form.username.data.strip()
+        if User.query.filter_by(username=username).first():
+            flash("Username already exists.", "error")
+            return redirect(url_for("system.users"))
+        user = User(
+            username=username,
+            display_name=form.display_name.data or "",
+            role=Role(form.role.data),
+            must_change_password=True,  # mandatory first change (§16)
+        )
+        user.set_password(form.temporary_password.data)
+        db.session.add(user)
+        db.session.commit()
+        record_audit(current_user.username, "user.created", username)
+        flash(f"User {username} created; first login requires a password "
+              "change.", "info")
+    return redirect(url_for("system.users"))
+
+
+@system_bp.route("/users/<int:user_id>/reset", methods=["POST"])
+@role_required(Role.ADMIN)
+def reset_user(user_id):
+    from ..models import User
+    form = ResetForm()
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    if form.validate_on_submit():
+        user.set_password(form.temporary_password.data)
+        user.must_change_password = True
+        user.session_version += 1  # reset revokes sessions (§16)
+        db.session.commit()
+        record_audit(current_user.username, "user.reset", user.username)
+        flash(f"Password reset for {user.username}; their sessions were "
+              "revoked.", "info")
+    return redirect(url_for("system.users"))
+
+
+@system_bp.route("/users/<int:user_id>/deactivate", methods=["POST"])
+@role_required(Role.ADMIN)
+def deactivate_user(user_id):
+    from ..models import User
+    ApplyForm().validate_on_submit()
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    # Protect the last active Admin (§16).
+    if user.role == Role.ADMIN:
+        others = User.query.filter(
+            User.role == Role.ADMIN, User.is_active, User.id != user.id
+        ).count()
+        if others == 0:
+            flash("Cannot deactivate the last active Admin.", "error")
+            return redirect(url_for("system.users"))
+    user.is_active = False
+    user.session_version += 1
+    db.session.commit()
+    record_audit(current_user.username, "user.deactivated", user.username)
+    return redirect(url_for("system.users"))
+
+
+# ---------- credentials (§12) ----------
+
+@system_bp.route("/secrets")
+@role_required(Role.ADMIN)
+def secrets():
+    from ..secrets_store import list_secret_meta
+    record_audit(current_user.username, "page.secrets")
+    return render_template("system/secrets.html",
+                           secrets=list_secret_meta(), form=SecretForm())
+
+
+@system_bp.route("/secrets", methods=["POST"])
+@role_required(Role.ADMIN)
+def create_secret():
+    from ..secrets_store import store_secret
+    form = SecretForm()
+    if form.validate_on_submit():
+        store_secret(
+            current_app, form.name.data.strip(), form.kind.data,
+            form.value.data, {"description": form.description.data or ""},
+        )
+        # Metadata only — never the value (§12).
+        record_audit(current_user.username, "secret.stored",
+                     f"{form.name.data.strip()} ({form.kind.data})")
+        flash(f"Credential {form.name.data.strip()} stored.", "info")
+    return redirect(url_for("system.secrets"))
+
+
+@system_bp.route("/secrets/<name>/delete", methods=["POST"])
+@role_required(Role.ADMIN)
+def delete_secret(name):
+    from ..secrets_store import delete_secret
+    ApplyForm().validate_on_submit()
+    if delete_secret(name):
+        record_audit(current_user.username, "secret.deleted", name)
+    return redirect(url_for("system.secrets"))
+
+
+# ---------- runners & runtime connections (§5–§6) ----------
+
+@system_bp.route("/infrastructure")
+@role_required(Role.ADMIN)
+def infrastructure():
+    from ..execution import Runner, RuntimeConnection
+    from ..execution import Project
+    record_audit(current_user.username, "page.infrastructure")
+    runner_form = RunnerForm()
+    runtime_form = RuntimeForm()
+    runner_form.allowed_projects.choices = [
+        (p.id, p.name) for p in Project.query.all()]
+    runtime_form.runner_id = ""
+    return render_template(
+        "system/infrastructure.html",
+        runners=Runner.query.all(),
+        runtimes=RuntimeConnection.query.all(),
+        runner_form=runner_form, runtime_form=runtime_form,
+        runner_choices=[(r.id, r.name) for r in Runner.query.all()],
+    )
+
+
+@system_bp.route("/infrastructure/runners", methods=["POST"])
+@role_required(Role.ADMIN)
+def create_runner():
+    import json
+    from ..execution import Project, Runner
+    form = RunnerForm()
+    form.allowed_projects.choices = [
+        (p.id, p.name) for p in Project.query.all()]
+    if form.validate_on_submit():
+        db.session.add(Runner(
+            name=form.name.data.strip(),
+            description=form.description.data or "",
+            os_arch=form.os_arch.data or "",
+            connection_mode=form.connection_mode.data,
+            workspace_root=form.workspace_root.data or "",
+            max_slots=form.max_slots.data or 1,
+            allowed_projects=json.dumps(form.allowed_projects.data or []),
+        ))
+        db.session.commit()
+        record_audit(current_user.username, "runner.created",
+                     form.name.data.strip())
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/infrastructure/runtimes", methods=["POST"])
+@role_required(Role.ADMIN)
+def create_runtime():
+    from ..execution import RuntimeConnection
+    form = RuntimeForm()
+    if form.validate_on_submit():
+        db.session.add(RuntimeConnection(
+            name=form.name.data.strip(),
+            description=form.description.data or "",
+            runner_id=form.runner_id.data,
+            executable_path=form.executable_path.data.strip(),
+            workspace_root=form.workspace_root.data or "",
+            credential_ref=form.credential_ref.data.strip(),
+            concurrency=form.concurrency.data or 1,
+        ))
+        db.session.commit()
+        record_audit(current_user.username, "runtime.registered",
+                     form.name.data.strip())
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/infrastructure/runtimes/<runtime_id>/probe",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def probe_runtime(runtime_id):
+    """Test connection: executable presence + version probe only. Does not
+    install anything, change licensing, or run project tests (§5)."""
+    from ..adapters.kre import KreError, probe_version
+    from ..execution import RuntimeConnection
+    ApplyForm().validate_on_submit()
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt is None:
+        abort(404)
+    try:
+        version = probe_version(rt.executable_path)
+        rt.detected_version = version
+        rt.last_diagnostic = f"probe ok: version {version}"
+        flash(f"Probe OK — detected version {version}. Licence readiness is "
+              "not implied by executable presence.", "info")
+    except KreError as exc:
+        rt.last_diagnostic = str(exc)
+        flash(f"Probe failed: {exc}", "error")
+    db.session.commit()
+    record_audit(current_user.username, "runtime.probe", rt.name)
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/infrastructure/runners/<runner_id>/drain",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def drain_runner(runner_id):
+    """Drain stops new work but lets active jobs finish (§6)."""
+    from ..execution import Runner
+    ApplyForm().validate_on_submit()
+    runner = db.session.get(Runner, runner_id)
+    if runner is None:
+        abort(404)
+    runner.draining = not runner.draining
+    db.session.commit()
+    record_audit(current_user.username, "runner.drain", runner.name)
+    return redirect(url_for("system.infrastructure"))

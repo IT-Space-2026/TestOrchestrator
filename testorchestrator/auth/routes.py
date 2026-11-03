@@ -29,6 +29,7 @@ def login():
         if user and user.is_active and user.check_password(form.password.data):
             reset_attempts(username)
             login_user(user)
+            session["session_version"] = user.session_version
             record_audit(user.username, "login.success")
             # A bootstrap login lands on the forced password change only.
             if user.must_change_password:
@@ -95,6 +96,7 @@ def change_password():
             session.clear()
             user = User.query.filter_by(username=username).first()
             login_user(user)
+            session["session_version"] = user.session_version
 
             flash("Password updated.", "info")
             return redirect(url_for("main.dashboard"))

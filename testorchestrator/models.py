@@ -44,6 +44,11 @@ class User(UserMixin, db.Model):
     must_change_password = db.Column(
         db.Boolean, nullable=False, default=False
     )
+    # Bumped on Admin reset/deactivate — sessions carrying an older version
+    # are invalidated at load time (reset revokes sessions).
+    session_version = db.Column(db.Integer, nullable=False, default=1)
+    # Server-side project scope (§16): JSON list of project IDs; empty = all.
+    allowed_projects = db.Column(db.Text, nullable=False, default="[]")
     created_at = db.Column(
         db.DateTime(timezone=True),
         nullable=False,
@@ -62,6 +67,11 @@ class User(UserMixin, db.Model):
     @property
     def is_admin(self) -> bool:
         return self.role == Role.ADMIN
+
+    def project_allowed(self, project_id: str) -> bool:
+        import json as _json
+        allowed = _json.loads(self.allowed_projects or "[]")
+        return not allowed or project_id in allowed
 
 
 class AuditEvent(db.Model):

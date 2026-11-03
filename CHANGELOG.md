@@ -1,5 +1,27 @@
 # TestOrchestrator changelog
 
+## 1.9.0 — 2026-11-03
+
+- Handoff: execution pipeline foundation — immutable execution snapshots,
+  durable outbox (`flask worker`), local runner with capacity/drain/leases,
+  process-tree cancellation, reconciliation to UNKNOWN (never re-dispatch).
+- Handoff: connect-only KRE adapter (argv invocation, isolated workspace at
+  recorded SHA, report discovery, error classification) — CLI verified vs.
+  fixture only, real KRE pending operator input.
+- Handoff: canonical JUnit results + evidence manifest (checksums, MIME,
+  active-content policy), independent state fields
+  (execution/outcome/RP/Git).
+- Handoff: Dagu and ReportPortal versioned REST clients — implemented but
+  unverified, honestly marked; not-configured is actionable, not faked.
+- Handoff: GitPython persistence — source binding clone/index + destination
+  export under `TestOrchestrator/` layout with evidence whitelist.
+- Handoff: Fernet credential store (key outside DB), Admin user management
+  (create/reset/deactivate, session revocation, last-Admin protection),
+  runners & KRE runtime registration/probe UI, project-scoped portal
+  (projects/bindings/suites/plans/releases/executions/artifacts).
+- Docs: implementation-status, integration-contracts, compatibility
+  inventory per handoff section 3.
+
 ## 1.8.0 — 2026-11-03
 
 - v1.8: bootstrap Admin (Admin/Admin, Argon2id, mandatory first-login

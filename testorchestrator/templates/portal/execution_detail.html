@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Execution {{ ex.id[:8] }} · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>Execution <code>{{ ex.id[:8] }}</code></h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+
+<dl class="about-facts">
+  <dt>Suite</dt><dd>{{ ex.snapshot().get('suite_name') }} (v{{ ex.snapshot().get('suite_version') }})</dd>
+  <dt>Source SHA</dt><dd><code>{{ ex.source_sha or "—" }}</code></dd>
+  <dt>State</dt><dd><strong>{{ ex.state.value }}</strong></dd>
+  <dt>Outcome</dt><dd>{{ ex.outcome.value }}</dd>
+  <dt>Runner</dt><dd>{{ ex.runner.name if ex.runner else "—" }}</dd>
+  <dt>Runtime</dt><dd>{{ ex.runtime.name if ex.runtime else "—" }}</dd>
+  <dt>Started</dt><dd>{{ ex.started_at or "—" }}</dd>
+  <dt>Finished</dt><dd>{{ ex.finished_at or "—" }}</dd>
+  <dt>Exit status</dt><dd>{{ ex.exit_status if ex.exit_status is not none else "—" }}</dd>
+  <dt>ReportPortal</dt><dd>{{ ex.rp_state.value }}</dd>
+  <dt>Git sync</dt><dd>{{ ex.git_state.value }}</dd>
+  {% if ex.error_kind %}
+  <dt>Error</dt><dd>{{ ex.error_kind }} — {{ ex.error_text }}</dd>
+  {% endif %}
+</dl>
+
+{% if ex.state.value not in ("completed", "failed", "canceled")
+   and current_user.role.value != "po" %}
+<form method="post" action="{{ url_for('portal.cancel_execution', execution_id=ex.id) }}" class="inline">
+  {{ plain_form.csrf_token }}
+  <button type="submit" class="button secondary">Cancel execution</button>
+</form>
+{% endif %}
+
+<h2>Results{% if ex.results %} — {{ counts }}{% endif %}</h2>
+{% if ex.results %}
+<table class="audit-table">
+  <thead><tr><th>Case</th><th>Status</th><th>Attempt</th><th>Duration</th><th>Message</th></tr></thead>
+  <tbody>
+    {% for r in ex.results %}
+    <tr class="result-{{ r.status.value }}">
+      <td><code>{{ r.case_name }}</code>{% if r.unresolved %} <em>(unresolved mapping)</em>{% endif %}</td>
+      <td>{{ r.status.value }}</td><td>{{ r.attempt }}</td>
+      <td>{{ "%.2f"|format(r.duration_s) }}s</td>
+      <td>{{ r.message[:200] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No parsed results — {% if ex.state.value in ("queued","dispatched","preparing","running") %}execution pending{% else %}missing results are never shown as a zero-test pass{% endif %}.</p>
+{% endif %}
+
+<h2>Logs</h2>
+<ul class="notice-list">
+  <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-stdout.log') }}">kre-stdout.log</a></li>
+  <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-stderr.log') }}">kre-stderr.log</a></li>
+</ul>
+
+<h2>Evidence ({{ ex.artifacts | length }} files)</h2>
+{% if ex.artifacts %}
+<table class="audit-table">
+  <thead><tr><th>File</th><th>Kind</th><th>Size</th><th>SHA-256</th><th>RP</th><th></th></tr></thead>
+  <tbody>
+    {% for a in ex.artifacts %}
+    <tr>
+      <td><code>{{ a.rel_path }}</code>{% if not a.mapped %} <em>(unmapped)</em>{% endif %}</td>
+      <td>{{ a.kind }}</td><td>{{ a.size }}</td>
+      <td><code>{{ a.sha256[:12] }}</code></td>
+      <td>{{ a.rp_state.value }}</td>
+      <td><a href="{{ url_for('portal.download_artifact', execution_id=ex.id, artifact_id=a.id) }}">download</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Snapshot</h2>
+<pre class="changelog">{{ ex.snapshot_json }}</pre>
+{% endblock %}

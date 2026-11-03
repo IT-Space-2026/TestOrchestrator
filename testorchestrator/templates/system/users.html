@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Users · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>System &rarr; Users</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+
+<table class="audit-table">
+  <thead><tr><th>Username</th><th>Role</th><th>Active</th><th>Must change</th><th>Actions</th></tr></thead>
+  <tbody>
+    {% for u in users %}
+    <tr>
+      <td>{{ u.username }}</td><td>{{ u.role.label }}</td>
+      <td>{{ "yes" if u.is_active else "no" }}</td>
+      <td>{{ "yes" if u.must_change_password else "no" }}</td>
+      <td>
+        <form method="post" action="{{ url_for('system.reset_user', user_id=u.id) }}" class="inline">
+          {{ reset_form.csrf_token }}
+          <input type="password" name="temporary_password" minlength="12"
+                 placeholder="new temp password" required>
+          <button type="submit" class="button secondary">Reset</button>
+        </form>
+        {% if u.is_active %}
+        <form method="post" action="{{ url_for('system.deactivate_user', user_id=u.id) }}" class="inline">
+          {{ apply_form.csrf_token }}
+          <button type="submit" class="button secondary">Deactivate</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<section class="card">
+  <h2>Create user</h2>
+  <form method="post" action="{{ url_for('system.create_user') }}">
+    {{ form.csrf_token }}
+    <div class="field">{{ form.username.label }} {{ form.username() }}</div>
+    <div class="field">{{ form.display_name.label }} {{ form.display_name() }}</div>
+    <fieldset class="field"><legend>{{ form.role.label }}</legend>
+      {% for sub in form.role %}<div class="checkbox">{{ sub() }} {{ sub.label }}</div>{% endfor %}
+    </fieldset>
+    <div class="field">{{ form.temporary_password.label }} {{ form.temporary_password() }}
+      <p class="muted">At least 12 characters; the user must replace it on
+         first sign-in.</p>
+    </div>
+    <button type="submit" class="button">Create user</button>
+  </form>
+</section>
+{% endblock %}

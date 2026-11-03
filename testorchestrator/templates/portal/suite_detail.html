@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ suite.name }} · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>{{ suite.name }} <small>v{{ suite.version }}</small></h1>
+<p>{{ suite.description }}</p>
+<dl class="about-facts">
+  <dt>Content hash</dt><dd><code>{{ suite.content_hash[:16] }}</code></dd>
+  <dt>Imported</dt><dd>{{ "yes (read-only)" if suite.imported else "no" }}</dd>
+</dl>
+<h2>Entries</h2>
+<table class="audit-table">
+  <thead><tr><th>#</th><th>Case reference</th><th>Enabled</th></tr></thead>
+  <tbody>
+    {% for e in suite.entries %}
+    <tr><td>{{ e.order }}</td><td><code>{{ e.case_ref }}</code></td>
+        <td>{{ "yes" if e.enabled else "no" }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>{{ project.name }}</h1>
+<p>{{ project.description }}</p>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+
+<section class="card">
+  <h2>Git bindings</h2>
+  <table class="audit-table">
+    <thead><tr><th>Name</th><th>URL</th><th>Ref</th><th>Synced SHA</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for b in project.bindings %}
+      <tr>
+        <td>{{ b.name }}</td><td><code>{{ b.url }}</code></td>
+        <td>{{ b.ref }}</td><td><code>{{ b.last_synced_sha[:12] }}</code></td>
+        <td>{{ b.status }}{% if b.last_error %} — {{ b.last_error[:80] }}{% endif %}</td>
+        <td>
+          {% if can_edit %}
+          <form method="post" action="{{ url_for('portal.sync_binding', binding_id=b.id) }}" class="inline">
+            {{ plain_form.csrf_token }}
+            <button type="submit" class="button secondary">Sync</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if can_edit %}
+  <form method="post" action="{{ url_for('portal.create_binding', project_id=project.id) }}">
+    {{ binding_form.csrf_token }}
+    <div class="field">{{ binding_form.name.label }} {{ binding_form.name() }}</div>
+    <div class="field">{{ binding_form.url.label }} {{ binding_form.url() }}</div>
+    <div class="field">{{ binding_form.ref.label }} {{ binding_form.ref() }}</div>
+    <div class="field">{{ binding_form.subdirectory.label }} {{ binding_form.subdirectory() }}</div>
+    <div class="field">{{ binding_form.prj_path.label }} {{ binding_form.prj_path() }}</div>
+    <div class="field">{{ binding_form.credential_ref.label }} {{ binding_form.credential_ref() }}</div>
+    <button type="submit" class="button">Add binding</button>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Suites</h2>
+  {% if project.suites %}
+  <ul class="notice-list">
+    {% for s in project.suites %}
+    <li>
+      <a href="{{ url_for('portal.suite_detail', suite_id=s.id) }}">{{ s.name }}</a>
+      v{{ s.version }} — {{ s.entries | length }} entries
+      {% if s.imported %}(imported, read-only){% endif %}
+      {% if can_run %}
+      <form method="post" action="{{ url_for('portal.launch_execution', suite_id=s.id) }}" class="inline">
+        {{ plain_form.csrf_token }}
+        <button type="submit" class="button">Run</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">No suites yet.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Plans</h2>
+  <ul class="notice-list">
+    {% for plan in project.plans %}
+    <li>{{ plan.name }} — {{ plan.entries | length }} suites, parallel={{ plan.parallelism }}
+      {% if can_run %}
+      <form method="post" action="{{ url_for('portal.run_plan', plan_id=plan.id) }}" class="inline">
+        {{ plain_form.csrf_token }}<button type="submit" class="button secondary">Run plan</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if can_edit %}
+  <form method="post" action="{{ url_for('portal.create_plan', project_id=project.id) }}">
+    {{ plan_form.csrf_token }}
+    <div class="field">{{ plan_form.name.label }} {{ plan_form.name() }}</div>
+    <div class="field">{{ plan_form.description.label }} {{ plan_form.description() }}</div>
+    <div class="field">{{ plan_form.parallelism.label }} {{ plan_form.parallelism() }}</div>
+    <button type="submit" class="button">Create plan</button>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Releases</h2>
+  <ul class="notice-list">
+    {% for r in project.releases %}
+    <li>{{ r.name }} — {{ r.status }} {% if r.owner %}(owner: {{ r.owner }}){% endif %}
+      {% if can_edit and r.status != "released" %}
+      <form method="post" action="{{ url_for('portal.mark_release', release_id=r.id) }}" class="inline">
+        {{ plain_form.csrf_token }}<button type="submit" class="button secondary">Mark released</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if can_edit %}
+  <form method="post" action="{{ url_for('portal.create_release', project_id=project.id) }}">
+    {{ plan_form.csrf_token }}
+    <div class="field"><label>Name</label><input type="text" name="name" required></div>
+    <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+    <button type="submit" class="button">Create release</button>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Recent executions</h2>
+  {% if executions %}
+  <table class="audit-table">
+    <thead><tr><th>ID</th><th>Suite</th><th>State</th><th>Outcome</th><th>RP</th><th>Git</th><th>By</th><th>Started</th></tr></thead>
+    <tbody>
+      {% for e in executions %}
+      <tr>
+        <td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
+        <td>{{ e.snapshot().get('suite_name', '') }}</td>
+        <td>{{ e.state.value }}</td><td>{{ e.outcome.value }}</td>
+        <td>{{ e.rp_state.value }}</td><td>{{ e.git_state.value }}</td>
+        <td>{{ e.created_by }}</td>
+        <td>{{ e.started_at or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No executions yet.</p>{% endif %}
+</section>
+{% endblock %}

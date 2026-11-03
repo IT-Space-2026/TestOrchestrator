@@ -75,6 +75,9 @@ def client(app):
 
 
 def login(client, username, password="TestPassword-12345", **kwargs):
+    # A POST to /login while already authenticated is a no-op redirect, so
+    # switching users requires logging out first.
+    client.post("/logout")
     return client.post(
         "/login", data={"username": username, "password": password},
         follow_redirects=True, **kwargs,

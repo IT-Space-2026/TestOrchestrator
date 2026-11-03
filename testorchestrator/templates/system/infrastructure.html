@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Runners & runtimes · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>System &rarr; Runners &amp; runtime connections</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+
+<section class="card">
+  <h2>Runners</h2>
+  <table class="audit-table">
+    <thead><tr><th>Name</th><th>Mode</th><th>OS/arch</th><th>Slots</th><th>Health</th><th>Heartbeat</th><th>Drain</th></tr></thead>
+    <tbody>
+      {% for r in runners %}
+      <tr>
+        <td>{{ r.name }}</td><td>{{ r.connection_mode }}</td>
+        <td>{{ r.os_arch }}</td><td>{{ r.max_slots }}</td>
+        <td>{{ r.health }}</td><td>{{ r.heartbeat_at or "—" }}</td>
+        <td>
+          <form method="post" action="{{ url_for('system.drain_runner', runner_id=r.id) }}" class="inline">
+            {{ runner_form.csrf_token }}
+            <button type="submit" class="button secondary">
+              {{ "Resume" if r.draining else "Drain" }}</button>
+          </form>
+          {{ "draining" if r.draining else "" }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="{{ url_for('system.create_runner') }}">
+    {{ runner_form.csrf_token }}
+    <div class="field">{{ runner_form.name.label }} {{ runner_form.name() }}</div>
+    <div class="field">{{ runner_form.description.label }} {{ runner_form.description() }}</div>
+    <div class="field">{{ runner_form.os_arch.label }} {{ runner_form.os_arch(placeholder="linux/amd64") }}</div>
+    <fieldset class="field"><legend>{{ runner_form.connection_mode.label }}</legend>
+      {% for sub in runner_form.connection_mode %}<div class="checkbox">{{ sub() }} {{ sub.label }}</div>{% endfor %}
+    </fieldset>
+    <div class="field">{{ runner_form.workspace_root.label }} {{ runner_form.workspace_root() }}</div>
+    <div class="field">{{ runner_form.max_slots.label }} {{ runner_form.max_slots() }}</div>
+    <div class="field">{{ runner_form.allowed_projects.label }} {{ runner_form.allowed_projects(size=4) }}</div>
+    <button type="submit" class="button">Register runner</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>KRE runtime connections (existing installations only)</h2>
+  <p class="muted">Register runtimes that are already installed and licensed
+     by the operator. TestOrchestrator never installs, upgrades, or licenses
+     KRE; executable presence is not licence proof.</p>
+  <table class="audit-table">
+    <thead><tr><th>Name</th><th>Runner</th><th>Executable</th><th>Version</th><th>Enabled</th><th>Diagnostics</th><th></th></tr></thead>
+    <tbody>
+      {% for rt in runtimes %}
+      <tr>
+        <td>{{ rt.name }}</td><td>{{ rt.runner.name if rt.runner else rt.runner_id[:8] }}</td>
+        <td><code>{{ rt.executable_path }}</code></td>
+        <td>{{ rt.detected_version or "unprobed" }}</td>
+        <td>{{ "yes" if rt.enabled else "no" }}</td>
+        <td>{{ rt.last_diagnostic[:80] }}</td>
+        <td>
+          <form method="post" action="{{ url_for('system.probe_runtime', runtime_id=rt.id) }}" class="inline">
+            {{ runtime_form.csrf_token }}
+            <button type="submit" class="button secondary">Test connection</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="{{ url_for('system.create_runtime') }}">
+    {{ runtime_form.csrf_token }}
+    <div class="field">{{ runtime_form.name.label }} {{ runtime_form.name() }}</div>
+    <div class="field">{{ runtime_form.description.label }} {{ runtime_form.description() }}</div>
+    <div class="field"><label for="runner_id">Runner</label>
+      <select name="runner_id" id="runner_id" required>
+        {% for value, label in runner_choices %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">{{ runtime_form.executable_path.label }} {{ runtime_form.executable_path() }}</div>
+    <div class="field">{{ runtime_form.workspace_root.label }} {{ runtime_form.workspace_root() }}</div>
+    <div class="field">{{ runtime_form.credential_ref.label }} {{ runtime_form.credential_ref() }}</div>
+    <div class="field">{{ runtime_form.concurrency.label }} {{ runtime_form.concurrency() }}</div>
+    <button type="submit" class="button">Register runtime</button>
+  </form>
+</section>
+{% endblock %}
