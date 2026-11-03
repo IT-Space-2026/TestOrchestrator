@@ -70,7 +70,11 @@ def main() -> None:
         for item in steps[0][2]:
             src, dst = REPO / item, payload / item
             if src.is_dir():
-                shutil.copytree(src, dst, dirs_exist_ok=True)
+                # symlinks=True: vendored runtimes contain links
+                # (relative + a documented external cacerts target) that
+                # must be preserved verbatim, never dereferenced.
+                shutil.copytree(src, dst, dirs_exist_ok=True,
+                                symlinks=True)
             elif src.exists():
                 shutil.copy2(src, dst)
         os.chmod(data / "certs", 0o700)
