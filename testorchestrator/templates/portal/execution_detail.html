@@ -53,6 +53,45 @@
 <p class="muted">No parsed results — {% if ex.state.value in ("queued","dispatched","preparing","running") %}execution pending{% else %}missing results are never shown as a zero-test pass{% endif %}.</p>
 {% endif %}
 
+<h2>Report</h2>
+<p>Status: <strong>{{ ex.report_status or 'pending' }}</strong>
+  {% if ex.report_status == 'partial' %}(results/evidence present, no
+  viewable report entry — incomplete, not a false ready){% endif %}
+  {% if ex.report_status == 'failed' %}(collection error — outcome
+  unchanged){% endif %}</p>
+<p>
+  {% if ex.report_status == 'ready' %}
+    <a class="btn" href="{{ url_for('portal.view_report', execution_id=ex.id) }}">View report</a>
+    <a class="btn" href="{{ url_for('portal.download_report', execution_id=ex.id) }}">Download report (.zip)</a>
+  {% endif %}
+  {% if ex.artifacts %}
+    <a class="btn" href="{{ url_for('portal.download_artifacts', execution_id=ex.id) }}">Download original artifacts (.zip)</a>
+  {% endif %}
+</p>
+<form method="post" action="{{ url_for('portal.refresh_report', execution_id=ex.id) }}">
+  {{ plain_form.csrf_token }}
+  <button class="btn" type="submit">Refresh report collection</button>
+</form>
+
+<h2>Allure</h2>
+<p>Status: <strong>{{ ex.allure_status or 'pending' }}</strong>
+  {% if ex.allure_version %}— allure {{ ex.allure_version }}{% endif %}</p>
+<p>
+  {% if ex.allure_status == 'ready' %}
+    <a class="btn" href="{{ url_for('portal.view_allure', execution_id=ex.id) }}">View Allure report</a>
+    <a class="btn" href="{{ url_for('portal.download_allure', execution_id=ex.id) }}">Download Allure report (.zip)</a>
+  {% endif %}
+</p>
+<form method="post" action="{{ url_for('portal.generate_allure', execution_id=ex.id) }}">
+  {{ plain_form.csrf_token }}
+  <button class="btn" type="submit">
+    {% if ex.allure_status == 'ready' %}Regenerate{% else %}Generate{% endif %}
+    Allure report</button>
+</form>
+<p class="muted">ReportPortal: {{ ex.rp_state or 'none' }}
+  {% if ex.rp_launch_id %}(launch {{ ex.rp_launch_id }}){% endif %}
+  — independent of execution outcome and local reports.</p>
+
 <h2>Logs</h2>
 <ul class="notice-list">
   <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-invocation.log') }}">kre-invocation.log</a> (recorded argv)</li>

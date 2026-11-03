@@ -280,6 +280,179 @@ def download_artifact(execution_id, artifact_id):
                      download_name=target.name, as_attachment=True)
 
 
+@portal_bp.route("/executions/<execution_id>/report")
+@login_required
+def view_report(execution_id):
+    """Hosted native-KRE report view. The entry HTML is active content:
+    it is served inside a CSP sandbox (scripts disabled) so evidence
+    can never execute in the authenticated portal origin."""
+    ex = _execution_or_404(execution_id)
+    from .. import reporting
+    if ex.report_status in ("pending", "missing", "partial"):
+        reporting.refresh_report_status(ex)
+    if ex.report_status != "ready" or not ex.report_path:
+        flash(f"No viewable report for this run "
+              f"(status: {ex.report_status}).", "info")
+        return redirect(url_for("portal.execution_detail",
+                                execution_id=execution_id))
+    try:
+        target = reporting.safe_under(reporting.report_root(ex),
+                                      ex.report_path)
+    except ValueError:
+        abort(404)
+    if not target.is_file():
+        abort(404)
+    record_audit(current_user.username, "report.view", execution_id)
+    resp = send_file(target, mimetype="text/html")
+    resp.headers["Content-Security-Policy"] = "sandbox"
+    return resp
+
+
+@portal_bp.route("/executions/<execution_id>/report/files/<path:rel>")
+@login_required
+def report_asset(execution_id, rel):
+    """Report assets (css/js/images) — resolved strictly inside the
+    entry's own subtree of THIS run's evidence dir."""
+    ex = _execution_or_404(execution_id)
+    from .. import reporting
+    try:
+        target = reporting.safe_under(reporting.entry_dir(ex), rel)
+    except ValueError:
+        abort(404)
+    if not target.is_file():
+        abort(404)
+    mime, _ = mimetypes.guess_type(target.name)
+    if mime in ("text/html", "image/svg+xml"):  # active content policy
+        return send_file(target, as_attachment=True,
+                         download_name=target.name)
+    return send_file(target, mimetype=mime or "application/octet-stream")
+
+
+@portal_bp.route("/executions/<execution_id>/report.zip")
+@login_required
+def download_report(execution_id):
+    """Usable report download: the entry subtree (html + assets) with a
+    checksum manifest — not a bare index.html."""
+    ex = _execution_or_404(execution_id)
+    from .. import reporting
+    if ex.report_status != "ready":
+        reporting.refresh_report_status(ex)
+    if ex.report_status != "ready":
+        abort(404)
+    record_audit(current_user.username, "report.download", execution_id)
+    return send_file(reporting.build_report_zip(ex),
+                     mimetype="application/zip", as_attachment=True,
+                     download_name=f"report-{execution_id[:8]}.zip")
+
+
+@portal_bp.route("/executions/<execution_id>/artifacts.zip")
+@login_required
+def download_artifacts(execution_id):
+    """Original evidence download — every recorded artifact as collected."""
+    ex = _execution_or_404(execution_id)
+    from .. import reporting
+    if not ex.artifacts:
+        abort(404)
+    record_audit(current_user.username, "artifacts.download",
+                 execution_id)
+    return send_file(reporting.build_artifacts_zip(ex),
+                     mimetype="application/zip", as_attachment=True,
+                     download_name=f"artifacts-{execution_id[:8]}.zip")
+
+
+@portal_bp.route("/executions/<execution_id>/allure")
+@login_required
+def view_allure(execution_id):
+    """Hosted Allure report — same sandboxed-active-content policy as
+    the native report."""
+    ex = _execution_or_404(execution_id)
+    if ex.allure_status != "ready" or not ex.allure_path:
+        flash(f"No Allure report for this run "
+              f"(status: {ex.allure_status}).", "info")
+        return redirect(url_for("portal.execution_detail",
+                                execution_id=execution_id))
+    from .. import reporting
+    try:
+        target = reporting.safe_under(reporting.report_root(ex),
+                                      ex.allure_path)
+    except ValueError:
+        abort(404)
+    if not target.is_file():
+        abort(404)
+    record_audit(current_user.username, "allure.view", execution_id)
+    resp = send_file(target, mimetype="text/html")
+    resp.headers["Content-Security-Policy"] = "sandbox"
+    return resp
+
+
+@portal_bp.route("/executions/<execution_id>/allure.zip")
+@login_required
+def download_allure(execution_id):
+    """Usable Allure download — the self-contained single-file report
+    (index.html embeds assets) plus a provenance manifest."""
+    import io
+    import zipfile
+    ex = _execution_or_404(execution_id)
+    from .. import reporting
+    if ex.allure_status != "ready":
+        abort(404)
+    target = reporting.safe_under(reporting.report_root(ex),
+                                  ex.allure_path)
+    if not target.is_file():
+        abort(404)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(target, "index.html")
+        z.writestr("manifest.json", json.dumps({
+            "execution_id": ex.id, "format": "allure-single-file",
+            "allure_version": ex.allure_version,
+            "view": "open index.html directly in a browser"}, indent=2))
+    buf.seek(0)
+    record_audit(current_user.username, "allure.download", execution_id)
+    return send_file(buf, mimetype="application/zip",
+                     as_attachment=True,
+                     download_name=f"allure-{execution_id[:8]}.zip")
+
+
+@portal_bp.route("/executions/<execution_id>/allure/generate",
+                 methods=["POST"])
+@login_required
+def generate_allure(execution_id):
+    """Regenerate Allure from STORED results — never reruns KRE, never
+    duplicates the run. Independent of RP and native-report status."""
+    ex = _execution_or_404(execution_id)
+    PlainForm().validate_on_submit()
+    from ..adapters import allure as allure_adapter
+    res = allure_adapter.generate_for(ex)
+    flash(f"Allure generation: {res['status']}"
+          + (f" — {res.get('error')}" if res.get("error") else ""),
+          "info" if res["status"] == "ready" else "error")
+    return redirect(url_for("portal.execution_detail",
+                            execution_id=execution_id))
+
+
+@portal_bp.route("/executions/<execution_id>/report/refresh",
+                 methods=["POST"])
+@login_required
+def refresh_report(execution_id):
+    """Safe retry: re-scan the run's evidence dir, register any artifacts
+    not yet recorded, re-assess report status. Never reruns KRE, never
+    duplicates or overwrites existing rows."""
+    ex = _execution_or_404(execution_id)
+    PlainForm().validate_on_submit()
+    from .. import reporting
+    try:
+        added = reporting.register_missing_artifacts(ex)
+        status = reporting.refresh_report_status(ex)
+        flash(f"Report collection refreshed: {added} artifact(s) "
+              f"registered, status {status}.", "info")
+    except Exception as exc:
+        reporting.refresh_failed(ex, exc)
+        flash(f"Report collection failed: {exc}", "error")
+    return redirect(url_for("portal.execution_detail",
+                            execution_id=execution_id))
+
+
 @portal_bp.route("/executions/<execution_id>/logs/<name>")
 @login_required
 def view_log(execution_id, name):

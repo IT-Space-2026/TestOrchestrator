@@ -23,6 +23,7 @@ import gzip
 import hashlib
 import json
 import lzma
+import os
 import re
 import shutil
 import subprocess
@@ -217,6 +218,27 @@ def extract_rootfs(deb_paths: list, out: Path) -> None:
         subprocess.check_call(["dpkg-deb", "-x", str(deb), str(rootfs)])
 
 
+def fixup_rootfs_symlinks(rootfs: Path) -> int:
+    """Deb payloads symlink config files to absolute paths (/etc/...) —
+    inside a movable bundle those break or silently read HOST files.
+    Rewrite every absolute symlink rootfs-relative so the extracted
+    runtime is self-contained and never falls through to host config."""
+    fixed = 0
+    for link in rootfs.rglob("*"):
+        if not link.is_symlink():
+            continue
+        target = link.readlink()
+        if not str(target).startswith("/"):
+            continue
+        real = rootfs / str(target).lstrip("/")
+        if not real.exists():
+            continue  # genuinely external target — leave + note
+        link.unlink()
+        link.symlink_to(Path(os.path.relpath(real, link.parent)))
+        fixed += 1
+    return fixed
+
+
 def collect_licenses(rootfs: Path, out: Path) -> list:
     licdir = out / "licenses"
     licdir.mkdir(parents=True, exist_ok=True)
@@ -228,13 +250,14 @@ def collect_licenses(rootfs: Path, out: Path) -> list:
     return found
 
 
-def verify_runtime(out: Path) -> dict:
+def verify_runtime(out: Path, args) -> dict:
     """Best-effort: run the extracted git on THIS host with bundled libs
     first. A resolute build on a noble host may fail on glibc — record
     the failure honestly; clean-target verification remains a gate."""
-    git = out / "rootfs" / "usr" / "bin" / "git"
+    git = (out / "rootfs" / args.bin if "/" in args.bin
+           else out / "rootfs" / "usr" / "bin" / args.bin)
     if not git.exists():
-        return {"verified": False, "error": "git binary missing"}
+        return {"verified": False, "error": f"{args.bin} missing"}
     libdirs = [str(p) for p in (out / "rootfs").glob("usr/lib/*-linux-gnu")]
     libdirs += [str(out / "rootfs" / "lib" / "x86_64-linux-gnu")]
     env = {"LD_LIBRARY_PATH": ":".join(libdirs),
@@ -252,6 +275,9 @@ def verify_runtime(out: Path) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--root", default="git",
+                    help="root package to bundle (e.g. git, "
+                         "openjdk-21-jre-headless)")
     ap.add_argument("--suite", default="resolute",
                     help="Ubuntu release codename (resolute = 26.04 LTS)")
     ap.add_argument("--arch", default="amd64")
@@ -263,8 +289,12 @@ def main() -> None:
     ap.add_argument("--acquire", action="store_true",
                     help="download + verify + extract")
     ap.add_argument("--verify-runtime", action="store_true",
-                    help="run extracted git with bundled libs")
+                    help="run extracted binary with bundled libs")
+    ap.add_argument("--bin", default=None,
+                    help="binary for --verify-runtime (default: root)")
     args = ap.parse_args()
+    if not args.bin:
+        args.bin = args.root.split("-")[0]
     target = f"ubuntu-{args.suite}-{args.arch}"
     out = Path(args.out or f"3rdparty/git/{target}")
 
@@ -281,9 +311,9 @@ def main() -> None:
             raise SystemExit("Packages index digest mismatch")
         pkgs = parse_packages(lzma.decompress(pkgs_raw))
 
-    if "git" not in pkgs:
-        raise SystemExit("git not found in target Packages index")
-    bundle, boundary = resolve_closure("git", pkgs, arch=args.arch)
+    if args.root not in pkgs:
+        raise SystemExit(f"{args.root} not found in target Packages index")
+    bundle, boundary = resolve_closure(args.root, pkgs, arch=args.arch)
     missing = [b for b in boundary if b.startswith("MISSING:")]
 
     manifest = {
@@ -291,8 +321,8 @@ def main() -> None:
         "target": target,
         "suite": args.suite, "arch": args.arch,
         "mirror": args.mirror,
-        "root_package": {"name": "git",
-                         "version": pkgs["git"].version},
+        "root_package": {"name": args.root,
+                         "version": pkgs[args.root].version},
         "release_authenticity": "InRelease gpg-verified vs "
                                 "ubuntu-archive-keyring",
         "bundle": [{"name": p.name, "version": p.version,
@@ -317,11 +347,13 @@ def main() -> None:
             manifest["status"] = "FAILED: digest mismatches"
         else:
             extract_rootfs(list(debs.iterdir()), out)
+            manifest["symlinks_fixed"] = fixup_rootfs_symlinks(
+                out / "rootfs")
             manifest["licences"] = collect_licenses(out / "rootfs", out)
             manifest["acquired"] = True
             manifest["status"] = "acquired+verified"
             if args.verify_runtime:
-                rv = verify_runtime(out)
+                rv = verify_runtime(out, args)
                 manifest["runtime_check"] = rv
                 manifest["runtime_verified"] = rv["verified"]
     elif args.acquire and missing:

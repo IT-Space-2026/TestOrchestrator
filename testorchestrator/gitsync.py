@@ -22,11 +22,16 @@ from pathlib import Path
 
 import git
 
+from . import git_runtime
 from . import settings as settings_mod
 from .execution import Execution, GitBinding, utcnow
 from .extensions import db
 
 EXPORT_ROOT = "TestOrchestrator"
+
+# Every GitPython invocation (fetch/push/diff/clone) goes through the
+# bundled-git launcher — bundled libs scoped to the child process only.
+git_runtime.configure()
 
 
 class NotConfigured(RuntimeError):
