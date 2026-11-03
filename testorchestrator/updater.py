@@ -121,3 +121,62 @@ def apply_update(app, bundle_dir: Path, payload_dir: Path,
 def _platform() -> str:
     import platform
     return f"{platform.system().lower()}/{platform.machine()}"
+
+
+def drain(timeout_s: int = 120) -> bool:
+    """Stop new dispatches and wait for active executions to finish (§14)."""
+    import time
+    from .execution import Execution, ExecutionState
+    settings_mod.set("update_lock", True)
+    db.session.commit()
+    active_states = [ExecutionState.DISPATCHED, ExecutionState.PREPARING,
+                     ExecutionState.RUNNING, ExecutionState.COLLECTING,
+                     ExecutionState.NORMALIZING]
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        active = Execution.query.filter(
+            Execution.state.in_(active_states)).count()
+        if active == 0:
+            return True
+        time.sleep(1)
+    return False
+
+
+def health_check(app, timeout_s: int = 30) -> bool:
+    """Post-apply health: DB reachable + release metadata present."""
+    try:
+        db.session.execute(db.text("SELECT 1"))
+        return bool(app.config.get("RELEASE_METADATA"))
+    except Exception:
+        return False
+
+
+def activate(stage_dir: Path, live_dir: Path, backups_dir: Path) -> dict:
+    """Atomic-ish switch: move live aside, move staged in (§14). Storage-
+    compatibility note: old-binary switchback requires matching backup."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    retired = backups_dir / f"live-{stamp}"
+    backups_dir.mkdir(parents=True, exist_ok=True)
+    if live_dir.exists():
+        shutil.move(str(live_dir), retired)
+    shutil.move(str(stage_dir), live_dir)
+    return {"activated": str(live_dir), "retired": str(retired)}
+
+
+def recover(backup_tar: Path, target_dir: Path) -> dict:
+    """Restore a backup tarball (recovery works without the web UI)."""
+    if not backup_tar.exists():
+        raise UpdateError(f"backup missing: {backup_tar}")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(backup_tar) as tar:
+        tar.extractall(target_dir, filter="data")
+    return {"restored": str(backup_tar), "into": str(target_dir)}
+
+
+def resume_from_checkpoint(app) -> dict:
+    """Resume a recorded update checkpoint (§14)."""
+    cp = settings_mod.get("update_checkpoint") or {}
+    if not cp:
+        raise UpdateError("no update checkpoint recorded")
+    return {"checkpoint": cp,
+            "action": "staged payload present; activate or recover manually"}

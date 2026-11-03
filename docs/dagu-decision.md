@@ -1,40 +1,30 @@
-# Dagu architecture decision (resolves the orchestration discrepancy)
+# Dagu architecture decision — AWAITING OWNER APPROVAL
 
-## Decision (2026-11-03)
+Status: **proposal pending**. The portal's durable worker is the active
+orchestrator today; Dagu is an unexercised REST client. Two options are
+presented for explicit owner decision — neither is claimed proven.
 
-**Custom durable orchestration in the portal worker is authoritative;
-Dagu is an optional integration seam, not the orchestrator.** The
-`dagu-dispatch` path submits a correlated run record when
-`dagu_endpoint` is configured, but execution state, leases, cancellation,
-and reconciliation live in the portal's durable state machine
-(`executions` + `outbox_events`).
+## Option A — permanent custom-worker orchestration (Dagu removed from mandatory scope)
 
-## Why this shape now
+- Durable requirements (§7) are already satisfied and tested by the worker:
+  transactional execution+outbox persistence, lease/heartbeat
+  reconciliation, process-tree cancel, ambiguous-state handling.
+- Consequences: no external orchestration dependency; portal permanently
+  owns scheduling/retries/reconciliation correctness; Dagu-specific UI
+  (DAG visualization, upstream scheduling) is never available; the
+  `dagu-dispatch`/`dagu_endpoint` code paths are deleted, not dormant.
 
-- The durable requirements (§7) — transactional execution+outbox
-  persistence, ambiguity reconciliation, leases/heartbeats, process-tree
-  cancel — are satisfied and tested by the worker. Delegating them to an
-  unverified Dagu API version would regress proven behaviour for an
-  unproven one.
-- A REST client alone was never "Dagu integration"; making Dagu the
-  active orchestrator requires the operator's live instance to pin and
-  verify (recorded in integration-contracts.md as a hard prerequisite).
+## Option B — active Dagu integration
 
-## Consequences of maintaining custom orchestration
+- Dagu submits/schedules runs; the worker becomes the executor tier.
+  Requires, before any activation claim: pinned operator Dagu version,
+  verified API schema (`health()`), and live acceptance evidence.
+- Consequences: extra service to install/monitor/secure; two sources of
+  scheduling truth to reconcile; KRE subprocess control on runners stays
+  portal/agent-owned regardless.
 
-- Portal must own retries, reconciliation, and cancellation correctness
-  forever (Dagu would not retire that burden anyway for KRE subprocess
-  control on runners).
-- No external orchestration service is required to operate the product —
-  simpler installs, but Dagu-specific features (DAG visualization,
-  upstream scheduling UI) are unavailable.
-- Migration path stays open: `dagu-dispatch` events already exist in the
-  durable schema, and submission persists `executions.dispatch_id`, so a
-  verified Dagu can later take over scheduling without data migration —
-  the worker becomes its executor.
+## Explicitly NOT claimed
 
-## Alternative considered (rejected for now)
-
-Dagu as active orchestrator: requires verified API schema on the
-operator's pinned version before any dispatch claim; reverting is cheap
-if the live integration proves out.
+- Future scheduling compatibility is unproven — `dagu-dispatch` events
+  and `dispatch_id` fields exist in the schema but have never been
+  exercised end-to-end; adopting Option B may still require design work.

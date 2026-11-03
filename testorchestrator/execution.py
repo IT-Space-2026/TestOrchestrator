@@ -200,6 +200,7 @@ class SyncState(str, enum.Enum):
     PENDING = "pending"
     DONE = "done"
     FAILED = "failed"
+    AMBIGUOUS = "ambiguous"      # remote may have accepted; reconcile first
     NOT_CONFIGURED = "not-configured"
 
 

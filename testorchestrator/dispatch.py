@@ -391,7 +391,13 @@ def _publish(ex: Execution) -> None:
     except RpNotConfigured:
         ex.rp_state = SyncState.NOT_CONFIGURED
     except Exception as exc:
-        ex.rp_state = SyncState.FAILED
+        # If any remote side-effects may already exist (launch/item IDs
+        # persisted earlier), the outcome is AMBIGUOUS, not a clean FAILED
+        # — blind retry could duplicate accepted remote work (§9).
+        partial = bool(ex.rp_launch_id) or any(
+            r.rp_remote_id for r in ex.results) or any(
+            a.rp_state == SyncState.DONE for a in ex.artifacts)
+        ex.rp_state = SyncState.AMBIGUOUS if partial else SyncState.FAILED
         ex.error_text = (ex.error_text + f" | publish: {exc}")[:2000]
     db.session.commit()
 

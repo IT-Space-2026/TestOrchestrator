@@ -347,3 +347,69 @@ def mark_release(release_id):
     record_audit(current_user.username, "release.released", release.id)
     return redirect(url_for("portal.project_detail",
                           project_id=release.project_id))
+
+
+# ---------- suite/plan builder endpoints (still marked partial) ----------
+
+@portal_bp.route("/suites/<suite_id>/entries", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def add_suite_entry(suite_id):
+    suite = db.session.get(Suite, suite_id)
+    if suite is None:
+        abort(404)
+    _project_or_404(suite.project_id)
+    if suite.readonly:
+        abort(409)  # imported suites: duplicate instead of editing
+    PlainForm().validate_on_submit()
+    case_ref = request.form.get("case_ref", "").strip()
+    if case_ref:
+        order = (max([e.order for e in suite.entries], default=-1) + 1)
+        db.session.add(SuiteEntry(suite_id=suite.id, order=order,
+                                  case_ref=case_ref))
+        suite.version += 1          # edits version the definition (§10)
+        suite.content_hash = _suite_hash(suite)
+        db.session.commit()
+        record_audit(current_user.username, "suite.entry_added", suite.id)
+    return redirect(url_for("portal.suite_detail", suite_id=suite_id))
+
+
+@portal_bp.route("/suites/<suite_id>/duplicate", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def duplicate_suite(suite_id):
+    suite = db.session.get(Suite, suite_id)
+    if suite is None:
+        abort(404)
+    _project_or_404(suite.project_id)
+    PlainForm().validate_on_submit()
+    copy = Suite(project_id=suite.project_id,
+                 name=f"{suite.name} (copy)", description=suite.description)
+    db.session.add(copy)
+    db.session.flush()
+    for e in suite.entries:
+        db.session.add(SuiteEntry(suite_id=copy.id, order=e.order,
+                                  case_ref=e.case_ref, enabled=e.enabled,
+                                  config_json=e.config_json))
+    copy.content_hash = _suite_hash(copy)
+    db.session.commit()
+    record_audit(current_user.username, "suite.duplicated", suite.id)
+    return redirect(url_for("portal.suite_detail", suite_id=copy.id))
+
+
+@portal_bp.route("/plans/<plan_id>/entries", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def add_plan_entry(plan_id):
+    plan = db.session.get(Plan, plan_id)
+    if plan is None:
+        abort(404)
+    _project_or_404(plan.project_id)
+    PlainForm().validate_on_submit()
+    suite = db.session.get(Suite, request.form.get("suite_id", ""))
+    if suite and suite.project_id == plan.project_id:
+        from ..execution import PlanEntry
+        order = max([e.order for e in plan.entries], default=-1) + 1
+        db.session.add(PlanEntry(plan_id=plan.id, order=order,
+                                 suite_id=suite.id))
+        db.session.commit()
+        record_audit(current_user.username, "plan.entry_added", plan.id)
+    return redirect(url_for("portal.project_detail",
+                          project_id=plan.project_id))

@@ -155,3 +155,53 @@ def test_screenshot_attached_to_failed_case(app, tmp_path):
         assert any("shot.png" in str(c[2]) or c[2].get("message") == "shot.png"
                    for c in log_calls)
         assert artifact.rp_state == SyncState.DONE
+
+
+def test_lost_response_marks_ambiguous(app, tmp_path):
+    """Item 2/3: remote accepts (launch persisted) then the response is
+    lost — the publish state must become AMBIGUOUS, not clean-FAILED, so a
+    blind retry is never represented as duplicate-free."""
+    import testorchestrator.adapters.reportportal as m
+    from testorchestrator import dispatch
+    from testorchestrator.execution import Execution
+
+    with app.app_context():
+        ex, r2, artifact = _execution_with_results(app, tmp_path)
+        adapter = ReportPortalAdapter("http://rp", "proj", "tok")
+        fake = FakeSession()
+        fake.fail_at = "item"  # remote created launch, then lost response
+        orig_post, orig_put = m.requests.post, m.requests.put
+        m.requests.post, m.requests.put = fake.post, fake.put
+        # Inject adapter into dispatch's _publish path.
+        real_from = ReportPortalAdapter.from_settings
+        ReportPortalAdapter.from_settings = classmethod(lambda cls: adapter)
+        try:
+            dispatch._publish(ex)
+        finally:
+            ReportPortalAdapter.from_settings = real_from
+            m.requests.post, m.requests.put = orig_post, orig_put
+        assert ex.rp_launch_id == "launch-1"  # accepted remotely, persisted
+        assert ex.rp_state == SyncState.AMBIGUOUS
+
+
+def test_clean_failure_marks_failed(app, tmp_path):
+    """A publish that fails before ANY remote side-effect is honestly
+    FAILED — distinct from ambiguous."""
+    import testorchestrator.adapters.reportportal as m
+    from testorchestrator import dispatch
+
+    with app.app_context():
+        ex, r2, artifact = _execution_with_results(app, tmp_path)
+        adapter = ReportPortalAdapter("http://rp", "proj", "tok")
+        fake = FakeSession(fail_at="launch")  # fails before launch persisted
+        orig_post = m.requests.post
+        m.requests.post = fake.post
+        real_from = ReportPortalAdapter.from_settings
+        ReportPortalAdapter.from_settings = classmethod(lambda cls: adapter)
+        try:
+            dispatch._publish(ex)
+        finally:
+            ReportPortalAdapter.from_settings = real_from
+            m.requests.post = orig_post
+        assert ex.rp_state == SyncState.FAILED
+        assert ex.rp_launch_id == ""
