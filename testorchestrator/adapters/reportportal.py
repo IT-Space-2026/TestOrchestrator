@@ -124,6 +124,17 @@ class ReportPortalAdapter:
         Retries reconcile against persisted remote IDs — a remote timeout
         may mean the request was accepted, so nothing is blindly recreated.
         """
+        # Destination pinning (§5): a run that already published (or
+        # partially published) to one ReportPortal must never be retried
+        # against a different endpoint by a later settings change —
+        # that would silently split the run across two instances.
+        if execution.rp_endpoint_used and \
+                execution.rp_endpoint_used != self.endpoint:
+            raise NotConfigured(
+                "ReportPortal endpoint changed since first publication "
+                f"({execution.rp_endpoint_used} -> {self.endpoint}); "
+                "retrying would split the run across instances. Resolve "
+                "explicitly — no silent redirect.")
         # Resume-safe: an existing launch ID means a previous attempt may
         # have created hierarchy — skip item creation for results that
         # already carry remote IDs (§9; no duplicate trees, no reruns).
@@ -133,6 +144,7 @@ class ReportPortalAdapter:
         )
         if not execution.rp_launch_id:
             execution.rp_launch_id = launch_id
+            execution.rp_endpoint_used = self.endpoint
             from ..extensions import db as _db
             _db.session.commit()
         artifacts_by_result = {}

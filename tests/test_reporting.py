@@ -119,6 +119,25 @@ def test_downloads_are_usable_and_authorized(client, login_as, app, tmp_path):
         (302, 401)
 
 
+def test_effective_response_headers(client, login_as, app, tmp_path):
+    """Recorded effective headers: report content is sandbox-isolated,
+    downloads are attachments, baseline hardening preserved."""
+    ex_id = _mk(app, tmp_path, {"R/report.html": b"<html/>",
+                                "R/a.js": b"1"})
+    _ctx_login(client, login_as)
+    view = client.get(f"/executions/{ex_id}/report")
+    assert view.headers["Content-Security-Policy"] == "sandbox"
+    assert view.headers["X-Content-Type-Options"] == "nosniff"
+    assert view.headers["X-Frame-Options"] == "DENY"
+    z = client.get(f"/executions/{ex_id}/report.zip")
+    assert z.headers["Content-Type"].startswith("application/zip")
+    assert "attachment" in z.headers.get("Content-Disposition", "")
+    # Baseline CSP on a normal page — report override did not leak.
+    detail = client.get(f"/executions/{ex_id}")
+    assert "default-src 'self'" in \
+        detail.headers["Content-Security-Policy"]
+
+
 def test_refresh_is_idempotent_and_reruns_nothing(client, login_as, app,
                                                   tmp_path):
     ex_id = _mk(app, tmp_path, {"R/j.xml": b"<testsuite/>"})

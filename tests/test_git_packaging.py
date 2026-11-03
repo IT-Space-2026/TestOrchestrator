@@ -86,6 +86,50 @@ def test_acquire_deb_verifies_digest(tmp_path, monkeypatch):
     assert not r["verified"] and not (tmp_path / "g2.deb").exists()
 
 
+def test_symlink_fixup_stays_inside_rootfs(tmp_path):
+    """Absolute deb symlinks (e.g. /etc/java-*/x) must be rewritten
+    rootfs-RELATIVE: resolved target inside the bundle, same intended
+    file, never a host path."""
+    rootfs = tmp_path / "rootfs"
+    real = rootfs / "etc" / "java-25" / "java.security"
+    real.parent.mkdir(parents=True)
+    real.write_text("conf")
+    link = rootfs / "usr" / "lib" / "jvm" / "conf"
+    link.parent.mkdir(parents=True)
+    link.symlink_to("/etc/java-25/java.security")  # absolute, like debs use
+    n = acquire_git.fixup_rootfs_symlinks(rootfs)
+    assert n == 1
+    resolved = link.resolve()
+    assert str(resolved).startswith(str(rootfs))          # inside bundle
+    assert resolved == real                               # intended target
+    assert not link.readlink().is_absolute()              # relative link
+
+
+def test_symlink_fixup_leaves_external_and_relative(tmp_path):
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    ext = rootfs / "x"
+    ext.symlink_to("/nonexistent-target")              # external -> left
+    rel = rootfs / "y"; rel.symlink_to("x")            # relative -> left
+    assert acquire_git.fixup_rootfs_symlinks(rootfs) == 0
+
+
+def test_git_fallback_is_declared():
+    """System-git fallback is ONLY a declared host prerequisite —
+    permitted when no bundle is shipped for this platform, never a
+    silent substitution of the vendored runtime."""
+    from testorchestrator import git_runtime
+    exe = git_runtime.executable()
+    if git_runtime.bundled_available():
+        assert "to-git-launch" in exe  # bundle present -> always launcher
+        import subprocess
+        out = subprocess.run([exe, "--version"], env={
+            "PATH": "/nonexistent"}, capture_output=True, text=True)
+        assert out.returncode == 0  # works WITHOUT host git on PATH
+    else:
+        assert exe == "git"          # declared prerequisite, documented
+
+
 def test_extracted_layout_paths():
     """The extracted rootfs must carry git's binaries, exec path, and
     shared libraries — layout asserted, not merely extracted blindly."""
