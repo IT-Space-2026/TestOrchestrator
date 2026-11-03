@@ -20,7 +20,15 @@ for pkg in ("testorchestrator", "flask", "flask_wtf", "wtforms",
         datas += d; binaries += b; hiddenimports += h
     except Exception:
         pass
-datas += collect_data_files("testorchestrator", includes=["templates/**","static/**","../migrations/**","../release/**","../deploy/**"])
+# Source-tree package: hook collection skips it — ship data explicitly.
+for src, dest in (("testorchestrator/templates","testorchestrator/templates"),
+                  ("testorchestrator/static","testorchestrator/static"),
+                  ("migrations","migrations"), ("release","release")):
+    p = os.path.join(ROOT, src)
+    for f in sorted(__import__("pathlib").Path(p).rglob("*")):
+        if f.is_file():
+            datas.append((str(f), dest if f.parent == __import__("pathlib").Path(p)
+                          else str(f.parent.relative_to(ROOT))))
 
 a = Analysis([os.path.join(ROOT, "wsgi.py")], pathex=[ROOT], binaries=binaries,
              datas=datas, hiddenimports=hiddenimports +
