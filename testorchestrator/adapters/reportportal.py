@@ -53,6 +53,15 @@ class ReportPortalAdapter:
     def _url(self, path: str) -> str:
         return f"{self.endpoint}/api/v1/{self.project}{path}"
 
+    def status(self) -> dict:
+        """Reachability + auth probe: GET the configured project resource.
+        Unverified against a live instance — surfaces actionable status,
+        never a fabricated success."""
+        resp = requests.get(self._url(""), headers=self._headers(),
+                            timeout=self.timeout)
+        resp.raise_for_status()
+        return {"reachable": True, "project": self.project}
+
     def launch(self, name: str, attributes: dict = None) -> str:
         resp = requests.post(
             self._url("/launch"),

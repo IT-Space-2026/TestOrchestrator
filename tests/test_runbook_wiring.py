@@ -106,6 +106,21 @@ def test_issue_agent_token_admin_only(client, login_as, app):
     assert b"toa_" in resp.data
 
 
+def test_rp_config_saves_settings(app):
+    runner = app.test_cli_runner()
+    res = runner.invoke(args=["rp-config", "--endpoint",
+                              "https://rp.example.com/", "--project", "p1",
+                              "--credential-ref", "missing"])
+    assert res.exit_code != 0
+    res = runner.invoke(args=["rp-config", "--endpoint",
+                              "https://rp.example.com/", "--project", "p1"])
+    assert res.exit_code == 0, res.output
+    with app.app_context():
+        assert settings_mod.get("reportportal_endpoint") == \
+            "https://rp.example.com"
+        assert settings_mod.get("reportportal_project") == "p1"
+
+
 # ---------- state monitor endpoint + reconcile wiring ----------
 
 def _mk_execution(app, runner_id, state=ExecutionState.DISPATCHED):

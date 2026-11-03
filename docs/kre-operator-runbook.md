@@ -7,6 +7,29 @@ and services automatically (see `docs/packaging-status.md` — installer is
 still PARTIAL). Nothing in this runbook installs, upgrades, licenses, or
 modifies KRE: it is installed, licensed, and maintained separately by you.
 
+**Services that must already be running** because the complete installer
+is not yet delivered — each is started manually per the sections below:
+
+| Service | Started by | Section |
+|---|---|---|
+| Portal (Waitress on 127.0.0.1:18080, or Caddy→Waitress in deployment) | `waitress-serve wsgi:app` | §2 |
+| Durable worker | `flask worker` | §2 |
+| Authenticated Dagu with the workflow installed | `dagu start-all` / provision script | §3 |
+| Agent — local mode: spawned per run by the Dagu step; remote mode: a daemon you start | `python -m testorchestrator.agent` | §6 |
+| KRE + browsers/drivers | **you** — installed, licensed, maintained outside this product | §5 |
+
+## Prerequisites checklist for real-KRE A01
+
+- [ ] Licensed, working KRE binary (absolute path), verified by `flask kre-smoke`
+- [ ] Working browsers/drivers per KRE vendor docs
+- [ ] A Katalon project reachable by the runner host (Git binding or local path)
+- [ ] Portal + worker + Dagu (basic auth) + workflow running per §2–§3
+- [ ] `flask dagu-config ... --check` → `workflow_installed=True` (§4)
+- [ ] Runner registered + `toa_…` token issued + `agent.toml` (0600) on the executing host (§5–§6)
+- [ ] Runtime registered; **Test connection** probe version matches your licensed install (§5)
+- [ ] `flask kre-exec` against the real project/suite proves the console flags for YOUR KRE version (§7)
+- [ ] A safe, operator-approved smoke suite/case set and environment (§9)
+
 Conventions used below:
 
 - `TO_ROOT` — the checkout/install root (e.g. `/opt/testorchestrator` or a

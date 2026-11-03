@@ -304,6 +304,43 @@ def register_cli(app: Flask) -> None:
                     "testorchestrator-execution workflow is not installed "
                     "in the Dagu dags directory")
 
+    @app.cli.command("rp-config")
+    @click.option("--endpoint", required=True,
+                  help="ReportPortal base URL, e.g. https://rp.example.com")
+    @click.option("--project", required=True, help="RP project name")
+    @click.option("--credential-ref", default="",
+                  help="SecretRef name holding the RP API token")
+    @click.option("--check", is_flag=True,
+                  help="probe the endpoint after saving")
+    def rp_config(endpoint, project, credential_ref, check):
+        """Point the portal at ReportPortal (§9) — same pattern as
+        dagu-config. The API token itself is stored via System ->
+        Credentials; only the SecretRef NAME is recorded here."""
+        from . import settings as settings_mod
+        from .adapters.reportportal import ReportPortalAdapter
+        from .secrets_store import read_secret
+        if credential_ref:
+            try:
+                read_secret(app, credential_ref)
+            except Exception as exc:
+                raise click.ClickException(
+                    f"credential reference unusable: {exc}")
+        settings_mod.update({
+            "reportportal_endpoint": endpoint.rstrip("/"),
+            "reportportal_project": project,
+            "reportportal_credential_ref": credential_ref,
+        })
+        click.echo(f"saved reportportal_endpoint={endpoint.rstrip('/')} "
+                   f"project={project} "
+                   f"credential_ref={credential_ref or '(none)'}")
+        if check:
+            try:
+                adapter = ReportPortalAdapter.from_settings()
+                click.echo(f"rp status: {adapter.status()}")
+            except Exception as exc:
+                raise click.ClickException(
+                    f"ReportPortal check failed: {exc}")
+
     @app.cli.command("caddy-rollback")
     def caddy_rollback():
         """Local recovery: restore the last known good Caddy config when

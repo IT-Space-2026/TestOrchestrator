@@ -36,6 +36,20 @@ been exercised against a live service — see `implementation-status.md`.
 - Probe: `<exe> -version` (30s). Captures stdout/stderr to `logs/`,
   timestamps, exit status, PID. Error classes: license/config/
   infrastructure/execution — missing results never pass as a run.
+- Invocation credential (residual exposure — documented): a runtime
+  `credential_ref` resolves to the activation value, passed to the child
+  as `-apiKey=<value>` — the vendor-documented KRE mechanism; no
+  vendor-supported env/file alternative is confirmed for console
+  activation. **Residual risk:** the key is visible in the child's argv
+  to same-UID users on the runner host (`/proc/<pid>/cmdline`, `ps`)
+  for the process lifetime. Mitigations in place: value is redacted
+  from `kre-invocation.log`, stdout/stderr are scrubbed post-run, no
+  secret lands in artifacts/audit/Git export/UI; delivery to remote
+  agents only inside the authenticated scoped task; restricted host
+  permissions (0600 `agent.toml`/credential files) remain required.
+  If a vendor-supported non-argv mechanism is confirmed for the
+  operator's KRE version, adopt it — `run_invocation` already supports
+  `env_extra` injection.
 - Status: mechanics proven vs. fixture executable (`tests/test_pipeline.py`);
   **real KRE CLI/flags/exit codes unverified** — pending operator binary.
 
