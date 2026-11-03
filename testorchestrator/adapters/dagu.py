@@ -67,7 +67,7 @@ class DaguAdapter:
         caller persists BEFORE doing anything else (§7 correlation)."""
         resp = requests.post(
             self._url("/dags/testorchestrator-execution/start"),
-            json={"params": payload},
+            json={"params": "execution_id=" + str(payload.get("execution_id",""))},
             headers=self._headers(),
             timeout=self.timeout,
         )

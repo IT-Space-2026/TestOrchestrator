@@ -1,12 +1,11 @@
-# TestOrchestrator execution workflow — one run per execution_id.
-# Ownership: Dagu coordinates; agent is the authenticated executor.
+# One workflow run per execution. The step invokes the LOCAL agent,
+# which is provisioned with its own token at install time — the token is
+# never a workflow param, process arg, or log line.
 params:
   - execution_id: ""
-  - portal_url: ""
-  - agent_token: ""      # injected at submit time; never in this file
 steps:
   - name: execute-assigned-task
     command: >-
-      python3 -m testorchestrator.agent --portal "$portal_url"
-      --token "$agent_token" --once --execution-id "$execution_id"
-    dir: ~
+      python3 -m testorchestrator.agent --once
+      --execution-id "$execution_id" --config /etc/testorchestrator/agent.toml
+    working_dir: ~

@@ -482,12 +482,22 @@ def _handle_event(event: OutboxEvent) -> None:
                 if ex:
                     ex.dispatch_id = dispatch_id
                     db.session.commit()
-                    # OWNERSHIP (Option B): Dagu now owns the run. The
-                    # workflow step invokes the authorized executor
-                    # (agent/tasks endpoint, bearer-auth'd, immutable
-                    # snapshot — no arbitrary commands). The portal does
-                    # NOT independently call run_execution here.
+                    # OWNERSHIP (Option B): Dagu now owns the run; the
+                    # portal assigns the authorized runner/runtime up
+                    # front (capability/project/capacity checked) so the
+                    # workflow's agent picks up exactly this task.
                     if _dagu_mandatory():
+                        runner = pick_runner(ex)
+                        runtime = (ex.runtime
+                                   or (pick_runtime(ex, runner)
+                                       if runner else None))
+                        if not runner or not runtime:
+                            _fail(ex, "infrastructure",
+                                  "no eligible runner/runtime for "
+                                  "dagu-coordinated dispatch")
+                            return
+                        ex.runner_id = runner.id
+                        ex.runtime_id = runtime.id
                         ex.state = ExecutionState.DISPATCHED
                         ex.lease_expires_at = utcnow() + timedelta(
                             seconds=LEASE_SECONDS)

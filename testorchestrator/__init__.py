@@ -72,6 +72,9 @@ def create_app(config_object=Config) -> Flask:
     app.register_blueprint(system_bp)
     app.register_blueprint(portal_bp)
     app.register_blueprint(agent_bp)
+    # Agent API is bearer-token authenticated, not session-based — CSRF
+    # does not apply (no cookies honoured by this surface).
+    csrf.exempt(agent_bp)
 
     # v1.8 bootstrap + network gates (loopback-only until setup completes and
     # external access is enabled; host allowlist; forced password change).

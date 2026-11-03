@@ -165,3 +165,36 @@ def run(portal: str, token: str, work_root: Path, once: bool = False,
         if once:
             return
         time.sleep(interval)
+
+
+def load_agent_config(path: str):
+    """Protected token delivery: agent reads portal URL + token from a
+    0600 config file provisioned at install time — not from CLI args,
+    workflow params, or environment dumps."""
+    import tomllib
+    cfg = tomllib.loads(Path(path).read_text())
+    return cfg["portal"], cfg["token"], cfg.get("work_root")
+
+
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default="/etc/testorchestrator/agent.toml")
+    ap.add_argument("--portal"); ap.add_argument("--token")
+    ap.add_argument("--once", action="store_true")
+    ap.add_argument("--execution-id", default="")
+    ap.add_argument("--work-root", default=None)
+    a = ap.parse_args(argv)
+    portal, token, work = a.portal, a.token, a.work_root
+    if Path(a.config).exists():
+        c_portal, c_token, c_work = load_agent_config(a.config)
+        portal, token = portal or c_portal, token or c_token
+        work = work or c_work
+    if not portal or not token:
+        ap.error("portal/token required (config file or explicit args)")
+    run(portal, token, Path(work or "/var/lib/testorchestrator/agent"),
+        once=a.once, execution_id=a.execution_id)
+
+
+if __name__ == "__main__":
+    main()
