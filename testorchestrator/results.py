@@ -216,3 +216,52 @@ def plan_outcome(entry_states) -> str:
     if "not-started" in states:
         return "not-started"
     return max(states, key=lambda s: _PLAN_SEVERITY[s])
+
+
+# ---------- plan summaries (UI/reporting use of plan_outcome) ----------
+
+_TERMINAL = None  # filled lazily
+
+
+def entry_state(ex) -> str:
+    """Map an Execution to its plan-entry terminal state. Non-terminal
+    states mean the entry is still in flight — 'not-started' keeps a
+    plan from ever reading as finished."""
+    if ex is None:
+        return "skipped"          # never dispatched for this plan
+    st = ex.state.value if hasattr(ex.state, "value") else str(ex.state)
+    oc = ex.outcome.value if hasattr(ex.outcome, "value") \
+        else str(ex.outcome)
+    if st in ("completed",):
+        return {"passed": "passed", "failed": "failed"}.get(oc,
+                                                            "unknown")
+    if st == "canceled":
+        return "cancelled"
+    if st == "failed":
+        return "error"            # infrastructure/execution failure
+    if st == "unknown":
+        return "unknown"
+    return "not-started"          # queued/dispatched/running/cancel_req
+
+
+def plan_entry_states(plan) -> list:
+    """Latest per-entry execution state for THIS plan run — matched by
+    snapshot plan_id (recorded at dispatch). Entries never dispatched
+    for this plan are 'skipped'."""
+    from .execution import Execution
+    states = []
+    for entry in plan.entries:
+        candidates = [
+            e for e in Execution.query.filter_by(
+                project_id=plan.project_id).all()
+            if e.snapshot().get("plan_id") == plan.id
+            and e.snapshot().get("suite_id") == entry.suite_id]
+        candidates.sort(key=lambda e: e.created_at or e.id, reverse=True)
+        states.append(entry_state(candidates[0] if candidates else None))
+    return states
+
+
+def plan_summary(plan) -> str:
+    """Plan aggregate via plan_outcome — incomplete required entries
+    can never disappear behind a 'passed' result."""
+    return plan_outcome(plan_entry_states(plan))

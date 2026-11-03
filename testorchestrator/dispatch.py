@@ -43,12 +43,14 @@ class DispatchError(RuntimeError):
 # ---------- creation / snapshot ----------
 
 def create_execution(username: str, suite: Suite, binding: GitBinding = None,
+                     plan_id: str = "",
                      source_sha: str = "", run_config: dict = None) -> Execution:
     """Create an immutable execution snapshot (§4, A07). Later suite edits
     create new suite versions; this row's snapshot never changes."""
 
     rc = dict(run_config or {})
     snapshot = {
+        "plan_id": plan_id,
         "suite_id": suite.id,
         "suite_name": suite.name,
         "suite_version": suite.version,

@@ -24,6 +24,7 @@ from ..extensions import db
 from ..models import Role, record_audit
 from ..security import role_required
 from . import portal_bp
+from .. import results as results_mod
 from .forms import (BindingForm, PlanForm, PlainForm, ProjectForm, SuiteForm)
 
 EDIT_ROLES = (Role.ADMIN, Role.TEST_MANAGER)
@@ -100,6 +101,8 @@ def project_detail(project_id):
         can_edit=can_edit, can_run=can_run,
         executions=Execution.query.filter_by(project_id=project_id)
         .order_by(Execution.created_at.desc()).limit(25).all(),
+        plan_summaries={p.id: results_mod.plan_summary(p)
+                        for p in project.plans},
     )
 
 
@@ -504,7 +507,7 @@ def run_plan(plan_id):
     for entry in plan.entries:
         dispatch.create_execution(
             current_user.username, entry.suite, binding=binding,
-            source_sha=sha)
+            source_sha=sha, plan_id=plan.id)
     record_audit(current_user.username, "plan.queued", plan.id)
     return redirect(url_for("portal.executions"))
 

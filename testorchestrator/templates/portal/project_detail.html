@@ -92,6 +92,7 @@
   <ul class="notice-list">
     {% for plan in project.plans %}
     <li>{{ plan.name }} — {{ plan.entries | length }} suites, parallel={{ plan.parallelism }}
+      — outcome: <strong>{{ plan_summaries.get(plan.id, 'empty') }}</strong>
       {% if can_run %}
       <form method="post" action="{{ url_for('portal.run_plan', plan_id=plan.id) }}" class="inline">
         {{ plain_form.csrf_token }}<button type="submit" class="button secondary">Run plan</button>

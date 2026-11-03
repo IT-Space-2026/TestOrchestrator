@@ -299,3 +299,48 @@ def test_plan_outcome_aggregation():
     assert po(["passed", "failed", "cancelled"]) == "failed"
     assert po(["unknown", "error"]) == "error"
     assert po(["bogus"]) == "unknown"                 # unmapped state
+
+
+def test_plan_summary_blocks_incomplete_entries(app):
+    """plan_summary wired into project detail: a plan can only read
+    'passed' when every required entry reached an acceptable terminal
+    outcome — pending/unknown/cancelled entries block success."""
+    from testorchestrator.results import plan_summary
+    from testorchestrator.execution import (Plan, PlanEntry, Project,
+                                            Suite, Execution,
+                                            ExecutionState, Outcome)
+    import json
+    with app.app_context():
+        p = Project(name="P", description="")
+        db.session.add(p); db.session.flush()
+        s1 = Suite(project_id=p.id, name="S1", version=1,
+                   content_hash="h1", imported=False)
+        s2 = Suite(project_id=p.id, name="S2", version=1,
+                   content_hash="h2", imported=False)
+        plan = Plan(project_id=p.id, name="PL", parallelism=1)
+        db.session.add_all([s1, s2, plan]); db.session.flush()
+        plan.entries = [PlanEntry(plan_id=plan.id, order=0,
+                                  suite_id=s1.id),
+                        PlanEntry(plan_id=plan.id, order=1,
+                                  suite_id=s2.id)]
+        db.session.flush()
+        # never dispatched -> entries skipped, plan not "passed"
+        assert plan_summary(plan) == "skipped"
+        # one passed, one still queued -> not-started wins
+        def mkex(suite, state, outcome):
+            return Execution(
+                project_id=p.id, suite_id=suite.id,
+                snapshot_json=json.dumps({"plan_id": plan.id,
+                                          "suite_id": suite.id}),
+                state=state, outcome=outcome)
+        db.session.add(mkex(s1, ExecutionState.COMPLETED, Outcome.PASSED))
+        db.session.add(mkex(s2, ExecutionState.QUEUED, Outcome.NONE))
+        db.session.commit()
+        assert plan_summary(plan) == "not-started"
+        # finish s2 passed -> now genuinely passed
+        s2ex = [e for e in Execution.query.all()
+                if e.snapshot().get("suite_id") == s2.id][0]
+        s2ex.state = ExecutionState.COMPLETED
+        s2ex.outcome = Outcome.PASSED
+        db.session.commit()
+        assert plan_summary(plan) == "passed"
