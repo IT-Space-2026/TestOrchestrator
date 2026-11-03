@@ -134,6 +134,7 @@ class ReportPortalAdapter:
         from pathlib import Path
         from ..execution import SyncState
         for result in execution.results:
+            already_published = bool(result.rp_remote_id)
             item_id = result.rp_remote_id or self.start_item(
                 launch_id, result.case_name, "STEP")
             if not result.rp_remote_id:
@@ -142,11 +143,18 @@ class ReportPortalAdapter:
                 "passed": "PASSED", "failed": "FAILED",
                 "error": "FAILED", "skipped": "SKIPPED",
             }[result.status.value]
-            if result.message:
+            # On retry, skip the result's own log only if the item existed
+            # before — a remote timeout may have accepted creation but lost
+            # the response, so attachments keyed on artifact.rp_state are
+            # deduplicated individually below.
+            if result.message and not already_published:
                 self.log(launch_id, item_id, result.message[:4000],
                          "ERROR" if status == "FAILED" else "INFO")
-            # Attach evidence files mapped to this case attempt (§9).
+            # Attach evidence files mapped to this case attempt (§9);
+            # per-artifact dedup: only items not yet confirmed remotely.
             for artifact in artifacts_by_result.get(result.id, []):
+                if artifact.rp_state == SyncState.DONE:
+                    continue
                 path = Path(execution.report_dir) / artifact.rel_path
                 if path.exists() and artifact.size <= 20 * 1024 * 1024:
                     self.log(
@@ -159,7 +167,8 @@ class ReportPortalAdapter:
                     )
                     artifact.rp_state = SyncState.DONE
                     artifact.rp_remote_id = item_id
-            self.finish_item(item_id, status)
+            if not already_published:
+                self.finish_item(item_id, status)
         self.finish_launch(launch_id)
 
 

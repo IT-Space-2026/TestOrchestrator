@@ -120,7 +120,13 @@ def _export_repo() -> git.Repo:
     if not (repo_path / ".git").exists():
         repo_path.mkdir(parents=True, exist_ok=True)
         git.Repo.init(repo_path)
-    return git.Repo(repo_path)
+    repo = git.Repo(repo_path)
+    # Repo-local identity for product commits/merges (never global config).
+    with repo.config_writer() as cfg:
+        if not cfg.has_option("user", "name"):
+            cfg.set_value("user", "name", "TestOrchestrator")
+            cfg.set_value("user", "email", "testorchestrator@localhost")
+    return repo
 
 
 def _commit(repo: git.Repo, message: str) -> str:
@@ -246,12 +252,16 @@ def push_export() -> str:
     if not repo.remotes:
         raise NotConfigured("export repo has no remote 'origin'")
     try:
+        branch = repo.active_branch.name
+        remote_ref = f"origin/{branch}"
         repo.remotes.origin.fetch()
-        # Fast-forward/merge only — a non-ff pull is a conflict surfaced
-        # to the Admin, not silently resolved or force-pushed (§11).
-        merge = repo.git.merge(f"origin/{repo.active_branch.name}",
-                               no_edit=True)
-        repo.remotes.origin.push()
+        if remote_ref in {str(r) for r in repo.remotes.origin.refs}:
+            # Fast-forward/merge only — conflicts surface, never force-push.
+            repo.git.merge(remote_ref, no_edit=True)
+            repo.remotes.origin.push()
+        else:
+            # First push: establish the upstream branch.
+            repo.git.push("--set-upstream", "origin", branch)
         return "pushed"
     except git.GitCommandError as exc:
         text = str(exc)
@@ -290,13 +300,19 @@ def restore_definitions(project_id: str) -> dict:
             if row is None:
                 row = model(id=data["id"], project_id=project_id)
                 db.session.add(row)
+            from sqlalchemy import DateTime
+            coltypes = {c.name: c.type for c in row.__table__.columns}
             for key, value in data.items():
                 if key in ("id", "project_id"):
                     continue
                 if hasattr(row, key):
                     try:
+                        if isinstance(value, str) and isinstance(
+                                coltypes.get(key), DateTime):
+                            from datetime import datetime
+                            value = datetime.fromisoformat(value)
                         setattr(row, key, value)
-                    except (AttributeError, TypeError):
+                    except (AttributeError, TypeError, ValueError):
                         pass
             counts[counter] += 1
     db.session.commit()
