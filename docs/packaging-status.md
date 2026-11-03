@@ -1,8 +1,9 @@
-# Packaging status — PARTIAL PORTAL BUNDLE (not the self-contained installer)
+# Packaging status — portal bundle with external-Java prerequisite
 
-Asset: `dist/testorchestrator-1.9.0-linux-x86_64.tar.gz` + manifest
-(`scripts/build_bundle.py`). Label: partial portal bundle — final component
-set unfrozen pending owner's Dagu decision.
+Asset: `dist/testorchestrator-1.9.0-linux-x86_64.tar.gz` + `.sha256` +
+manifest (`scripts/build_bundle.py`). `dist/` stays out of Git; the
+archive is published as a release asset with its checksum, dependency
+requirements, and installation instructions.
 
 ## Component-by-component completion table
 
@@ -13,13 +14,38 @@ set unfrozen pending owner's Dagu decision.
 | 30 vendored wheels | yes | yes (`pip --no-index`) | — |
 | Caddy 2.9.1 + LICENSE + sha256 | yes | binary verified | per-OS config test |
 | Runner connector (`testorchestrator/agent.py` + API) | yes (source) | in-process tests | live remote-host run |
-| Git implementation | **no** | — | portable Git binary not bundled |
+| Git runtime (ubuntu-resolute-amd64) | yes | rootfs acquired + verified (`acquire_git.py`, manifest in 3rdparty/git) | Windows/SLES target |
+| Dagu 2.25.2 | yes | contract test + fixture chain green | — |
+| Allure generator (allure-commandline 2.46.1) | yes | real generation verified vs host Java | — |
+| Java runtime | **no — operator prerequisite** | validated by actual report-generation probe at install (`--java-home` / detection / `--no-allure`), re-checkable in Admin → Reporting | — |
 | ReportPortal stack/images/config | **no** | — | container backend + pinned images |
-| Dagu | **no** | — | excluded pending owner decision |
 | KRE | **no** (external by requirement) | — | operator-installed |
 | Installer/launcher (config/services/HTTPS) | partial `scripts/install.py` + `create_venv_offline` | dry-path only | full lifecycle on target |
 | Reboot service start | no | — | needs systemd target test |
 | Windows 11 / SLES packages | no | — | not produced |
+
+## Java / Allure packaging decision
+
+The JRE is NOT part of the standard distribution (removed from the
+package and from unpublished Git history; the acquisition manifest +
+licence set under `3rdparty/java-runtime/` is retained as the pinned
+reference for a separately supplied runtime, and `acquire_git.py --root
+openjdk-25-jre-headless` can re-acquire it for other purposes).
+
+A compatible Java runtime is a declared prerequisite **only** for
+Allure report generation:
+
+- The installer detects Java (`JAVA_HOME`, PATH, `/usr/lib/jvm`) or
+  takes an explicit `--java-home`.
+- Validation is an actual `allure generate` probe with the pinned
+  2.46.1 generator, run as the `testorchestrator` service account.
+- The validated path persists in `/etc/testorchestrator/web.env`
+  (`TO_ALLURE_JAVA_HOME`, app-scoped — no global Java settings change,
+  KRE's runtime untouched) plus `allure-java.json` readiness record.
+- Admin → Reporting shows the selected path, Java version, generator
+  version, and probe readiness; a path override there re-validates.
+- No compatible Java → recheck or continue with `--no-allure` and a
+  clear warning; native KRE reports and artifacts are unaffected.
 
 ## Acceptance procedure (fresh machine, network blocked)
 1. `tar xzf dist/testorchestrator-1.9.0-linux-x86_64.tar.gz`
@@ -33,5 +59,5 @@ set unfrozen pending owner's Dagu decision.
    "Test connection" probe → run suite on runner.
 
 ## Remaining gaps (missing implementation, not validation)
-- Portable Git, ReportPortal image set + config automation, WSL/container
+- ReportPortal image set + config automation, WSL/container
   backend, full installer lifecycle, per-OS packages, reboot evidence.

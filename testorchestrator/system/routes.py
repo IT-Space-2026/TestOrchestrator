@@ -317,8 +317,10 @@ def reporting_save():
         except SecretError as exc:
             flash(f"ReportPortal credential ref unusable: {exc}", "error")
             return redirect(url_for("system.reporting_page"))
+    java_home = request.form.get("allure_java_home", "").strip()
     settings_mod.update({
         "allure_enabled": bool(request.form.get("allure_enabled")),
+        "allure_java_home": java_home,
         "reportportal_enabled": bool(request.form.get("rp_enabled")),
         "reportportal_endpoint":
             request.form.get("rp_endpoint", "").strip().rstrip("/"),
@@ -332,19 +334,40 @@ def reporting_save():
     record_audit(current_user.username, "reporting.config.saved",
                  "reporting settings updated (no values)")
     flash("Reporting settings saved. No runs were published.", "info")
+    if java_home:
+        # Selecting a runtime validates it immediately with an actual
+        # generation probe — never assumed compatible from the path.
+        from .. import allure_runtime
+        rec = allure_runtime.select_and_validate(java_home)
+        if rec["ok"]:
+            flash(f"Java validated — generated a report with Allure "
+                  f"{allure_runtime.version()} "
+                  f"(Java {rec.get('java_version', '?')}).", "info")
+        else:
+            flash(f"Java at {java_home} FAILED the generation probe: "
+                  f"{rec.get('error', '')} — Allure stays not-ready.",
+                  "error")
     return redirect(url_for("system.reporting_page"))
 
 
 @system_bp.route("/reporting/check", methods=["POST"])
 @role_required(Role.ADMIN)
 def reporting_check():
-    """Readiness checks, reported verbatim — never a fabricated ready."""
+    """Readiness checks, reported verbatim — never a fabricated ready.
+    The Java check is a REAL generation probe with the pinned bundled
+    Allure, run as the service account would run it."""
     from .. import allure_runtime
     from ..adapters.reportportal import ReportPortalAdapter
+    home, _src = allure_runtime.selected_java()
+    rec = allure_runtime.select_and_validate(
+        str(home) if home else "")
     a = allure_runtime.status()
-    msg = (f"Allure: ready, bundled {a['version']}" if a["ready"]
-           else f"Allure: NOT ready — {a['reason']}")
-    flash(msg, "info" if a["ready"] else "error")
+    if a["ready"]:
+        flash(f"Allure: ready — generator {a['version']}, Java "
+              f"{rec.get('java_version', '?')} at {a['java_home']} "
+              f"(probe {rec.get('checked_at', '')})", "info")
+    else:
+        flash(f"Allure: NOT ready — {a['reason']}", "error")
     if settings_mod.get("reportportal_enabled"):
         try:
             s = ReportPortalAdapter.from_settings().status()

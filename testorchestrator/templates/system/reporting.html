@@ -10,15 +10,55 @@ deployed or validated.</p>
 <form method="post" action="{{ url_for('system.reporting_save') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-  <h2>Allure (bundled, offline)</h2>
-  <p>Bundled status:
-    {% if allure.ready %}
-      <strong>ready</strong> — allure-commandline {{ allure.version }}
-      with vendored JRE
+  <h2>Allure (bundled generator, external Java)</h2>
+  <p>Generator:
+    {% if allure.generator_present %}
+      allure-commandline {{ allure.version }} (bundled)
     {% else %}
-      <strong>not ready</strong> — {{ allure.reason }}
+      <strong>not installed</strong>
     {% endif %}
   </p>
+  <p>Java runtime:
+    {% if allure.java_home %}
+      <code>{{ allure.java_home }}</code>
+      ({{ allure.java_source }}{% if allure.java_version %},
+       Java {{ allure.java_version }}{% endif %})
+    {% else %}
+      <strong>none found</strong> — Allure requires an operator-supplied
+      JRE/JDK; none was configured or detected on this host.
+    {% endif %}
+  </p>
+  <p>Readiness:
+    {% if allure.ready %}
+      <strong>ready</strong> — validated by report-generation probe
+      {% if allure.probe.checked_at %}({{ allure.probe.checked_at }}){% endif %}
+    {% else %}
+      <strong>not ready</strong> — {{ allure.reason }}
+      {% if allure.probe.checked_at %}<br><small>Last probe
+        {{ allure.probe.checked_at }}:
+        {{ allure.probe.error or 'ok' }}</small>{% endif %}
+    {% endif %}
+  </p>
+  {% if allure.enabled and not allure.ready %}
+  <p class="form-error"><strong>Warning:</strong> Allure generation is
+    enabled but no validated Java runtime is available — generation will
+    fail until a compatible runtime is selected and validated. Fix the
+    path and re-run <em>Check readiness</em>, or disable Allure. Native
+    KRE reports and original artifacts are unaffected.</p>
+  {% endif %}
+  <p><label>Java home (JAVA_HOME or path to the java binary)<br>
+    <input type="text" name="allure_java_home" size="50"
+           list="allure-java-candidates"
+           value="{{ settings.allure_java_home }}"
+           placeholder="/usr/lib/jvm/java-21-openjdk-amd64"></label><br>
+    <small>Saving a path validates it with a real report-generation
+    probe. Leave empty to use the installer-selected or auto-detected
+    runtime. Scoped to Allure only — no global Java settings change.</small></p>
+  {% if allure.detected %}
+  <datalist id="allure-java-candidates">
+    {% for h in allure.detected %}<option value="{{ h }}">{% endfor %}
+  </datalist>
+  {% endif %}
   <label><input type="checkbox" name="allure_enabled" value="1"
     {% if settings.allure_enabled %}checked{% endif %}>
     Enable Allure report generation</label>
