@@ -111,6 +111,7 @@ def run_task(client: AgentClient, task: dict, work_root: Path) -> None:
             browser=rc.get("browser", "Chrome (headless)"),
             remote_webdriver_url=rc.get("remote_webdriver_url", ""),
             remote_webdriver_type=rc.get("remote_webdriver_type", ""),
+            collection=bool(rc.get("collection")),
         )
         creds = task.get("redact") or []
         if creds:

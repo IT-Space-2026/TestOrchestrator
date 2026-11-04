@@ -82,6 +82,7 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
             # Requested execution target ("" = auto pick at dispatch).
             "requested_runner": str(rc.get("runner_id") or "")[:32],
             "requested_runtime": str(rc.get("runtime_id") or "")[:32],
+            "collection": bool(rc.get("collection")),
             # Running-time limit in seconds (process-launch clock,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
@@ -528,6 +529,7 @@ def run_execution(execution_id: str) -> None:
             browser=browser_val or "Chrome (headless)",
             remote_webdriver_url=rc.get("remote_webdriver_url", ""),
             remote_webdriver_type=rc.get("remote_webdriver_type", ""),
+            collection=bool(rc.get("collection")),
             extra=flags,
         )
 
