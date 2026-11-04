@@ -229,3 +229,28 @@ by name only (System → Credentials); values never enter forms or
 exports. Allure: System → Reporting. Network/ports/certs: System →
 Network. Changes apply to future operations — no restart needed. This
 section post-dates candidate `10300832` (unreleased).
+
+## Dashboard & UI (Unreleased)
+
+- **Dashboard:** real-data metric cards (visible projects, active/
+  queued executions, passed/failed terminal attempts over 14 days —
+  each attempt counts once, reruns are separate attempts; dispatch-
+  eligible vs healthy runners; upcoming scheduled runs), per-project
+  table (latest outcome, active work, pass rate over terminal attempts,
+  next schedule), recent executions, and a daily-outcomes bar chart.
+- **Live updates:** `GET /dashboard/data` polled ≈ every 5 s
+  (near-real-time) — one in-flight request, exponential backoff to
+  60 s on errors, paused on hidden tabs, stale-data badge; DOM patched
+  in place (filters/scroll preserved). Same project-visibility scope
+  as the page.
+- **Projects:** card grid — search (name/description), sort
+  (name / latest activity), outcome badges, active-work counts,
+  clear empty states.
+- **Audit:** server-side search + filters (free text, event type,
+  actor, related id, date range) with 50-row pagination preserving
+  filters, deterministic ordering — Admin only.
+- **Runners & runtimes:** per-field help (required/optional, format,
+  runner-host path semantics, credential-by-name references).
+- **Admin nav:** third-party notices & licences moved under Admin
+  (URL `/about/notices` unchanged; every role still reaches it via
+  About).
