@@ -265,3 +265,20 @@ def plan_summary(plan) -> str:
     """Plan aggregate via plan_outcome — incomplete required entries
     can never disappear behind a 'passed' result."""
     return plan_outcome(plan_entry_states(plan))
+
+
+# Human-facing labels for entry states (§8): "skipped" is a CALCULATED
+# state (the entry was never dispatched — e.g. the plan run never got
+# that far or the run predates the entry), it is NOT an execution result.
+# "not-started" means a real execution exists but is queued/in-flight —
+# it reports progress, never a verdict.
+STATE_LABELS = {
+    "passed": "passed",
+    "failed": "failed",
+    "error": "error (infrastructure)",
+    "cancelled": "cancelled",
+    "unknown": "unknown (ambiguous)",
+    "skipped": "skipped — never dispatched (calculated, not a result)",
+    "not-started": "not started — queued or running (no result yet)",
+    "empty": "empty (no entries)",
+}

@@ -70,6 +70,11 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
         "run_config": {
             "profile": str(rc.get("profile") or "default")[:128],
             "browser": str(rc.get("browser") or "Chrome (headless)")[:128],
+            # Requested version-gated KRE options — applied only if the
+            # detected runtime version supports them (adapters/kre.py).
+            "kre_options": {
+                str(k)[:32]: str(v)[:64]
+                for k, v in dict(rc.get("kre_options") or {}).items()},
         },
         "binding_id": binding.id if binding else None,
         "source_sha": source_sha,

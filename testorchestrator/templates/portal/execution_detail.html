@@ -14,6 +14,12 @@
   <dt>State</dt><dd><strong>{{ ex.state.value }}</strong></dd>
   <dt>Outcome</dt><dd>{{ ex.outcome.value }}</dd>
   <dt>Dagu run</dt><dd><code>{{ ex.dispatch_id or "—" }}</code></dd>
+  {% if ex.snapshot().get('attempt', 1) > 1 or ex.snapshot().get('retry_of') %}
+  <dt>Attempt</dt><dd>#{{ ex.snapshot().get('attempt', 1) }}
+    {% if ex.snapshot().get('retry_of') %}
+      — retry of <a href="{{ url_for('portal.execution_detail', execution_id=ex.snapshot()['retry_of']) }}"><code>{{ ex.snapshot()['retry_of'][:8] }}</code></a>
+    {% endif %}</dd>
+  {% endif %}
   <dt>Runner</dt><dd>{{ ex.runner.name if ex.runner else "—" }}</dd>
   <dt>Runtime</dt><dd>{{ ex.runtime.name if ex.runtime else "—" }}</dd>
   <dt>Started</dt><dd>{{ ex.started_at or "—" }}</dd>
@@ -30,6 +36,14 @@
 <form method="post" action="{{ url_for('portal.cancel_execution', execution_id=ex.id) }}" class="inline">
   {{ plain_form.csrf_token }}
   <button type="submit" class="button secondary">Cancel execution</button>
+</form>
+{% endif %}
+
+{% if ex.state.value in ("completed", "failed", "canceled", "unknown")
+   and ex.outcome.value != "passed" and current_user.role.value != "po" %}
+<form method="post" action="{{ url_for('portal.retry_execution', execution_id=ex.id) }}" class="inline">
+  {{ plain_form.csrf_token }}
+  <button type="submit" class="button secondary">Retry (new attempt)</button>
 </form>
 {% endif %}
 

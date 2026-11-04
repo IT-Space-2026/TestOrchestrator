@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ plan.name }} · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>{{ plan.name }}</h1>
+<p>{{ plan.description }}</p>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+<dl class="about-facts">
+  <dt>Parallelism</dt><dd>{{ plan.parallelism }} (bounded by runner capacity)</dd>
+  <dt>Latest outcome</dt><dd><strong>{{ summary }}</strong></dd>
+</dl>
+{% if can_run %}
+<form method="post" action="{{ url_for('portal.run_plan', plan_id=plan.id) }}" class="inline">
+  {{ plain_form.csrf_token }}<button class="button" type="submit">Run plan</button>
+</form>
+<form method="post" action="{{ url_for('portal.rerun_plan_failed', plan_id=plan.id) }}" class="inline">
+  {{ plain_form.csrf_token }}<button class="button secondary" type="submit">Rerun failed entries</button>
+</form>
+{% endif %}
+
+<h2>Entries</h2>
+<table class="audit-table">
+  <thead><tr><th>#</th><th>Suite</th><th>Latest state</th><th>On failure</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+  <tbody>
+    {% for e in plan.entries %}
+    <tr>
+      <td>{{ e.order }}</td>
+      <td><a href="{{ url_for('portal.suite_detail', suite_id=e.suite_id) }}">{{ e.suite.name }}</a></td>
+      <td>{{ entry_states[loop.index0] }}</td>
+      <td>{{ entry_cfg[e.id].get('on_failure', 'continue') }}
+        {% if can_edit %}
+        <form method="post" action="{{ url_for('portal.plan_entry_policy', entry_id=e.id) }}" class="inline">
+          {{ plain_form.csrf_token }}
+          <input type="hidden" name="on_failure"
+                 value="{{ 'continue' if entry_cfg[e.id].get('on_failure') == 'stop' else 'stop' }}">
+          <button class="button secondary" type="submit">
+            set {{ 'continue' if entry_cfg[e.id].get('on_failure') == 'stop' else 'stop' }}</button>
+        </form>
+        {% endif %}</td>
+      {% if can_edit %}
+      <td>
+        <form method="post" action="{{ url_for('portal.move_plan_entry', entry_id=e.id) }}" class="inline">
+          {{ plain_form.csrf_token }}<input type="hidden" name="direction" value="up">
+          <button class="button secondary" type="submit">↑</button></form>
+        <form method="post" action="{{ url_for('portal.move_plan_entry', entry_id=e.id) }}" class="inline">
+          {{ plain_form.csrf_token }}<input type="hidden" name="direction" value="down">
+          <button class="button secondary" type="submit">↓</button></form>
+        <form method="post" action="{{ url_for('portal.delete_plan_entry', entry_id=e.id) }}" class="inline">
+          {{ plain_form.csrf_token }}<button class="button secondary" type="submit">Remove</button></form>
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="muted">State semantics: <em>skipped</em> = never dispatched
+(calculated, not a result); <em>not-started</em> = queued or running —
+a report of progress, never a verdict. Retry attempts count via the
+latest attempt of each entry.</p>
+
+{% if can_edit %}
+<section class="card">
+  <h3>Add suite</h3>
+  <form method="post" action="{{ url_for('portal.add_plan_entry', plan_id=plan.id) }}">
+    {{ plain_form.csrf_token }}
+    <select name="suite_id">
+      {% for s in suites %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+    </select>
+    <button class="button" type="submit">Add entry</button>
+  </form>
+</section>
+<section class="card">
+  <h3>Edit plan</h3>
+  <form method="post" action="{{ url_for('portal.edit_plan', plan_id=plan.id) }}">
+    {{ plan_form.csrf_token }}
+    <div class="field">{{ plan_form.name.label }} {{ plan_form.name() }}</div>
+    <div class="field">{{ plan_form.description.label }} {{ plan_form.description() }}</div>
+    <div class="field">{{ plan_form.parallelism.label }} {{ plan_form.parallelism() }}</div>
+    <button class="button" type="submit">Save</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

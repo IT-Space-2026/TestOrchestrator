@@ -26,7 +26,8 @@ from ..models import Role, record_audit
 from ..security import role_required
 from . import portal_bp
 from .. import results as results_mod
-from .forms import (BindingForm, PlanForm, PlainForm, ProjectForm, SuiteForm)
+from .forms import (BindingForm, PlanForm, PlainForm, ProjectForm,
+                    ScheduleForm, SuiteForm)
 
 EDIT_ROLES = (Role.ADMIN, Role.TEST_MANAGER)
 RUN_ROLES = (Role.ADMIN, Role.TEST_MANAGER, Role.TESTER)
@@ -95,15 +96,20 @@ def project_detail(project_id):
     first_binding = GitBinding.query.filter_by(project_id=project.id).first()
     cases = gitsync.list_test_cases(first_binding) if first_binding else []
     suite_form.case_refs.choices = [(c, c) for c in cases]
+    schedule_form = ScheduleForm()
+    schedule_form.target_id.choices = [
+        (s.id, f"Suite: {s.name}") for s in project.suites] + [
+        (p.id, f"Plan: {p.name}") for p in project.plans]
     return render_template(
         "portal/project_detail.html", project=project,
         binding_form=BindingForm(), plan_form=PlanForm(),
         suite_form=suite_form, plain_form=PlainForm(),
-        can_edit=can_edit, can_run=can_run,
+        schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,
         executions=Execution.query.filter_by(project_id=project_id)
         .order_by(Execution.created_at.desc()).limit(25).all(),
         plan_summaries={p.id: results_mod.plan_summary(p)
                         for p in project.plans},
+        state_labels=results_mod.STATE_LABELS,
     )
 
 
@@ -213,9 +219,17 @@ def launch_execution(suite_id):
     binding = GitBinding.query.filter_by(
         project_id=suite.project_id).first()
     sha = binding.last_synced_sha if binding else ""
+    kre_options = {}
+    try:
+        retry_n = int(request.form.get("kre_retry", "0") or 0)
+    except ValueError:
+        retry_n = 0
+    if retry_n > 0:
+        kre_options["retry"] = min(3, retry_n)
     run_config = {
         "profile": request.form.get("execution_profile") or "default",
         "browser": request.form.get("browser_type") or "Chrome (headless)",
+        "kre_options": kre_options,
     }
     ex = dispatch.create_execution(
         current_user.username, suite, binding=binding, source_sha=sha,
@@ -255,6 +269,23 @@ def cancel_execution(execution_id):
         flash("Execution is already in a terminal state.", "info")
     return redirect(url_for("portal.execution_detail",
                           execution_id=execution_id))
+
+
+@portal_bp.route("/executions/<execution_id>/retry", methods=["POST"])
+@role_required(*RUN_ROLES)
+def retry_execution(execution_id):
+    """Queue the next attempt — a NEW execution linked to this one
+    (attempt evidence chain, never a rerun/mutation of the original)."""
+    ex = _execution_or_404(execution_id)
+    PlainForm().validate_on_submit()
+    try:
+        new_ex = dispatch.retry_execution(current_user.username, ex)
+    except dispatch.DispatchError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("portal.execution_detail",
+                                execution_id=execution_id))
+    return redirect(url_for("portal.execution_detail",
+                          execution_id=new_ex.id))
 
 
 @portal_bp.route("/executions/<execution_id>/artifacts/<artifact_id>")
@@ -505,12 +536,157 @@ def run_plan(plan_id):
     PlainForm().validate_on_submit()
     binding = GitBinding.query.filter_by(project_id=plan.project_id).first()
     sha = binding.last_synced_sha if binding else ""
-    for entry in plan.entries:
-        dispatch.create_execution(
-            current_user.username, entry.suite, binding=binding,
-            source_sha=sha, plan_id=plan.id)
-    record_audit(current_user.username, "plan.queued", plan.id)
+    run_id, exs = dispatch.queue_plan_executions(
+        current_user.username, plan, binding=binding, source_sha=sha)
+    record_audit(current_user.username, "plan.queued",
+                 f"{plan.id} run {run_id[:8]} ({len(exs)} entries)")
+    flash(f"Plan run {run_id[:8]} queued ({len(exs)} executions).", "info")
     return redirect(url_for("portal.executions"))
+
+
+@portal_bp.route("/plans/<plan_id>/rerun-failed", methods=["POST"])
+@role_required(*RUN_ROLES)
+def rerun_plan_failed(plan_id):
+    """Re-queue only entries whose LATEST execution in the newest plan
+    run ended non-passed — a new plan_run keeps the attempt evidence
+    separate instead of overwriting history."""
+    plan = db.session.get(Plan, plan_id)
+    if plan is None:
+        abort(404)
+    _project_or_404(plan.project_id)
+    PlainForm().validate_on_submit()
+    runs = {}
+    for ex in Execution.query.filter_by(project_id=plan.project_id).all():
+        rid = ex.snapshot().get("plan_run_id")
+        if rid:
+            runs.setdefault(rid, []).append(ex)
+    if not runs:
+        flash("No previous plan run — nothing to rerun.", "info")
+        return redirect(url_for("portal.plan_detail", plan_id=plan.id))
+    latest_run = max(
+        runs.values(), key=lambda exs: max(
+            e.created_at for e in exs if e.created_at))
+    rid = latest_run[0].snapshot().get("plan_run_id")
+    latest = {}
+    for ex in latest_run:
+        sid = ex.snapshot().get("suite_id")
+        if sid not in latest or ex.created_at > latest[sid].created_at:
+            latest[sid] = ex
+    failed_ids = {sid for sid, ex in latest.items()
+                  if results_mod.entry_state(ex) != "passed"}
+    entries = [e for e in plan.entries if e.suite_id in failed_ids]
+    if not entries:
+        flash("Latest run has no failed entries.", "info")
+        return redirect(url_for("portal.plan_detail", plan_id=plan.id))
+    binding = GitBinding.query.filter_by(project_id=plan.project_id).first()
+    sha = binding.last_synced_sha if binding else ""
+    new_run, exs = dispatch.queue_plan_executions(
+        current_user.username, plan, binding=binding, source_sha=sha,
+        entries=entries)
+    record_audit(current_user.username, "plan.rerun_failed",
+                 f"{plan.id} run {new_run[:8]} "
+                 f"({len(exs)}/{len(latest)} entries, from {rid[:8]})")
+    flash(f"Rerun {new_run[:8]} queued: {len(exs)} failed entries.",
+          "info")
+    return redirect(url_for("portal.executions"))
+
+
+@portal_bp.route("/plans/<plan_id>")
+@login_required
+def plan_detail(plan_id):
+    plan = db.session.get(Plan, plan_id)
+    if plan is None:
+        abort(404)
+    _project_or_404(plan.project_id)
+    can_edit = current_user.role.value in ("admin", "test_manager")
+    can_run = current_user.role.value in ("admin", "test_manager", "tester")
+    return render_template(
+        "portal/plan_detail.html", plan=plan, can_edit=can_edit,
+        can_run=can_run, plain_form=PlainForm(),
+        plan_form=PlanForm(obj=plan),
+        summary=results_mod.plan_summary(plan),
+        entry_states=results_mod.plan_entry_states(plan),
+        entry_cfg={e.id: json.loads(e.config_json or "{}")
+                   for e in plan.entries},
+        suites=Suite.query.filter_by(project_id=plan.project_id).all())
+
+
+@portal_bp.route("/plans/<plan_id>/edit", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def edit_plan(plan_id):
+    plan = db.session.get(Plan, plan_id)
+    if plan is None:
+        abort(404)
+    _project_or_404(plan.project_id)
+    form = PlanForm()
+    if form.validate_on_submit():
+        plan.name = form.name.data.strip()
+        plan.description = form.description.data or ""
+        plan.parallelism = max(1, min(4, form.parallelism.data or 1))
+        db.session.commit()
+        record_audit(current_user.username, "plan.updated", plan.id)
+    return redirect(url_for("portal.plan_detail", plan_id=plan.id))
+
+
+@portal_bp.route("/plan-entries/<entry_id>/move", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def move_plan_entry(entry_id):
+    entry = db.session.get(PlanEntry, entry_id)
+    if entry is None:
+        abort(404)
+    _project_or_404(entry.plan.project_id)
+    PlainForm().validate_on_submit()
+    ordered = sorted(entry.plan.entries, key=lambda e: e.order)
+    idx = ordered.index(entry)
+    direction = request.form.get("direction")
+    swap = idx - 1 if direction == "up" else \
+        idx + 1 if direction == "down" else -1
+    if 0 <= swap < len(ordered):
+        ordered[idx].order, ordered[swap].order = \
+            ordered[swap].order, ordered[idx].order
+        db.session.commit()
+        record_audit(current_user.username, "plan.entry_moved",
+                     entry.plan_id)
+    return redirect(url_for("portal.plan_detail",
+                          plan_id=entry.plan_id))
+
+
+@portal_bp.route("/plan-entries/<entry_id>/delete", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def delete_plan_entry(entry_id):
+    entry = db.session.get(PlanEntry, entry_id)
+    if entry is None:
+        abort(404)
+    _project_or_404(entry.plan.project_id)
+    PlainForm().validate_on_submit()
+    plan_id = entry.plan_id
+    db.session.delete(entry)
+    db.session.commit()
+    record_audit(current_user.username, "plan.entry_removed", plan_id)
+    return redirect(url_for("portal.plan_detail", plan_id=plan_id))
+
+
+@portal_bp.route("/plan-entries/<entry_id>/policy", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def plan_entry_policy(entry_id):
+    """Per-entry failure policy: continue (default) queues the rest of
+    the plan regardless; stop cancels later queued entries when this
+    entry ends non-passed (enforced by the worker, restart-safe)."""
+    entry = db.session.get(PlanEntry, entry_id)
+    if entry is None:
+        abort(404)
+    _project_or_404(entry.plan.project_id)
+    PlainForm().validate_on_submit()
+    cfg = json.loads(entry.config_json or "{}")
+    cfg["on_failure"] = "stop" \
+        if request.form.get("on_failure") == "stop" else "continue"
+    entry.config_json = json.dumps(cfg)
+    db.session.commit()
+    record_audit(current_user.username, "plan.entry_policy",
+                 f"{entry.plan_id}: order {entry.order} -> "
+                 f"{cfg['on_failure']}")
+    return redirect(url_for("portal.plan_detail",
+                          plan_id=entry.plan_id))
 
 
 @portal_bp.route("/projects/<project_id>/releases", methods=["POST"])
@@ -637,3 +813,94 @@ def toggle_suite_entry(entry_id):
     db.session.commit()
     return redirect(url_for("portal.suite_detail",
                           suite_id=entry.suite_id))
+
+
+# ---------- schedules (§10, §16 Test Manager) ----------
+
+def _parse_run_at(text: str):
+    """'YYYY-MM-DD HH:MM' (UTC) -> aware datetime, else None."""
+    from datetime import datetime, timezone
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d %H:%M") \
+            .replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+@portal_bp.route("/projects/<project_id>/schedules", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def create_schedule(project_id):
+    from .forms import ScheduleForm
+    project = _project_or_404(project_id)
+    form = ScheduleForm()
+    targets = ([(s.id, f"Suite: {s.name}") for s in project.suites]
+               if form.target_type.data == "suite" else
+               [(p.id, f"Plan: {p.name}") for p in project.plans])
+    form.target_id.choices = targets
+    if form.validate_on_submit():
+        kind = form.kind.data
+        run_at = _parse_run_at(form.run_at.data)
+        interval = max(5, form.interval_minutes.data or 60)
+        if kind == "interval" and run_at is None:
+            run_at = utcnow()
+        if run_at is None:
+            flash("First run time is required (UTC, YYYY-MM-DD HH:MM).",
+                  "error")
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
+        suite_id = form.target_id.data \
+            if form.target_type.data == "suite" else None
+        plan_id = form.target_id.data \
+            if form.target_type.data == "plan" else None
+        db.session.add(Schedule(
+            project_id=project.id, name=form.name.data.strip(),
+            description=form.description.data or "",
+            target_type=form.target_type.data,
+            suite_id=suite_id, plan_id=plan_id, kind=kind,
+            interval_minutes=interval if kind == "interval" else None,
+            next_run_at=run_at, enabled=True,
+            run_config_json=json.dumps({
+                "profile": form.execution_profile.data or "default",
+                "browser": form.browser_type.data or "Chrome (headless)",
+            }),
+            created_by=current_user.username))
+        db.session.commit()
+        record_audit(current_user.username, "schedule.created", project.id)
+    return redirect(url_for("portal.project_detail",
+                          project_id=project_id))
+
+
+@portal_bp.route("/schedules/<schedule_id>/toggle", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def toggle_schedule(schedule_id):
+    sched = db.session.get(Schedule, schedule_id)
+    if sched is None:
+        abort(404)
+    _project_or_404(sched.project_id)
+    PlainForm().validate_on_submit()
+    sched.enabled = not sched.enabled
+    if sched.enabled and sched.next_run_at is None:
+        sched.next_run_at = utcnow()
+    db.session.commit()
+    record_audit(current_user.username, "schedule.toggled", sched.id)
+    return redirect(url_for("portal.project_detail",
+                          project_id=sched.project_id))
+
+
+@portal_bp.route("/schedules/<schedule_id>/delete", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def delete_schedule(schedule_id):
+    sched = db.session.get(Schedule, schedule_id)
+    if sched is None:
+        abort(404)
+    _project_or_404(sched.project_id)
+    PlainForm().validate_on_submit()
+    project_id = sched.project_id
+    db.session.delete(sched)
+    db.session.commit()
+    record_audit(current_user.username, "schedule.deleted", schedule_id)
+    return redirect(url_for("portal.project_detail",
+                          project_id=project_id))

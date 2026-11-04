@@ -91,8 +91,9 @@
   <h2>Plans</h2>
   <ul class="notice-list">
     {% for plan in project.plans %}
-    <li>{{ plan.name }} — {{ plan.entries | length }} suites, parallel={{ plan.parallelism }}
-      — outcome: <strong>{{ plan_summaries.get(plan.id, 'empty') }}</strong>
+    <li><a href="{{ url_for('portal.plan_detail', plan_id=plan.id) }}">{{ plan.name }}</a>
+      — {{ plan.entries | length }} suites, parallel={{ plan.parallelism }}
+      — outcome: <strong>{{ state_labels.get(plan_summaries.get(plan.id, 'empty'), plan_summaries.get(plan.id, 'empty')) }}</strong>
       {% if can_run %}
       <form method="post" action="{{ url_for('portal.run_plan', plan_id=plan.id) }}" class="inline">
         {{ plain_form.csrf_token }}<button type="submit" class="button secondary">Run plan</button>
@@ -110,6 +111,49 @@
     <button type="submit" class="button">Create plan</button>
   </form>
   {% endif %}
+</section>
+
+<section class="card">
+  <h2>Schedules</h2>
+  <table class="audit-table">
+    <thead><tr><th>Name</th><th>Target</th><th>Kind</th><th>Next run (UTC)</th><th>Enabled</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+      {% for s in project.schedules %}
+      <tr>
+        <td>{{ s.name }}</td>
+        <td>{{ (s.suite.name if s.suite else s.plan.name) if (s.suite or s.plan) else "(missing)" }}</td>
+        <td>{{ s.kind }}{% if s.kind == "interval" %} ({{ s.interval_minutes }} min){% endif %}</td>
+        <td>{{ s.next_run_at or "—" }}</td>
+        <td>{{ "yes" if s.enabled else "no" }}</td>
+        {% if can_edit %}
+        <td>
+          <form method="post" action="{{ url_for('portal.toggle_schedule', schedule_id=s.id) }}" class="inline">
+            {{ plain_form.csrf_token }}<button class="button secondary" type="submit">{{ "Disable" if s.enabled else "Enable" }}</button></form>
+          <form method="post" action="{{ url_for('portal.delete_schedule', schedule_id=s.id) }}" class="inline">
+            {{ plain_form.csrf_token }}<button class="button secondary" type="submit">Delete</button></form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if can_edit %}
+  <form method="post" action="{{ url_for('portal.create_schedule', project_id=project.id) }}">
+    {{ schedule_form.csrf_token }}
+    <div class="field">{{ schedule_form.name.label }} {{ schedule_form.name() }}</div>
+    <div class="field">{{ schedule_form.target_type.label }} {{ schedule_form.target_type() }}
+      <small class="muted">"Runs" lists suites; choose Plan + a plan id below for plan schedules.</small></div>
+    <div class="field">{{ schedule_form.target_id.label }} {{ schedule_form.target_id() }}</div>
+    <div class="field">{{ schedule_form.kind.label }} {{ schedule_form.kind() }}</div>
+    <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}</div>
+    <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes() }}</div>
+    <div class="field">{{ schedule_form.execution_profile.label }} {{ schedule_form.execution_profile() }}</div>
+    <div class="field">{{ schedule_form.browser_type.label }} {{ schedule_form.browser_type() }}</div>
+    <button type="submit" class="button">Create schedule</button>
+  </form>
+  {% endif %}
+  <p class="muted">Schedules fire through the dispatch worker — a missed
+    fire time runs late on the next worker tick (audited), never dropped.</p>
 </section>
 
 <section class="card">
