@@ -208,6 +208,14 @@ def test_upgrade_forward_path(tmp_path):
                 "CREATE TABLE executions (id TEXT PRIMARY KEY,"
                 " suite_id TEXT NOT NULL, snapshot_json TEXT)"))
             conn.execute(sa.text(
+                "CREATE TABLE git_bindings (id TEXT PRIMARY KEY,"
+                " project_id TEXT, name TEXT, url TEXT, ref TEXT,"
+                " subdirectory TEXT, prj_path TEXT, credential_ref TEXT,"
+                " worktree_path TEXT, discovered_sha TEXT,"
+                " discovery_status TEXT, discovery_at TEXT,"
+                " discovery_error TEXT, project_root TEXT,"
+                " last_synced_sha TEXT, status TEXT, last_error TEXT)"))
+            conn.execute(sa.text(
                 "CREATE TABLE alembic_version (version_num TEXT)"))
             conn.execute(sa.text(
                 "INSERT INTO alembic_version VALUES ('f8a9b0c1d2e3')"))
