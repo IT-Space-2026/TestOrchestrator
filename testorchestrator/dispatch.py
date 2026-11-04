@@ -708,6 +708,15 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
     try:
         from . import reporting
         reporting.refresh_report_status(ex)
+        # Durable publication workflow — queued once the report is
+        # finalized; failures stay separate from the test outcome.
+        if ex.report_pub_status == "none" and not ex.deletion_status:
+            ex.report_pub_status = "pending"
+            db.session.add(OutboxEvent(
+                kind="report-publish",
+                payload_json=json.dumps(
+                    {"execution_id": ex.id})))
+            db.session.commit()
     except Exception as exc:
         try:
             reporting.refresh_failed(ex, exc)
@@ -798,6 +807,14 @@ def process_outbox(limit: int = 10) -> int:
 
 def _handle_event(event: OutboxEvent) -> None:
     payload = event.payload()
+    if event.kind == "report-publish":
+        from .gitsync import publish_report
+        publish_report(payload["execution_id"])
+        return
+    if event.kind == "report-delete":
+        from .gitsync import delete_report
+        delete_report(payload["execution_id"])
+        return
     if event.kind in ("local-dispatch", "dagu-dispatch"):
         if event.kind == "dagu-dispatch":
             # Owner-approved Option B: Dagu is the MANDATORY orchestrator.

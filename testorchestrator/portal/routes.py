@@ -331,6 +331,42 @@ def run_discovered(item_id):
     return redirect(url_for("portal.execution_detail", execution_id=ex.id))
 
 
+@portal_bp.route("/executions/<execution_id>/delete",
+             methods=["POST"])
+@role_required(*EDIT_ROLES)
+def delete_execution(execution_id):
+    ex = _execution_or_404(execution_id)
+    PlainForm().validate_on_submit()
+    ex.deletion_status = "pending"
+    db.session.add(OutboxEvent(
+        kind="report-delete",
+        payload_json=json.dumps({"execution_id": ex.id})))
+    db.session.commit()
+    record_audit(current_user.username, "execution.delete_queued",
+                 ex.id)
+    flash("Deletion queued — the repository report will be removed "
+          "first, then the execution record.", "info")
+    return redirect(url_for("portal.execution_detail",
+                          execution_id=ex.id))
+
+
+@portal_bp.route("/executions/<execution_id>/publish",
+             methods=["POST"])
+@role_required(*EDIT_ROLES)
+def publish_execution_report(execution_id):
+    ex = _execution_or_404(execution_id)
+    PlainForm().validate_on_submit()
+    ex.report_pub_status = "pending"
+    db.session.add(OutboxEvent(
+        kind="report-publish",
+        payload_json=json.dumps({"execution_id": ex.id})))
+    db.session.commit()
+    record_audit(current_user.username, "execution.publish_queued",
+                 ex.id)
+    return redirect(url_for("portal.execution_detail",
+                          execution_id=ex.id))
+
+
 @portal_bp.route("/executions")
 @login_required
 def executions():
@@ -512,13 +548,14 @@ def launch_execution(suite_id):
 @portal_bp.route("/executions/<execution_id>")
 @login_required
 def execution_detail(execution_id):
+    can_edit = current_user.role.value in ("admin", "test_manager")
     ex = _execution_or_404(execution_id)
     counts = {}
     for r in ex.results:
         counts[r.status.value] = counts.get(r.status.value, 0) + 1
     return render_template(
         "portal/execution_detail.html", ex=ex, counts=counts,
-        plain_form=PlainForm())
+        plain_form=PlainForm(), can_edit=can_edit)
 
 
 @portal_bp.route("/executions/<execution_id>/cancel", methods=["POST"])

@@ -513,11 +513,12 @@ def discover_project(binding, sha: str = "") -> dict:
 REPORT_ROOT = "TestOrchestrator/Reports"
 
 
-def _pub_worktree(binding_id: str) -> Path:
-    from flask import current_app
+def _pub_worktree(binding_id: str, op_id: str = "") -> Path:
     """Separate publication checkout — never the fetch or authoring
-    worktree."""
-    return Path(current_app.instance_path) / "reports-pub" / binding_id
+    worktree. Per-operation subdir isolates concurrent publishers."""
+    from flask import current_app
+    base = Path(current_app.instance_path) / "reports-pub" / binding_id
+    return base / (op_id or "shared")
 
 
 def _report_dir(ex) -> str:
@@ -561,7 +562,7 @@ def publish_report(execution_id: str) -> dict:
         db.session.commit()
         return {"error": "no source binding"}
     branch = binding.ref or "main"
-    wt = _pub_worktree(binding.id)
+    wt = _pub_worktree(binding.id, ex.id)
     try:
         if not (wt / ".git").exists():
             wt.parent.mkdir(parents=True, exist_ok=True)
@@ -632,7 +633,10 @@ def delete_report(execution_id: str) -> dict:
     if ex is None:
         return {"error": "unknown execution"}
     if not ex.report_pub_dir:
-        # never published — nothing to remove remotely
+        # never published — nothing to remove remotely; finalize.
+        ex.deletion_status = "none"
+        db.session.delete(ex)
+        db.session.commit()
         return {"removed": True, "absent": True}
     binding = (db.session.get(GitBinding, ex.binding_id)
                if ex.binding_id else None)
@@ -651,7 +655,7 @@ def delete_report(execution_id: str) -> dict:
                              "TestOrchestrator/Reports/<id>")
         db.session.commit()
         return {"error": "dir mismatch"}
-    wt = _pub_worktree(binding.id)
+    wt = _pub_worktree(binding.id, ex.id)
     try:
         if not (wt / ".git").exists():
             wt.parent.mkdir(parents=True, exist_ok=True)
@@ -674,6 +678,7 @@ def delete_report(execution_id: str) -> dict:
         ex.deletion_error = ""
         ex.report_pub_dir = ""
         ex.report_pub_status = "none"
+        db.session.delete(ex)            # app deletion after remote ok
         db.session.commit()
         return {"removed": True}
     except Exception as exc:

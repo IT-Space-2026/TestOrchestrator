@@ -130,12 +130,12 @@ def test_delete_removes_only_its_report(app, tmp_path):
                               "master", ex.report_pub_dir],
                              capture_output=True, text=True)
         assert out.stdout.strip() == ""   # dir removed
+        # app record finalized (deleted) after remote removal
         out2 = subprocess.run(["git", "-C", str(repo), "ls-tree",
                                "master", "f.txt"],
                               capture_output=True, text=True)
         assert "f.txt" in out2.stdout   # unrelated preserved
-        db.session.refresh(ex)
-        assert ex.report_pub_dir == ""
+        assert db.session.get(Execution, ex.id) is None
 
 
 def test_delete_never_published_is_noop(app, tmp_path):
