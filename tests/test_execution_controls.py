@@ -238,3 +238,88 @@ def test_bulk_cancel_mixed_outcomes(app, client, login_as):
                             ExecutionState.CANCEL_REQUESTED)
         e2 = db.session.get(Execution, ids[1])
         assert e2.state == ExecutionState.COMPLETED   # untouched
+
+
+def test_explicit_runner_out_of_project_scope_rejected(app):
+    """A posted runner_id outside the project's allowed_runners is a
+    tampered request — dispatch rejects it, never silently picks."""
+    with app.app_context():
+        s, r, r2, rt = _env(app)
+        r = db.session.get(Runner, r)
+        r.allowed_projects = json.dumps(["some-other-project"])
+        db.session.commit()
+        ex = dispatch.create_execution(
+            "m", db.session.get(Suite, s),
+            run_config={"runner_id": r.id})
+        dispatch.run_execution(ex.id)
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert "out of scope" in ex.error_text
+
+
+def test_auto_no_capacity_waits_vs_explicit_rejects(app):
+    """Auto with no free slot stays QUEUED (waiting); an invalid
+    explicit pick FAILS — the two outcomes are distinct."""
+    with app.app_context():
+        s, r, r2, rt = _env(app, slots=1)
+        r2o = db.session.get(Runner, r2)
+        r2o.enabled = False            # only one eligible runner
+        r = db.session.get(Runner, r)
+        running = dispatch.create_execution("m", db.session.get(Suite, s))
+        running.runner_id = r.id
+        running.state = ExecutionState.RUNNING
+        db.session.commit()
+        auto = dispatch.create_execution("m", db.session.get(Suite, s))
+        dispatch.run_execution(auto.id)
+        db.session.refresh(auto)
+        assert auto.state == ExecutionState.QUEUED   # waits
+        bad = dispatch.create_execution(
+            "m", db.session.get(Suite, s),
+            run_config={"runner_id": "nonexistent"})
+        dispatch.run_execution(bad.id)
+        db.session.refresh(bad)
+        assert bad.state == ExecutionState.FAILED     # rejects
+
+
+def test_migration_upgrade_preserves_existing(tmp_path):
+    """Upgrade from the immediately-preceding schema (d5e6f7a8b9c0):
+    existing rows stay readable, overlap_policy defaults to allow,
+    schedule_id stays NULL, new fires link correctly."""
+    from pathlib import Path
+    from tests.conftest import make_app
+    from datetime import timedelta
+    app = make_app(tmp_path, "upg.db")
+    MIGR = str(Path(__file__).resolve().parent.parent / "migrations")
+    with app.app_context():
+        from flask_migrate import upgrade
+        upgrade(directory=MIGR, revision="d5e6f7a8b9c0")   # old head
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        import sqlalchemy as sa
+        db.session.execute(sa.text(
+            "INSERT INTO schedules (id,project_id,name,target_type,"
+            "suite_id,kind,description,enabled,created_by,"
+            "run_config_json) VALUES "
+            "('sc1',:p,'w','suite',:s,'interval','',1,'m','{}')"),
+            {"p": p.id, "s": s.id})
+        db.session.execute(sa.text(
+            "INSERT INTO executions (id,project_id,suite_id,"
+            "snapshot_json,source_sha,state,outcome,git_state,"
+            "created_by,created_at,dispatch_id,workspace_path,"
+            "report_dir,error_kind,error_text,cancel_reason,"
+            "report_status,report_path,allure_status,allure_path,"
+            "allure_version) VALUES "
+            "('e1',:p,:s,'{}','sha','COMPLETED','PASSED','NONE',"
+            "'m','2026-01-01','','','','','','','pending','',"
+            "'pending','','')"), {"p": p.id, "s": s.id})
+        db.session.commit()
+        upgrade(directory=MIGR)                            # to head
+        db.session.expire_all()
+        sc = db.session.get(Schedule, "sc1")
+        assert sc.overlap_policy == "allow"               # default set
+        e = db.session.get(Execution, "e1")
+        assert e.state == ExecutionState.COMPLETED        # readable
+        assert e.schedule_id is None                      # null link ok
+        assert Execution.query.filter(
+            Execution.schedule_id.is_(None)).count() == 1

@@ -67,3 +67,29 @@ as a Runtime on the agent's runner. No licensed KRE.
 - dashboard live-update + audit entries per transition
 - cleanup: stop agent, mark fixture executions resolved, remove
   fixture runtime
+
+
+## Consolidated Stage A build proposal (NOT built yet)
+
+Prior pin `57e2211` predates the execution-controls round. Proposed
+consolidated revision: **`1f6c0a1`** (tested HEAD at `b38c926`,
+262-pass suite) — server AND agent from the same checkout.
+
+- **Migration head:** `e6f7a8b9c0d1` (`db-upgrade` during install;
+  requires app stopped or single-writer — SQLite).
+- **Agent requirement:** `AGENT_VERSION "0.2"` + `task-claim`
+  capability at register (older agents refused work by design).
+- **Source/metadata:** build from `1f6c0a1`; stamp build metadata via
+  `scripts/build_bundle.py` (release.json embedded).
+- **Packaging:** `python scripts/build_bundle.py` →
+  `dist/testorchestrator-<ver>-<platform>-<sha>.tar.gz` + standard
+  (non-frozen) fallback bundle.
+- **Fresh-extraction checks:** release.json SHA == package name;
+  `toctl db-upgrade` reaches `e6f7a8b9c0d1`; agent registers with
+  `task-claim`; smoke login + one fixture run.
+- **Baseline reuse:** install/service/security evidence from
+  `10300832` still applies to installer mechanics ONLY; all
+  execution-path, dispatch, agent-protocol, UI, and browser tests
+  must re-run on the new build.
+- **Two-host updates:** Stage A steps unchanged; expected evidence
+  now includes Run-now, overlap skip, history filters, bulk cancel.

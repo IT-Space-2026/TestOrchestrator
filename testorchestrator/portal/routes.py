@@ -331,7 +331,7 @@ def bulk_cancel_executions():
     existing request_cancel path — per-item auth + eligibility,
     per-item honest results. No 'all matching pages' scope in v1."""
     PlainForm().validate_on_submit()
-    ids = request.form.getlist("ex_ids")
+    ids = list(dict.fromkeys(request.form.getlist("ex_ids")))
     if not ids:
         flash("No executions selected.", "error")
         return redirect(url_for("portal.executions"))
@@ -358,7 +358,10 @@ def bulk_cancel_executions():
     flash("Bulk cancel — " + "; ".join(parts) +
           ". A request is queued — it does NOT confirm a remote "
           "process has stopped.", "info")
-    return redirect(url_for("portal.executions"))
+    # Return to the SAME filtered view the user selected from —
+    # selection context must not be silently dropped.
+    ret = json.loads(request.form.get("ret", "{}") or "{}")
+    return redirect(url_for("portal.executions", **ret))
 
 
 @portal_bp.route("/suites/<suite_id>/run", methods=["POST"])

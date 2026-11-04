@@ -387,10 +387,13 @@ def run_execution(execution_id: str) -> None:
     req_runtime = rc.get("requested_runtime") or ""
     if req_runner:
         runner = db.session.get(Runner, req_runner)
-        if not runner or not runner.enabled or runner.draining:
+        rn_allowed = (json.loads(runner.allowed_projects or "[]")
+                      if runner else [])
+        if (not runner or not runner.enabled or runner.draining
+                or (rn_allowed and ex.project_id not in rn_allowed)):
             _fail(ex, "infrastructure",
                   f"explicitly selected runner {req_runner[:12]}… is "
-                  "unavailable (disabled/draining/missing) — no "
+                  "unavailable or out of scope for this project — no "
                   "fallback to another target")
             return
     else:

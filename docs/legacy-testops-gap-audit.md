@@ -53,7 +53,7 @@ saved-config reuse between manual/schedule/plan.
 
 | Item | Implementation | Evidence | Status |
 |---|---|---|---|
-| Direct runner pick | none — auto pool only | impl | absent (by design) |
+| Explicit runner/runtime pick | selects on run+schedule forms → run_config → snapshot; revalidated at dispatch; unavailable → reject, no fallback; scope-checked | `test_explicit_*` | impl |
 | Eligible pool + health/draining/platform | `pick_runner` + heartbeat + draining + os_arch | tests | impl |
 | Atomic capacity reservation | `_assign_runner` CAS (all paths) | independent-process fixture tests | **fixture-verified** (multi-process) — two-host + licensed + Windows open |
 | Licence allowance | `license_slots` cap in same CAS | `test_license_allowance_caps_claim` | impl |
@@ -110,7 +110,15 @@ saved-config reuse between manual/schedule/plan.
 
 ## Prioritized gaps
 
-### Required before execution-replacement acceptance — delivered
+### Delivered (this round, actual evidence level)
+- Explicit runner/runtime selection — impl + `test_explicit_*`
+- Schedule Run now — impl + `test_run_now_*`
+- Configurable overlap — impl + `test_overlap_*`
+- Searchable execution history — impl + `test_history_filters_pagination`
+- Bulk cancellation — impl + `test_bulk_cancel_mixed_outcomes`
+- Upgrade verified — `test_migration_upgrade_preserves_existing`
+
+### Previously required — now delivered
 1. **Explicit runtime pick** — runner_id/runtime_id selectors on
    suite-run + schedule forms; re-validated at dispatch; unavailable
    explicit pick rejects with no fallback (tests:
