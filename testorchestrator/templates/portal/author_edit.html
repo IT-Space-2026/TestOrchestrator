@@ -22,6 +22,8 @@
 <section class="card">
   <h2>Members</h2>
   <form method="post" action="{{ url_for('portal.author_save', draft_id=draft.id) }}">
+    <div class="field"><label>Name</label>
+      <input name="name" value="{{ draft.name or item.name }}"></div>
     {{ plain_form.csrf_token }}
     <div data-case-selector
          data-cases='{{ cases | tojson }}'

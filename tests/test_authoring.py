@@ -279,3 +279,21 @@ def test_cleanup_abandoned_only(app, tmp_path):
         n = authoring.cleanup_abandoned()
         assert n == 1
         assert db.session.get(AuthoringDraft, d2.id) is not None
+
+
+def test_name_edit_in_artifact(app, tmp_path):
+    """Renaming the draft writes the new <name> into the .ts file —
+    signature covers it, unrelated content preserved."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        wt = authoring._authoring_wt(b.id)
+        wt.mkdir(parents=True, exist_ok=True)
+        (wt / "Test Suites").mkdir(exist_ok=True)
+        f = wt / "Test Suites/S1.ts"
+        f.write_text(SUITE_XML)
+        parsed = authoring.parse_ts(f)
+        authoring.write_ts_members(f, parsed, ["Test Cases/x"],
+                                   name="Renamed")
+        reparsed = authoring.parse_ts(f)
+        assert reparsed["name"] == "Renamed"
+        assert "<unknownSetting" in f.read_text()

@@ -78,7 +78,8 @@ def parse_ts(path: Path) -> dict:
             "reason": f"unsupported root <{tag}>"}
 
 
-def write_ts_members(path: Path, parsed: dict, members: list) -> None:
+def write_ts_members(path: Path, parsed: dict, members: list,
+                     name: str = "") -> None:
     """Replace ONLY the member list in the parsed tree — other nodes,
     attrs, comments, namespaces pass through untouched."""
     tree = parsed["_tree"]
@@ -86,6 +87,12 @@ def write_ts_members(path: Path, parsed: dict, members: list) -> None:
     kind = parsed["kind"]
     # find each member element in order and update text, or remove if
     # absent from new list (bounded edit — don't rebuild the doc)
+    if name:
+        for e in root.iter():
+            if (isinstance(e.tag, str) and
+                    e.tag.split('}')[-1] == "name"):
+                e.text = name
+                break
     member_tag = ("testCaseId" if kind == "suite"
                   else "testSuiteEntity")
     parent_tag = ("testCaseLink" if kind == "suite"
@@ -157,6 +164,7 @@ def draft_signature(draft: AuthoringDraft) -> str:
     import hashlib
     h = hashlib.sha256()
     h.update(draft.members_json.encode())
+    h.update(draft.name.encode())
     h.update(draft.path.encode())
     h.update(draft.base_sha.encode())
     binding = db.session.get(GitBinding, draft.binding_id)
@@ -196,7 +204,8 @@ def publish_draft(draft: AuthoringDraft,
     parsed = parse_ts(f)
     if not parsed.get("supported"):
         return {"error": parsed.get("reason", "unsupported")}
-    write_ts_members(f, parsed, draft.members())
+    write_ts_members(f, parsed, draft.members(),
+                     name=draft.name)
     sha = git_backend.run("commit_all", wt,
                           f"authoring: {draft.path}")
     try:
