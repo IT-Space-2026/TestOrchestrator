@@ -237,17 +237,35 @@ def create_suite(project_id):
     cases = gitsync.list_test_cases(binding) if binding else []
     form.case_refs.choices = [(c, c) for c in cases]
     if form.validate_on_submit():
+        # posted refs — validate explicitly (field validation drops
+        # non-choices silently, which would create a partial suite)
+        refs = [x.strip() for x in
+                request.form.getlist("case_refs") if x.strip()]
+        if binding and refs:
+            valid = set(gitsync.list_test_cases(binding))
+            bad = [x for x in refs if x not in valid]
+            if bad:
+                flash("Some cases are not in the selected binding's "
+                      f"source: {', '.join(bad[:3])}", "error")
+                return redirect(url_for(
+                    "portal.project_detail", project_id=project.id))
         suite = Suite(project_id=project.id, name=form.name.data.strip(),
                       description=form.description.data or "",
                       imported=bool(binding))
         db.session.add(suite)
         db.session.flush()  # id assigned before entries reference it
-        for i, ref in enumerate(form.case_refs.data):
+        for i, ref in enumerate(refs):
             db.session.add(SuiteEntry(
                 suite_id=suite.id, order=i, case_ref=ref))
         suite.content_hash = _suite_hash(suite)
         db.session.commit()
         record_audit(current_user.username, "suite.created", suite.id)
+    else:
+        errs = "; ".join(
+            f"{k}: {', '.join(v[:2])}"
+            for k, v in form.errors.items())
+        if errs:
+            flash(f"Suite not created — {errs}", "error")
     return redirect(url_for("portal.project_detail", project_id=project_id))
 
 
@@ -255,12 +273,13 @@ def create_suite(project_id):
 @role_required(*EDIT_ROLES)
 def suite_new(project_id):
     project = _project_or_404(project_id)
-    binding = GitBinding.query.filter_by(project_id=project.id).first()
+    bindings = GitBinding.query.filter_by(project_id=project.id).all()
+    binding = bindings[0] if bindings else None
     cases = (gitsync.list_test_cases(binding)
              if binding else [])
     return render_template(
         "portal/suite_edit.html", project=project, suite=None,
-        binding=binding, cases=cases, selected=[],
+        binding=binding, bindings=bindings, cases=cases, selected=[],
         suite_form=SuiteForm(), can_edit=True)
 
 
@@ -274,7 +293,8 @@ def suite_edit(suite_id):
     if suite.readonly:
         abort(409)
     project = suite.project
-    binding = GitBinding.query.filter_by(project_id=project.id).first()
+    bindings = GitBinding.query.filter_by(project_id=project.id).all()
+    binding = bindings[0] if bindings else None
     cases = (gitsync.list_test_cases(binding)
              if binding else [])
     selected = [e.case_ref for e in sorted(
@@ -285,7 +305,8 @@ def suite_edit(suite_id):
             cases.append(c)
     return render_template(
         "portal/suite_edit.html", project=project, suite=suite,
-        binding=binding, cases=cases, selected=selected,
+        binding=binding, bindings=bindings, cases=cases,
+        selected=selected,
         suite_form=SuiteForm(), can_edit=True)
 
 
@@ -302,9 +323,30 @@ def save_suite(suite_id):
     description = request.form.get("description", "").strip()
     refs = [r.strip() for r in
             request.form.getlist("case_refs") if r.strip()]
+    bindings = GitBinding.query.filter_by(
+        project_id=suite.project_id).all()
+    binding = bindings[0] if bindings else None
+    if binding and refs:
+        valid = set(gitsync.list_test_cases(binding))
+        bad = [r for r in refs if r not in valid]
+        if bad:
+            # re-render with the user's work preserved
+            return render_template(
+                "portal/suite_edit.html", project=suite.project,
+                suite=suite, binding=binding, bindings=bindings,
+                cases=gitsync.list_test_cases(binding),
+                selected=refs,
+                suite_form=SuiteForm(), can_edit=True,
+                error=("Some cases are not in the binding's source: "
+                       + ", ".join(bad[:3])))
     if not name:
-        flash("Suite name is required.", "error")
-        return redirect(url_for("portal.suite_edit", suite_id=suite_id))
+        return render_template(
+            "portal/suite_edit.html", project=suite.project,
+            suite=suite, binding=binding, bindings=bindings,
+            cases=(gitsync.list_test_cases(binding)
+                   if binding else []),
+            selected=refs, suite_form=SuiteForm(), can_edit=True,
+            error="Suite name is required.")
     # wholesale ordered replacement — positions come from the selector
     for e in suite.entries:
         db.session.delete(e)

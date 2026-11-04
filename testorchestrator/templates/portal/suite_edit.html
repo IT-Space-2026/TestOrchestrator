@@ -7,6 +7,7 @@
   in order. An immutable snapshot is taken at launch; later edits
   version the definition.</p>
 
+{% if error %}<p class="flash flash-error" role="alert">{{ error }}</p>{% endif %}
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% for category, message in messages %}
   <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
@@ -30,11 +31,21 @@
       <textarea name="description" id="description" rows="2"
                 placeholder="What this suite covers">{{ suite.description if suite else "" }}</textarea>
     </div>
-    {% if binding %}
+    {% if bindings and bindings|length > 1 %}
+    <div class="field">
+      <label for="binding_id">Source binding <span class="req">*</span></label>
+      <select name="binding_id" id="binding_id">
+        {% for b in bindings %}
+        <option value="{{ b.id }}" {% if binding and b.id == binding.id %}selected{% endif %}>{{ b.name }} — {{ b.url[:50] }}</option>
+        {% endfor %}
+      </select>
+      <span class="hint">Case list comes from the selected binding's
+        worktree — cases can't mix across repositories.</span>
+    </div>
+    {% elif binding %}
     <input type="hidden" name="binding_id" value="{{ binding.id }}">
     <p class="hint">Source binding: <code>{{ binding.name }}</code>
-      @ <code>{{ (binding.last_synced_sha or "never synced")[:12] }}</code>
-      — case list comes from the bound worktree.</p>
+      @ <code>{{ (binding.last_synced_sha or "never synced")[:12] }}</code></p>
     {% else %}
     <p class="warn">No source binding — no cases to select.</p>
     {% endif %}
@@ -65,4 +76,5 @@
 </form>
 
 <script src="{{ url_for('static', filename='js/case-selector.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/form-guard.js') }}" defer></script>
 {% endblock %}
