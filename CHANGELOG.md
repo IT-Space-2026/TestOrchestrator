@@ -30,6 +30,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - h1a2b3c4d5e6 (report_pub_*/deletion_* fields)
 - h2a3b4c5d6e7 (source_item SET NULL + report_writable)
 
+### UI modernization
+- Control system: design tokens (spacing/radius/shadow/focus-ring,
+  dark variants) applied to inputs, selects, textareas, checkboxes,
+  buttons (primary/secondary/danger/ghost/icon/loading), badges,
+  tables, tabs, cards, dialogs, flashes, empty states, pagination.
+- Case selector (case-selector.js): two-panel available/selected —
+  search, bulk add/remove visible, per-row add/remove, keyboard
+  ordering, count; posts ordered case_refs[].
+- Suite editor: suite_new/suite_edit/save_suite pages — grouped
+  details + selector, inline field errors, binding-change warning,
+  unsaved-change guard, loading submit.
+- Server-side binding validation: posted case_refs validated against
+  the chosen binding's worktree (foreign/partial refs rejected;
+  SelectMultipleField silent-drop defect fixed).
+- Multi-binding projects get an explicit binding select.
+
 ### Limitations
 - Report ops serialize per-binding on a shared filesystem lock —
   same-host only; independent hosts/containers unsupported.
