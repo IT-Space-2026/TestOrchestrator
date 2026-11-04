@@ -326,6 +326,22 @@ class Execution(db.Model):
     # heartbeat means UNKNOWN, never silent duplicate dispatch.
     lease_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
     heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Report publication to the bound source repo
+    # (TestOrchestrator/Reports/<execution-id>/ at repo ROOT) —
+    # distinct from evidence export and from the test outcome.
+    report_pub_status = db.Column(db.String(16), nullable=False,
+                                  default="none")   # none|pending|published|failed
+    report_pub_repo = db.Column(db.String(128), nullable=False, default="")
+    report_pub_branch = db.Column(db.String(64), nullable=False, default="")
+    report_pub_dir = db.Column(db.String(512), nullable=False, default="")
+    report_pub_sha = db.Column(db.String(64), nullable=False, default="")
+    report_pub_digest = db.Column(db.String(64), nullable=False, default="")
+    report_pub_error = db.Column(db.String(512), nullable=False, default="")
+    # Synchronized deletion: commit-removal of the recorded dir on the
+    # recorded branch — never history rewrite, never force-push.
+    deletion_status = db.Column(db.String(16), nullable=False,
+                                default="none")     # none|pending|failed
+    deletion_error = db.Column(db.String(512), nullable=False, default="")
     project = db.relationship("Project")
     suite = db.relationship("Suite")
     runner = db.relationship("Runner")

@@ -506,3 +506,178 @@ def discover_project(binding, sha: str = "") -> dict:
         db.session.commit()
         out["error"] = str(exc)[:512]
         return out
+
+
+# ---------- report publication + synchronized deletion ----------
+
+REPORT_ROOT = "TestOrchestrator/Reports"
+
+
+def _pub_worktree(binding_id: str) -> Path:
+    from flask import current_app
+    """Separate publication checkout — never the fetch or authoring
+    worktree."""
+    return Path(current_app.instance_path) / "reports-pub" / binding_id
+
+
+def _report_dir(ex) -> str:
+    return f"{REPORT_ROOT}/{ex.id}"
+
+
+def _build_manifest(ex) -> dict:
+    snap = ex.snapshot()
+    return {
+        "version": 1, "execution_id": ex.id,
+        "project_id": ex.project_id,
+        "binding_id": ex.binding_id or "",
+        "source_sha": ex.source_sha,
+        "suite_path": snap.get("run_config", {}).get("suite_path", ""),
+        "collection": snap.get("run_config", {}).get("collection",
+                                                     False),
+        "created_at": str(ex.created_at),
+        "finished_at": str(ex.finished_at),
+        "outcome": ex.outcome.value if ex.outcome else "",
+        "state": ex.state.value if ex.state else "",
+        "report_format": "junit+assets",
+        "incomplete": ex.state and ex.state.value != "completed",
+    }
+
+
+def publish_report(execution_id: str) -> dict:
+    """Publish the finalized report tree to
+    TestOrchestrator/Reports/<id>/ on the binding's writable branch —
+    idempotent by digest: unchanged content skips the push."""
+    from .execution import Execution
+    ex = db.session.get(Execution, execution_id)
+    if ex is None:
+        return {"error": "unknown execution"}
+    if ex.deletion_status != "none":
+        return {"error": "deletion requested — publication blocked"}
+    binding = (db.session.get(GitBinding, ex.binding_id)
+               if ex.binding_id else None)
+    if binding is None:
+        ex.report_pub_status = "failed"
+        ex.report_pub_error = "no source binding"
+        db.session.commit()
+        return {"error": "no source binding"}
+    branch = binding.ref or "main"
+    wt = _pub_worktree(binding.id)
+    try:
+        if not (wt / ".git").exists():
+            wt.parent.mkdir(parents=True, exist_ok=True)
+            git_backend.run("clone", binding.url, wt,
+                            branch=branch,
+                            auth=_binding_auth(binding))
+        else:
+            git_backend.run("update", wt, branch,
+                            auth=_binding_auth(binding))
+        dest = wt / _report_dir(ex)
+        dest.mkdir(parents=True, exist_ok=True)
+        import json as _j
+        (dest / "manifest.json").write_text(
+            _j.dumps(_build_manifest(ex), indent=2))
+        # copy finalized report assets when present
+        if ex.report_dir:
+            import shutil
+            src = Path(ex.report_dir)
+            if src.exists():
+                for f in src.rglob("*"):
+                    if f.is_file():
+                        rel = f.relative_to(src)
+                        (dest / "report" / rel).parent.mkdir(
+                            parents=True, exist_ok=True)
+                        shutil.copy2(f, dest / "report" / rel)
+        # content digest — distinguishes unchanged vs updated content
+        import hashlib
+        h = hashlib.sha256()
+        for f in sorted(dest.rglob("*")):
+            if f.is_file():
+                h.update(f.read_bytes())
+        digest = h.hexdigest()
+        if (ex.report_pub_status == "published"
+                and ex.report_pub_digest == digest):
+            return {"published": True, "skipped": True}
+        sha = git_backend.run("commit_all", wt,
+                              f"report: {ex.id[:8]}")
+        try:
+            git_backend.run("push", wt, branch,
+                            auth=_binding_auth(binding))
+        except Exception as exc:
+            ex.report_pub_status = "failed"
+            ex.report_pub_error = f"push failed: {str(exc)[:400]}"
+            db.session.commit()
+            return {"error": str(exc)[:200]}
+        ex.report_pub_status = "published"
+        ex.report_pub_repo = str(binding.id)
+        ex.report_pub_branch = branch
+        ex.report_pub_dir = _report_dir(ex)
+        ex.report_pub_sha = sha
+        ex.report_pub_digest = digest
+        ex.report_pub_error = ""
+        db.session.commit()
+        return {"published": True, "sha": sha}
+    except Exception as exc:
+        ex.report_pub_status = "failed"
+        ex.report_pub_error = str(exc)[:400]
+        db.session.commit()
+        return {"error": str(exc)[:200]}
+
+
+def delete_report(execution_id: str) -> dict:
+    """Synchronized deletion: commit-remove the recorded report dir on
+    the recorded branch — never history rewrite, never force-push.
+    Finalizes only after remote success or confirmed absence."""
+    from .execution import Execution
+    ex = db.session.get(Execution, execution_id)
+    if ex is None:
+        return {"error": "unknown execution"}
+    if not ex.report_pub_dir:
+        # never published — nothing to remove remotely
+        return {"removed": True, "absent": True}
+    binding = (db.session.get(GitBinding, ex.binding_id)
+               if ex.binding_id else None)
+    if binding is None:
+        ex.deletion_status = "failed"
+        ex.deletion_error = "no source binding"
+        db.session.commit()
+        return {"error": "no source binding"}
+    branch = ex.report_pub_branch or binding.report_branch or         binding.ref or "main"
+    # validate the recorded dir is the allowed root + this execution —
+    # a stored path is not unrestricted deletion authority.
+    expected = _report_dir(ex)
+    if ex.report_pub_dir != expected:
+        ex.deletion_status = "failed"
+        ex.deletion_error = ("recorded dir does not match "
+                             "TestOrchestrator/Reports/<id>")
+        db.session.commit()
+        return {"error": "dir mismatch"}
+    wt = _pub_worktree(binding.id)
+    try:
+        if not (wt / ".git").exists():
+            wt.parent.mkdir(parents=True, exist_ok=True)
+            git_backend.run("clone", binding.url, wt,
+                            branch=branch,
+                            auth=_binding_auth(binding))
+        else:
+            git_backend.run("update", wt, branch,
+                            auth=_binding_auth(binding))
+        target = wt / ex.report_pub_dir
+        if target.exists():
+            import shutil
+            shutil.rmtree(target)
+        sha = git_backend.run("commit_all", wt,
+                              f"delete report: {ex.id[:8]}")
+        if sha:                        # only push if there was a change
+            git_backend.run("push", wt, branch,
+                            auth=_binding_auth(binding))
+        ex.deletion_status = "none"
+        ex.deletion_error = ""
+        ex.report_pub_dir = ""
+        ex.report_pub_status = "none"
+        db.session.commit()
+        return {"removed": True}
+    except Exception as exc:
+        ex.deletion_status = "failed"
+        ex.deletion_error = str(exc)[:400]
+        db.session.commit()
+        return {"error": str(exc)[:200]}
