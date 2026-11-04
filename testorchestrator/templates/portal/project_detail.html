@@ -46,7 +46,9 @@
     {% endfor %}
   </ul>
   {% if can_edit %}
-  <details class="add-block">
+  <p class="warn">New Plans are deprecated — use repository
+    collections instead.</p>
+  <details class="add-block" hidden>
     <summary class="button">Create plan</summary>
     <form method="post" action="{{ url_for('portal.create_plan', project_id=project.id) }}" class="add-form">
       {{ plan_form.csrf_token }}
@@ -202,6 +204,7 @@
       <div class="field"><label>Name</label><input name="name"></div>
       <div class="field"><label>Description</label><input name="description"></div>
       <button type="submit" class="button">Apply</button>
+      <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form>
   </details>
   {% endif %}

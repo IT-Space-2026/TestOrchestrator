@@ -708,3 +708,9 @@ html[data-theme="dark"] {
 }
 .theme-select:focus-visible { outline: none;
   box-shadow: var(--focus-ring); }
+
+.theme-menu-item { display: flex; align-items: center; gap: .5rem;
+  padding: .35rem 1rem; }
+.theme-menu-item .menu-label { font-size: var(--fs-sm);
+  color: var(--muted); }
+.theme-menu-item .theme-select { flex: 1; min-width: 5rem; }

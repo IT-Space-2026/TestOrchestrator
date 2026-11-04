@@ -50,6 +50,14 @@
         </button>
         <ul id="user-menu-list" role="menu" aria-labelledby="user-menu-button" hidden>
           <li role="none">
+            <li role="none" class="theme-menu-item">
+              <label for="theme-select" class="menu-label">Theme</label>
+              <select id="theme-select" class="theme-select">
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </li>
             <a role="menuitem" href="{{ url_for('main.about') }}" id="about-menu-item">About</a>
           </li>
           <li role="none">
@@ -76,14 +84,6 @@
     {% include "main/_about_content.html" %}
   </div>
 </div>
-<div class="theme-row">
-    <label for="theme-select" class="muted">Theme</label>
-    <select id="theme-select" class="theme-select">
-      <option value="system">System</option>
-      <option value="light">Light</option>
-      <option value="dark">Dark</option>
-    </select>
-  </div>
 <script src="{{ url_for('static', filename='js/user-menu.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/about.js') }}" defer></script>
 {% endif %}

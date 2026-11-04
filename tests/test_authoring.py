@@ -131,3 +131,42 @@ def test_cross_user_draft_isolation(app, tmp_path):
         theirs = AuthoringDraft.query.filter_by(
             owner="bob", path=item.path).first()
         assert mine is not None and theirs is None
+
+
+def test_fixture_publish_then_rediscover(app, tmp_path):
+    """Full fixture workflow: draft -> edit members -> publish to the
+    authoring branch -> the file on the remote reflects the change."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        # seed the source file in the REMOTE via a proper clone+push
+        import subprocess
+        wc = tmp_path / "seed2"
+        subprocess.run(["git", "clone", "-q", str(repo), str(wc)],
+                       check=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            subprocess.run(["git", "-C", str(wc), "config", k, v],
+                           check=True)
+        (wc / "Test Suites").mkdir(exist_ok=True)
+        (wc / "Test Suites/S1.ts").write_text(SUITE_XML)
+        subprocess.run(["git", "-C", str(wc), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(wc), "commit", "-q",
+                        "-m", "seed"], check=True)
+        subprocess.run(["git", "-C", str(wc), "push", "-q",
+                        "origin", "master"], check=True)
+        # draft + edit
+        d = authoring.open_draft("alice", item)
+        d.members_json = '["Test Cases/API/tc3","Test Cases/API/tc1"]'
+        d.base_sha = ""           # skip upstream check for the fixture
+        db.session.commit()
+        r = authoring.publish_draft(d)
+        assert r.get("published"), r
+        # the remote file now has the new members
+        out = subprocess.run(
+            ["git", "-C", str(repo), "show",
+             "master:Test Suites/S1.ts"],
+            capture_output=True, text=True)
+        assert out.returncode == 0
+        assert "tc3" in out.stdout and "tc1" in out.stdout
+        assert "tc2" not in out.stdout
+        db.session.refresh(d)
+        assert d.status == "published" and d.published_sha

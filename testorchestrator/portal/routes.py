@@ -1009,6 +1009,10 @@ def view_log(execution_id, name):
 def create_plan(project_id):
     project = _project_or_404(project_id)
     form = PlanForm()
+    flash("New Plans are deprecated — use repository collections or "
+          "native suite authoring.", "error")
+    return redirect(url_for("portal.project_detail",
+                          project_id=project_id))
     if form.validate_on_submit():
         parallelism = max(1, min(4, form.parallelism.data or 1))
         db.session.add(Plan(
