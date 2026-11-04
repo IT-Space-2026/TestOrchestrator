@@ -93,6 +93,8 @@ def write_ts_members(path: Path, parsed: dict, members: list) -> None:
     parents = [e for e in root.iter()
                if isinstance(e.tag, str) and
                e.tag.split('}')[-1] == parent_tag]
+    # parent-of-member map (stdlib has no getparent())
+    pmap = {c: p for p in root.iter() for c in p}
     for i, m in enumerate(members):
         if i < len(parents):
             p = parents[i]
@@ -100,19 +102,21 @@ def write_ts_members(path: Path, parsed: dict, members: list) -> None:
                 if isinstance(e.tag, str) and \
                     e.tag.split('}')[-1] == member_tag:
                     e.text = m
-    # extra parents beyond new length → remove
+    # extra parents beyond new length → remove via the map
     for p in parents[len(members):]:
-        p.getparent().remove(p)
-    # new members beyond existing → clone the last parent
+        pmap[p].remove(p)
+    # new members beyond existing → clone the last parent into its
+    # container (root for suites, runConfigurations for collections)
     if len(members) > len(parents) and parents:
         import copy
+        container = pmap[parents[-1]]
         for m in members[len(parents):]:
             np = copy.deepcopy(parents[-1])
             for e in np.iter():
                 if isinstance(e.tag, str) and \
                     e.tag.split('}')[-1] == member_tag:
                     e.text = m
-            root.append(np)
+            container.append(np)
     tree.write(str(path), xml_declaration=True,
                encoding="UTF-8")
 
@@ -153,11 +157,17 @@ def publish_draft(draft: AuthoringDraft) -> dict:
     binding = db.session.get(GitBinding, draft.binding_id)
     wt = _clone_for_authoring(binding)
     branch = binding.authoring_branch or binding.ref or "main"
-    # upstream check: base_sha vs current head
+    # refresh remote state — local HEAD alone is stale and misses
+    # upstream commits (Studio edits) made after the draft opened.
+    try:
+        git_backend.run("update", wt, branch)
+    except Exception as exc:
+        return {"error": f"cannot refresh remote: {str(exc)[:200]}"}
     head = git_backend.run("resolve", wt, "HEAD")
     if draft.base_sha and head != draft.base_sha:
-        return {"error": "upstream advanced — resolve before publish",
-                "head": head}
+        return {"error": ("upstream advanced since the draft's base "
+                          "revision — resolve before publish"),
+                "head": head, "base": draft.base_sha}
     f = wt / draft.path
     if not f.exists():
         return {"error": "source file missing"}
