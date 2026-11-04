@@ -231,7 +231,9 @@ def create_suite(project_id):
     project = _project_or_404(project_id)
     form = SuiteForm()
     binding = (db.session.get(GitBinding, form.binding_id.data)
-               if form.binding_id.data else None)
+               if form.binding_id.data else
+               GitBinding.query.filter_by(
+                   project_id=project.id).first())
     cases = gitsync.list_test_cases(binding) if binding else []
     form.case_refs.choices = [(c, c) for c in cases]
     if form.validate_on_submit():
@@ -247,6 +249,77 @@ def create_suite(project_id):
         db.session.commit()
         record_audit(current_user.username, "suite.created", suite.id)
     return redirect(url_for("portal.project_detail", project_id=project_id))
+
+
+@portal_bp.route("/projects/<project_id>/suites/new")
+@role_required(*EDIT_ROLES)
+def suite_new(project_id):
+    project = _project_or_404(project_id)
+    binding = GitBinding.query.filter_by(project_id=project.id).first()
+    cases = (gitsync.list_test_cases(binding)
+             if binding else [])
+    return render_template(
+        "portal/suite_edit.html", project=project, suite=None,
+        binding=binding, cases=cases, selected=[],
+        suite_form=SuiteForm(), can_edit=True)
+
+
+@portal_bp.route("/suites/<suite_id>/edit")
+@role_required(*EDIT_ROLES)
+def suite_edit(suite_id):
+    suite = db.session.get(Suite, suite_id)
+    if suite is None:
+        abort(404)
+    _project_or_404(suite.project_id)
+    if suite.readonly:
+        abort(409)
+    project = suite.project
+    binding = GitBinding.query.filter_by(project_id=project.id).first()
+    cases = (gitsync.list_test_cases(binding)
+             if binding else [])
+    selected = [e.case_ref for e in sorted(
+        suite.entries, key=lambda e: e.order) if e.enabled]
+    # keep selected-but-absent refs visible in the selector
+    for c in selected:
+        if c not in cases:
+            cases.append(c)
+    return render_template(
+        "portal/suite_edit.html", project=project, suite=suite,
+        binding=binding, cases=cases, selected=selected,
+        suite_form=SuiteForm(), can_edit=True)
+
+
+@portal_bp.route("/suites/<suite_id>/save", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def save_suite(suite_id):
+    suite = db.session.get(Suite, suite_id)
+    if suite is None:
+        abort(404)
+    _project_or_404(suite.project_id)
+    if suite.readonly:
+        abort(409)
+    name = request.form.get("name", "").strip()
+    description = request.form.get("description", "").strip()
+    refs = [r.strip() for r in
+            request.form.getlist("case_refs") if r.strip()]
+    if not name:
+        flash("Suite name is required.", "error")
+        return redirect(url_for("portal.suite_edit", suite_id=suite_id))
+    # wholesale ordered replacement — positions come from the selector
+    for e in suite.entries:
+        db.session.delete(e)
+    db.session.flush()
+    for i, ref in enumerate(dict.fromkeys(refs)):   # dedupe, keep order
+        db.session.add(SuiteEntry(suite_id=suite.id, order=i,
+                                  case_ref=ref))
+    suite.name = name
+    suite.description = description
+    suite.version += 1
+    suite.content_hash = _suite_hash(suite)
+    db.session.commit()
+    record_audit(current_user.username, "suite.saved", suite.id)
+    flash("Suite saved.", "info")
+    return redirect(url_for("portal.suite_detail", suite_id=suite.id))
 
 
 @portal_bp.route("/suites/<suite_id>")

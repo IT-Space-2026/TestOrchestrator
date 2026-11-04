@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ "New suite" if not suite else "Edit " ~ suite.name }} · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>{{ "New suite" if not suite else "Edit suite" }}
+  {% if suite %}<small class="muted">v{{ suite.version }}</small>{% endif %}</h1>
+<p class="muted">{{ project.name }} — pick the cases this suite runs,
+  in order. An immutable snapshot is taken at launch; later edits
+  version the definition.</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+
+<form method="post"
+      action="{{ url_for('portal.create_suite', project_id=project.id) if not suite else url_for('portal.save_suite', suite_id=suite.id) }}">
+  {{ suite_form.csrf_token if suite_form else plain_form.csrf_token }}
+
+  <section class="card">
+    <h2>Details</h2>
+    <div class="field">
+      <label for="name">Name <span class="req">*</span></label>
+      <input type="text" name="name" id="name" required
+             value="{{ suite.name if suite else "" }}"
+             placeholder="Smoke suite">
+    </div>
+    <div class="field">
+      <label for="description">Description</label>
+      <textarea name="description" id="description" rows="2"
+                placeholder="What this suite covers">{{ suite.description if suite else "" }}</textarea>
+    </div>
+    {% if binding %}
+    <input type="hidden" name="binding_id" value="{{ binding.id }}">
+    <p class="hint">Source binding: <code>{{ binding.name }}</code>
+      @ <code>{{ (binding.last_synced_sha or "never synced")[:12] }}</code>
+      — case list comes from the bound worktree.</p>
+    {% else %}
+    <p class="warn">No source binding — no cases to select.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Test cases</h2>
+    <div data-case-selector
+         data-cases='{{ cases | tojson }}'
+         data-selected='{{ selected | tojson }}'>
+      <div data-hidden>
+        {% for c in selected %}<input type="hidden" name="case_refs" value="{{ c }}">{% endfor %}
+      </div>
+      <noscript><p class="warn">JavaScript required for the case
+        selector.</p></noscript>
+    </div>
+  </section>
+
+  <div class="form-actions">
+    <button type="submit" class="button">{{ "Create suite" if not suite else "Save suite" }}</button>
+    <a class="button ghost" href="{{ url_for('portal.project_detail', project_id=project.id) }}">Cancel</a>
+    <span class="spacer"></span>
+    {% if suite %}
+    <span class="hint muted">Editing versions the suite — prior
+      execution snapshots are unchanged.</span>
+    {% endif %}
+  </div>
+</form>
+
+<script src="{{ url_for('static', filename='js/case-selector.js') }}" defer></script>
+{% endblock %}

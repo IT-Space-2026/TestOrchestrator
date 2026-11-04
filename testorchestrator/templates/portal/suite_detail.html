@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ suite.name }} · TestOrchestrator{% endblock %}
 {% block content %}
-<h1>{{ suite.name }} <small>v{{ suite.version }}</small></h1>
+<h1>{{ suite.name }} <small>v{{ suite.version }}</small>
+  {% if can_edit and not suite.readonly %}
+  <a class="button secondary sm" href="{{ url_for('portal.suite_edit', suite_id=suite.id) }}">Edit</a>
+  {% endif %}</h1>
 <p>{{ suite.description }}</p>
 <dl class="about-facts">
   <dt>Content hash</dt><dd><code>{{ suite.content_hash[:16] }}</code></dd>
