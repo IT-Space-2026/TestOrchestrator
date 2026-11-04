@@ -200,7 +200,9 @@ def publish_draft(draft: AuthoringDraft,
                 "head": head, "base": draft.base_sha}
     f = wt / draft.path
     if not f.exists():
-        return {"error": "source file missing"}
+        # NEW artifact — author the template then apply members
+        write_new_ts(f, draft.kind, draft.name,
+                     draft.members())
     parsed = parse_ts(f)
     if not parsed.get("supported"):
         return {"error": parsed.get("reason", "unsupported")}
@@ -235,3 +237,40 @@ def cleanup_abandoned(owner: str = "") -> int:
         n += 1
     db.session.commit()
     return n
+
+
+def open_new_draft(username: str, binding: GitBinding,
+                   kind: str, path: str, name: str) -> AuthoringDraft:
+    """Create a draft for a NEW .ts file — no existing
+    DiscoveredItem required; the artifact is authored from a
+    template on publish."""
+    d = AuthoringDraft(binding_id=binding.id,
+                       project_id=binding.project_id, owner=username,
+                       kind=kind, path=path, base_sha="",
+                       name=name, members_json="[]")
+    db.session.add(d); db.session.commit()
+    return d
+
+
+def write_new_ts(path: Path, kind: str, name: str,
+                 members: list) -> None:
+    """Author a fresh .ts artifact — template-based, members
+    inserted into the right container."""
+    member_tag = ("testCaseId" if kind == "suite"
+                  else "testSuiteEntity")
+    body = "".join(
+        f"<testCaseLink><testCaseId>{m}</testCaseId></testCaseLink>"
+        if kind == "suite" else
+        f"<TestSuiteRunConfiguration><testSuiteEntity>{m}"
+        f"</testSuiteEntity><profileName>default</profileName>"
+        f"</TestSuiteRunConfiguration>" for m in members)
+    wrap = ("<testCaseLink>" if kind == "suite" else
+            "<testSuiteRunConfigurations>")
+    root_tag = ("TestSuiteEntity" if kind == "suite"
+                else "TestSuiteCollectionEntity")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '<?xml version="1.0"?>\n<' + root_tag + '>\n'
+        '  <name>' + name + '</name>\n'
+        '  <runEnabled>true</runEnabled>\n' + body +
+        '\n</' + root_tag + '>\n')

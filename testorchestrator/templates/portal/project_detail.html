@@ -28,6 +28,28 @@
 
 <!-- ============ PLANS ============ -->
 <!-- ============ SUITES ============ -->
+<section class="tab-panel card" id="panel-dash">
+  <h2>Dashboard</h2>
+  <p class="muted">Executions {{ dash.count }} — {{ dash.passed }} passed,
+    {{ dash.failed }} failed, {{ dash.running }} running,
+    {{ dash.queued }} queued · pass rate {{ dash.rate }}% of completed</p>
+  {% if dash.recent %}
+  <table class="data-table"><thead><tr><th>Definition</th><th>Status</th><th>Revision</th><th>Started</th></tr></thead><tbody>
+    {% for e in dash.recent %}
+    <tr><td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}">{{ e.target_path or (e.suite.name if e.suite else "—") }}</a></td>
+      <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
+      <td><code>{{ (e.source_sha or "—")[:12] }}</code></td>
+      <td>{{ (e.started_at|string)[:16] }}</td></tr>
+    {% endfor %}
+  </tbody></table>
+  {% else %}<p class="muted">No executions yet.</p>{% endif %}
+  <p class="muted">Inventory: {{ discovered.rows|selectattr('kind','equalto','case')|list|length if discovered and discovered.rows else 0 }} cases ·
+    {{ discovered.rows|selectattr('kind','equalto','suite')|list|length if discovered and discovered.rows else 0 }} suites ·
+    {{ discovered.rows|selectattr('kind','equalto','collection')|list|length if discovered and discovered.rows else 0 }} collections
+    {% if discovered and discovered.binding %}· synced
+      {{ (discovered.binding.last_synced_sha or "—")[:12] }}
+      · {{ discovered.binding.discovery_status }}{% endif %}</p>
+</section>
 <section class="tab-panel card" id="panel-suites">
   <h2>Suites</h2>
   {% if discovered and discovered.rows %}

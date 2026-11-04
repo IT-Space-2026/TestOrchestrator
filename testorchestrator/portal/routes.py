@@ -155,8 +155,23 @@ def project_detail(project_id):
         ("", "Auto — compatible on runner")] + [
         (x.id, f"{x.name} ({x.detected_version or 'unknown ver'})")
         for x in RuntimeConnection.query.filter_by(enabled=True).all()]
+    _qs = Execution.query.filter_by(project_id=project.id)
+    _n = _qs.count()
+    _done = _qs.filter(Execution.finished_at.isnot(None)).all()
+    _pass = sum(1 for e in _done if e.outcome.value == "passed")
+    _rate = round(100 * _pass / len(_done)) if _done else 0
+    dash = {"count": _n, "passed": _pass,
+            "failed": sum(1 for e in _done
+                          if e.outcome.value == "failed"),
+            "running": _qs.filter(Execution.outcome ==
+                                  Outcome.running).count(),
+            "queued": _qs.filter(Execution.outcome ==
+                                 Outcome.queued).count(),
+            "rate": _rate,
+            "recent": _qs.order_by(
+                Execution.created_at.desc()).limit(8).all()}
     return render_template(
-        "portal/project_detail.html", project=project,
+        "portal/project_detail.html", project=project, dash=dash,
         binding_form=BindingForm(),
         suite_form=suite_form, plain_form=PlainForm(),
         schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,

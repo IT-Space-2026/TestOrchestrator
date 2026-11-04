@@ -297,3 +297,22 @@ def test_name_edit_in_artifact(app, tmp_path):
         reparsed = authoring.parse_ts(f)
         assert reparsed["name"] == "Renamed"
         assert "<unknownSetting" in f.read_text()
+
+
+def test_create_new_suite_draft_publishes(app, tmp_path):
+    """A draft for a NEW .ts (no DiscoveredItem) publishes a valid
+    artifact the discovery can read back."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        wt = authoring._authoring_wt(b.id)
+        wt.mkdir(parents=True, exist_ok=True)
+        d = authoring.open_new_draft(
+            "alice", b, "suite", "Test Suites/New.ts", "New")
+        d.members_json = '["Test Cases/API/tc1"]'
+        db.session.commit()
+        authoring.write_new_ts(wt / d.path, d.kind, d.name,
+                               d.members())
+        parsed = authoring.parse_ts(wt / d.path)
+        assert parsed["supported"] and parsed["kind"] == "suite"
+        assert parsed["members"] == ["Test Cases/API/tc1"]
+        assert parsed["name"] == "New"
