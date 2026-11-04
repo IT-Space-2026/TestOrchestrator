@@ -9,43 +9,55 @@
   {% endfor %}
 {% endwith %}
 
-<section class="card">
-  <h2>Git bindings</h2>
-  <table class="audit-table">
-    <thead><tr><th>Name</th><th>URL</th><th>Ref</th><th>Synced SHA</th><th>Status</th><th></th></tr></thead>
-    <tbody>
-      {% for b in project.bindings %}
-      <tr>
-        <td>{{ b.name }}</td><td><code>{{ b.url }}</code></td>
-        <td>{{ b.ref }}</td><td><code>{{ b.last_synced_sha[:12] }}</code></td>
-        <td>{{ b.status }}{% if b.last_error %} — {{ b.last_error[:80] }}{% endif %}</td>
-        <td>
-          {% if can_edit %}
-          <form method="post" action="{{ url_for('portal.sync_binding', binding_id=b.id) }}" class="inline">
-            {{ plain_form.csrf_token }}
-            <button type="submit" class="button secondary">Sync</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="tabs">
+  <input type="radio" name="ptabs" id="tab-plans" class="tab-input" checked>
+  <input type="radio" name="ptabs" id="tab-suites" class="tab-input">
+  <input type="radio" name="ptabs" id="tab-schedules" class="tab-input">
+  <input type="radio" name="ptabs" id="tab-releases" class="tab-input">
+  <input type="radio" name="ptabs" id="tab-executions" class="tab-input">
+  <input type="radio" name="ptabs" id="tab-inventory" class="tab-input">
+  <input type="radio" name="ptabs" id="tab-bindings" class="tab-input">
+  <nav class="tab-bar">
+    <label for="tab-plans">Plans</label>
+    <label for="tab-suites">Suites</label>
+    <label for="tab-schedules">Schedules</label>
+    <label for="tab-releases">Releases</label>
+    <label for="tab-executions">Executions</label>
+    <label for="tab-inventory">Inventory</label>
+    <label for="tab-bindings">Git bindings</label>
+  </nav>
+
+<!-- ============ PLANS ============ -->
+<section class="tab-panel card" id="panel-plans">
+  <h2>Plans</h2>
+  <ul class="notice-list">
+    {% for plan in project.plans %}
+    <li><a href="{{ url_for('portal.plan_detail', plan_id=plan.id) }}">{{ plan.name }}</a>
+      — {{ plan.entries | length }} suites, parallel={{ plan.parallelism }}
+      {% if can_run %}
+      <form method="post" action="{{ url_for('portal.run_plan', plan_id=plan.id) }}" class="inline">
+        {{ plain_form.csrf_token }}
+        <button type="submit" class="button">Run</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
   {% if can_edit %}
-  <form method="post" action="{{ url_for('portal.create_binding', project_id=project.id) }}">
-    {{ binding_form.csrf_token }}
-    <div class="field">{{ binding_form.name.label }} {{ binding_form.name() }}</div>
-    <div class="field">{{ binding_form.url.label }} {{ binding_form.url() }}</div>
-    <div class="field">{{ binding_form.ref.label }} {{ binding_form.ref() }}</div>
-    <div class="field">{{ binding_form.subdirectory.label }} {{ binding_form.subdirectory() }}</div>
-    <div class="field">{{ binding_form.prj_path.label }} {{ binding_form.prj_path() }}</div>
-    <div class="field">{{ binding_form.credential_ref.label }} {{ binding_form.credential_ref() }}</div>
-    <button type="submit" class="button">Add binding</button>
-  </form>
+  <details class="add-block">
+    <summary class="button">Create plan</summary>
+    <form method="post" action="{{ url_for('portal.create_plan', project_id=project.id) }}" class="add-form">
+      {{ plan_form.csrf_token }}
+      <div class="field">{{ plan_form.name.label }} {{ plan_form.name() }}</div>
+      <div class="field">{{ plan_form.parallelism.label }} {{ plan_form.parallelism() }}</div>
+      <button type="submit" class="button">Apply</button>
+    </form>
+  </details>
   {% endif %}
 </section>
 
-<section class="card">
+<!-- ============ SUITES ============ -->
+<section class="tab-panel card" id="panel-suites">
   <h2>Suites</h2>
   {% if project.suites %}
   <ul class="notice-list">
@@ -65,56 +77,32 @@
   </ul>
   {% else %}<p class="muted">No suites yet.</p>{% endif %}
   {% if can_edit %}
-  <form method="post" action="{{ url_for('portal.create_suite', project_id=project.id) }}">
-    {{ suite_form.csrf_token }}
-    <div class="field">{{ suite_form.name.label }} {{ suite_form.name() }}</div>
-    <div class="field">{{ suite_form.description.label }} {{ suite_form.description() }}</div>
-    {% if project.bindings %}
-    <div class="field"><label for="binding_id">Source binding</label>
-      <select name="binding_id" id="binding_id">
-        <option value="">(none)</option>
-        {% for b in project.bindings %}
-        <option value="{{ b.id }}">{{ b.name }}</option>
-        {% endfor %}
-      </select>
-      <small class="muted">Case list below comes from the project's first
-        synced binding.</small>
-    </div>
-    {% endif %}
-    <div class="field">{{ suite_form.case_refs.label }} {{ suite_form.case_refs(size=8) }}</div>
-    <button type="submit" class="button">Create suite</button>
-  </form>
-  {% endif %}
-</section>
-
-<section class="card">
-  <h2>Plans</h2>
-  <ul class="notice-list">
-    {% for plan in project.plans %}
-    <li><a href="{{ url_for('portal.plan_detail', plan_id=plan.id) }}">{{ plan.name }}</a>
-      — {{ plan.entries | length }} suites, parallel={{ plan.parallelism }}
-      — outcome: <strong>{{ state_labels.get(plan_summaries.get(plan.id, 'empty'), plan_summaries.get(plan.id, 'empty')) }}</strong>
-      {% if can_run %}
-      <form method="post" action="{{ url_for('portal.run_plan', plan_id=plan.id) }}" class="inline">
-        {{ plain_form.csrf_token }}<button type="submit" class="button secondary">Run plan</button>
-      </form>
+  <details class="add-block">
+    <summary class="button">Create suite</summary>
+    <form method="post" action="{{ url_for('portal.create_suite', project_id=project.id) }}" class="add-form">
+      {{ suite_form.csrf_token }}
+      <div class="field">{{ suite_form.name.label }} {{ suite_form.name() }}</div>
+      <div class="field">{{ suite_form.description.label }} {{ suite_form.description() }}</div>
+      {% if project.bindings %}
+      <div class="field"><label for="binding_id">Source binding</label>
+        <select name="binding_id" id="binding_id">
+          <option value="">(none)</option>
+          {% for b in project.bindings %}
+          <option value="{{ b.id }}">{{ b.name }}</option>
+          {% endfor %}
+        </select></div>
       {% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% if can_edit %}
-  <form method="post" action="{{ url_for('portal.create_plan', project_id=project.id) }}">
-    {{ plan_form.csrf_token }}
-    <div class="field">{{ plan_form.name.label }} {{ plan_form.name() }}</div>
-    <div class="field">{{ plan_form.description.label }} {{ plan_form.description() }}</div>
-    <div class="field">{{ plan_form.parallelism.label }} {{ plan_form.parallelism() }}</div>
-    <button type="submit" class="button">Create plan</button>
-  </form>
+      <div class="field">{{ suite_form.case_refs.label }} {{ suite_form.case_refs(size=8) }}</div>
+      <button type="submit" class="button">Apply</button>
+    </form>
+  </details>
   {% endif %}
 </section>
 
-<section class="card">
+<!-- ============ SCHEDULES ============ -->
+<section class="tab-panel card" id="panel-schedules">
   <h2>Schedules</h2>
+  {% if project.schedules %}
   <table class="audit-table">
     <thead><tr><th>Name</th><th>Target</th><th>Kind</th><th>Next run (UTC)</th><th>Enabled</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
     <tbody>
@@ -127,24 +115,16 @@
         <td>{{ "yes" if s.enabled else "no" }}{% if s.overlap_policy == "skip" %} <span class="badge">no-overlap</span>{% endif %}</td>
         {% if can_edit %}
         <td>
+          {% if can_run and s.enabled %}
+          <form method="post" action="{{ url_for('portal.run_schedule_now', schedule_id=s.id) }}" class="inline"
+                onsubmit="return confirm('Trigger this schedule now?');">
+            {{ plain_form.csrf_token }}
+            <input type="hidden" name="submit_token"
+                   value="{{ s.id }}-{{ range(10**9,10**10)|random }}">
+            <button class="button" type="submit">Run now</button></form>
+          {% endif %}
           <form method="post" action="{{ url_for('portal.toggle_schedule', schedule_id=s.id) }}" class="inline">
             {{ plain_form.csrf_token }}<button class="button secondary" type="submit">{{ "Disable" if s.enabled else "Enable" }}</button></form>
-          {% if can_run and s.enabled %}
-          <form method="post" action="{{ url_for('portal.run_schedule_now', schedule_id=s.id) }}" class="inline"
-                onsubmit="return confirm('Trigger this schedule now?');">
-            {{ plain_form.csrf_token }}
-            <input type="hidden" name="submit_token"
-                   value="{{ s.id }}-{{ request.__dict__.get('nonce') or range(10**9,10**10)|random }}">
-            <button class="button" type="submit">Run now</button></form>
-          {% endif %}
-          {% if can_run and s.enabled %}
-          <form method="post" action="{{ url_for('portal.run_schedule_now', schedule_id=s.id) }}" class="inline"
-                onsubmit="return confirm('Trigger this schedule now?');">
-            {{ plain_form.csrf_token }}
-            <input type="hidden" name="submit_token"
-                   value="{{ s.id }}-{{ request.__dict__.get('nonce') or range(10**9,10**10)|random }}">
-            <button class="button" type="submit">Run now</button></form>
-          {% endif %}
           <form method="post" action="{{ url_for('portal.delete_schedule', schedule_id=s.id) }}" class="inline">
             {{ plain_form.csrf_token }}<button class="button secondary" type="submit">Delete</button></form>
         </td>
@@ -153,75 +133,58 @@
       {% endfor %}
     </tbody>
   </table>
+  {% else %}<p class="muted">No schedules.</p>{% endif %}
   {% if can_edit %}
-  <form method="post" action="{{ url_for('portal.create_schedule', project_id=project.id) }}">
-    {{ schedule_form.csrf_token }}
-    <div class="field">{{ schedule_form.name.label }} {{ schedule_form.name() }}</div>
-    <div class="field">{{ schedule_form.target_type.label }} {{ schedule_form.target_type() }}
-      <small class="muted">"Runs" lists suites; choose Plan + a plan id below for plan schedules.</small></div>
-    <div class="field">{{ schedule_form.target_id.label }} {{ schedule_form.target_id() }}</div>
-    <div class="field">{{ schedule_form.kind.label }} {{ schedule_form.kind() }}</div>
-    <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}</div>
-    <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes() }}</div>
-    <div class="field">{{ schedule_form.execution_profile.label }} {{ schedule_form.execution_profile() }}</div>
-    <div class="field">{{ schedule_form.browser_type.label }} {{ schedule_form.browser_type() }}
-      <small>Runs on the <em>KRE host</em> unless a Remote WebDriver URL
-      is set below. Edge = Windows runners only; Safari = macOS only.</small></div>
-    <div class="field">{{ schedule_form.remote_webdriver_url.label }} {{ schedule_form.remote_webdriver_url() }}
-      <small>Optional. e.g. <code>https://selenium.example:4444/wd/hub</code>
-      — connects to a WebDriver service (emits
-      <code>-browserType=Remote</code>); the grid browser comes from the
-      project's desired capabilities, not the selector above.
-      URL credentials are scrubbed from logs/evidence.</small></div>
-    <div class="field">{{ schedule_form.remote_webdriver_type.label }} {{ schedule_form.remote_webdriver_type() }}
-      <small>Optional. Driver type for the remote session — typically
-      <code>Selenium</code>.</small></div>
-    <div class="field">{{ schedule_form.runner_id.label }} {{ schedule_form.runner_id() }}
-      <small>Auto picks the first eligible runner; an explicit pick
-      that becomes unavailable REJECTS — never falls back.</small></div>
-    <div class="field">{{ schedule_form.runtime_id.label }} {{ schedule_form.runtime_id() }}
-      <small>Must belong to the selected runner — incompatible pairs
-      reject the run.</small></div>
-    <div class="field">{{ schedule_form.timeout_seconds.label }} {{ schedule_form.timeout_seconds() }}
-      <small>Seconds, running time from process launch — queue time
-      excluded. Blank/0 = 3600&nbsp;s default.</small></div>
-    <div class="field">{{ schedule_form.overlap_policy.label }} {{ schedule_form.overlap_policy() }}
-      <small>"Allow overlap" (default): each due fire runs
-      independently. "Skip if previous run active": drops the new
-      occurrence while a prior run from this schedule is active —
-      including UNKNOWN; skips are audited and the next due time
-      still advances (no catch-up). Applies to Run now too.</small></div>
-    <button type="submit" class="button">Create schedule</button>
-  </form>
+  <details class="add-block">
+    <summary class="button">Create schedule</summary>
+    <form method="post" action="{{ url_for('portal.create_schedule', project_id=project.id) }}" class="add-form">
+      {{ schedule_form.csrf_token }}
+      <div class="field">{{ schedule_form.name.label }} {{ schedule_form.name() }}</div>
+      <div class="field">{{ schedule_form.target_type.label }} {{ schedule_form.target_type() }}</div>
+      <div class="field">{{ schedule_form.target_id.label }} {{ schedule_form.target_id() }}</div>
+      <div class="field">{{ schedule_form.kind.label }} {{ schedule_form.kind() }}</div>
+      <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}</div>
+      <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes() }}</div>
+      <div class="field">{{ schedule_form.execution_profile.label }} {{ schedule_form.execution_profile() }}</div>
+      <div class="field">{{ schedule_form.browser_type.label }} {{ schedule_form.browser_type() }}</div>
+      <div class="field">{{ schedule_form.remote_webdriver_url.label }} {{ schedule_form.remote_webdriver_url() }}</div>
+      <div class="field">{{ schedule_form.remote_webdriver_type.label }} {{ schedule_form.remote_webdriver_type() }}</div>
+      <div class="field">{{ schedule_form.runner_id.label }} {{ schedule_form.runner_id() }}</div>
+      <div class="field">{{ schedule_form.runtime_id.label }} {{ schedule_form.runtime_id() }}</div>
+      <div class="field">{{ schedule_form.timeout_seconds.label }} {{ schedule_form.timeout_seconds() }}</div>
+      <div class="field">{{ schedule_form.overlap_policy.label }} {{ schedule_form.overlap_policy() }}</div>
+      <button type="submit" class="button">Apply</button>
+    </form>
+  </details>
   {% endif %}
-  <p class="muted">Schedules fire through the dispatch worker — a missed
-    fire time runs late on the next worker tick (audited), never dropped.</p>
 </section>
 
-<section class="card">
+<!-- ============ RELEASES ============ -->
+<section class="tab-panel card" id="panel-releases">
   <h2>Releases</h2>
+  {% if project.releases %}
   <ul class="notice-list">
     {% for r in project.releases %}
-    <li>{{ r.name }} — {{ r.status }} {% if r.owner %}(owner: {{ r.owner }}){% endif %}
-      {% if can_edit and r.status != "released" %}
-      <form method="post" action="{{ url_for('portal.mark_release', release_id=r.id) }}" class="inline">
-        {{ plain_form.csrf_token }}<button type="submit" class="button secondary">Mark released</button>
-      </form>
-      {% endif %}
-    </li>
+    <li><a href="{{ url_for('portal.release_detail', release_id=r.id) }}">{{ r.name }}</a>
+      — {{ r.status.value }}</li>
     {% endfor %}
   </ul>
+  {% else %}<p class="muted">No releases yet.</p>{% endif %}
   {% if can_edit %}
-  <form method="post" action="{{ url_for('portal.create_release', project_id=project.id) }}">
-    {{ plan_form.csrf_token }}
-    <div class="field"><label>Name</label><input type="text" name="name" required></div>
-    <div class="field"><label>Description</label><textarea name="description"></textarea></div>
-    <button type="submit" class="button">Create release</button>
-  </form>
+  <details class="add-block">
+    <summary class="button">Create release</summary>
+    <form method="post" action="{{ url_for('portal.create_release', project_id=project.id) }}" class="add-form">
+      {{ plan_form.csrf_token }}
+      <div class="field"><label>Name</label><input name="name"></div>
+      <div class="field"><label>Description</label><input name="description"></div>
+      <button type="submit" class="button">Apply</button>
+    </form>
+  </details>
   {% endif %}
 </section>
 
-<section class="card">
+<!-- ============ EXECUTIONS ============ -->
+<section class="tab-panel card" id="panel-executions">
   <h2>Recent executions</h2>
   {% if executions %}
   <table class="audit-table">
@@ -242,11 +205,12 @@
   {% else %}<p class="muted">No executions yet.</p>{% endif %}
 </section>
 
-{% if discovered and discovered.binding %}
-<section class="card">
-  <h2>Katalon inventory</h2>
-  <p class="muted">Read-only source discovery — separate from Git
-    evidence export; does not import historical executions.</p>
+<!-- ============ INVENTORY ============ -->
+<section class="tab-panel card" id="panel-inventory">
+  {% if discovered and discovered.binding %}
+  <h2>Katalon inventory <small class="muted">— read-only source discovery</small></h2>
+  <p class="muted">Separate from Git evidence export; does not import
+    historical executions.</p>
   <p>
     Root <code>{{ discovered.binding.project_root or "." }}</code>
     · fetched <code>{{ (discovered.binding.last_synced_sha or "—")[:12] }}</code>
@@ -262,23 +226,97 @@
     {% for k,v in discovered.counts.items() %}
     <strong>{{ v }}</strong> {{ k }}{% if not loop.last %} · {% endif %}
     {% endfor %}</p>
-  <details><summary>Inventory ({{ discovered["rows"]|length }})</summary>
+  {% for kind, label in [("suite","Suites"),("collection","Collections"),
+                        ("profile","Profiles"),("case","Test cases")] %}
+  {% set items = discovered["rows"]|selectattr("kind","equalto",kind)|list %}
+  {% if items %}
+  <details {% if kind != "case" %}open{% endif %}>
+    <summary><strong>{{ label }}</strong> ({{ items|length }})</summary>
     <table class="audit-table">
-      <thead><tr><th>Type</th><th>Path</th><th>Members</th><th></th></tr></thead>
+      <thead><tr><th>Path</th>{% if kind in ("suite","collection") %}<th>Members</th>{% endif %}<th></th></tr></thead>
       <tbody>
-      {% for i in discovered["rows"] %}
-      <tr><td><span class="badge">{{ i.kind }}</span>{% if i.dynamic %} <span class="badge">dynamic?</span>{% endif %}</td>
-          <td><code>{{ i.path }}</code></td>
-          <td>{{ i.members()|length if i.members() else "—" }}</td>
-          <td class="muted">{{ i.warnings }}</td></tr>
+      {% for i in items %}
+      <tr>
+        <td><code>{{ i.path }}</code>{% if i.dynamic %} <span class="badge">dynamic?</span>{% endif %}</td>
+        {% if kind in ("suite","collection") %}<td>{{ i.members()|length if i.members() else "—" }}</td>{% endif %}
+        <td class="muted">{{ i.warnings }}</td>
+      </tr>
       {% endfor %}
       </tbody>
     </table>
   </details>
+  {% endif %}
+  {% endfor %}
   {% else %}
-  <p class="muted">No inventory discovered yet — sync the source
-    binding above to populate it.</p>
+  <p class="muted">No inventory discovered yet — sync a source
+    binding to populate it.</p>
+  {% endif %}
+  {% else %}
+  <p class="muted">No source binding — add one under Git bindings to
+    discover a Katalon project.</p>
   {% endif %}
 </section>
-{% endif %}
+
+<!-- ============ BINDINGS ============ -->
+<section class="tab-panel card" id="panel-bindings">
+  <h2>Git bindings <small class="muted">— source repos, read-only</small></h2>
+  {% if project.bindings %}
+  <table class="audit-table">
+    <thead><tr><th>Name</th><th>URL</th><th>Ref</th><th>Synced SHA</th>
+               <th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for b in project.bindings %}
+      <tr>
+        <td>{{ b.name }}</td><td><code>{{ b.url }}</code></td>
+        <td>{{ b.ref }}</td><td><code>{{ (b.last_synced_sha or "—")[:12] }}</code></td>
+        <td>{{ b.status }}{% if b.last_error %} — {{ b.last_error[:80] }}{% endif %}</td>
+        <td>
+          {% if can_edit %}
+          <form method="post" action="{{ url_for('portal.sync_binding', binding_id=b.id) }}" class="inline">
+            {{ plain_form.csrf_token }}
+            <button type="submit" class="button secondary">Sync</button>
+          </form>
+          <details class="inline-details"><summary class="button secondary">Edit</summary>
+            <form method="post" action="{{ url_for('portal.edit_binding', binding_id=b.id) }}" class="edit-form">
+              {{ binding_form.csrf_token }}
+              <div class="field"><label>Name</label>
+                <input name="name" value="{{ b.name }}"></div>
+              <div class="field"><label>URL</label>
+                <input name="url" value="{{ b.url }}"></div>
+              <div class="field"><label>Ref / branch</label>
+                <input name="ref" value="{{ b.ref }}"></div>
+              <div class="field"><label>Subdirectory</label>
+                <input name="subdirectory" value="{{ b.subdirectory }}"></div>
+              <div class="field"><label>Project root (.prj)</label>
+                <input name="prj_path" value="{{ b.prj_path }}"></div>
+              <div class="field"><label>Credential ref</label>
+                <input name="credential_ref" value="{{ b.credential_ref }}"></div>
+              <button type="submit" class="button">Apply</button>
+            </form>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No bindings yet.</p>{% endif %}
+  {% if can_edit %}
+  <details class="add-block">
+    <summary class="button">Add new binding</summary>
+    <form method="post" action="{{ url_for('portal.create_binding', project_id=project.id) }}" class="add-form">
+      {{ binding_form.csrf_token }}
+      <div class="field">{{ binding_form.name.label }} {{ binding_form.name() }}</div>
+      <div class="field">{{ binding_form.url.label }} {{ binding_form.url() }}</div>
+      <div class="field">{{ binding_form.ref.label }} {{ binding_form.ref() }}</div>
+      <div class="field">{{ binding_form.subdirectory.label }} {{ binding_form.subdirectory() }}</div>
+      <div class="field">{{ binding_form.prj_path.label }} {{ binding_form.prj_path() }}</div>
+      <div class="field">{{ binding_form.credential_ref.label }} {{ binding_form.credential_ref() }}</div>
+      <button type="submit" class="button">Apply</button>
+    </form>
+  </details>
+  {% endif %}
+</section>
+
+</div>
 {% endblock %}

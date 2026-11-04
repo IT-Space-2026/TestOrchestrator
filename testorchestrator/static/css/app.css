@@ -414,3 +414,36 @@ pre.example {
 .nav-sub-list { list-style: none; margin: 0; padding: 0; }
 .nav-sub-list a { padding-left: 2.4rem; display: block; }
 .nav-sub:not([open]) .nav-sub-list { display: none; }
+
+
+/* --- project-page tabs --- */
+.tab-input { position: absolute; opacity: 0; pointer-events: none; }
+.tab-bar { display: flex; gap: .25rem; border-bottom: 2px solid #334;
+           margin-bottom: 1rem; flex-wrap: wrap; }
+.tab-bar label { padding: .5rem .9rem; cursor: pointer; font-weight: 600;
+                 border: 1px solid transparent; border-bottom: none;
+                 border-radius: .35rem .35rem 0 0; color: #7a8a9a; }
+.tab-bar label:hover { color: #dfe7ee; }
+#tab-bindings:checked ~ .tab-bar label[for=tab-bindings],
+#tab-suites:checked ~ .tab-bar label[for=tab-suites],
+#tab-plans:checked ~ .tab-bar label[for=tab-plans],
+#tab-schedules:checked ~ .tab-bar label[for=tab-schedules],
+#tab-releases:checked ~ .tab-bar label[for=tab-releases],
+#tab-executions:checked ~ .tab-bar label[for=tab-executions],
+#tab-inventory:checked ~ .tab-bar label[for=tab-inventory]
+  { color: #eef3f7; border-color: #334; background: #1c2630; }
+.tab-panel { display: none; }
+#tab-bindings:checked ~ #panel-bindings,
+#tab-suites:checked ~ #panel-suites,
+#tab-plans:checked ~ #panel-plans,
+#tab-schedules:checked ~ #panel-schedules,
+#tab-releases:checked ~ #panel-releases,
+#tab-executions:checked ~ #panel-executions,
+#tab-inventory:checked ~ #panel-inventory { display: block; }
+.inline-details { display: inline-block; }
+.inline-details summary, .add-block summary { list-style: none;
+  display: inline-block; }
+.inline-details summary::-webkit-details-marker,
+.add-block summary::-webkit-details-marker { display: none; }
+.add-block { margin-top: .75rem; }
+.add-form, .edit-form { margin-top: .75rem; }

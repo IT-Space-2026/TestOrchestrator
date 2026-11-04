@@ -184,6 +184,28 @@ def create_binding(project_id):
     return redirect(url_for("portal.project_detail", project_id=project_id))
 
 
+@portal_bp.route("/bindings/<binding_id>/edit", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def edit_binding(binding_id):
+    binding = db.session.get(GitBinding, binding_id)
+    if binding is None:
+        abort(404)
+    _project_or_404(binding.project_id)
+    form = BindingForm()
+    if form.validate_on_submit():
+        binding.name = form.name.data.strip()
+        binding.url = form.url.data.strip()
+        binding.ref = form.ref.data.strip() or "main"
+        binding.subdirectory = form.subdirectory.data.strip()
+        binding.prj_path = form.prj_path.data.strip()
+        binding.credential_ref = form.credential_ref.data.strip()
+        db.session.commit()
+        record_audit(current_user.username, "binding.edited", binding.id)
+        flash("Binding updated.", "info")
+    return redirect(url_for("portal.project_detail",
+                          project_id=binding.project_id))
+
+
 @portal_bp.route("/bindings/<binding_id>/sync", methods=["POST"])
 @role_required(*EDIT_ROLES)
 def sync_binding(binding_id):
