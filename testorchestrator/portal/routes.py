@@ -424,10 +424,14 @@ def discovered_detail(item_id):
     runtimes = RuntimeConnection.query.filter_by(enabled=True).all()
     profiles = [i.name for i in DiscoveredItem.query.filter_by(
         binding_id=item.binding_id, kind="profile")]
+    b2 = db.session.get(GitBinding, item.binding_id)
     return render_template(
         "portal/discovered_detail.html", item=item, runners=runners,
         runtimes=runtimes, profiles=profiles,
         plain_form=PlainForm(),
+        can_author=bool(b2 and b2.authoring_writable and
+                        current_user.role.value in
+                        ("admin", "test_manager")),
         can_run=current_user.role.value in
         ("admin", "test_manager", "tester"))
 

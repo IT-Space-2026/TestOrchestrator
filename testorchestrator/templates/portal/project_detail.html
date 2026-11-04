@@ -29,7 +29,9 @@
 
 <!-- ============ PLANS ============ -->
 <section class="tab-panel card" id="panel-plans">
-  <h2>Plans</h2>
+  <h2>Plans <span class="badge warn">legacy</span></h2>
+  <p class="muted">App-side grouping — prefer repository collections
+    for new work. Existing plans and history remain usable.</p>
   <ul class="notice-list">
     {% for plan in project.plans %}
     <li><a href="{{ url_for('portal.plan_detail', plan_id=plan.id) }}">{{ plan.name }}</a>

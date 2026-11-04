@@ -48,6 +48,11 @@ class GitBinding(db.Model):
     # publish permission. Report destination stays on this branch.
     report_writable = db.Column(db.Boolean, nullable=False,
                                 default=False)
+    # Native source authoring — separate permission; one does not
+    # imply the other.
+    authoring_writable = db.Column(db.Boolean, nullable=False,
+                                   default=False)
+    authoring_branch = db.Column(db.String(64), nullable=True)
     worktree_path = db.Column(db.String(512), nullable=False, default="")
     # Discovery state (separate from fetch status): the last commit whose
     # inventory was successfully parsed — stale if newer SHA unfetched.
@@ -492,3 +497,30 @@ class DiscoveredItem(db.Model):
             return _j.loads(self.members_json or "[]")
         except Exception:
             return []
+
+
+class AuthoringDraft(db.Model):
+    """A user-owned editable draft of a native suite/collection —
+    isolated from execution checkouts; published only after diff
+    review against the recorded base revision."""
+    __tablename__ = "authoring_drafts"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    binding_id = db.Column(db.String(32),
+                           db.ForeignKey("git_bindings.id"),
+                           nullable=False)
+    project_id = db.Column(db.String(32), nullable=False)
+    owner = db.Column(db.String(128), nullable=False)
+    kind = db.Column(db.String(16), nullable=False)
+    path = db.Column(db.String(512), nullable=False)
+    base_sha = db.Column(db.String(64), nullable=False, default="")
+    members_json = db.Column(db.Text, nullable=False, default="[]")
+    name = db.Column(db.String(256), nullable=False, default="")
+    status = db.Column(db.String(16), nullable=False, default="draft")
+    published_sha = db.Column(db.String(64), nullable=False,
+                              default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           onupdate=utcnow)
+
+    def members(self) -> list:
+        return json.loads(self.members_json or "[]")

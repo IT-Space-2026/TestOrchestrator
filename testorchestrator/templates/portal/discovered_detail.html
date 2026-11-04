@@ -21,6 +21,11 @@
 </details>
 {% endif %}
 
+{% if can_author and item.kind == "suite" and not item.dynamic %}
+<p><a class="button" href="{{ url_for('portal.author_item', item_id=item.id) }}">Edit in repository</a></p>
+{% elif item.dynamic %}
+<p class="warn">Dynamic suite — query membership is read-only this phase.</p>
+{% endif %}
 {% if can_run %}
 <section class="card">
   <h2>Run</h2>

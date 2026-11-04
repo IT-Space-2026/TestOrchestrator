@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ item.name }} · TestOrchestrator{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=item.project_id) }}">← Back to project</a></p>
+<h1>Edit {{ item.name }} <span class="badge accent">{{ item.kind }}</span></h1>
+<p class="muted">Native source editing — writes back to
+  <code>{{ binding.name }}</code> on branch
+  <code>{{ binding.authoring_branch or binding.ref }}</code>.
+  Draft owner: <strong>{{ draft.owner }}</strong> · base
+  <code>{{ draft.base_sha[:12] or "—" }}</code></p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+
+{% if draft.status != "draft" %}
+<p class="warn">This draft is {{ draft.status }} — open a new one to
+  keep editing.</p>
+{% else %}
+<section class="card">
+  <h2>Members</h2>
+  <form method="post" action="{{ url_for('portal.author_save', draft_id=draft.id) }}">
+    {{ plain_form.csrf_token }}
+    <div data-case-selector
+         data-cases='{{ cases | tojson }}'
+         data-selected='{{ draft.members() | tojson }}'>
+      <div data-hidden>
+        {% for c in draft.members() %}<input type="hidden" name="case_refs" value="{{ c }}">{% endfor %}
+      </div>
+      <noscript><p class="warn">JavaScript is required for the
+        member selector.</p></noscript>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="button">Save draft</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Diff &amp; publish</h2>
+  <p class="muted">Approval binds to this exact diff on
+    <code>{{ binding.name }}</code> /
+    <code>{{ binding.authoring_branch or binding.ref }}</code> —
+    any later change needs renewed review.</p>
+  <pre class="diff-view">{{ diff }}</pre>
+  <div class="form-actions">
+    <form method="post" action="{{ url_for('portal.author_publish', draft_id=draft.id) }}" class="inline">
+      {{ plain_form.csrf_token }}
+      <button type="submit" class="button">Publish to branch</button>
+    </form>
+    <form method="post" action="{{ url_for('portal.author_abandon', draft_id=draft.id) }}" class="inline">
+      {{ plain_form.csrf_token }}
+      <button type="submit" class="button danger">Abandon draft</button>
+    </form>
+  </div>
+</section>
+{% endif %}
+<script src="{{ url_for('static', filename='js/case-selector.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/form-guard.js') }}" defer></script>
+{% endblock %}
