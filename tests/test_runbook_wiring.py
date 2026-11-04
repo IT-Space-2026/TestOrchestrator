@@ -339,6 +339,7 @@ def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
         ex_id = ex.id
         assert ex.snapshot()["run_config"] == {
             "profile": "smoke-profile", "browser": "Firefox",
+            "remote_webdriver_url": "", "remote_webdriver_type": "",
             "kre_options": {}, "kre_options_allow_drop": False}
     with app.app_context():
         dispatch.run_execution(ex_id)
