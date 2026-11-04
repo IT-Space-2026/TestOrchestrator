@@ -20,17 +20,20 @@ stamped and predates every claimed revision.
 
 ## Affected archives (quarantined at `dist/quarantine/`)
 
-| archive | bytes | sha-256 (prefix) | embedded build | claimed | status |
+| archive | bytes | sha-256 | claimed revision (name) | embedded build | verdict |
 |---|---|---|---|---|---|
-| `-frozen-22fe094` | 143,561,854 | 840346d0 | source-checkout | source-checkout | REJECTED |
-| `-frozen-0c18a0c4` | 143,566,585 | 448b165b | source-checkout | 0c18a0c49d29 | REJECTED |
-| `-frozen-d3effdec` | 143,568,470 | 60af46de | d3effdeca077* | d3effdeca077 | REJECTED |
-| `-frozen-d310119f` | 143,623,661 | 302f6500 | source-checkout | d310119fd9d6 | REJECTED |
+| `-frozen-22fe094` | 143,561,854 | `840346d0b116048b8d4592edb7c36e4e67ad6a76528b63acf1c3124b90bcb8b8` | `22fe094` | `source-checkout` | REJECTED |
+| `-frozen-0c18a0c4` | 143,566,585 | `448b165b045c0283ebbabc49aa3e929c4fe62fffc260753f1bc351698db766aa` | `0c18a0c4` | `source-checkout` | REJECTED |
+| `-frozen-d3effdec` | 143,568,470 | `60af46deda19b8715d962304a6b2f6fdeda6141f2c92b5180e52aea2a0216899` | `d3effdec` | `source-checkout` | REJECTED |
+| `-frozen-d310119f` | 143,623,661 | `302f650091e2197fda14760647118cc5e3adff2ccfb88b35ec40aa7e8ee97f38` | `d310119f` | `source-checkout` | REJECTED |
 
-*-d3effdec's embedded value could not be cleanly re-read in this pass;
-it is quarantined as not-verifiable-to-payload regardless (same collector
-path, same window). The earlier `678c33f4…` candidate bytes no longer
-exist (overwritten) — its payload cannot be independently inspected.
+All four embedded builds were re-read from the archived payload
+(`app/_internal/release/release.json`) — every one is
+`source-checkout`, i.e. the onedir was never stamped and predates the
+claimed revision. The claimed revision is the archive's declared name;
+it must not be conflated with what the defective payload contains.
+The earlier `678c33f4…` candidate bytes no longer exist (overwritten) —
+its payload cannot be independently inspected.
 
 ## Evidence accounting
 
