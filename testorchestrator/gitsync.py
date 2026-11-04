@@ -23,7 +23,7 @@ from pathlib import Path
 
 from . import git_backend
 from . import settings as settings_mod
-from .execution import Execution, GitBinding
+from .execution import Execution, GitBinding, utcnow
 from .extensions import db
 
 EXPORT_ROOT = "TestOrchestrator"
@@ -97,6 +97,7 @@ def sync_binding(binding_id: str) -> dict:
         binding.status = "synced"
         binding.last_error = ""
         db.session.commit()
+        discover_project(binding)          # non-fatal to sync status
         return {"sha": sha, "worktree": str(worktree)}
     except Exception as exc:
         binding.status = "failed"
@@ -351,3 +352,116 @@ def restore_definitions(project_id: str) -> dict:
             counts[counter] += 1
     db.session.commit()
     return counts
+
+
+# ---------- Katalon project discovery (read-only) ----------
+
+_SKIP_DIRS = {".git", ".cache", "Keywords", "Scripts", "Libs", "bin",
+              "build", "Reports", "__pycache__"}
+_MAX_FILE = 512 * 1024                       # bound definition sizes
+
+
+def _xml_root(path):
+    """Parse just the root tag — bounded, no external entities."""
+    import xml.etree.ElementTree as ET
+    try:
+        if path.stat().st_size > _MAX_FILE:
+            return None, "oversized"
+        for _ev, el in ET.iterparse(str(path), events=("start",)):
+            return el.tag.split("}")[-1], None
+    except Exception as exc:
+        return None, f"malformed: {type(exc).__name__}"
+    return None, "malformed: empty"
+
+
+def discover_project(binding) -> dict:
+    """Typed inventory discovery under the selected Katalon project
+    root — .prj root detection, .tc cases, suites vs collections by
+    XML root tag, profile names. Read-only; never executes repo code.
+    Replaces the current inventory ATOMICALLY per SHA; a failure keeps
+    the last good set (stale, not destroyed)."""
+    from .execution import DiscoveredItem
+    import xml.etree.ElementTree as ET
+    out = {"cases": 0, "suites": 0, "collections": 0, "profiles": 0,
+           "warnings": []}
+    sha = binding.last_synced_sha or ""
+    try:
+        base = Path(binding.worktree_path or "")
+        if binding.subdirectory:
+            base = base / binding.subdirectory
+        if not base.is_dir():
+            raise SyncError("bound worktree/subdirectory missing")
+        # .prj detection within the bound scope — bounded walk, no
+        # symlink escapes outside the checkout.
+        prjs = [p for p in base.rglob("*.prj")
+                if not any(part.startswith(".") or
+                           part in _SKIP_DIRS for part in p.parts)]
+        prjs = [p for p in prjs if p.resolve().is_relative_to(
+            base.resolve())]                      # containment
+        if not prjs:
+            raise SyncError("no Katalon .prj file found under the "
+                            "bound path — not a Katalon project root")
+        if len(prjs) > 1:
+            names = [str(p.relative_to(base)) for p in prjs]
+            raise SyncError("multiple .prj files — select one "
+                            "explicitly: " + ", ".join(names[:5]))
+        root = prjs[0].parent
+        items = []
+        # Cases: .tc under Test Cases/ only (never groovy/scripts)
+        tc_dir = root / "Test Cases"
+        for p in sorted(tc_dir.rglob("*.tc")) if tc_dir.exists() else []:
+            rel = str(p.relative_to(root))
+            items.append(DiscoveredItem(
+                binding_id=binding.id, project_id=binding.project_id,
+                sha=sha, kind="case", path=rel,
+                name=p.stem, parent=str(p.parent.relative_to(root))))
+        # Suites vs collections: content root tag, not filename.
+        ts_dir = root / "Test Suites"
+        for p in sorted(ts_dir.rglob("*.ts")) if ts_dir.exists() else []:
+            rel = str(p.relative_to(root))
+            tag, warn = _xml_root(p)
+            if warn:
+                out["warnings"].append(f"{rel}: {warn}")
+            kind = ("collection" if tag == "TestSuiteCollectionEntity"
+                    else "suite")
+            dynamic = False
+            if kind == "suite" and tag:
+                try:
+                    r = ET.parse(str(p)).getroot()
+                    dynamic = bool(r.findall(".//testCaseRunType")) or                         "dynamic" in (r.findtext("name") or "").lower()
+                except Exception:
+                    pass
+            items.append(DiscoveredItem(
+                binding_id=binding.id, project_id=binding.project_id,
+                sha=sha, kind=kind, path=rel, name=p.stem,
+                parent=str(p.parent.relative_to(root)),
+                dynamic=dynamic,
+                warnings=(warn or "")))
+            out["suites" if kind == "suite" else "collections"] += 1
+        # Profiles: names only — never parse/render values.
+        prof_dir = root / "Profiles"
+        for p in sorted(prof_dir.rglob("*.glbl")) if prof_dir.exists() else []:
+            items.append(DiscoveredItem(
+                binding_id=binding.id, project_id=binding.project_id,
+                sha=sha, kind="profile",
+                path=str(p.relative_to(root)), name=p.stem))
+            out["profiles"] += 1
+        out["cases"] = sum(1 for i in items if i.kind == "case")
+        # Atomic replace: delete prior set + insert new in one commit.
+        DiscoveredItem.query.filter_by(binding_id=binding.id).delete()
+        db.session.add_all(items)
+        binding.discovered_sha = sha
+        binding.discovery_status = ("ok" if items else "none")
+        binding.discovery_error = ""
+        binding.discovery_at = utcnow()
+        binding.project_root = str(root.relative_to(base)) or "."
+        db.session.commit()
+        return out
+    except Exception as exc:
+        # Failed discovery: keep prior inventory, mark stale — never
+        # erase the last good set.
+        binding.discovery_status = "failed"
+        binding.discovery_error = str(exc)[:512]
+        db.session.commit()
+        out["error"] = str(exc)[:512]
+        return out

@@ -45,6 +45,15 @@ class GitBinding(db.Model):
     prj_path = db.Column(db.String(256), nullable=False, default="")  # .prj
     credential_ref = db.Column(db.String(64), nullable=False, default="")
     worktree_path = db.Column(db.String(512), nullable=False, default="")
+    # Discovery state (separate from fetch status): the last commit whose
+    # inventory was successfully parsed — stale if newer SHA unfetched.
+    discovered_sha = db.Column(db.String(64), nullable=False, default="")
+    discovery_status = db.Column(db.String(16), nullable=False,
+                                 default="pending")  # pending|ok|failed|none
+    discovery_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    discovery_error = db.Column(db.String(512), nullable=False,
+                                default="")
+    project_root = db.Column(db.String(256), nullable=False, default="")
     last_synced_sha = db.Column(db.String(64), nullable=False, default="")
     status = db.Column(db.String(32), nullable=False, default="never-synced")
     last_error = db.Column(db.Text, nullable=False, default="")
@@ -426,3 +435,24 @@ class SubmitToken(db.Model):
     __table_args__ = (db.UniqueConstraint(
         "schedule_id", "username", "token",
         name="uq_submit_tokens"),)
+
+
+class DiscoveredItem(db.Model):
+    """Typed discovered inventory from a source binding (§onboarding).
+    Rebuilt atomically per discovered SHA — a failed fetch/discovery
+    never erases the last good set."""
+    __tablename__ = "discovered_items"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    binding_id = db.Column(db.String(32), db.ForeignKey("git_bindings.id"),
+                           nullable=False)
+    project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
+                           nullable=False)
+    sha = db.Column(db.String(64), nullable=False, default="")
+    kind = db.Column(db.String(16), nullable=False)   # case|suite|collection|profile
+    path = db.Column(db.String(512), nullable=False)  # repo-relative
+    name = db.Column(db.String(256), nullable=False, default="")
+    parent = db.Column(db.String(512), nullable=False, default="")
+    order_idx = db.Column(db.Integer, nullable=False, default=0)
+    dynamic = db.Column(db.Boolean, nullable=False, default=False)
+    warnings = db.Column(db.Text, nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
