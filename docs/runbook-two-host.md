@@ -28,11 +28,15 @@ Two authorized hosts; KRE install + licence (Stage B); agent token
 (secret, issued per runner, never in chat); Java/Allure optional;
 no sudo beyond service scope.
 
-## Exact revisions
-- Server + agent: same source, **`bb11dd5`** or later (capability
-  gate + claim endpoint + agent timeout/webdriver wiring).
-- Agent must register with `capabilities: ["task-claim"]` — anything
-  else is refused work.
+## Exact pinned revision
+- Server + agent: **`57e2211d7aa1ed52a5b0a863ef28745e51afe07b`**
+  (pinned — not "or later"; both sides MUST run this exact revision
+  for the acceptance record).
+- Agent must register with `capabilities: ["task-claim"]` and
+  `agent_version: "0.2"` — anything else is refused work.
+- Deployment MUST include migration `d5e6f7a8b9c0`
+  (`runners.agent_capabilities`) — run `flask db upgrade` during
+  install; without it the capability gate cannot read the column.
 
 ## Host prerequisites
 - **Central:** source install + DB + portal listening; admin account.
