@@ -656,6 +656,29 @@ def fire_due_schedules(now=None) -> int:
         Schedule.next_run_at <= now).all()
     fired = 0
     for sched in due:
+        # Atomic claim (multi-worker safe): exactly one worker advances
+        # next_run_at/disables for THIS due time — the loser sees
+        # rowcount 0 and skips. A fire failure rolls the claim back so
+        # the schedule stays due; crash-after-claim is audited, and a
+        # 'once' schedule can never double-dispatch.
+        if sched.kind == "once":
+            claimed = db.session.query(Schedule).filter(
+                Schedule.id == sched.id,
+                Schedule.enabled.is_(True),
+                Schedule.next_run_at == sched.next_run_at,
+            ).update({"enabled": False, "next_run_at": None},
+                     synchronize_session=False)
+        else:
+            claimed = db.session.query(Schedule).filter(
+                Schedule.id == sched.id,
+                Schedule.enabled.is_(True),
+                Schedule.next_run_at == sched.next_run_at,
+            ).update({"next_run_at": now + timedelta(
+                         minutes=sched.interval_minutes or 60)},
+                     synchronize_session=False)
+        if not claimed:
+            db.session.rollback()
+            continue  # another worker claimed this fire
         try:
             cfg = sched.run_config()
             binding = GitBinding.query.filter_by(
@@ -679,17 +702,13 @@ def fire_due_schedules(now=None) -> int:
             record_audit(sched.created_by, "schedule.fired", sched.id)
             fired += 1
         except Exception as exc:
+            db.session.rollback()   # un-claim — stays due, fire retried
             record_audit("system", "schedule.fire_failed",
                          f"{sched.id}: {type(exc).__name__}: {exc}")
-        finally:
-            sched.last_run_at = now
-            if sched.kind == "once":
-                sched.enabled = False
-                sched.next_run_at = None
-            else:
-                sched.next_run_at = now + timedelta(
-                    minutes=sched.interval_minutes or 60)
             db.session.commit()
+        else:
+            sched.last_run_at = now
+            db.session.commit()     # claim + execution commit together
     return fired
 
 

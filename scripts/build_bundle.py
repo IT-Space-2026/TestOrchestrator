@@ -170,8 +170,11 @@ def main():
     args, _ = ap.parse_known_args()
     meta = json.loads((REPO / "release" / "release.json").read_text())
     plat = f"{platform.system().lower()}-{platform.machine()}"
+    commit = subprocess.run(
+        ["git", "rev-parse", "--short=8", "HEAD"], cwd=REPO,
+        capture_output=True, text=True).stdout.strip() or "unknown"
     name = f"testorchestrator-{meta['version']}-{plat}" \
-        + ("-frozen" if args.frozen else "")
+        + (f"-frozen-{commit}" if args.frozen else "")
     OUT.mkdir(exist_ok=True)
     bundle = OUT / f"{name}.tar.gz"
 

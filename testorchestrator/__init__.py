@@ -72,6 +72,19 @@ def create_app(config_object=Config) -> Flask:
     app.register_blueprint(system_bp)
     app.register_blueprint(portal_bp)
     app.register_blueprint(agent_bp)
+
+    @app.route("/healthz")
+    def healthz():
+        """Install/instance identity probe — lets the installer verify
+        the answering service is THIS install (never a foreign listener)."""
+        from flask import jsonify
+        meta = app.config.get("RELEASE_METADATA", {})
+        return jsonify({
+            "status": "ok",
+            "install_id": os.environ.get("TO_INSTALL_ID", ""),
+            "version": meta.get("version", ""),
+            "build": meta.get("build", ""),
+        })
     # Agent API is bearer-token authenticated, not session-based — CSRF
     # does not apply (no cookies honoured by this surface).
     csrf.exempt(agent_bp)

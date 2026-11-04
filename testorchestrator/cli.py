@@ -71,6 +71,55 @@ def cmd_readiness(args) -> int:
     return 0
 
 
+def _port_occupied(url: str, timeout: float = 2.0) -> bool:
+    """Is something already listening on the configured app address?
+    An occupied port means a fresh install cannot come up — only an
+    --upgrade of that existing install may proceed."""
+    import socket
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    try:
+        with socket.create_connection(
+                (u.hostname or "127.0.0.1", u.port or 80), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _install_health(url: str, timeout: float = 5.0) -> dict:
+    """GET <url>/healthz — returns {install_id, version} or {} when the
+    service is not actually up."""
+    import json as _json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+                url.rstrip("/") + "/healthz", timeout=timeout) as r:
+            return _json.loads(r.read().decode())
+    except Exception:
+        return {}
+
+
+def _verify_install(args, install_id: str) -> int:
+    """Readiness tied to THIS install: the health endpoint must answer
+    with the install_id written into web.env — an unrelated listener
+    returning 200 can never satisfy a fresh install."""
+    health = _install_health(args.url)
+    if not health:
+        print("[install] INCOMPLETE — service did not start or is not "
+              "reachable; units staged but readiness not verified "
+              "(start as root, then re-run `toctl readiness`)",
+              file=sys.stderr)
+        return 4
+    if install_id and health.get("install_id") != install_id:
+        print("[install] FAILED — a different TestOrchestrator instance "
+              "answers on the configured port; refusing to claim its "
+              "readiness for this install", file=sys.stderr)
+        return 4
+    print(f"[install] ready — install {install_id[:8]} "
+          f"build {health.get('version', '?')}")
+    return 0
+
+
 def cmd_backup(args) -> int:
     from pathlib import Path
     app = _app()
@@ -164,6 +213,16 @@ def cmd_install(args) -> int:
     pkg = app_src.parent              # package root: 3rdparty/deploy here
     toctl = payload / "app" / "toctl"
 
+    # 0) Pre-flight: an occupied app port means a fresh install cannot
+    #    come up — only an explicit --upgrade may reuse it. This blocks
+    #    the "stale listener returns 200" false-success class entirely.
+    if not args.dry_run and _port_occupied(args.url) and not args.upgrade:
+        print(f"[install] FAILED — {args.url} already answers; a fresh "
+              "install cannot start its service there. If this is an "
+              "in-place upgrade pass --upgrade (its readiness is then "
+              "verified against this install's id).", file=sys.stderr)
+        return 2
+
     if not args.dry_run:
         # 1) payload copy — rerun-safe (files overwrite, symlinks kept)
         if app_src.is_dir():          # the onedir -> payload/app
@@ -179,10 +238,12 @@ def cmd_install(args) -> int:
 
     # 2) web.env — app-scoped config; writable data lives outside payload
     env_file = config / "web.env"
+    install_id = os.urandom(12).hex()
     env_lines = [
         f"TO_INSTANCE_DIR={data}",
         "TO_SECURE_COOKIES=1",
         f"TO_SECRET_KEY={args.secret_key or os.urandom(24).hex()}",
+        f"TO_INSTALL_ID={install_id}",
     ]
     if not args.dry_run:
         env_file.write_text("\n".join(env_lines) + "\n")
@@ -268,18 +329,16 @@ def cmd_install(args) -> int:
         print(f"[install] services enabled+started: "
               f"{', '.join(units)}")
     elif not args.dry_run:
-        print("[install] units staged in config — enable as root when "
-              "ready")
+        print("[install] units staged in config — not started; enable "
+              "as root when ready (staging ≠ enablement)")
 
-    # 7) readiness — app answering on loopback is the bar here; unit
-    #    health is covered by the enable step's own output.
+    # 7) readiness — tied to THIS install via its install_id; a foreign
+    #    listener can never satisfy it. Non-started installs get an
+    #    explicit INCOMPLETE status, never a claimed-ready.
     if not args.dry_run:
-        rc = cmd_readiness(args)
+        rc = _verify_install(args, install_id)
         if rc != 0:
-            print("[install] ACTION: not ready — inspect "
-                  "journalctl -u testorchestrator-web; re-run install "
-                  "(safe to repeat)", file=sys.stderr)
-            return 3
+            return rc
     print(f"[install] done — URL https://localhost"
           f"{'' if args.https_port == 443 else ':' + str(args.https_port)}")
     return 0
@@ -341,6 +400,10 @@ def main(argv=None) -> int:
     p.add_argument("--java-home", default="")
     p.add_argument("--no-allure", action="store_true")
     p.add_argument("--no-service-start", action="store_true")
+    p.add_argument("--upgrade", action="store_true",
+                   help="in-place upgrade: an occupied app port is "
+                        "expected; readiness still verifies the new "
+                        "install's own id")
     p.add_argument("--yes", action="store_true")
     p.add_argument("--url", default="http://127.0.0.1:18080")
     p.add_argument("--dry-run", action="store_true")
