@@ -78,6 +78,10 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
                 str(rc.get("remote_webdriver_url") or "")[:512],
             "remote_webdriver_type":
                 str(rc.get("remote_webdriver_type") or "")[:64],
+            # Running-time limit in seconds (process-launch clock,
+            # not queue time); absent/0 = adapter default 3600.
+            "timeout_seconds":
+                int(rc.get("timeout_seconds") or 0),
             # Requested version-gated KRE options — applied only if the
             # detected runtime version supports them (adapters/kre.py).
             "kre_options": {
@@ -442,8 +446,12 @@ def run_execution(execution_id: str) -> None:
             creds.append(rw_url.split("@", 1)[0].split("://", 1)[1])
         if creds:
             args = args + [f"-apiKey={creds[0]}"]
+        # Timeout: run_invocation's process-group kill is the same safe
+        # path as cancel — a timed-out tree is never left running while
+        # its slot reports free (wait/force-kill before release).
         result = kre_adapter.run_invocation(
             args, log_dir, cancel_event=_DbCancelEvent(ex.id),
+            timeout_s=int(rc.get("timeout_seconds") or 3600),
             redact=creds,
         )
         ex.exit_status = result.exit_status

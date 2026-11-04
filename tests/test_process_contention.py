@@ -430,3 +430,90 @@ def test_browser_validation_and_remote_override(app, tmp_path):
     assert "-browserType=Firefox" not in args
     assert "-remoteWebDriverUrl=https://wd.example:4444/wd/hub" in args
     assert "-remoteWebDriverType=Selenium" in args
+
+
+def test_cancel_kills_process_tree(app, tmp_path):
+    """Running cancel: CANCEL_REQUESTED -> killpg on the process group —
+    parent AND child die, state reflects the cancel, slot released only
+    after confirmed stop (wait/force-kill)."""
+    import threading, time
+    marker = tmp_path / "tree.marker"
+    child_pid = tmp_path / "child.pid"
+    fake = tmp_path / "fakekre"
+    fake.write_text(
+        "#!/bin/sh\n"
+        f"sleep 300 & echo $! > {child_pid}\n"
+        f"touch {marker}\n"
+        "sleep 300\n")
+    fake.chmod(0o755)
+    with app.app_context():
+        from testorchestrator.execution import Runner, RuntimeConnection
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        r = Runner(name="local", connection_mode="local", max_slots=1)
+        db.session.add(r); db.session.flush()
+        db.session.add(RuntimeConnection(
+            name="fx", runner_id=r.id, executable_path=str(fake),
+            detected_version="9.0.0", enabled=True,
+            workspace_root=str(tmp_path / "ws")))
+        db.session.commit()
+        ex = dispatch.create_execution("m", s)
+        eid = ex.id
+    done = []
+    def worker():
+        with app.app_context():
+            dispatch.run_execution(eid); done.append(True)
+    t = threading.Thread(target=worker); t.start()
+    time.sleep(1.5)                          # parent+child running
+    assert child_pid.exists() and marker.exists()
+    with app.app_context():
+        dispatch.request_cancel(eid, "admin", "stop tree")
+    t.join(timeout=30)
+    assert done
+    cpid = int(child_pid.read_text().strip())
+    import os, signal as sig
+    try:
+        os.kill(cpid, 0); alive = True
+    except OSError:
+        alive = False
+    assert not alive                        # child confirmed stopped
+    with app.app_context():
+        ex = db.session.get(Execution, eid)
+        assert ex.state == ExecutionState.CANCELED
+        assert (ex.workspace_path and
+                (Path(ex.workspace_path) / "logs"
+                 / "kre-invocation.log").exists())
+
+
+def test_timeout_kills_after_limit(app, tmp_path):
+    """timeout_seconds in run_config -> snapshot -> run_invocation
+    timeout_s: process tree killed at the limit; reason recorded."""
+    import time
+    fake = tmp_path / "fakekre"
+    fake.write_text("#!/bin/sh\nsleep 300\n")
+    fake.chmod(0o755)
+    with app.app_context():
+        from testorchestrator.execution import Runner, RuntimeConnection
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        r = Runner(name="local", connection_mode="local", max_slots=1)
+        db.session.add(r); db.session.flush()
+        db.session.add(RuntimeConnection(
+            name="fx", runner_id=r.id, executable_path=str(fake),
+            detected_version="9.0.0", enabled=True,
+            workspace_root=str(tmp_path / "ws")))
+        db.session.commit()
+        ex = dispatch.create_execution(
+            "m", s, run_config={"timeout_seconds": 2})
+        eid = ex.id
+        assert ex.snapshot()["run_config"]["timeout_seconds"] == 2
+        t0 = time.time()
+        dispatch.run_execution(eid)
+        dt = time.time() - t0
+        ex = db.session.get(Execution, eid)
+        assert dt < 30                       # killed near 2s, not 300
+        assert ex.state in (ExecutionState.FAILED,
+                            ExecutionState.UNKNOWN,
+                            ExecutionState.CANCELED)

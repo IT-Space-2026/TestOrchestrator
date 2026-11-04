@@ -30,6 +30,10 @@
     {% else %}
       {{ rc.get('browser') or 'Chrome (headless)' }} — runs on the KRE host
     {% endif %}</dd>
+  {% if rc.get('timeout_seconds') %}
+  <dt>Timeout</dt><dd>{{ rc.timeout_seconds }}s (running time from
+    process launch)</dd>
+  {% endif %}
   <dt>Started</dt><dd>{{ ex.started_at or "—" }}</dd>
   <dt>Finished</dt><dd>{{ ex.finished_at or "—" }}</dd>
   <dt>Exit status</dt><dd>{{ ex.exit_status if ex.exit_status is not none else "—" }}</dd>

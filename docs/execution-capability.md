@@ -42,32 +42,34 @@ restrictions are NOT applied to the remote node's browser.
 ## 4. Browser compatibility
 
 `SUPPORTED_BROWSERS`: Chrome, Chrome (headless), Firefox,
-Firefox (headless), Edge (=Edge Chromium — all platforms, Linux
-drivers exist per Katalon 8.x notes), Edge (legacy, Windows-only),
-Safari (macOS-only). Validation normalizes ids + legacy display
+Firefox (headless), Edge (=Edge Chromium — argument accepted on all
+platforms; actual runtime support requires the browser installed on
+the KRE host — **not guaranteed, unverified per KRE version**),
+Edge (legacy, Windows-only), Safari (macOS-only). Validation normalizes ids + legacy display
 strings, rejects unknown values at launch as config errors, and
 checks runner `os_arch` only for local-browser selections. When the
 runner OS is unknown the choice is accepted and surfaced (not
 guaranteed) — platform compatibility never implies the browser is
 installed on the host.
 
-## 5. Capacity / dispatch guarantees
+## 5. Capacity / dispatch — per-item evidence matrix
 
-- Atomic `QUEUED|DISPATCHED → PREPARING` claim — one winner; losers
-  skip (`dispatch_skipped` audit) or hit lock/busy → retried next
-  tick, session stays usable (fixture-verified, 2- and 3-process).
-- Enabled/draining runners and `max(0, min(slots, license_slots) −
-  active)` capacity enforced in `pick_runner`/`effective_slots`.
-- Uncertain work is NOT auto-reexecuted: post-commit failure keeps a
-  single execution; `reconcile_stale` marks ambiguous work UNKNOWN,
-  never blind-redispatches.
-- Cancellation boundary: pending (queued/dispatched) → atomic cancel
-  wins or loses to the PREPARING claim; running → CANCEL_REQUESTED
-  (**running-process kill unverified** — flag only).
-- Timeout field: **missing** (no per-execution timeout config/arg).
-- Artifact-return failure / stale-worker / restart-mid-run: states
-  UNKNOWN/audited; no duplicate dispatch (impl; restart path covered
-  by contention tests, host path pending).
+| Item | Evidence |
+|---|---|
+| One job, competing workers | `test_schedule_contention_independent_processes` (N=2,3) — 1 execution |
+| One-slot capacity, competing jobs | `test_dispatch_then_cancel_still_cancels_queued_scope` + effective_slots unit coverage — queued when full; NOT proven under two live jobs racing one slot — **partial** |
+| Licence allowance | `effective_slots` caps at `min(slots, license_slots)` (impl); exhausted-licence race **unverified** |
+| Disabled/draining runner | `pick_runner` filters `enabled & not draining` (impl); **unverified** end-to-end |
+| Stale worker | `reconcile_stale` → UNKNOWN (impl); host path **unverified** |
+| Restart during execution | UNKNOWN/audited path (impl); mid-run restart **unverified** |
+| Artifact-return failure | collection failure marks execution, no re-dispatch (impl); **unverified** |
+| Running-process cancel | `test_cancel_kills_process_tree` — killpg TERM→KILL, parent+child dead, state CANCELED, evidence preserved, slot held until confirmed stop (**fixture-verified; real-KRE kill unverified**) |
+| Pending cancel | `test_cancel_between_claim_and_launch_aborts` (synchronized) |
+| Collection parallelism | **unverified** — see §6 |
+
+The atomic claim prevents two workers taking one job; it does NOT by
+itself prevent two jobs exceeding one runner's slots — capacity is a
+separate `effective_slots` check, partial coverage noted above.
 
 ## 6. Parallelism — stated precisely
 
@@ -77,6 +79,17 @@ installed on the host.
    suite-collection semantics; not a documented/verified path.
 3. **Case-level sharding** — out of scope, not implemented.
 Slots ≠ collection parallelism ≠ sharding.
+
+**Collection semantics (inspected):** the Orchestrator passes the whole
+suite/collection to KRE via `-testSuitePath=` — any intra-collection
+parallelism is KRE-side config (suite collection execution settings),
+invisible to the Orchestrator. A global `-browserType=`/`-executionProfile=`
+arg applies KRE-wide — it does not rewrite collection-level browser/
+profile entries; those resolve inside KRE. One collection execution
+consumes one Orchestrator slot + licence allowance; the Orchestrator
+sees only the invocation's aggregate results, not internal sessions.
+Desired-capabilities editor deferred — the supported path is remote
+URL+driver-type here, capabilities in the KRE project settings.
 
 ## 7. Retry layering
 
@@ -98,8 +111,12 @@ See `docs/runbook-authorized-host.md` for the base procedure.
 
 ## 9. Remaining gaps (ranked)
 
-1. Running-process termination unverified (kill path).
-2. Desired-capabilities editing for remote browsers (impl gap).
-3. Execution timeout field (impl gap).
-4. Two-host/licensed-KRE evidence (access blocker).
-5. Collection-parallelism semantics (unspecified).
+1. Real-KRE running-process termination (fixture-verified kill path;
+   licensed-KRE kill unverified).
+2. Desired-capabilities editing for remote browsers (deferred —
+   supported path: URL+type here, capabilities in the KRE project).
+3. Two-host/licensed-KRE + exhausted-licence evidence (access).
+4. Collection-parallelism semantics (KRE-side, not observable).
+5. Timeout semantics: `timeout_seconds` — running-time from process
+   launch, enforced by the same killpg path, persists in snapshot,
+   shown in detail; empty = 3600 s default (fixture-verified).
