@@ -71,6 +71,44 @@ def build_args(
     ]
 
 
+# Version-gated console options (§5): each flag declares the minimum KRE
+# major version it is supported on. Thresholds are the adapter's declared
+# contract — operators verify them against the INSTALLED build; an
+# unknown or lower detected version drops the option with an evidence
+# note rather than emitting a guessed flag.
+OPTION_GATES = {
+    "retry": ("-retry", 8, "immediate retry of failed cases"),
+    "retryStrategy": ("-retryStrategy", 9, "retry strategy policy"),
+    "maxFailedTests": ("-maxFailedTests", 9, "abort after N failures"),
+}
+
+
+def version_major(version: str) -> int | None:
+    match = re.match(r"\s*(\d+)", version or "")
+    return int(match.group(1)) if match else None
+
+
+def gated_flags(version: str, requested: dict) -> tuple:
+    """(flags, dropped): apply the option gate to requested kre_options.
+    Keys outside OPTION_GATES and options below the detected version are
+    dropped (reported), so only verified-supported flags reach argv."""
+    flags, dropped = [], []
+    major = version_major(version)
+    for key, value in (requested or {}).items():
+        spec = OPTION_GATES.get(str(key))
+        if spec is None:
+            dropped.append(f"{key} (not an allowlisted option)")
+        elif major is None:
+            dropped.append(f"{key} (KRE version unknown — requires "
+                           f">= {spec[1]}.x)")
+        elif major < spec[1]:
+            dropped.append(f"{key} (requires KRE >= {spec[1]}.x, "
+                           f"detected {version})")
+        else:
+            flags.append(f"{spec[0]}={value}")
+    return flags, dropped
+
+
 def probe_version(executable: str, timeout: int = 30) -> str:
     """Probe an existing installation's version. Raises KreError when the
     executable is missing or unprobeable — actionable prerequisite error."""

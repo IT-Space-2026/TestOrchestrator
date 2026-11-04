@@ -25,11 +25,12 @@ from . import settings as settings_mod
 from .adapters import kre as kre_adapter
 from .adapters.dagu import DaguAdapter, NotConfigured as DaguNotConfigured
 from .execution import (Artifact, Execution, ExecutionState, GitBinding,
-                        OutboxEvent, Outcome, Runner, RuntimeConnection,
-                        Suite, SyncState, TestResult, utcnow)
+                        OutboxEvent, Outcome, Plan, Runner,
+                        RuntimeConnection, Schedule, Suite, SyncState,
+                        TestResult, utcnow)
 from .extensions import db
 from .models import record_audit
-from .results import aggregate_outcome, parse_junit
+from .results import aggregate_outcome, entry_state, parse_junit
 from . import results as results_mod
 
 LEASE_SECONDS = 60
@@ -44,13 +45,15 @@ class DispatchError(RuntimeError):
 
 def create_execution(username: str, suite: Suite, binding: GitBinding = None,
                      plan_id: str = "",
-                     source_sha: str = "", run_config: dict = None) -> Execution:
+                     source_sha: str = "", run_config: dict = None,
+                     extra_snapshot: dict = None) -> Execution:
     """Create an immutable execution snapshot (§4, A07). Later suite edits
     create new suite versions; this row's snapshot never changes."""
 
     rc = dict(run_config or {})
     snapshot = {
         "plan_id": plan_id,
+        "plan_run_id": (extra_snapshot or {}).get("plan_run_id", ""),
         "suite_id": suite.id,
         "suite_name": suite.name,
         "suite_version": suite.version,
@@ -72,6 +75,7 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
         "source_sha": source_sha,
         "created_by": username,
     }
+    snapshot.update(extra_snapshot or {})
     execution = Execution(
         project_id=suite.project_id,
         suite_id=suite.id,
@@ -91,6 +95,57 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
         kind=kind, payload_json=json.dumps({"execution_id": execution.id})))
     db.session.commit()
     return execution
+
+
+def queue_plan_executions(username: str, plan: Plan,
+                          binding: GitBinding = None,
+                          source_sha: str = "",
+                          entries: list = None,
+                          plan_run_id: str = "") -> tuple:
+    """Queue one execution per plan entry under a shared plan_run_id —
+    the durable handle that lets summaries, stop-on-failure and
+    rerun-failed group attempts of the same run (§10)."""
+    run_id = plan_run_id or new_plan_run_id()
+    exs = []
+    for entry in (entries if entries is not None else plan.entries):
+        exs.append(create_execution(
+            username, entry.suite, binding=binding, source_sha=source_sha,
+            plan_id=plan.id,
+            extra_snapshot={"plan_run_id": run_id}))
+    return run_id, exs
+
+
+def new_plan_run_id() -> str:
+    import uuid
+    return uuid.uuid4().hex
+
+
+def retry_execution(username: str, ex: Execution) -> Execution:
+    """Queue the NEXT attempt as a new immutable execution (§10):
+    retry_of links the chain, attempt increments, plan_run_id is kept so
+    plan aggregation counts the latest attempt — never a rerun/mutation
+    of the original row."""
+    terminal = (ExecutionState.COMPLETED, ExecutionState.FAILED,
+                ExecutionState.CANCELED, ExecutionState.UNKNOWN)
+    if ex.state not in terminal:
+        raise DispatchError(
+            "only terminal executions can be retried — cancel first")
+    snap = ex.snapshot()
+    binding = (db.session.get(GitBinding, ex.binding_id)
+               if ex.binding_id else None)
+    new_ex = create_execution(
+        username, ex.suite, binding=binding, source_sha=ex.source_sha,
+        plan_id=snap.get("plan_id") or "",
+        run_config=snap.get("run_config") or {},
+        extra_snapshot={
+            "plan_run_id": snap.get("plan_run_id") or "",
+            "retry_of": ex.id,
+            "attempt": int(snap.get("attempt") or 1) + 1,
+        })
+    record_audit(username, "execution.retry_queued",
+                 f"{new_ex.id} (retry of {ex.id}, attempt "
+                 f"{int(snap.get('attempt') or 1) + 1})")
+    return new_ex
 
 
 def _dagu_configured() -> bool:
@@ -264,6 +319,20 @@ def run_execution(execution_id: str) -> None:
         ex.started_at = utcnow()
 
         rc = ex.snapshot().get("run_config") or {}
+        # Version-gated options (§5): requested flags the detected KRE
+        # build does not support are dropped with an evidence note —
+        # never emitted as guessed flags.
+        flags, dropped = kre_adapter.gated_flags(
+            runtime.detected_version, rc.get("kre_options") or {})
+        if dropped:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            note = (f"version-gated options dropped for KRE "
+                    f"{runtime.detected_version or 'unknown'}: "
+                    + ", ".join(dropped))
+            (log_dir / "kre-gating.log").write_text(note + "\n",
+                                                  encoding="utf-8")
+            record_audit("system", "kre.options_gated",
+                         f"{ex.id}: {note}")
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             project_path=str(project_dir),
@@ -271,6 +340,7 @@ def run_execution(execution_id: str) -> None:
             report_dir=str(report_dir),
             profile=rc.get("profile", "default"),
             browser=rc.get("browser", "Chrome (headless)"),
+            extra=flags,
         )
 
         _transition(ex, ExecutionState.RUNNING)
@@ -568,8 +638,133 @@ def reconcile_stale() -> int:
     return len(stale)
 
 
+# ---------- schedules & plan policies (§10) ----------
+
+def fire_due_schedules(now=None) -> int:
+    """Fire enabled schedules whose next_run_at has passed — the worker
+    tick owns firing; request handlers only manage definitions. A missed
+    fire time runs late on the next tick and is audited, never dropped."""
+    now = now or utcnow()
+    due = Schedule.query.filter(
+        Schedule.enabled.is_(True),
+        Schedule.next_run_at.isnot(None),
+        Schedule.next_run_at <= now).all()
+    fired = 0
+    for sched in due:
+        try:
+            cfg = sched.run_config()
+            binding = GitBinding.query.filter_by(
+                project_id=sched.project_id).first()
+            sha = binding.last_synced_sha if binding else ""
+            if sched.target_type == "plan" and sched.plan_id:
+                plan = db.session.get(Plan, sched.plan_id)
+                if plan is None:
+                    raise DispatchError("scheduled plan no longer exists")
+                queue_plan_executions(sched.created_by, plan,
+                                      binding=binding, source_sha=sha)
+            elif sched.target_type == "suite" and sched.suite_id:
+                suite = db.session.get(Suite, sched.suite_id)
+                if suite is None:
+                    raise DispatchError("scheduled suite no longer exists")
+                create_execution(sched.created_by, suite, binding=binding,
+                                 source_sha=sha, run_config=cfg)
+            else:
+                raise DispatchError(
+                    f"invalid schedule target {sched.target_type!r}")
+            record_audit(sched.created_by, "schedule.fired", sched.id)
+            fired += 1
+        except Exception as exc:
+            record_audit("system", "schedule.fire_failed",
+                         f"{sched.id}: {type(exc).__name__}: {exc}")
+        finally:
+            sched.last_run_at = now
+            if sched.kind == "once":
+                sched.enabled = False
+                sched.next_run_at = None
+            else:
+                sched.next_run_at = now + timedelta(
+                    minutes=sched.interval_minutes or 60)
+            db.session.commit()
+    return fired
+
+
+def enforce_plan_policies() -> int:
+    """Per-entry failure policy (§10): an entry configured
+    on_failure=stop whose LATEST execution reached a terminal non-passed
+    state cancels its plan-run siblings still queued/dispatched —
+    entries already running finish naturally (cancel-queued scope only).
+
+    Runs every tick, restart-safe: a missed enforcement simply applies
+    late. A queued retry ('not-started' latest state) holds enforcement."""
+    cancelled = 0
+    runs = {}
+    for ex in Execution.query.filter(
+            Execution.state.in_([ExecutionState.COMPLETED,
+                                 ExecutionState.FAILED,
+                                 ExecutionState.CANCELED,
+                                 ExecutionState.UNKNOWN])).all():
+        rid = ex.snapshot().get("plan_run_id")
+        if rid:
+            runs.setdefault(rid, []).append(ex)
+    if not runs:
+        return 0
+    pending = {e.id: e for e in Execution.query.filter(
+        Execution.state.in_([ExecutionState.QUEUED,
+                             ExecutionState.DISPATCHED])).all()}
+    for rid, exs in runs.items():
+        plan = db.session.get(
+            Plan, exs[0].snapshot().get("plan_id") or "")
+        if plan is None:
+            continue
+        entries = {e.suite_id: e for e in plan.entries}
+        # Latest execution per entry decides — a retry in flight blocks.
+        latest = {}
+        for ex in exs:
+            sid = ex.snapshot().get("suite_id")
+            if sid not in latest or (
+                    ex.created_at and latest[sid].created_at
+                    and ex.created_at > latest[sid].created_at):
+                latest[sid] = ex
+        stop_orders = []
+        for sid, ex in latest.items():
+            entry = entries.get(sid)
+            if entry is None:
+                continue
+            cfg = json.loads(entry.config_json or "{}")
+            if cfg.get("on_failure") == "stop" \
+                    and entry_state(ex) not in ("passed", "not-started"):
+                stop_orders.append(entry.order)
+        if not stop_orders:
+            continue
+        threshold = min(stop_orders)
+        for sib in pending.values():
+            snap = sib.snapshot()
+            if snap.get("plan_run_id") != rid:
+                continue
+            entry = entries.get(snap.get("suite_id"))
+            if entry is None or entry.order <= threshold:
+                continue
+            sib.state = ExecutionState.CANCELED
+            sib.cancel_reason = (
+                f"plan stop-on-failure: entry order {threshold} "
+                "ended non-passed")
+            sib.outcome = Outcome.INCOMPLETE
+            sib.finished_at = utcnow()
+            if sib.dispatch_id:
+                try:
+                    DaguAdapter.from_settings().cancel(sib.dispatch_id)
+                except Exception:
+                    pass
+            record_audit("system", "plan.stop_on_failure_cancel", sib.id)
+            cancelled += 1
+    if cancelled:
+        db.session.commit()
+    return cancelled
+
+
 def worker_once() -> int:
-    n = reconcile_stale() + process_outbox()
+    n = (reconcile_stale() + fire_due_schedules() + process_outbox()
+         + enforce_plan_policies())
     # Dagu-side reconciliation (§7): a finished dagu run with no portal
     # result is ambiguous -> UNKNOWN, never a blind re-dispatch. Agent
     # heartbeats — not dagu run state — own lease renewal.

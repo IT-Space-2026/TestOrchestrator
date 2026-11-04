@@ -123,6 +123,42 @@ class Release(db.Model):
     project = db.relationship("Project", backref="releases")
 
 
+class Schedule(db.Model):
+    """Scheduled suite/plan execution (§10, §16 Test Manager).
+
+    Fired by the durable worker tick — never inside request handlers.
+    A missed fire time runs late on the next tick (recorded), it is never
+    silently dropped; a 'once' schedule disables itself after firing."""
+
+    __tablename__ = "schedules"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
+                           nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    target_type = db.Column(db.String(8), nullable=False)   # suite|plan
+    suite_id = db.Column(db.String(32), db.ForeignKey("suites.id"),
+                         nullable=True)
+    plan_id = db.Column(db.String(32), db.ForeignKey("plans.id"),
+                        nullable=True)
+    kind = db.Column(db.String(16), nullable=False,
+                     default="interval")                   # once|interval
+    interval_minutes = db.Column(db.Integer, nullable=True)
+    next_run_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_run_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    run_config_json = db.Column(db.Text, nullable=False, default="{}")
+    created_by = db.Column(db.String(64), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    project = db.relationship("Project", backref=db.backref(
+        "schedules", cascade="all, delete-orphan"))
+    suite = db.relationship("Suite")
+    plan = db.relationship("Plan")
+
+    def run_config(self) -> dict:
+        return json.loads(self.run_config_json or "{}")
+
+
 class Runner(db.Model):
     """Registered execution host (§6). Local mode first."""
 

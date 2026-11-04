@@ -1,13 +1,17 @@
-"""Bundled-Git launcher (§7 consolidated direction).
+"""Bundled-Git launcher — cli-backend fallback only.
 
-The application invokes the vendored Git (3rdparty/git/<target>/rootfs)
+Application git workflows run on the Dulwich backend by default. When an
+operator explicitly selects ``TO_GIT_BACKEND=cli`` (source builds), the
+application invokes the vendored Git (3rdparty/git/<target>/rootfs)
 through a controlled per-process environment: the bundled binary plus
 its own library path and exec path, scoped to each git subprocess. No
 global LD_LIBRARY_PATH, nothing required of the user, and unrelated
 processes keep their normal environment.
 
 If the bundle for this platform is absent, the host's declared Git
-prerequisite is used — the fallback is recorded, never silent.
+prerequisite is used — the fallback is recorded, never silent. The
+frozen candidate ships no bundled git: workflows are Dulwich-only there,
+and selecting the cli backend without a host git fails honestly.
 """
 
 import os

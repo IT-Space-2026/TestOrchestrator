@@ -1,6 +1,6 @@
 from flask_wtf import FlaskForm
-from wtforms import (IntegerField, SelectMultipleField, StringField,
-                     TextAreaField)
+from wtforms import (IntegerField, SelectField, SelectMultipleField,
+                     StringField, TextAreaField)
 from wtforms.validators import DataRequired, Length, Optional
 
 
@@ -30,6 +30,23 @@ class PlanForm(FlaskForm):
     name = StringField("Plan name", validators=[DataRequired(), Length(max=128)])
     description = TextAreaField("Description", validators=[Optional()])
     parallelism = IntegerField("Max parallel executions", default=1)
+
+
+class ScheduleForm(FlaskForm):
+    name = StringField("Schedule name",
+                       validators=[DataRequired(), Length(max=128)])
+    description = TextAreaField("Description", validators=[Optional()])
+    target_type = SelectField("Target", choices=[("suite", "Suite"),
+                                                 ("plan", "Plan")])
+    target_id = SelectField("Runs", validators=[DataRequired()])
+    kind = SelectField("Kind", choices=[("once", "Once"),
+                                        ("interval", "Repeating")])
+    run_at = StringField("First run (UTC, YYYY-MM-DD HH:MM)",
+                         validators=[Optional()])
+    interval_minutes = IntegerField("Every N minutes", default=60)
+    execution_profile = StringField("Execution profile",
+                                    default="default")
+    browser_type = StringField("Browser", default="Chrome (headless)")
 
 
 class PlainForm(FlaskForm):

@@ -14,8 +14,9 @@ Exclusions from the runtime distribution (kept in the source repo):
 - tests/, caches (__pycache__, .pytest_cache), instance data, venvs,
   dist/, and any other build-only content.
 
-KRE stays external by requirement. Bundled Python/Git/Caddy/Dagu/Allure
-are the agreed offline payload — do NOT remove them.
+KRE stays external by requirement. Bundled Python/Caddy/Dagu/Allure are
+the agreed offline payload. Bundled git remains only in the standard
+build (opt-in cli backend); the frozen candidate is Dulwich-only.
 """
 import hashlib
 import json
@@ -46,7 +47,7 @@ INCLUDE = [
     ("3rdparty/python-runtime", "python-runtime"),
     ("3rdparty/python-wheels", "python-deps"),
     # --frozen candidate swaps the two entries above for the onedir.
-    ("3rdparty/git", "git"),
+    ("3rdparty/git", "git"),   # cli-backend fallback (standard build only)
     ("3rdparty/caddy", "caddy"),
     ("3rdparty/dagu", "dagu"),
     ("3rdparty/allure", "allure"),
@@ -84,14 +85,16 @@ def _excluded(rel: Path) -> bool:
 
 def candidate_includes(frozen: bool) -> list:
     """--frozen: the PyInstaller onedir replaces bundled CPython +
-    vendored wheels. Everything else — git, dagu, caddy, allure,
-    installer/docs — is unchanged. Bundled git STAYS: internal repo
-    ops still shell out via GitPython -> bundled git."""
+    vendored wheels, and the vendored git rootfs is dropped — frozen
+    workflows are Dulwich-only (no GitPython, no bundled git, no host
+    git prerequisite). The standard build keeps 3rdparty/git as the
+    documented cli-backend fallback."""
     if not frozen:
         return INCLUDE
     out = [("dist/frozen/testorchestrator", "frozen-app")]
     return out + [(i, c) for i, c in INCLUDE
-                  if not i.startswith("3rdparty/python")]
+                  if not i.startswith("3rdparty/python")
+                  and i != "3rdparty/git"]
 
 
 def required_list(frozen: bool) -> list:
@@ -149,8 +152,11 @@ DEPENDENCIES = {
                        "product",
     },
     "git": {
-        "required_for": "none on ubuntu targets — vendored; other "
-                        "platforms fall back to declared host git",
+        "required_for": "none — workflows run on the Dulwich backend "
+                        "(pure python); vendored git in the standard "
+                        "build only backs the opt-in "
+                        "TO_GIT_BACKEND=cli path, else host git is a "
+                        "declared prerequisite",
     },
 }
 
@@ -192,8 +198,10 @@ def main():
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=REPO,
         capture_output=True, text=True).stdout.strip()
-    bundled = {
-        "git": "vendored ubuntu-resolute-amd64 rootfs",
+    bundled = {}
+    if not args.frozen:
+        bundled["git"] = "vendored ubuntu-resolute-amd64 rootfs (cli-backend fallback)"
+    bundled |= {
         "caddy": "pinned binary + licence + sha256",
         "dagu": "pinned 2.25.2 release tarball",
         "allure": "pinned allure-commandline generator",

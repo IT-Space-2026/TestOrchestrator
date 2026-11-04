@@ -19,7 +19,8 @@ from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
 from ..execution import (Execution, ExecutionState, GitBinding, OutboxEvent,
-                         Plan, Project, Release, Suite, SuiteEntry, utcnow)
+                         Plan, PlanEntry, Project, Release, Schedule, Suite,
+                         SuiteEntry, utcnow)
 from ..extensions import db
 from ..models import Role, record_audit
 from ..security import role_required
