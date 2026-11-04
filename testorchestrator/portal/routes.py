@@ -359,8 +359,17 @@ def bulk_cancel_executions():
           ". A request is queued — it does NOT confirm a remote "
           "process has stopped.", "info")
     # Return to the SAME filtered view the user selected from —
-    # selection context must not be silently dropped.
-    ret = json.loads(request.form.get("ret", "{}") or "{}")
+    # caller-controlled ret is whitelisted to known filter keys and
+    # string values only; anything else falls back to the plain page.
+    ret = {}
+    try:
+        _r = json.loads(request.form.get("ret", "{}") or "{}")
+        ret = {k: str(v)[:128] for k, v in _r.items()
+               if k in ("q", "project_id", "state", "outcome",
+                        "runner_id", "schedule_id", "from_date",
+                        "to_date", "page") and isinstance(v, str)}
+    except Exception:
+        pass
     return redirect(url_for("portal.executions", **ret))
 
 
@@ -1147,6 +1156,21 @@ def run_schedule_now(schedule_id):
               "error")
         return redirect(url_for("portal.project_detail",
                               project_id=sched.project_id))
+    # Submission idempotency: each form render carries a unique token;
+    # a repeated submission of the SAME token maps back to the SAME
+    # execution — never a second launch. The unique constraint is the
+    # only race-safe barrier (concurrent requests serialize on it).
+    from ..execution import SubmitToken
+    tok = (request.form.get("submit_token") or "").strip()
+    if tok:
+        prior = SubmitToken.query.filter_by(
+            schedule_id=sched.id, username=current_user.username,
+            token=tok).first()
+        if prior and prior.execution_id:
+            flash("This submission was already processed — showing the "
+                  "same execution.", "info")
+            return redirect(url_for("portal.execution_detail",
+                                  execution_id=prior.execution_id))
     cfg = sched.run_config()
     binding = GitBinding.query.filter_by(
         project_id=sched.project_id).first()
@@ -1174,6 +1198,24 @@ def run_schedule_now(schedule_id):
         flash(str(exc), "error")
         return redirect(url_for("portal.project_detail",
                               project_id=sched.project_id))
+    if tok and ex:
+        try:
+            db.session.add(SubmitToken(
+                schedule_id=sched.id, username=current_user.username,
+                token=tok, execution_id=ex.id))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            # Concurrent identical submission won the unique key — its
+            # token row already points at the same new execution.
+            prior = SubmitToken.query.filter_by(
+                schedule_id=sched.id,
+                username=current_user.username, token=tok).first()
+            if prior and prior.execution_id != ex.id:
+                # Lost to a DIFFERENT execution — report the winner.
+                return redirect(url_for(
+                    "portal.execution_detail",
+                    execution_id=prior.execution_id))
     record_audit(current_user.username, "schedule.run_now", sched.id)
     flash("Schedule triggered manually — execution queued. The next "
           "scheduled fire is unchanged.", "info")

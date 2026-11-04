@@ -323,3 +323,119 @@ def test_migration_upgrade_preserves_existing(tmp_path):
         assert e.schedule_id is None                      # null link ok
         assert Execution.query.filter(
             Execution.schedule_id.is_(None)).count() == 1
+
+
+def test_run_now_idempotent_token(client, login_as, app):
+    """Repeated submission of the SAME token returns the SAME
+    execution; a different token makes a new run."""
+    with app.app_context():
+        s_id, r_id, r2_id, rt_id = _env(app)
+        s = db.session.get(Suite, s_id)
+        sc = Schedule(project_id=s.project_id, name="i",
+                      target_type="suite", suite_id=s.id,
+                      kind="interval", interval_minutes=30,
+                      next_run_at=utcnow() + timedelta(hours=1),
+                      enabled=True, created_by="m")
+        db.session.add(sc); db.session.commit()
+        sc_id = sc.id
+    login_as("admin")
+    url = f"/schedules/{sc_id}/run-now"
+    r1 = client.post(url, data={"submit_token": "tok-1"},
+                     follow_redirects=True)
+    n1 = Execution.query.filter_by(schedule_id=sc_id).count() \
+        if False else None
+    with app.app_context():
+        n1 = Execution.query.filter_by(schedule_id=sc_id).count()
+        first = Execution.query.filter_by(schedule_id=sc_id).first().id
+    assert n1 == 1
+    # duplicate POST, same token — same execution, still one
+    r2 = client.post(url, data={"submit_token": "tok-1"},
+                     follow_redirects=True)
+    with app.app_context():
+        assert Execution.query.filter_by(
+            schedule_id=sc_id).count() == 1
+    # new token — new execution (intentional resubmission)
+    client.post(url, data={"submit_token": "tok-2"},
+                follow_redirects=True)
+    with app.app_context():
+        assert Execution.query.filter_by(
+            schedule_id=sc_id).count() == 2
+
+
+def test_overlap_blocks_run_now_while_active(app, client, login_as):
+    """skip policy applies to Run now too — an active execution from
+    this schedule (incl. UNKNOWN) refuses the manual trigger."""
+    with app.app_context():
+        s_id, r_id, r2_id, rt_id = _env(app)
+        s = db.session.get(Suite, s_id)
+        sc = Schedule(project_id=s.project_id, name="o",
+                      target_type="suite", suite_id=s.id,
+                      kind="interval", interval_minutes=30,
+                      next_run_at=utcnow() + timedelta(hours=1),
+                      enabled=True, overlap_policy="skip",
+                      created_by="m")
+        db.session.add(sc); db.session.commit()
+        sc_id = sc.id
+        e = dispatch.create_execution("m", s, schedule_id=sc_id)
+        e.state = ExecutionState.UNKNOWN
+        db.session.commit()
+    login_as("admin")
+    resp = client.post(f"/schedules/{sc_id}/run-now",
+                       data={"submit_token": "t1"},
+                       follow_redirects=True)
+    assert b"still active" in resp.data or b"overlap" in resp.data
+    with app.app_context():
+        assert Execution.query.filter_by(
+            schedule_id=sc_id).count() == 1
+
+
+def test_run_now_cross_project_denied(app, client, login_as):
+    """A user without the schedule's project can't trigger it."""
+    import json as _j
+    with app.app_context():
+        s_id, r_id, r2_id, rt_id = _env(app)
+        s = db.session.get(Suite, s_id)
+        sc = Schedule(project_id=s.project_id, name="x",
+                      target_type="suite", suite_id=s.id,
+                      kind="once", enabled=True,
+                      next_run_at=utcnow(), created_by="m")
+        db.session.add(sc); db.session.commit()
+        sc_id, pid = sc.id, s.project_id
+    # tester scoped to a DIFFERENT project
+    with app.app_context():
+        from testorchestrator.models import User
+        u = User.query.filter_by(username='tester').first()
+        u.allowed_projects = '["some-other-project"]'
+        db.session.commit()
+    login_as("tester")
+    resp = client.post(f"/schedules/{sc_id}/run-now",
+                       data={"submit_token": "t1"},
+                       follow_redirects=True)
+    with app.app_context():
+        assert Execution.query.filter_by(
+            schedule_id=sc_id).count() == 0 or \
+            resp.status_code in (403, 404)
+
+
+def test_bulk_cancel_ret_safe_keys_only(app, client, login_as):
+    """Caller-controlled ret can't inject external URLs or junk —
+    only whitelisted filter keys, string values."""
+    with app.app_context():
+        s_id, *_ = _env(app)
+        s = db.session.get(Suite, s_id)
+        e1 = dispatch.create_execution("m", s)
+        db.session.commit()
+        eid = e1.id
+    login_as("admin")
+    resp = client.post(
+        "/executions/bulk-cancel",
+        data={"ex_ids": [eid],
+              "ret": '{"url": "https://evil.example", '
+                     '"state": "queued", "next": "//evil.example", '
+                     '"q": "ab"}'},
+        follow_redirects=False)
+    loc = resp.headers.get("Location", "")
+    assert "evil.example" not in loc
+    assert loc.startswith("/") or "127.0.0.1" in loc or loc == ""
+    # whitelisted keys survive
+    assert "state=queued" in loc or "q=ab" in loc

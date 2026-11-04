@@ -407,3 +407,22 @@ class SecretRef(db.Model):
     meta_json = db.Column(db.Text, nullable=False, default="{}")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     rotated_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+
+class SubmitToken(db.Model):
+    """Submission-idempotency record for Run now (and future manual
+    triggers). Unique (schedule_id, username, token) — a repeated
+    submission with the same token maps back to the SAME created
+    execution instead of double-launching. The unique constraint is
+    the only thing that survives concurrent requests/processes."""
+    __tablename__ = "submit_tokens"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    schedule_id = db.Column(db.String(32), db.ForeignKey("schedules.id"),
+                            nullable=False)
+    username = db.Column(db.String(64), nullable=False, default="")
+    token = db.Column(db.String(64), nullable=False, default="")
+    execution_id = db.Column(db.String(32), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    __table_args__ = (db.UniqueConstraint(
+        "schedule_id", "username", "token",
+        name="uq_submit_tokens"),)

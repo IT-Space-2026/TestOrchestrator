@@ -72,11 +72,15 @@ as a Runtime on the agent's runner. No licensed KRE.
 ## Consolidated Stage A build proposal (NOT built yet)
 
 Prior pin `57e2211` predates the execution-controls round. Proposed
-consolidated revision: **`1f6c0a1`** (tested HEAD at `b38c926`,
-262-pass suite) — server AND agent from the same checkout.
+consolidated revision: final tested application revision from the
+acceptance round — **`0e69693` + this round's fixes** (see below for
+exact SHA once committed; application code = run-now idempotency +
+scope-guarded targets + dedupe/safe-return). Server AND agent from
+the same checkout.
 
-- **Migration head:** `e6f7a8b9c0d1` (`db-upgrade` during install;
-  requires app stopped or single-writer — SQLite).
+- **Migration head:** `f7a8b9c0d1e2` (`submit_tokens` table —
+  `db-upgrade` during install; requires app stopped or single-writer
+  — SQLite).
 - **Agent requirement:** `AGENT_VERSION "0.2"` + `task-claim`
   capability at register (older agents refused work by design).
 - **Source/metadata:** build from `1f6c0a1`; stamp build metadata via

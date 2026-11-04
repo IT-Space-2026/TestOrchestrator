@@ -132,12 +132,18 @@
           {% if can_run and s.enabled %}
           <form method="post" action="{{ url_for('portal.run_schedule_now', schedule_id=s.id) }}" class="inline"
                 onsubmit="return confirm('Trigger this schedule now?');">
-            {{ plain_form.csrf_token }}<button class="button" type="submit">Run now</button></form>
+            {{ plain_form.csrf_token }}
+            <input type="hidden" name="submit_token"
+                   value="{{ s.id }}-{{ request.__dict__.get('nonce') or range(10**9,10**10)|random }}">
+            <button class="button" type="submit">Run now</button></form>
           {% endif %}
           {% if can_run and s.enabled %}
           <form method="post" action="{{ url_for('portal.run_schedule_now', schedule_id=s.id) }}" class="inline"
                 onsubmit="return confirm('Trigger this schedule now?');">
-            {{ plain_form.csrf_token }}<button class="button" type="submit">Run now</button></form>
+            {{ plain_form.csrf_token }}
+            <input type="hidden" name="submit_token"
+                   value="{{ s.id }}-{{ request.__dict__.get('nonce') or range(10**9,10**10)|random }}">
+            <button class="button" type="submit">Run now</button></form>
           {% endif %}
           <form method="post" action="{{ url_for('portal.delete_schedule', schedule_id=s.id) }}" class="inline">
             {{ plain_form.csrf_token }}<button class="button secondary" type="submit">Delete</button></form>
