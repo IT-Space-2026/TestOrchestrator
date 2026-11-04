@@ -58,3 +58,12 @@
     }
   });
 })();
+
+
+/* details-cancel buttons — CSP-safe (no inline handlers). */
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-cancel-details]");
+  if (!btn) return;
+  const d = btn.closest("details");
+  if (d) d.removeAttribute("open");
+});

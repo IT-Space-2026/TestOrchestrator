@@ -518,6 +518,7 @@ pre.example {
   font-weight: 600; border-radius: var(--radius-sm);
   border: 1px solid transparent; cursor: pointer;
   background: var(--accent); color: var(--accent-fg);
+  text-decoration: none;
   transition: background .12s, box-shadow .12s, opacity .12s;
 }
 .button:hover { filter: brightness(1.08); }
@@ -680,3 +681,30 @@ pre.example {
   .case-selector { grid-template-columns: 1fr; }
   .case-move { flex-direction: row; justify-content: center; }
 }
+
+
+/* --- explicit theme overrides (data-theme on <html>) --- */
+html[data-theme="light"] {
+  --bg: #f7f8fa; --panel: #ffffff; --sidebar-bg: #1f2a37;
+  --sidebar-fg: #e5e9f0; --text: #1a202c; --muted: #5a6472;
+  --accent: #1a56db; --accent-fg: #ffffff; --border: #d7dce3;
+  --danger-bg: #fdecec; --success-bg: #e6f4ec; --warn-bg: #fff8e1;
+  --dialog-backdrop: rgba(15, 23, 42, 0.55);
+}
+html[data-theme="dark"] {
+  --bg: #10151c; --panel: #182029; --sidebar-bg: #0d1218;
+  --sidebar-fg: #d8dee7; --text: #e6eaf0; --muted: #98a2b1;
+  --accent: #6d9bf5; --accent-fg: #0d1218; --border: #2c3644;
+  --danger-bg: #3a1b1b; --success-bg: #12331f; --warn-bg: #33260e;
+  --dialog-backdrop: rgba(0, 0, 0, 0.65);
+}
+/* theme select styling */
+.theme-row { display: flex; align-items: center; gap: .5rem;
+  padding: .6rem 1.25rem; }
+.theme-select {
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 0.3rem 0.5rem; font: inherit; font-size: var(--fs-sm);
+}
+.theme-select:focus-visible { outline: none;
+  box-shadow: var(--focus-ring); }

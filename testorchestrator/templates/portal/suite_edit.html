@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ "New suite" if not suite else "Edit " ~ suite.name }} · TestOrchestrator{% endblock %}
 {% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=project.id) }}">← Back to project</a></p>
 <h1>{{ "New suite" if not suite else "Edit suite" }}
   {% if suite %}<small class="muted">v{{ suite.version }}</small>{% endif %}</h1>
 <p class="muted">{{ project.name }} — pick the cases this suite runs,
@@ -73,7 +74,7 @@
 
   <div class="form-actions">
     <button type="submit" class="button">{{ "Create suite" if not suite else "Save suite" }}</button>
-    <a class="button ghost" href="{{ url_for('portal.project_detail', project_id=project.id) }}">Cancel</a>
+    <a class="button danger" href="{{ url_for('portal.project_detail', project_id=project.id) }}">Cancel</a>
     <span class="spacer"></span>
     {% if suite %}
     <span class="hint muted">Editing versions the suite — prior

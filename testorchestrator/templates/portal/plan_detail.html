@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ plan.name }} · TestOrchestrator{% endblock %}
 {% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=plan.project_id) }}">← Back to project</a></p>
 <h1>{{ plan.name }}</h1>
 <p>{{ plan.description }}</p>
 {% with messages = get_flashed_messages(with_categories=true) %}

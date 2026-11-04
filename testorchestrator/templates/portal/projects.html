@@ -3,14 +3,16 @@
 {% block content %}
 <h1>Projects</h1>
 {% if current_user.role.value in ("admin", "test_manager") %}
-<section class="card">
-  <form method="post">
+<details class="add-block card">
+  <summary class="button">New project</summary>
+  <form method="post" class="add-form">
     {{ form.csrf_token }}
     <div class="field">{{ form.name.label }} {{ form.name() }}</div>
     <div class="field">{{ form.description.label }} {{ form.description() }}</div>
-    <button type="submit" class="button">Create project</button>
+    <button type="submit" class="button">Apply</button>
+    <button type="button" class="button danger" data-cancel-details>Cancel</button>
   </form>
-</section>
+</details>
 {% endif %}
 
 <form method="get" class="filter-bar" role="search">
@@ -52,6 +54,20 @@
     </dl>
     <div class="form-actions">
       <a class="button secondary" href="{{ url_for('portal.project_detail', project_id=c.project.id) }}">Open</a>
+      {% if current_user.role.value in ("admin", "test_manager") %}
+      <details class="inline-details">
+        <summary class="button secondary">Edit</summary>
+        <form method="post" action="{{ url_for('portal.edit_project', project_id=c.project.id) }}" class="edit-form">
+          {{ form.csrf_token }}
+          <div class="field"><label>Name</label>
+            <input name="name" value="{{ c.project.name }}"></div>
+          <div class="field"><label>Description</label>
+            <textarea name="description">{{ c.project.description }}</textarea></div>
+          <button type="submit" class="button">Apply</button>
+          <button type="button" class="button danger" data-cancel-details>Cancel</button>
+        </form>
+      </details>
+      {% endif %}
     </div>
   </article>
   {% endfor %}

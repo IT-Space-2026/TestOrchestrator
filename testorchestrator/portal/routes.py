@@ -116,6 +116,19 @@ def create_project():
     return redirect(url_for("portal.projects"))
 
 
+@portal_bp.route("/projects/<project_id>/edit", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def edit_project(project_id):
+    project = _project_or_404(project_id)
+    form = ProjectForm()
+    if form.validate_on_submit():
+        project.name = form.name.data.strip()
+        project.description = form.description.data or ""
+        db.session.commit()
+        record_audit(current_user.username, "project.edited", project.id)
+    return redirect(url_for("portal.projects"))
+
+
 @portal_bp.route("/projects/<project_id>")
 @login_required
 def project_detail(project_id):
@@ -1181,6 +1194,24 @@ def create_release(project_id):
         db.session.commit()
         record_audit(current_user.username, "release.created", project.id)
     return redirect(url_for("portal.project_detail", project_id=project_id))
+
+
+@portal_bp.route("/releases/<release_id>/edit", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def edit_release(release_id):
+    release = db.session.get(Release, release_id)
+    if release is None:
+        abort(404)
+    _project_or_404(release.project_id)
+    name = request.form.get("name", "").strip()
+    if name:
+        release.name = name
+        release.description = request.form.get("description", "")
+        db.session.commit()
+        record_audit(current_user.username, "release.edited",
+                     release.id)
+    return redirect(url_for("portal.project_detail",
+                          project_id=release.project_id))
 
 
 @portal_bp.route("/releases/<release_id>/mark", methods=["POST"])

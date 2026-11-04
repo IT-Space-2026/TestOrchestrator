@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}TestOrchestrator{% endblock %}</title>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <link rel="icon" type="image/png"
         href="{{ url_for('static', filename='branding/iT-space-logo.png') }}">
@@ -75,6 +76,14 @@
     {% include "main/_about_content.html" %}
   </div>
 </div>
+<div class="theme-row">
+    <label for="theme-select" class="muted">Theme</label>
+    <select id="theme-select" class="theme-select">
+      <option value="system">System</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  </div>
 <script src="{{ url_for('static', filename='js/user-menu.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/about.js') }}" defer></script>
 {% endif %}

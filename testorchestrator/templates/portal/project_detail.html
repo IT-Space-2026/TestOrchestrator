@@ -59,7 +59,30 @@
 <!-- ============ SUITES ============ -->
 <section class="tab-panel card" id="panel-suites">
   <h2>Suites</h2>
+  {% if discovered and discovered.rows %}
+  <h3 class="muted">Repository definitions
+    <span class="badge accent">read-only</span></h3>
+  {% for kind, label in [("suite","Suites"),("collection","Collections")] %}
+  {% set items = discovered["rows"]|selectattr("kind","equalto",kind)|list %}
+  {% if items %}
+  <ul class="notice-list">
+    {% for i in items %}
+    <li>
+      <a href="{{ url_for('portal.discovered_detail', item_id=i.id) }}">
+        <strong>{{ i.name }}</strong></a>
+      <span class="badge {% if kind == 'collection' %}accent{% endif %}">{{ i.kind }}</span>
+      {% if i.dynamic %}<span class="badge warn">dynamic?</span>{% endif %}
+      <code class="muted">{{ i.path }}</code>
+      {% if i.members() %}<span class="muted">{{ i.members()|length }} members</span>{% endif %}
+      {% if i.warnings %}<span class="badge warn" title="{{ i.warnings }}">warn</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endfor %}
+  {% endif %}
   {% if project.suites %}
+  <h3 class="muted">App suites</h3>
   <ul class="notice-list">
     {% for s in project.suites %}
     <li>
@@ -75,7 +98,10 @@
     </li>
     {% endfor %}
   </ul>
-  {% else %}<p class="muted">No suites yet.</p>{% endif %}
+  {% endif %}
+  {% if not project.suites and not (discovered and discovered.rows) %}
+  <p class="muted">No suites yet.</p>
+  {% endif %}
   {% if can_edit %}
   <p><a class="button" href="{{ url_for('portal.suite_new', project_id=project.id) }}">Create suite</a></p>
   {% endif %}
@@ -147,8 +173,22 @@
   {% if project.releases %}
   <ul class="notice-list">
     {% for r in project.releases %}
-    <li><a href="{{ url_for('portal.release_detail', release_id=r.id) }}">{{ r.name }}</a>
-      — {{ r.status.value }}</li>
+    <li><strong>{{ r.name }}</strong>
+      — <span class="badge">{{ r.status.value }}</span>
+      {% if can_edit %}
+      <details class="inline-details">
+        <summary class="button secondary">Edit</summary>
+        <form method="post" action="{{ url_for('portal.edit_release', release_id=r.id) }}" class="edit-form">
+          {{ plain_form.csrf_token }}
+          <div class="field"><label>Name</label>
+            <input name="name" value="{{ r.name }}"></div>
+          <div class="field"><label>Description</label>
+            <textarea name="description">{{ r.description }}</textarea></div>
+          <button type="submit" class="button">Apply</button>
+          <button type="button" class="button danger" data-cancel-details>Cancel</button>
+        </form>
+      </details>
+      {% endif %}</li>
     {% endfor %}
   </ul>
   {% else %}<p class="muted">No releases yet.</p>{% endif %}
@@ -274,6 +314,7 @@
               <div class="field"><label>Credential ref</label>
                 <input name="credential_ref" value="{{ b.credential_ref }}"></div>
               <button type="submit" class="button">Apply</button>
+              <button type="button" class="button danger" data-cancel-details>Cancel</button>
             </form>
           </details>
           {% endif %}

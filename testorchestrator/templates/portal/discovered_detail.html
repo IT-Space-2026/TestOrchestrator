@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ item.name }} · TestOrchestrator{% endblock %}
 {% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=item.project_id) }}">← Back to project</a></p>
 <h1>{{ item.name }} <span class="badge">{{ item.kind }}</span></h1>
 <p class="muted">Source definition — read-only inventory; does not
   import historical executions.</p>
