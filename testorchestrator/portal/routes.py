@@ -143,8 +143,7 @@ def project_detail(project_id):
     suite_form.case_refs.choices = [(c, c) for c in cases]
     schedule_form = ScheduleForm()
     schedule_form.target_id.choices = [
-        (s.id, f"Suite: {s.name}") for s in project.suites] + [
-        (p.id, f"Plan: {p.name}") for p in project.plans]
+        (s.id, f"Suite: {s.name}") for s in project.suites]
     from ..execution import Runner, RuntimeConnection
     _runners = [x for x in Runner.query.filter_by(enabled=True).all()
                 if not x.draining]
@@ -158,7 +157,7 @@ def project_detail(project_id):
         for x in RuntimeConnection.query.filter_by(enabled=True).all()]
     return render_template(
         "portal/project_detail.html", project=project,
-        binding_form=BindingForm(), plan_form=PlanForm(),
+        binding_form=BindingForm(),
         suite_form=suite_form, plain_form=PlainForm(),
         schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,
         executions=Execution.query.filter_by(project_id=project_id)
@@ -623,6 +622,40 @@ def bulk_cancel_executions():
     return redirect(url_for("portal.executions", **ret))
 
 
+@portal_bp.route("/projects/<project_id>/releases", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def create_release(project_id):
+    project = _project_or_404(project_id)
+    name = request.form.get("name", "").strip()
+    if name:
+        db.session.add(Release(project_id=project.id, name=name,
+                               description=request.form.get(
+                                   "description", "")))
+        db.session.commit()
+        record_audit(current_user.username, "release.created",
+                     project.id)
+    return redirect(url_for("portal.project_detail",
+                          project_id=project_id))
+
+
+@portal_bp.route("/releases/<release_id>/edit", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def edit_release(release_id):
+    release = db.session.get(Release, release_id)
+    if release is None:
+        abort(404)
+    _project_or_404(release.project_id)
+    name = request.form.get("name", "").strip()
+    if name:
+        release.name = name
+        release.description = request.form.get("description", "")
+        db.session.commit()
+        record_audit(current_user.username, "release.edited",
+                     release.id)
+    return redirect(url_for("portal.project_detail",
+                          project_id=release.project_id))
+
+
 @portal_bp.route("/suites/<suite_id>/run", methods=["POST"])
 @role_required(*RUN_ROLES)
 def launch_execution(suite_id):
@@ -1004,348 +1037,6 @@ def view_log(execution_id, name):
 
 # ---------- plans & releases (definition level, §10) ----------
 
-@portal_bp.route("/projects/<project_id>/plans", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def create_plan(project_id):
-    project = _project_or_404(project_id)
-    form = PlanForm()
-    flash("New Plans are deprecated — use repository collections or "
-          "native suite authoring.", "error")
-    return redirect(url_for("portal.project_detail",
-                          project_id=project_id))
-    if form.validate_on_submit():
-        parallelism = max(1, min(4, form.parallelism.data or 1))
-        db.session.add(Plan(
-            project_id=project.id, name=form.name.data.strip(),
-            description=form.description.data or "",
-            parallelism=parallelism))
-        db.session.commit()
-        record_audit(current_user.username, "plan.created", project.id)
-    return redirect(url_for("portal.project_detail", project_id=project_id))
-
-
-@portal_bp.route("/plans/<plan_id>/run", methods=["POST"])
-@role_required(*RUN_ROLES)
-def run_plan(plan_id):
-    """Sequential execution first (§10): queue one execution per suite
-    entry in order; parallelism>1 remains bounded by runner capacity."""
-    plan = db.session.get(Plan, plan_id)
-    if plan is None:
-        abort(404)
-    _project_or_404(plan.project_id)
-    PlainForm().validate_on_submit()
-    binding = GitBinding.query.filter_by(project_id=plan.project_id).first()
-    sha = binding.last_synced_sha if binding else ""
-    run_id, exs = dispatch.queue_plan_executions(
-        current_user.username, plan, binding=binding, source_sha=sha)
-    record_audit(current_user.username, "plan.queued",
-                 f"{plan.id} run {run_id[:8]} ({len(exs)} entries)")
-    flash(f"Plan run {run_id[:8]} queued ({len(exs)} executions).", "info")
-    return redirect(url_for("portal.executions"))
-
-
-@portal_bp.route("/plans/<plan_id>/rerun-failed", methods=["POST"])
-@role_required(*RUN_ROLES)
-def rerun_plan_failed(plan_id):
-    """Re-queue only entries whose LATEST execution in the newest plan
-    run ended non-passed — a new plan_run keeps the attempt evidence
-    separate instead of overwriting history."""
-    plan = db.session.get(Plan, plan_id)
-    if plan is None:
-        abort(404)
-    _project_or_404(plan.project_id)
-    PlainForm().validate_on_submit()
-    runs = {}
-    for ex in Execution.query.filter_by(project_id=plan.project_id).all():
-        rid = ex.snapshot().get("plan_run_id")
-        if rid:
-            runs.setdefault(rid, []).append(ex)
-    if not runs:
-        flash("No previous plan run — nothing to rerun.", "info")
-        return redirect(url_for("portal.plan_detail", plan_id=plan.id))
-    latest_run = max(
-        runs.values(), key=lambda exs: max(
-            e.created_at for e in exs if e.created_at))
-    rid = latest_run[0].snapshot().get("plan_run_id")
-    latest = {}
-    for ex in latest_run:
-        sid = ex.snapshot().get("suite_id")
-        if sid not in latest or ex.created_at > latest[sid].created_at:
-            latest[sid] = ex
-    failed_ids = {sid for sid, ex in latest.items()
-                  if results_mod.entry_state(ex) != "passed"}
-    entries = [e for e in plan.entries if e.suite_id in failed_ids]
-    if not entries:
-        flash("Latest run has no failed entries.", "info")
-        return redirect(url_for("portal.plan_detail", plan_id=plan.id))
-    binding = GitBinding.query.filter_by(project_id=plan.project_id).first()
-    sha = binding.last_synced_sha if binding else ""
-    new_run, exs = dispatch.queue_plan_executions(
-        current_user.username, plan, binding=binding, source_sha=sha,
-        entries=entries)
-    record_audit(current_user.username, "plan.rerun_failed",
-                 f"{plan.id} run {new_run[:8]} "
-                 f"({len(exs)}/{len(latest)} entries, from {rid[:8]})")
-    flash(f"Rerun {new_run[:8]} queued: {len(exs)} failed entries.",
-          "info")
-    return redirect(url_for("portal.executions"))
-
-
-@portal_bp.route("/plans/<plan_id>")
-@login_required
-def plan_detail(plan_id):
-    plan = db.session.get(Plan, plan_id)
-    if plan is None:
-        abort(404)
-    _project_or_404(plan.project_id)
-    can_edit = current_user.role.value in ("admin", "test_manager")
-    can_run = current_user.role.value in ("admin", "test_manager", "tester")
-    return render_template(
-        "portal/plan_detail.html", plan=plan, can_edit=can_edit,
-        can_run=can_run, plain_form=PlainForm(),
-        plan_form=PlanForm(obj=plan),
-        summary=results_mod.plan_summary(plan),
-        entry_states=results_mod.plan_entry_states(plan),
-        entry_cfg={e.id: json.loads(e.config_json or "{}")
-                   for e in plan.entries},
-        suites=Suite.query.filter_by(project_id=plan.project_id).all())
-
-
-@portal_bp.route("/plans/<plan_id>/edit", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def edit_plan(plan_id):
-    plan = db.session.get(Plan, plan_id)
-    if plan is None:
-        abort(404)
-    _project_or_404(plan.project_id)
-    form = PlanForm()
-    if form.validate_on_submit():
-        plan.name = form.name.data.strip()
-        plan.description = form.description.data or ""
-        plan.parallelism = max(1, min(4, form.parallelism.data or 1))
-        db.session.commit()
-        record_audit(current_user.username, "plan.updated", plan.id)
-    return redirect(url_for("portal.plan_detail", plan_id=plan.id))
-
-
-@portal_bp.route("/plan-entries/<entry_id>/move", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def move_plan_entry(entry_id):
-    entry = db.session.get(PlanEntry, entry_id)
-    if entry is None:
-        abort(404)
-    _project_or_404(entry.plan.project_id)
-    PlainForm().validate_on_submit()
-    ordered = sorted(entry.plan.entries, key=lambda e: e.order)
-    idx = ordered.index(entry)
-    direction = request.form.get("direction")
-    swap = idx - 1 if direction == "up" else \
-        idx + 1 if direction == "down" else -1
-    if 0 <= swap < len(ordered):
-        ordered[idx].order, ordered[swap].order = \
-            ordered[swap].order, ordered[idx].order
-        db.session.commit()
-        record_audit(current_user.username, "plan.entry_moved",
-                     entry.plan_id)
-    return redirect(url_for("portal.plan_detail",
-                          plan_id=entry.plan_id))
-
-
-@portal_bp.route("/plan-entries/<entry_id>/delete", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def delete_plan_entry(entry_id):
-    entry = db.session.get(PlanEntry, entry_id)
-    if entry is None:
-        abort(404)
-    _project_or_404(entry.plan.project_id)
-    PlainForm().validate_on_submit()
-    plan_id = entry.plan_id
-    db.session.delete(entry)
-    db.session.commit()
-    record_audit(current_user.username, "plan.entry_removed", plan_id)
-    return redirect(url_for("portal.plan_detail", plan_id=plan_id))
-
-
-@portal_bp.route("/plan-entries/<entry_id>/policy", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def plan_entry_policy(entry_id):
-    """Per-entry failure policy: continue (default) queues the rest of
-    the plan regardless; stop cancels later queued entries when this
-    entry ends non-passed (enforced by the worker, restart-safe)."""
-    entry = db.session.get(PlanEntry, entry_id)
-    if entry is None:
-        abort(404)
-    _project_or_404(entry.plan.project_id)
-    PlainForm().validate_on_submit()
-    cfg = json.loads(entry.config_json or "{}")
-    cfg["on_failure"] = "stop" \
-        if request.form.get("on_failure") == "stop" else "continue"
-    entry.config_json = json.dumps(cfg)
-    db.session.commit()
-    record_audit(current_user.username, "plan.entry_policy",
-                 f"{entry.plan_id}: order {entry.order} -> "
-                 f"{cfg['on_failure']}")
-    return redirect(url_for("portal.plan_detail",
-                          plan_id=entry.plan_id))
-
-
-@portal_bp.route("/projects/<project_id>/releases", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def create_release(project_id):
-    project = _project_or_404(project_id)
-    form = PlanForm()  # same fields subset: name/description
-    if form.validate_on_submit():
-        db.session.add(Release(
-            project_id=project.id, name=form.name.data.strip(),
-            description=form.description.data or "",
-            owner=current_user.username))
-        db.session.commit()
-        record_audit(current_user.username, "release.created", project.id)
-    return redirect(url_for("portal.project_detail", project_id=project_id))
-
-
-@portal_bp.route("/releases/<release_id>/edit", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def edit_release(release_id):
-    release = db.session.get(Release, release_id)
-    if release is None:
-        abort(404)
-    _project_or_404(release.project_id)
-    name = request.form.get("name", "").strip()
-    if name:
-        release.name = name
-        release.description = request.form.get("description", "")
-        db.session.commit()
-        record_audit(current_user.username, "release.edited",
-                     release.id)
-    return redirect(url_for("portal.project_detail",
-                          project_id=release.project_id))
-
-
-@portal_bp.route("/releases/<release_id>/mark", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def mark_release(release_id):
-    """Marking a release released does not deploy or tag Git (§10)."""
-    release = db.session.get(Release, release_id)
-    if release is None:
-        abort(404)
-    _project_or_404(release.project_id)
-    PlainForm().validate_on_submit()
-    release.status = "released"
-    release.released_at = utcnow()
-    db.session.commit()
-    record_audit(current_user.username, "release.released", release.id)
-    return redirect(url_for("portal.project_detail",
-                          project_id=release.project_id))
-
-
-# ---------- suite/plan builder endpoints (still marked partial) ----------
-
-@portal_bp.route("/suites/<suite_id>/entries", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def add_suite_entry(suite_id):
-    suite = db.session.get(Suite, suite_id)
-    if suite is None:
-        abort(404)
-    _project_or_404(suite.project_id)
-    if suite.readonly:
-        abort(409)  # imported suites: duplicate instead of editing
-    PlainForm().validate_on_submit()
-    case_ref = request.form.get("case_ref", "").strip()
-    if case_ref:
-        order = (max([e.order for e in suite.entries], default=-1) + 1)
-        db.session.add(SuiteEntry(suite_id=suite.id, order=order,
-                                  case_ref=case_ref))
-        suite.version += 1          # edits version the definition (§10)
-        suite.content_hash = _suite_hash(suite)
-        db.session.commit()
-        record_audit(current_user.username, "suite.entry_added", suite.id)
-    return redirect(url_for("portal.suite_detail", suite_id=suite_id))
-
-
-@portal_bp.route("/suites/<suite_id>/duplicate", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def duplicate_suite(suite_id):
-    suite = db.session.get(Suite, suite_id)
-    if suite is None:
-        abort(404)
-    _project_or_404(suite.project_id)
-    PlainForm().validate_on_submit()
-    copy = Suite(project_id=suite.project_id,
-                 name=f"{suite.name} (copy)", description=suite.description)
-    db.session.add(copy)
-    db.session.flush()
-    for e in suite.entries:
-        db.session.add(SuiteEntry(suite_id=copy.id, order=e.order,
-                                  case_ref=e.case_ref, enabled=e.enabled,
-                                  config_json=e.config_json))
-    copy.content_hash = _suite_hash(copy)
-    db.session.commit()
-    record_audit(current_user.username, "suite.duplicated", suite.id)
-    return redirect(url_for("portal.suite_detail", suite_id=copy.id))
-
-
-@portal_bp.route("/plans/<plan_id>/entries", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def add_plan_entry(plan_id):
-    plan = db.session.get(Plan, plan_id)
-    if plan is None:
-        abort(404)
-    _project_or_404(plan.project_id)
-    PlainForm().validate_on_submit()
-    suite = db.session.get(Suite, request.form.get("suite_id", ""))
-    if suite and suite.project_id == plan.project_id:
-        from ..execution import PlanEntry
-        order = max([e.order for e in plan.entries], default=-1) + 1
-        db.session.add(PlanEntry(plan_id=plan.id, order=order,
-                                 suite_id=suite.id))
-        db.session.commit()
-        record_audit(current_user.username, "plan.entry_added", plan.id)
-    return redirect(url_for("portal.project_detail",
-                          project_id=plan.project_id))
-
-
-@portal_bp.route("/releases/<release_id>/run", methods=["POST"])
-@role_required(*RUN_ROLES)
-def run_release(release_id):
-    """Run-from-release: queues the release's linked plan (§10)."""
-    release = db.session.get(Release, release_id)
-    if release is None or release.plan_id is None:
-        abort(404)
-    _project_or_404(release.project_id)
-    PlainForm().validate_on_submit()
-    return run_plan(release.plan_id)
-
-
-@portal_bp.route("/suite-entries/<entry_id>/toggle", methods=["POST"])
-@role_required(*EDIT_ROLES)
-def toggle_suite_entry(entry_id):
-    entry = db.session.get(SuiteEntry, entry_id)
-    if entry is None or entry.suite.readonly:
-        abort(404 if entry is None else 409)
-    _project_or_404(entry.suite.project_id)
-    PlainForm().validate_on_submit()
-    entry.enabled = not entry.enabled
-    entry.suite.version += 1
-    entry.suite.content_hash = _suite_hash(entry.suite)
-    db.session.commit()
-    return redirect(url_for("portal.suite_detail",
-                          suite_id=entry.suite_id))
-
-
-# ---------- schedules (§10, §16 Test Manager) ----------
-
-def _parse_run_at(text: str):
-    """'YYYY-MM-DD HH:MM' (UTC) -> aware datetime, else None."""
-    from datetime import datetime, timezone
-    text = (text or "").strip()
-    if not text:
-        return None
-    try:
-        return datetime.strptime(text, "%Y-%m-%d %H:%M") \
-            .replace(tzinfo=timezone.utc)
-    except ValueError:
-        return None
 
 
 @portal_bp.route("/projects/<project_id>/schedules", methods=["POST"])
@@ -1354,10 +1045,8 @@ def create_schedule(project_id):
     from .forms import ScheduleForm
     project = _project_or_404(project_id)
     form = ScheduleForm()
-    targets = ([(s.id, f"Suite: {s.name}") for s in project.suites]
-               if form.target_type.data == "suite" else
-               [(p.id, f"Plan: {p.name}") for p in project.plans])
-    form.target_id.choices = targets
+    form.target_id.choices = [
+        (s.id, f"Suite: {s.name}") for s in project.suites]
     if form.validate_on_submit():
         kind = form.kind.data
         run_at = _parse_run_at(form.run_at.data)
@@ -1369,15 +1058,11 @@ def create_schedule(project_id):
                   "error")
             return redirect(url_for("portal.project_detail",
                                     project_id=project_id))
-        suite_id = form.target_id.data \
-            if form.target_type.data == "suite" else None
-        plan_id = form.target_id.data \
-            if form.target_type.data == "plan" else None
         db.session.add(Schedule(
             project_id=project.id, name=form.name.data.strip(),
             description=form.description.data or "",
-            target_type=form.target_type.data,
-            suite_id=suite_id, plan_id=plan_id, kind=kind,
+            target_type="suite", suite_id=form.target_id.data,
+            plan_id=None, kind=kind,
             interval_minutes=interval if kind == "interval" else None,
             next_run_at=run_at, enabled=True,
             overlap_policy=form.overlap_policy.data or "allow",
@@ -1472,7 +1157,7 @@ def run_schedule_now(schedule_id):
                 current_user.username, suite, binding=binding,
                 source_sha=sha, run_config=cfg, schedule_id=sched.id)
         elif sched.target_type == "plan" and sched.plan_id:
-            plan = db.session.get(Plan, sched.plan_id)
+            plan = None
             if plan is None:
                 raise dispatch.DispatchError("scheduled plan no longer exists")
             _, exs = dispatch.queue_plan_executions(
