@@ -132,24 +132,70 @@ def test_kre_option_gating():
     assert not flags and "allowlisted" in dropped[0]
 
 
-def test_gating_note_becomes_evidence(app, tmp_path):
-    """A dropped option is recorded in kre-gating.log inside the run's
-    log dir — collected as an artifact, never silently ignored."""
+def _gating_env(tmp_path):
+    p, s = _project_suite()
+    from testorchestrator.execution import Runner, RuntimeConnection
+    runner = Runner(name="local", connection_mode="local", max_slots=1)
+    db.session.add(runner); db.session.flush()
+    rt = RuntimeConnection(
+        name="fixture-kre", runner_id=runner.id,
+        executable_path="/bin/true", detected_version="8.0.0",
+        workspace_root=str(tmp_path))
+    db.session.add(rt); db.session.commit()
+    return s
+
+
+def test_gating_rejects_unsupported_option(app, tmp_path):
+    """An explicitly requested unsupported option REJECTS the launch —
+    the requested execution semantics would change silently otherwise.
+    The decision is evidence (kre-gating.log) + a clear failure reason."""
     with app.app_context():
-        p, s = _project_suite()
-        from testorchestrator.execution import Runner, RuntimeConnection
-        runner = Runner(name="local", connection_mode="local", max_slots=1)
-        db.session.add(runner); db.session.flush()
-        rt = RuntimeConnection(
-            name="fixture-kre", runner_id=runner.id,
-            executable_path="/bin/true", detected_version="8.0.0",
-            workspace_root=str(tmp_path))
-        db.session.add(rt); db.session.commit()
+        s = _gating_env(tmp_path)
         ex = dispatch.create_execution(
             "manager", s,
             run_config={"kre_options": {"retryStrategy": "x"}})
         dispatch.run_execution(ex.id)
         db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert ex.error_kind == "infrastructure"
+        assert "option gating rejected" in ex.error_text
         gating = tmp_path / ex.id / "logs" / "kre-gating.log"
-        assert gating.exists()
-        assert "retryStrategy" in gating.read_text()
+        text = gating.read_text()
+        assert "retryStrategy" in text and "reject" in text
+
+
+def test_gating_allow_drop_acknowledges_and_runs(app, tmp_path):
+    """Operator opt-in (kre_options_allow_drop) continues without the
+    option — acknowledged in evidence, never silently."""
+    with app.app_context():
+        s = _gating_env(tmp_path)
+        ex = dispatch.create_execution(
+            "manager", s,
+            run_config={"kre_options": {"retryStrategy": "x"},
+                        "kre_options_allow_drop": True})
+        dispatch.run_execution(ex.id)
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.COMPLETED  # fixture ran anyway
+        text = (tmp_path / ex.id / "logs"
+                / "kre-gating.log").read_text()
+        assert "operator-acknowledged" in text
+
+
+def test_gating_unknown_version_rejected(app, tmp_path):
+    """Unknown/unparsable runtime version: every gated option is
+    rejected — conservative default, never a guessed flag."""
+    with app.app_context():
+        s = _gating_env(tmp_path)
+        from testorchestrator.execution import RuntimeConnection
+        rt = RuntimeConnection.query.first()
+        rt.detected_version = "n/a-build-x"
+        db.session.commit()
+        ex = dispatch.create_execution(
+            "manager", s,
+            run_config={"kre_options": {"retry": 1},
+                        "kre_options_allow_drop": True})
+        dispatch.run_execution(ex.id)
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.COMPLETED  # dropped, acknowledged
+        assert "version unknown" in (
+            tmp_path / ex.id / "logs" / "kre-gating.log").read_text()

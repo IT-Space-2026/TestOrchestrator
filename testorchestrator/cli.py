@@ -99,24 +99,54 @@ def _install_health(url: str, timeout: float = 5.0) -> dict:
         return {}
 
 
-def _verify_install(args, install_id: str) -> int:
-    """Readiness tied to THIS install: the health endpoint must answer
-    with the install_id written into web.env — an unrelated listener
-    returning 200 can never satisfy a fresh install."""
+def _expected_build(payload_dir) -> str:
+    """Build string the just-installed payload claims — from the payload's
+    own release/release.json, not the running code."""
+    import json as _json
+    from pathlib import Path
+    for rel in (("app", "release", "release.json"),
+                ("release", "release.json")):
+        try:
+            return _json.loads(
+                (Path(payload_dir) / Path(*rel))
+                .read_text(encoding="utf-8")).get("build", "")
+        except Exception:
+            continue
+    return ""
+
+
+def _verify_install(args, install_id: str,
+                    expected_build: str = "") -> int:
+    """Readiness tied to THIS install AND THIS build: the health endpoint
+    must answer with the install_id written into web.env AND the build
+    stamped into the installed payload — a foreign listener or a stale
+    process of the previous build can never satisfy verification."""
     health = _install_health(args.url)
     if not health:
         print("[install] INCOMPLETE — service did not start or is not "
               "reachable; units staged but readiness not verified "
-              "(start as root, then re-run `toctl readiness`)",
+              "(start the service, then re-run `toctl readiness`)",
               file=sys.stderr)
+        return 4
+    if not health.get("install_id") or not health.get("build"):
+        print("[install] FAILED — health endpoint answered without "
+              "install/build identity; refusing to treat it as this "
+              "installation", file=sys.stderr)
         return 4
     if install_id and health.get("install_id") != install_id:
         print("[install] FAILED — a different TestOrchestrator instance "
               "answers on the configured port; refusing to claim its "
               "readiness for this install", file=sys.stderr)
         return 4
+    if expected_build and health.get("build") != expected_build:
+        print(f"[install] FAILED — the answering service runs build "
+              f"{health.get('build')!r} but this install wrote build "
+              f"{expected_build!r} — a stale process of the previous "
+              "build is still bound; the new build is not active",
+              file=sys.stderr)
+        return 4
     print(f"[install] ready — install {install_id[:8]} "
-          f"build {health.get('version', '?')}")
+          f"build {health.get('build', '?')}")
     return 0
 
 
@@ -238,7 +268,16 @@ def cmd_install(args) -> int:
 
     # 2) web.env — app-scoped config; writable data lives outside payload
     env_file = config / "web.env"
-    install_id = os.urandom(12).hex()
+    # install_id persists across upgrades (it identifies the install
+    # LOCATION, not the build) — an upgraded service must answer with
+    # the same id but the NEW build; a stale old-build process is
+    # detected via the build mismatch instead.
+    install_id = ""
+    if args.upgrade and env_file.exists():
+        for line in env_file.read_text().splitlines():
+            if line.startswith("TO_INSTALL_ID="):
+                install_id = line.split("=", 1)[1].strip()
+    install_id = install_id or os.urandom(12).hex()
     env_lines = [
         f"TO_INSTANCE_DIR={data}",
         "TO_SECURE_COOKIES=1",
@@ -336,7 +375,8 @@ def cmd_install(args) -> int:
     #    listener can never satisfy it. Non-started installs get an
     #    explicit INCOMPLETE status, never a claimed-ready.
     if not args.dry_run:
-        rc = _verify_install(args, install_id)
+        rc = _verify_install(args, install_id,
+                             expected_build=_expected_build(payload))
         if rc != 0:
             return rc
     print(f"[install] done — URL https://localhost"

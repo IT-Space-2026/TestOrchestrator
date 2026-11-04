@@ -28,6 +28,8 @@ from .execution import (Artifact, Execution, ExecutionState, GitBinding,
                         OutboxEvent, Outcome, Plan, Runner,
                         RuntimeConnection, Schedule, Suite, SyncState,
                         TestResult, utcnow)
+from sqlalchemy.exc import OperationalError
+
 from .extensions import db
 from .models import record_audit
 from .results import aggregate_outcome, entry_state, parse_junit
@@ -75,6 +77,10 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
             "kre_options": {
                 str(k)[:32]: str(v)[:64]
                 for k, v in dict(rc.get("kre_options") or {}).items()},
+            # Operator acknowledgement for gated-option drops — opt-in,
+            # audited in kre-gating.log when used.
+            "kre_options_allow_drop":
+                bool(rc.get("kre_options_allow_drop")),
         },
         "binding_id": binding.id if binding else None,
         "source_sha": source_sha,
@@ -274,6 +280,13 @@ def run_execution(execution_id: str) -> None:
     ex = db.session.get(Execution, execution_id)
     if ex is None:
         return
+    # Dispatch boundary: only still-pending work may enter the machine —
+    # an execution cancelled while its outbox event waited (user cancel
+    # or plan stop-on-failure enforcement) is skipped, never launched.
+    if ex.state not in (ExecutionState.QUEUED, ExecutionState.DISPATCHED):
+        record_audit("system", "execution.dispatch_skipped",
+                     f"{ex.id}: state={ex.state.value}")
+        return
     runner = ex.runner or pick_runner(ex)
     if runner is None:
         # Stay queued/dispatched — no free compatible runner right now.
@@ -330,14 +343,35 @@ def run_execution(execution_id: str) -> None:
         flags, dropped = kre_adapter.gated_flags(
             runtime.detected_version, rc.get("kre_options") or {})
         if dropped:
+            # Explicit options the runtime cannot accept are REJECTED
+            # before the process launches — the requested execution
+            # semantics would change silently otherwise. Acknowledgement
+            # (run_config.kre_options_allow_drop) is opt-in and audited.
+            allow = bool(rc.get("kre_options_allow_drop"))
             log_dir.mkdir(parents=True, exist_ok=True)
-            note = (f"version-gated options dropped for KRE "
-                    f"{runtime.detected_version or 'unknown'}: "
-                    + ", ".join(dropped))
+            decision = ("drop (operator-acknowledged)" if allow
+                        else "reject")
+            note = (
+                f"version-gated options for KRE "
+                f"{runtime.detected_version or 'unknown'} — "
+                f"dropped: {', '.join(dropped)}; requested: "
+                f"{json.dumps(rc.get('kre_options') or {})}; "
+                f"decision: {decision}")
             (log_dir / "kre-gating.log").write_text(note + "\n",
                                                   encoding="utf-8")
-            record_audit("system", "kre.options_gated",
-                         f"{ex.id}: {note}")
+            record_audit(
+                "system",
+                "kre.options_gated" if allow else "kre.options_rejected",
+                f"{ex.id}: {note}")
+            if not allow:
+                _fail(ex, "infrastructure",
+                      f"KRE option gating rejected {len(dropped)} "
+                      f"requested option(s) for detected version "
+                      f"{runtime.detected_version or 'unknown'}: "
+                      + ", ".join(dropped)
+                      + " — launch aborted before dispatch; acknowledge "
+                        "in run config to proceed without them")
+                return
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             project_path=str(project_dir),
@@ -661,25 +695,36 @@ def fire_due_schedules(now=None) -> int:
         # rowcount 0 and skips. A fire failure rolls the claim back so
         # the schedule stays due; crash-after-claim is audited, and a
         # 'once' schedule can never double-dispatch.
-        if sched.kind == "once":
-            claimed = db.session.query(Schedule).filter(
-                Schedule.id == sched.id,
-                Schedule.enabled.is_(True),
-                Schedule.next_run_at == sched.next_run_at,
-            ).update({"enabled": False, "next_run_at": None},
-                     synchronize_session=False)
-        else:
-            claimed = db.session.query(Schedule).filter(
-                Schedule.id == sched.id,
-                Schedule.enabled.is_(True),
-                Schedule.next_run_at == sched.next_run_at,
-            ).update({"next_run_at": now + timedelta(
-                         minutes=sched.interval_minutes or 60)},
-                     synchronize_session=False)
+        try:
+            if sched.kind == "once":
+                claimed = db.session.query(Schedule).filter(
+                    Schedule.id == sched.id,
+                    Schedule.enabled.is_(True),
+                    Schedule.next_run_at == sched.next_run_at,
+                ).update({"enabled": False, "next_run_at": None},
+                         synchronize_session=False)
+            else:
+                claimed = db.session.query(Schedule).filter(
+                    Schedule.id == sched.id,
+                    Schedule.enabled.is_(True),
+                    Schedule.next_run_at == sched.next_run_at,
+                ).update({"next_run_at": now + timedelta(
+                             minutes=sched.interval_minutes or 60)},
+                         synchronize_session=False)
+        except OperationalError:
+            # Writer-lock contention under a second worker — this tick
+            # skips; the next tick retries the still-due schedule.
+            db.session.rollback()
+            continue
         if not claimed:
             db.session.rollback()
             continue  # another worker claimed this fire
         try:
+            # Post-claim refresh: fire the row's CURRENT config/target —
+            # a concurrent edit/disable/delete between the due scan and
+            # the claim must not dispatch stale values. A deleted row
+            # raises here and stays unfired.
+            db.session.refresh(sched)
             cfg = sched.run_config()
             binding = GitBinding.query.filter_by(
                 project_id=sched.project_id).first()
@@ -722,11 +767,10 @@ def enforce_plan_policies() -> int:
     late. A queued retry ('not-started' latest state) holds enforcement."""
     cancelled = 0
     runs = {}
-    for ex in Execution.query.filter(
-            Execution.state.in_([ExecutionState.COMPLETED,
-                                 ExecutionState.FAILED,
-                                 ExecutionState.CANCELED,
-                                 ExecutionState.UNKNOWN])).all():
+    # Every execution of a run matters — including pending retries:
+    # collecting only terminal rows would let a queued retry be ignored
+    # and siblings wrongly cancelled.
+    for ex in Execution.query.all():
         rid = ex.snapshot().get("plan_run_id")
         if rid:
             runs.setdefault(rid, []).append(ex)

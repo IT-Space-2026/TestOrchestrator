@@ -203,7 +203,7 @@ def test_run_config_profile_browser_reach_invocation(app, pipeline_env):
         ex_id = ex.id
         assert ex.snapshot()["run_config"] == {
             "profile": "smoke-profile", "browser": "Firefox",
-            "kre_options": {}}
+            "kre_options": {}, "kre_options_allow_drop": False}
     _run_worker(app)
     with app.app_context():
         ex = db.session.get(Execution, ex_id)

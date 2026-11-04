@@ -119,23 +119,38 @@ is queued or in flight (progress, not a verdict). Retried entries count
 by their latest attempt.
 
 Implemented: plan edit/reorder/remove, per-entry `on_failure` policy
-(`stop` cancels later queued entries — enforced by the worker,
-restart-safe), rerun-failed as a new plan run, execution **retry** as a
-linked immutable attempt (`retry_of` + incrementing `attempt` in the
-snapshot; each attempt keeps its own workspace, report dir and
-artifacts), **schedules** (once/interval, durable table, fired by the
-worker tick — a missed time runs late and is audited, never dropped),
-and **version-gated KRE options** (allowlisted flags with declared
-minimum majors — `retry`, `retryStrategy`, `maxFailedTests`; dropped
-options are recorded in `kre-gating.log` evidence and audit instead of
-being emitted as guessed flags; thresholds are declared, not verified
-against a licensed KRE build).
+(`stop` cancels later queued/dispatched entries — enforced by the
+worker and by the dispatch boundary: a cancelled entry's already-queued
+event is skipped, never launched; running entries are left to finish),
+rerun-failed as a new plan run (originals immutable), execution
+**retry** as a linked immutable attempt (`retry_of` + incrementing
+`attempt`; each attempt keeps its own workspace, report dir and
+artifacts; a queued retry blocks stop-enforcement), **schedules**
+(once/interval, durable table; the worker CAS-claims each due slot so
+exactly one worker fires it — tested under two-contender races; fire
+failure un-claims so the run is retried; a missed interval fires once
+late on the next tick — no catch-up replay — and a deleted/disabled
+schedule never dispatches), and **version-gated KRE options**
+(allowlisted flags with declared, *provisional* minimum majors —
+`retry`, `retryStrategy`, `maxFailedTests`; options the detected
+runtime cannot accept **reject the launch** rather than changing the
+requested semantics — explicit `kre_options_allow_drop`
+acknowledgement is required to continue, recorded in `kre-gating.log`
+evidence + audit; thresholds are declared, not verified against a
+licensed KRE build).
 
 ## Reports & artifacts
 
 - **Native KRE report** — retained verbatim, sandboxed view,
   `report.zip` download, idempotent refresh; never regenerated.
-- **Allure** (optional, sole enhanced backend) — converted + generated
+- **Allure** (optional, currently the only shipped enhanced backend;
+  **pyrept** evaluated as a candidate alternative — MIT, Java-free,
+  allure-results + JUnit import verified on fixtures: outcomes,
+  durations, failure traces and suite names convert; retries fold by
+  `historyId` into `retries`/`flaky` (individual attempt detail lost);
+  **attachments/screenshots are NOT imported** and KRE-native reports
+  are not its input path — it is not yet a replacement) — converted +
+  generated
   per execution: authenticated View (CSP sandbox) / Download /
   Regenerate without rerunning KRE. Requires a validated **external**
   Java runtime (admin-selected path → `JAVA_HOME` → `PATH` → platform
