@@ -48,6 +48,7 @@
   <div class="form-actions">
     <form method="post" action="{{ url_for('portal.author_publish', draft_id=draft.id) }}" class="inline">
       {{ plain_form.csrf_token }}
+      <input type="hidden" name="review_sig" value="{{ review_sig }}">
       <button type="submit" class="button">Publish to branch</button>
     </form>
     <form method="post" action="{{ url_for('portal.author_abandon', draft_id=draft.id) }}" class="inline">

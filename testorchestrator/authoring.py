@@ -151,10 +151,32 @@ def draft_diff(draft: AuthoringDraft) -> str:
     return "\n".join(lines) or "(no membership changes)"
 
 
-def publish_draft(draft: AuthoringDraft) -> dict:
+def draft_signature(draft: AuthoringDraft) -> str:
+    """Review-bound identity: draft content + artifact + destination +
+    base revision. Any change invalidates a prior review."""
+    import hashlib
+    h = hashlib.sha256()
+    h.update(draft.members_json.encode())
+    h.update(draft.path.encode())
+    h.update(draft.base_sha.encode())
+    binding = db.session.get(GitBinding, draft.binding_id)
+    h.update((binding.url if binding else "").encode())
+    h.update(((binding.authoring_branch or binding.ref)
+              if binding else "").encode())
+    return h.hexdigest()[:24]
+
+
+def publish_draft(draft: AuthoringDraft,
+                  reviewed_sig: str = "") -> dict:
     """Apply the draft's members to the real file, commit+push to the
     authoring branch — upstream conflict blocks visibly."""
     binding = db.session.get(GitBinding, draft.binding_id)
+    # stale-review check: the caller's reviewed signature must match
+    # the CURRENT draft+destination+base — changed content, a moved
+    # destination, or an outdated preview is rejected, never
+    # silently published.
+    if reviewed_sig and reviewed_sig != draft_signature(draft):
+        return {"error": "reviewed preview is stale — review again"}
     wt = _clone_for_authoring(binding)
     branch = binding.authoring_branch or binding.ref or "main"
     # refresh remote state — local HEAD alone is stale and misses
@@ -185,3 +207,22 @@ def publish_draft(draft: AuthoringDraft) -> dict:
     draft.published_sha = sha
     db.session.commit()
     return {"published": True, "sha": sha}
+
+
+def cleanup_abandoned(owner: str = "") -> int:
+    """Remove abandoned drafts + the authoring workspaces — audit
+    events already recorded; nothing active or foreign is touched."""
+    import shutil
+    q = AuthoringDraft.query.filter_by(status="abandoned")
+    if owner:
+        q = q.filter_by(owner=owner)
+    rows = q.all()
+    n = 0
+    for d in rows:
+        wt = _authoring_wt(d.binding_id)
+        if wt.exists():
+            shutil.rmtree(wt, ignore_errors=True)
+        db.session.delete(d)
+        n += 1
+    db.session.commit()
+    return n

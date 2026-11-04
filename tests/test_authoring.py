@@ -254,3 +254,28 @@ def test_rediscovery_after_publish_updates_inventory(app, tmp_path):
         assert "tc3.tc" in " ".join(s.members() or [])
         assert DiscoveredItem.query.filter_by(
             binding_id=b.id, kind="suite").count() == 1  # no dupes
+
+
+def test_stale_review_rejected(app, tmp_path):
+    """A changed draft after review must invalidate the signature —
+    publish without re-review refuses."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        d = authoring.open_draft("alice", item)
+        sig = authoring.draft_signature(d)
+        d.members_json = '["CHANGED"]'; db.session.commit()
+        r = authoring.publish_draft(d, sig)
+        assert "stale" in r["error"]
+
+
+def test_cleanup_abandoned_only(app, tmp_path):
+    """Cleanup removes abandoned drafts/workspaces; active and other
+    users' drafts are untouched."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        d1 = authoring.open_draft("alice", item)
+        d1.status = "abandoned"; db.session.commit()
+        d2 = authoring.open_draft("bob", item)
+        n = authoring.cleanup_abandoned()
+        assert n == 1
+        assert db.session.get(AuthoringDraft, d2.id) is not None
