@@ -282,11 +282,28 @@ selected rows. See `docs/legacy-testops-gap-audit.md` and
 
 ## Katalon project onboarding (Unreleased)
 
-Connect an existing Katalon repository to a TestOrchestrator project
-via the project's source Git binding (read-only — separate from Git
-evidence export). After `sync`, `gitsync.discover_project` locates the
-`.prj` root and builds a typed inventory of cases, suites, collections
-(by XML root tag — not filename), and profiles; the project detail
-shows counts, root, commit, status, warnings, and navigable items.
-Suites emit `-testSuitePath`, collections `-testSuiteCollectionPath`.
-Migrations `f8a9b0c1d2e3` + `g9a0b1c2d3e4` — run `db-upgrade`.
+Connect an existing Katalon repository via a project's **source** Git
+binding (read-only — separate from evidence export, never pushes).
+After `sync`, `gitsync.discover_project` locates `.prj` and builds a
+typed inventory: cases (`Test Cases/`), suites vs collections
+(**XML root tag**, not filename), profiles (names only — values never
+surfaced).
+
+**UI** — project detail: root, fetched vs discovered SHA, separate
+sync/discovery status, counts, navigable items, warnings. Suite run
+form: "Source definition" + "Discovered profile" selectors — type
+resolves server-side from the record; `-testSuitePath` for suites,
+`-testSuiteCollectionPath` for collections.
+
+**Statuses** — `ok` (inventory current), `pending`, `none` (no `.prj`),
+`failed` (prior inventory kept, marked stale — never erased).
+Fetched commit and discovered commit shown separately.
+
+**Migrations** — `f8a9b0c1d2e3` (discovery schema),
+`g9a0b1c2d3e4` (`members_json` forward path). Run `db-upgrade` before
+the UI; an un-upgraded DB shows a missing-column error.
+
+**Limitations** — suite members resolve by `testCaseId` path (GUID
+lookup not yet); dynamic-suite membership is flagged not computed;
+schedule/plan sources still use suite-list execution; concurrent-
+discovery ordering untested.

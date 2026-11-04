@@ -230,6 +230,7 @@ def create_suite(project_id):
 @portal_bp.route("/suites/<suite_id>")
 @login_required
 def suite_detail(suite_id):
+    from ..execution import DiscoveredItem as _DI
     suite = db.session.get(Suite, suite_id)
     if suite is None:
         abort(404)
@@ -404,6 +405,7 @@ def launch_execution(suite_id):
         # Explicit execution target ("" = auto). Re-validated at
         # dispatch — never falls back to another target.
         "runner_id": request.form.get("runner_id", "").strip(),
+        "source_item": request.form.get("source_item", "").strip(),
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "kre_options": kre_options,
     }

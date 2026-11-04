@@ -83,6 +83,7 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
             "requested_runner": str(rc.get("runner_id") or "")[:32],
             "requested_runtime": str(rc.get("runtime_id") or "")[:32],
             "collection": bool(rc.get("collection")),
+            "suite_path": str(rc.get("suite_path") or "")[:512],
             # Running-time limit in seconds (process-launch clock,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
@@ -630,6 +631,12 @@ def _resolve_source(ex: Execution) -> Path:
 
 
 def _snapshot_suite_path(ex: Execution) -> str:
+    # An explicitly selected discovered suite/collection path takes
+    # precedence; otherwise the first entry's case_ref (existing
+    # suite-list semantics).
+    rc = ex.snapshot().get("run_config") or {}
+    if rc.get("suite_path"):
+        return rc["suite_path"]
     entries = [e for e in ex.snapshot().get("entries", []) if e.get("enabled")]
     first = entries[0]["case_ref"] if entries else ""
     return first or "Test Suites/suite"
