@@ -71,10 +71,11 @@
     var el = document.getElementById("chart-outcomes");
     if (!el) return;
     el.innerHTML = series.map(function (d) {
+      var hp = Math.min(d.passed, 30), hf = Math.min(d.failed, 30);
       return "<div class='bar-col' title='" + esc(d.day) + ": " + d.passed +
         " passed, " + d.failed + " failed'>" +
-        "<div class='bar pass' style='height:" + (d.passed * 8) + "px'></div>" +
-        "<div class='bar fail' style='height:" + (d.failed * 8) + "px'></div>" +
+        "<div class='bar pass h" + hp + "'></div>" +
+        "<div class='bar fail h" + hf + "'></div>" +
         "<span class='bar-day'>" + esc(d.day.slice(8)) + "</span></div>";
     }).join("");
   }

@@ -41,6 +41,7 @@ TERMINAL_STATES = (
 )
 DEFAULT_PERIOD_DAYS = 14
 CHART_DAYS = 14
+MAX_DASHBOARD_PROJECTS = 50   # labelled preview; full list is /projects
 
 
 def _day_key(dt) -> str:
@@ -166,7 +167,9 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
             "next_schedule_at": (upcoming[0].next_run_at.isoformat()
                                  if upcoming else None),
         },
-        "projects": rows,
+        "projects": rows[:MAX_DASHBOARD_PROJECTS],
+        "projects_total_rows": len(rows),
+        "projects_capped": len(rows) > MAX_DASHBOARD_PROJECTS,
         "recent": [{
             "id": e.id,
             "suite": e.snapshot().get("suite_name", "") or e.suite_id,

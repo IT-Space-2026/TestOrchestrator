@@ -189,3 +189,21 @@ class TestNavPlacement:
         login_as("tester")
         r = client.get("/about/notices")
         assert r.status_code == 200
+
+
+def test_dashboard_project_cap_labelled(app):
+    """The dashboard project table is a bounded preview — capped at 50
+    rows and labelled, never silently dropping projects."""
+    with app.app_context():
+        for i in range(55):
+            _seed_project(f"Proj{i:02d}")
+        db.session.commit()
+
+        class U:
+            def project_allowed(self, _): return True
+        d = dash.snapshot(U())
+        assert len(d["projects"]) == 50
+        assert d["projects_total_rows"] == 55
+        assert d["projects_capped"] is True
+        # metrics still count everything, not just the preview
+        assert d["metrics"]["projects_total"] == 55

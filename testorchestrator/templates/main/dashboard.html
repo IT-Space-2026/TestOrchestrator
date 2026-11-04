@@ -54,6 +54,16 @@
     </tbody>
   </table>
   <p class="muted" id="proj-no-data" {% if data.projects %}hidden{% endif %}>No projects yet — create one under Projects.</p>
+  {% if data.projects_capped %}
+  <p class="muted">Showing {{ data.projects|length }} of
+     {{ data.projects_total_rows }} projects (sorted A–Z) —
+     <a href="{{ url_for('portal.projects') }}">full list on Projects</a>.
+     The filter searches this preview only.</p>
+  {% else %}
+  <p class="muted"><small>Overview of all {{ data.projects_total_rows }}
+     visible projects — filter searches this table. Manage under
+     <a href="{{ url_for('portal.projects') }}">Projects</a>.</small></p>
+  {% endif %}
 </section>
 
 <div class="dash-2col">
@@ -82,8 +92,8 @@
          aria-label="Daily execution outcomes">
       {% for d in data.chart_outcomes %}
       <div class="bar-col" title="{{ d.day }}: {{ d.passed }} passed, {{ d.failed }} failed">
-        <div class="bar pass" style="height:{{ d.passed * 8 }}px"></div>
-        <div class="bar fail" style="height:{{ d.failed * 8 }}px"></div>
+        <div class="bar pass h{{ [d.passed, 30]|min }}"></div>
+        <div class="bar fail h{{ [d.failed, 30]|min }}"></div>
         <span class="bar-day">{{ d.day[8:] }}</span>
       </div>
       {% endfor %}

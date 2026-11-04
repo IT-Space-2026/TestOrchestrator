@@ -364,3 +364,40 @@ pre.example {
   vertical-align: top;
 }
 .data-table th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+
+[hidden] { display: none !important; }
+.bar.h0 { height: 1px; }
+.bar.h1 { height: 4px; }
+.bar.h2 { height: 8px; }
+.bar.h3 { height: 12px; }
+.bar.h4 { height: 16px; }
+.bar.h5 { height: 20px; }
+.bar.h6 { height: 24px; }
+.bar.h7 { height: 28px; }
+.bar.h8 { height: 32px; }
+.bar.h9 { height: 36px; }
+.bar.h10 { height: 40px; }
+.bar.h11 { height: 44px; }
+.bar.h12 { height: 48px; }
+.bar.h13 { height: 52px; }
+.bar.h14 { height: 56px; }
+.bar.h15 { height: 60px; }
+.bar.h16 { height: 64px; }
+.bar.h17 { height: 68px; }
+.bar.h18 { height: 72px; }
+.bar.h19 { height: 76px; }
+.bar.h20 { height: 80px; }
+.bar.h21 { height: 84px; }
+.bar.h22 { height: 88px; }
+.bar.h23 { height: 92px; }
+.bar.h24 { height: 96px; }
+.bar.h25 { height: 100px; }
+.bar.h26 { height: 104px; }
+.bar.h27 { height: 108px; }
+.bar.h28 { height: 112px; }
+.bar.h29 { height: 116px; }
+.bar.h30 { height: 120px; }
+
+@media (max-width: 40rem) {
+  .card { overflow-x: auto; }
+}
