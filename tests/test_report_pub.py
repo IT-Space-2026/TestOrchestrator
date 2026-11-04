@@ -13,18 +13,24 @@ from testorchestrator.execution import (Execution, ExecutionState,
 
 
 def _repo(tmp_path):
-    src = tmp_path / "repo"
-    src.mkdir(parents=True)
+    """A BARE remote — accepts pushes like a real hosting target;
+    seed it via a temp clone."""
+    src = tmp_path / "repo.git"
+    work = tmp_path / "seed"
     import subprocess
-    subprocess.run(["git", "init", "-q", str(src)], check=True)
-    subprocess.run(["git", "-C", str(src), "config",
-                    "user.email", "t@t"], check=True)
-    subprocess.run(["git", "-C", str(src), "config",
-                    "user.name", "t"], check=True)
-    (src / "f.txt").write_text("x")
-    subprocess.run(["git", "-C", str(src), "add", "-A"], check=True)
-    subprocess.run(["git", "-C", str(src), "commit", "-q", "-m", "init"],
+    subprocess.run(["git", "init", "--bare", "-q", str(src)],
                    check=True)
+    subprocess.run(["git", "clone", "-q", str(src), str(work)],
+                   check=True)
+    for k, v in (("user.email", "t@t"), ("user.name", "t")):
+        subprocess.run(["git", "-C", str(work), "config", k, v],
+                       check=True)
+    (work / "f.txt").write_text("x")
+    subprocess.run(["git", "-C", str(work), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(work), "commit", "-q", "-m",
+                    "init"], check=True)
+    subprocess.run(["git", "-C", str(work), "push", "-q", "origin",
+                    "master"], check=True)
     return src
 
 
