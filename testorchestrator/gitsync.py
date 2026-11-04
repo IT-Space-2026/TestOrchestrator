@@ -409,7 +409,12 @@ def discover_project(binding) -> dict:
         items = []
         # Cases: .tc under Test Cases/ only (never groovy/scripts)
         tc_dir = root / "Test Cases"
+        base_r = base.resolve()
         for p in sorted(tc_dir.rglob("*.tc")) if tc_dir.exists() else []:
+            if not p.resolve().is_relative_to(base_r):
+                out["warnings"].append(
+                    f"{p.relative_to(base)}: symlink escape skipped")
+                continue
             rel = str(p.relative_to(root))
             items.append(DiscoveredItem(
                 binding_id=binding.id, project_id=binding.project_id,
@@ -418,6 +423,10 @@ def discover_project(binding) -> dict:
         # Suites vs collections: content root tag, not filename.
         ts_dir = root / "Test Suites"
         for p in sorted(ts_dir.rglob("*.ts")) if ts_dir.exists() else []:
+            if not p.resolve().is_relative_to(base_r):
+                out["warnings"].append(
+                    f"{p.relative_to(base)}: symlink escape skipped")
+                continue
             rel = str(p.relative_to(root))
             tag, warn = _xml_root(p)
             if warn:
@@ -459,6 +468,10 @@ def discover_project(binding) -> dict:
         # Profiles: names only — never parse/render values.
         prof_dir = root / "Profiles"
         for p in sorted(prof_dir.rglob("*.glbl")) if prof_dir.exists() else []:
+            if not p.resolve().is_relative_to(base_r):
+                out["warnings"].append(
+                    f"{p.relative_to(base)}: symlink escape skipped")
+                continue
             items.append(DiscoveredItem(
                 binding_id=binding.id, project_id=binding.project_id,
                 sha=sha, kind="profile",

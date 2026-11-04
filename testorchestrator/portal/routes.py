@@ -409,6 +409,20 @@ def launch_execution(suite_id):
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "kre_options": kre_options,
     }
+    # Resolve the submitted discovered item SERVER-SIDE: kind comes
+    # from the record — never trust a submitted type flag.
+    si = run_config.pop("source_item", "")
+    if si:
+        from ..execution import DiscoveredItem
+        item = db.session.get(DiscoveredItem, si)
+        if (item is None or item.project_id != suite.project_id
+                or item.kind not in ("suite", "collection")):
+            flash("Selected source definition is invalid for this "
+                  "project.", "error")
+            return redirect(url_for("portal.suite_detail",
+                                  suite_id=suite_id))
+        run_config["suite_path"] = item.path
+        run_config["collection"] = (item.kind == "collection")
     ex = dispatch.create_execution(
         current_user.username, suite, binding=binding, source_sha=sha,
         run_config=run_config)
