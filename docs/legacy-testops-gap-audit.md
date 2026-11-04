@@ -55,14 +55,14 @@ saved-config reuse between manual/schedule/plan.
 |---|---|---|---|
 | Direct runner pick | none — auto pool only | impl | absent (by design) |
 | Eligible pool + health/draining/platform | `pick_runner` + heartbeat + draining + os_arch | tests | impl |
-| Atomic capacity reservation | `_assign_runner` CAS (all paths) | multi-process tests | **fixture-verified** |
+| Atomic capacity reservation | `_assign_runner` CAS (all paths) | independent-process fixture tests | **fixture-verified** (multi-process) — two-host + licensed + Windows open |
 | Licence allowance | `license_slots` cap in same CAS | `test_license_allowance_caps_claim` | impl |
 | Load-balancing policy | first-eligible (no policy) | impl | partial |
 | Reassign queued unstarted | QUEUED has no runner until CAS — repicks on retry | impl | impl |
-| Duplicate pickup | `tasks/<id>/claim` CAS | `test_remote_pickup_claim_exactly_once` | impl |
-| Agent compat | capability gate at register/tasks | `test_agent_capability_gate` | impl |
+| Duplicate pickup | `tasks/<id>/claim` CAS | `test_remote_pickup_claim_exactly_once` (sequential API-level) | impl — concurrent remote pickup unverified |
+| Agent compat | capability gate at register/tasks | `test_agent_capability_gate` (API-level) | impl |
 | Stale agent | reconcile → UNKNOWN | impl | impl |
-| UNKNOWN resolution | admin CAS + reason | `test_resolve_unknown_releases_capacity` | impl |
+| UNKNOWN resolution | admin CAS + reason | `test_resolve_unknown_releases_capacity` (API-level) | impl |
 | Collection parallelism | KRE-side, invisible | doc | unverified |
 | Case sharding | none | — | out of scope |
 
@@ -75,8 +75,8 @@ saved-config reuse between manual/schedule/plan.
 | Timeout | `timeout_seconds` → `timeout_s` | `test_timeout_kills_after_limit` | impl |
 | Bulk cancel | none | routes | **absent** |
 | Retry | new execution + attempt lineage | impl | impl |
-| Rerun-failed | none | routes | **absent** |
-| Rerun original revision | retry uses same suite — snapshot sha preserved? retry calls create_execution with binding's CURRENT sha | impl | partial — current, not original |
+| Rerun-failed | **plan-level exists** — `/plans/<id>/rerun-failed` re-queues failed entries under a new `plan_run_id`; single-execution retry exists; **suite-level rerun-failed cases absent** | plan tests | partial |
+| Rerun original revision | retry preserves snapshot but resolves CURRENT binding sha — not original revision replay | impl | partial |
 | Stop-on-failure | plan `on_failure` policy | plan tests | impl |
 | Restart recovery | reconcile → UNKNOWN (not silent retry) | impl | impl |
 
@@ -110,14 +110,21 @@ saved-config reuse between manual/schedule/plan.
 
 ## Prioritized gaps
 
-### Required before execution-replacement acceptance
-1. **Explicit runtime pick** — auto-only means an operator cannot pin
-   a tested KRE build; multi-runtime runners are ambiguous.
-2. **Run-now on schedule** (same config path) — the missing link
-   between saved config and manual launch.
-3. **Overlap policy** — an interval schedule's second fire while the
-   first still runs is undefined.
-4. **Bulk cancel** — operators can't clear a backlog safely.
+### Required before execution-replacement acceptance — delivered
+1. **Explicit runtime pick** — runner_id/runtime_id selectors on
+   suite-run + schedule forms; re-validated at dispatch; unavailable
+   explicit pick rejects with no fallback (tests:
+   test_explicit_*).
+2. **Run-now on schedule** — `POST /schedules/<id>/run-now`, saved
+   config, actor recorded, recurrence untouched (tests:
+   test_run_now_*).
+3. **Overlap policy** — per-schedule `overlap_policy` (allow|skip),
+   atomic inside the claimed fire; UNKNOWN counts as active (tests:
+   test_overlap_*).
+4. **Bulk cancel** — checkbox selection on /executions, per-item
+   results + audit (test_bulk_cancel_mixed_outcomes).
+5. **Searchable history** — filters + pagination on /executions
+   (test_history_filters_pagination).
 
 ### Useful follow-up
 - Named reusable execution-config entity (+duplicate/edit/run).

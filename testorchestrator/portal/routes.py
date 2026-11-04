@@ -11,6 +11,7 @@ and log streams.
 import hashlib
 import json
 import mimetypes
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import (abort, flash, redirect, render_template, request,
@@ -131,6 +132,17 @@ def project_detail(project_id):
     schedule_form.target_id.choices = [
         (s.id, f"Suite: {s.name}") for s in project.suites] + [
         (p.id, f"Plan: {p.name}") for p in project.plans]
+    from ..execution import Runner, RuntimeConnection
+    _runners = [x for x in Runner.query.filter_by(enabled=True).all()
+                if not x.draining]
+    schedule_form.runner_id.choices = [
+        ("", "Auto — first eligible")] + [
+        (x.id, f"{x.name} ({x.os_arch or 'unknown os'})")
+        for x in _runners]
+    schedule_form.runtime_id.choices = [
+        ("", "Auto — compatible on runner")] + [
+        (x.id, f"{x.name} ({x.detected_version or 'unknown ver'})")
+        for x in RuntimeConnection.query.filter_by(enabled=True).all()]
     return render_template(
         "portal/project_detail.html", project=project,
         binding_form=BindingForm(), plan_form=PlanForm(),
@@ -223,9 +235,18 @@ def suite_detail(suite_id):
     _project_or_404(suite.project_id)
     can_run = current_user.role.value in ("admin", "test_manager", "tester")
     binding = GitBinding.query.filter_by(project_id=suite.project_id).first()
+    from ..execution import Runner, RuntimeConnection
+    runners = [x for x in Runner.query.filter_by(enabled=True).all()
+               if not x.draining]
+    runtimes = [x for x in
+                RuntimeConnection.query.filter_by(enabled=True).all()
+                if (not json.loads(x.allowed_projects or "[]")
+                    or suite.project_id in json.loads(
+                        x.allowed_projects or "[]"))]
     return render_template(
         "portal/suite_detail.html", suite=suite, can_run=can_run,
-        binding=binding, plain_form=PlainForm())
+        binding=binding, plain_form=PlainForm(),
+        runners=runners, runtimes=runtimes)
 
 
 # ---------- executions ----------
@@ -233,10 +254,111 @@ def suite_detail(suite_id):
 @portal_bp.route("/executions")
 @login_required
 def executions():
-    query = Execution.query.order_by(Execution.created_at.desc()).limit(100)
-    visible = [e for e in query.all()
+    """Execution history — server-side filters + bounded pagination.
+
+    Filters: id-prefix, project (visibility-scoped), created date range,
+    lifecycle state, outcome, runner, schedule linkage. Stable ordering
+    (created_at,id desc); filters survive page turns via query args."""
+    q = Execution.query
+    # visibility scoping at the QUERY level (not post-page filtering) —
+    # the page count and totals stay accurate for scoped users.
+    allowed_projects = json.loads(current_user.allowed_projects or "[]")
+    if allowed_projects:
+        q = q.filter(Execution.project_id.in_(allowed_projects))
+    args = request.args
+    if args.get("q", "").strip():
+        q = q.filter(Execution.id.startswith(args["q"].strip()[:32]))
+    if args.get("project_id", ""):
+        q = q.filter(Execution.project_id == args["project_id"])
+    if args.get("state", ""):
+        try:
+            q = q.filter(Execution.state ==
+                         ExecutionState(args["state"]))
+        except ValueError:
+            pass
+    if args.get("outcome", ""):
+        try:
+            q = q.filter(Execution.outcome == Outcome(args["outcome"]))
+        except ValueError:
+            pass
+    if args.get("runner_id", ""):
+        q = q.filter(Execution.runner_id == args["runner_id"])
+    if args.get("schedule_id", ""):
+        q = q.filter(Execution.schedule_id == args["schedule_id"])
+    if args.get("from_date", ""):
+        try:
+            q = q.filter(Execution.created_at >=
+                         datetime.strptime(args["from_date"],
+                                           "%Y-%m-%d"))
+        except ValueError:
+            pass
+    if args.get("to_date", ""):
+        try:
+            q = q.filter(Execution.created_at <
+                         datetime.strptime(args["to_date"],
+                                           "%Y-%m-%d")
+                         + timedelta(days=1))
+        except ValueError:
+            pass
+    page = max(1, int(args.get("page", 1) or 1))
+    per = 50
+    total = q.count()
+    rows = (q.order_by(Execution.created_at.desc(), Execution.id.desc())
+            .offset((page - 1) * per).limit(per).all())
+    visible = [e for e in rows
                if current_user.project_allowed(e.project_id)]
-    return render_template("portal/executions.html", executions=visible)
+    page_args = {k: v for k, v in args.items()
+                 if k != "page" and v != ""}
+    from ..execution import Runner as _R
+    return render_template(
+        "portal/executions.html", executions=visible,
+        filters=args, total=total, page=page, per=per,
+        page_args=page_args,
+        states=[s.value for s in ExecutionState],
+        outcomes=[o.value for o in Outcome],
+        projects=Project.query.order_by(Project.name).all(),
+        runners=_R.query.order_by(_R.name).all(),
+        schedules=Schedule.query.order_by(Schedule.name).all(),
+        plain_form=PlainForm(),
+        can_run=current_user.role.value in
+        ("admin", "test_manager", "tester"))
+
+
+@portal_bp.route("/executions/bulk-cancel", methods=["POST"])
+@role_required(*RUN_ROLES)
+def bulk_cancel_executions():
+    """Bulk cancellation of explicitly selected executions via the
+    existing request_cancel path — per-item auth + eligibility,
+    per-item honest results. No 'all matching pages' scope in v1."""
+    PlainForm().validate_on_submit()
+    ids = request.form.getlist("ex_ids")
+    if not ids:
+        flash("No executions selected.", "error")
+        return redirect(url_for("portal.executions"))
+    results = {"canceled": [], "skipped": [], "denied": [], "failed": []}
+    for eid in ids[:50]:                        # bounded selection
+        ex = db.session.get(Execution, eid)
+        if ex is None:
+            results["failed"].append(eid[:8]); continue
+        if not current_user.project_allowed(ex.project_id):
+            results["denied"].append(eid[:8]); continue
+        if (current_user.role == Role.TESTER
+                and ex.created_by != current_user.username):
+            results["denied"].append(eid[:8]); continue
+        try:
+            ok = dispatch.request_cancel(ex.id, current_user.username,
+                                         "bulk-cancel")
+            results["canceled" if ok else "skipped"].append(eid[:8])
+        except Exception:
+            results["failed"].append(eid[:8])
+    record_audit(current_user.username, "execution.bulk_cancel",
+                 f"{len(ids)} selected: "
+                 f"{len(results['canceled'])} accepted")
+    parts = [f"{k}: {len(v)}" for k, v in results.items() if v]
+    flash("Bulk cancel — " + "; ".join(parts) +
+          ". A request is queued — it does NOT confirm a remote "
+          "process has stopped.", "info")
+    return redirect(url_for("portal.executions"))
 
 
 @portal_bp.route("/suites/<suite_id>/run", methods=["POST"])
@@ -266,6 +388,10 @@ def launch_execution(suite_id):
             request.form.get("remote_webdriver_type", "").strip(),
         "timeout_seconds":
             int(request.form.get("timeout_seconds") or 0),
+        # Explicit execution target ("" = auto). Re-validated at
+        # dispatch — never falls back to another target.
+        "runner_id": request.form.get("runner_id", "").strip(),
+        "runtime_id": request.form.get("runtime_id", "").strip(),
         "kre_options": kre_options,
     }
     ex = dispatch.create_execution(
@@ -954,6 +1080,7 @@ def create_schedule(project_id):
             suite_id=suite_id, plan_id=plan_id, kind=kind,
             interval_minutes=interval if kind == "interval" else None,
             next_run_at=run_at, enabled=True,
+            overlap_policy=form.overlap_policy.data or "allow",
             run_config_json=json.dumps({
                 "profile": form.execution_profile.data or "default",
                 "browser": form.browser_type.data or "Chrome (headless)",
@@ -962,6 +1089,8 @@ def create_schedule(project_id):
                 "remote_webdriver_type":
                     (form.remote_webdriver_type.data or "").strip(),
                 "timeout_seconds": form.timeout_seconds.data or 3600,
+                "runner_id": form.runner_id.data or "",
+                "runtime_id": form.runtime_id.data or "",
             }),
             created_by=current_user.username))
         db.session.commit()
@@ -985,6 +1114,68 @@ def toggle_schedule(schedule_id):
     record_audit(current_user.username, "schedule.toggled", sched.id)
     return redirect(url_for("portal.project_detail",
                           project_id=sched.project_id))
+
+
+@portal_bp.route("/schedules/<schedule_id>/run-now", methods=["POST"])
+@role_required(*RUN_ROLES)
+def run_schedule_now(schedule_id):
+    """Manual trigger of a saved schedule — same config as a scheduled
+    firing, new immutable snapshot, actor recorded. Disabled schedules
+    cannot be run-now'd (enable first); overlap 'skip' still applies
+    when the previous run is active. Does NOT advance next_run_at,
+    consume a 'once' schedule, or alter recurrence — the next due fire
+    still happens as scheduled."""
+    sched = db.session.get(Schedule, schedule_id)
+    if sched is None:
+        abort(404)
+    _project_or_404(sched.project_id)
+    PlainForm().validate_on_submit()
+    if not sched.enabled:
+        flash("Schedule is disabled — enable it before triggering "
+              "manually.", "error")
+        return redirect(url_for("portal.project_detail",
+                              project_id=sched.project_id))
+    if (sched.overlap_policy == "skip"
+            and db.session.query(Execution).filter(
+                Execution.schedule_id == sched.id,
+                Execution.state.in_(dispatch._ACTIVE_STATES)).count()):
+        flash("A previous run from this schedule is still active — "
+              "overlap policy 'skip' refused the manual trigger.",
+              "error")
+        return redirect(url_for("portal.project_detail",
+                              project_id=sched.project_id))
+    cfg = sched.run_config()
+    binding = GitBinding.query.filter_by(
+        project_id=sched.project_id).first()
+    sha = binding.last_synced_sha if binding else ""
+    try:
+        if sched.target_type == "suite" and sched.suite_id:
+            suite = db.session.get(Suite, sched.suite_id)
+            if suite is None:
+                raise dispatch.DispatchError("scheduled suite no longer exists")
+            ex = dispatch.create_execution(
+                current_user.username, suite, binding=binding,
+                source_sha=sha, run_config=cfg, schedule_id=sched.id)
+        elif sched.target_type == "plan" and sched.plan_id:
+            plan = db.session.get(Plan, sched.plan_id)
+            if plan is None:
+                raise dispatch.DispatchError("scheduled plan no longer exists")
+            _, exs = dispatch.queue_plan_executions(
+                current_user.username, plan, binding=binding,
+                source_sha=sha, schedule_id=sched.id)
+            ex = exs[0] if exs else None
+        else:
+            raise dispatch.DispatchError(
+                f"invalid schedule target {sched.target_type!r}")
+    except dispatch.DispatchError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("portal.project_detail",
+                              project_id=sched.project_id))
+    record_audit(current_user.username, "schedule.run_now", sched.id)
+    flash("Schedule triggered manually — execution queued. The next "
+          "scheduled fire is unchanged.", "info")
+    return redirect(url_for("portal.execution_detail",
+                          execution_id=ex.id if ex else ""))
 
 
 @portal_bp.route("/schedules/<schedule_id>/delete", methods=["POST"])

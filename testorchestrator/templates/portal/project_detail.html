@@ -124,11 +124,21 @@
         <td>{{ (s.suite.name if s.suite else s.plan.name) if (s.suite or s.plan) else "(missing)" }}</td>
         <td>{{ s.kind }}{% if s.kind == "interval" %} ({{ s.interval_minutes }} min){% endif %}</td>
         <td>{{ s.next_run_at or "—" }}</td>
-        <td>{{ "yes" if s.enabled else "no" }}</td>
+        <td>{{ "yes" if s.enabled else "no" }}{% if s.overlap_policy == "skip" %} <span class="badge">no-overlap</span>{% endif %}</td>
         {% if can_edit %}
         <td>
           <form method="post" action="{{ url_for('portal.toggle_schedule', schedule_id=s.id) }}" class="inline">
             {{ plain_form.csrf_token }}<button class="button secondary" type="submit">{{ "Disable" if s.enabled else "Enable" }}</button></form>
+          {% if can_run and s.enabled %}
+          <form method="post" action="{{ url_for('portal.run_schedule_now', schedule_id=s.id) }}" class="inline"
+                onsubmit="return confirm('Trigger this schedule now?');">
+            {{ plain_form.csrf_token }}<button class="button" type="submit">Run now</button></form>
+          {% endif %}
+          {% if can_run and s.enabled %}
+          <form method="post" action="{{ url_for('portal.run_schedule_now', schedule_id=s.id) }}" class="inline"
+                onsubmit="return confirm('Trigger this schedule now?');">
+            {{ plain_form.csrf_token }}<button class="button" type="submit">Run now</button></form>
+          {% endif %}
           <form method="post" action="{{ url_for('portal.delete_schedule', schedule_id=s.id) }}" class="inline">
             {{ plain_form.csrf_token }}<button class="button secondary" type="submit">Delete</button></form>
         </td>
@@ -160,6 +170,21 @@
     <div class="field">{{ schedule_form.remote_webdriver_type.label }} {{ schedule_form.remote_webdriver_type() }}
       <small>Optional. Driver type for the remote session — typically
       <code>Selenium</code>.</small></div>
+    <div class="field">{{ schedule_form.runner_id.label }} {{ schedule_form.runner_id() }}
+      <small>Auto picks the first eligible runner; an explicit pick
+      that becomes unavailable REJECTS — never falls back.</small></div>
+    <div class="field">{{ schedule_form.runtime_id.label }} {{ schedule_form.runtime_id() }}
+      <small>Must belong to the selected runner — incompatible pairs
+      reject the run.</small></div>
+    <div class="field">{{ schedule_form.timeout_seconds.label }} {{ schedule_form.timeout_seconds() }}
+      <small>Seconds, running time from process launch — queue time
+      excluded. Blank/0 = 3600&nbsp;s default.</small></div>
+    <div class="field">{{ schedule_form.overlap_policy.label }} {{ schedule_form.overlap_policy() }}
+      <small>"Allow overlap" (default): each due fire runs
+      independently. "Skip if previous run active": drops the new
+      occurrence while a prior run from this schedule is active —
+      including UNKNOWN; skips are audited and the next due time
+      still advances (no catch-up). Applies to Run now too.</small></div>
     <button type="submit" class="button">Create schedule</button>
   </form>
   {% endif %}

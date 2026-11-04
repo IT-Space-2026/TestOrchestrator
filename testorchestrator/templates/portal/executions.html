@@ -2,23 +2,111 @@
 {% block title %}Executions · TestOrchestrator{% endblock %}
 {% block content %}
 <h1>Executions</h1>
+
+<form method="get" class="filter-bar card">
+  <div class="field"><label for="q">ID prefix</label>
+    <input type="text" name="q" id="q" value="{{ filters.get('q','') }}"
+           placeholder="e.g. a1b2c3"></div>
+  <div class="field"><label for="project_id">Project</label>
+    <select name="project_id" id="project_id">
+      <option value="">All projects</option>
+      {% for p in projects %}
+      <option value="{{ p.id }}" {% if filters.get('project_id')==p.id %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select></div>
+  <div class="field"><label for="state">Lifecycle state</label>
+    <select name="state" id="state">
+      <option value="">All states</option>
+      {% for s in states %}
+      <option value="{{ s }}" {% if filters.get('state')==s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select></div>
+  <div class="field"><label for="outcome">Outcome</label>
+    <select name="outcome" id="outcome">
+      <option value="">All outcomes</option>
+      {% for o in outcomes %}
+      <option value="{{ o }}" {% if filters.get('outcome')==o %}selected{% endif %}>{{ o }}</option>
+      {% endfor %}
+    </select></div>
+  <div class="field"><label for="runner_id">Runner</label>
+    <select name="runner_id" id="runner_id">
+      <option value="">All runners</option>
+      {% for r in runners %}
+      <option value="{{ r.id }}" {% if filters.get('runner_id')==r.id %}selected{% endif %}>{{ r.name }}</option>
+      {% endfor %}
+    </select></div>
+  <div class="field"><label for="schedule_id">Schedule</label>
+    <select name="schedule_id" id="schedule_id">
+      <option value="">All</option>
+      {% for sc in schedules %}
+      <option value="{{ sc.id }}" {% if filters.get('schedule_id')==sc.id %}selected{% endif %}>{{ sc.name }}</option>
+      {% endfor %}
+    </select></div>
+  <div class="field"><label for="from_date">From</label>
+    <input type="date" name="from_date" id="from_date"
+           value="{{ filters.get('from_date','') }}"></div>
+  <div class="field"><label for="to_date">To</label>
+    <input type="date" name="to_date" id="to_date"
+           value="{{ filters.get('to_date','') }}"></div>
+  <div class="form-actions">
+    <button type="submit" class="button">Filter</button>
+    <a class="button secondary" href="{{ url_for('portal.executions') }}">Clear</a>
+  </div>
+</form>
+
 {% if executions %}
+<form method="post" action="{{ url_for('portal.bulk_cancel_executions') }}"
+      onsubmit="return confirm('Request cancellation for the selected executions?');">
+  {{ plain_form.csrf_token }}
 <table class="data-table">
-  <thead><tr><th>ID</th><th>Suite</th><th>State</th><th>Outcome</th>
-      <th>Results</th><th>Git</th><th>By</th></tr></thead>
+  <thead><tr>
+    {% if can_run %}<th><input type="checkbox" id="sel-all"
+        onclick="document.querySelectorAll('.sel-ex').forEach(c=>c.checked=this.checked)"></th>{% endif %}
+    <th>ID</th><th>Project</th><th>Suite</th><th>State</th>
+    <th>Outcome</th><th>Runner</th><th>Schedule</th><th>Created</th>
+    <th>By</th></tr></thead>
   <tbody>
     {% for e in executions %}
     <tr>
+      {% if can_run %}
+      <td><input type="checkbox" class="sel-ex" name="ex_ids"
+                 value="{{ e.id }}"
+                 {% if e.state.value not in ("queued","dispatched","running","preparing","cancel_requested") %}disabled{% endif %}></td>
+      {% endif %}
       <td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
+      <td>{{ e.project.name if e.project }}</td>
       <td>{{ e.snapshot().get('suite_name', '') }}</td>
-      <td>{{ e.state.value }}</td>
-      <td>{{ e.outcome.value }}</td>
-      <td>{{ e.results | length }} cases</td>
-      <td>{{ e.git_state.value }}</td>
+      <td><span class="badge {{ e.state.value }}">{{ e.state.value }}</span></td>
+      <td><span class="badge {{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
+      <td>{{ e.runner.name if e.runner else "—" }}</td>
+      <td>{{ e.schedule.name if e.schedule else "—" }}</td>
+      <td>{{ (e.created_at|string)[:16] }}</td>
       <td>{{ e.created_by }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
-{% else %}<p class="muted">No executions yet.</p>{% endif %}
+
+{% if can_run %}
+<div class="form-actions">
+  <button type="submit" class="button secondary">Cancel selected</button>
+  <small class="muted">Requests cancellation per selected item — does
+    NOT confirm a remote process has stopped. Eligibility and per-item
+    results are reported.</small>
+</div>
+{% endif %}
+</form>
+
+<nav class="pagination">
+  {% if page > 1 %}
+  <a href="{{ url_for('portal.executions', page=page-1, **page_args) }}">&larr; Prev</a>
+  {% endif %}
+  <span class="muted">Page {{ page }} — {{ total }} total ({{ per }}/page)</span>
+  {% if page * per < total %}
+  <a href="{{ url_for('portal.executions', page=page+1, **page_args) }}">Next &rarr;</a>
+  {% endif %}
+</nav>
+{% else %}
+<p class="muted">No executions match the current filters.</p>
+{% endif %}
 {% endblock %}

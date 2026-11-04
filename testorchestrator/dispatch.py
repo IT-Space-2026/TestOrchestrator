@@ -48,7 +48,8 @@ class DispatchError(RuntimeError):
 def create_execution(username: str, suite: Suite, binding: GitBinding = None,
                      plan_id: str = "",
                      source_sha: str = "", run_config: dict = None,
-                     extra_snapshot: dict = None) -> Execution:
+                     extra_snapshot: dict = None,
+                     schedule_id: str = "") -> Execution:
     """Create an immutable execution snapshot (§4, A07). Later suite edits
     create new suite versions; this row's snapshot never changes."""
 
@@ -78,6 +79,9 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
                 str(rc.get("remote_webdriver_url") or "")[:512],
             "remote_webdriver_type":
                 str(rc.get("remote_webdriver_type") or "")[:64],
+            # Requested execution target ("" = auto pick at dispatch).
+            "requested_runner": str(rc.get("runner_id") or "")[:32],
+            "requested_runtime": str(rc.get("runtime_id") or "")[:32],
             # Running-time limit in seconds (process-launch clock,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
@@ -104,6 +108,7 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
         snapshot_json=json.dumps(snapshot),
         source_sha=source_sha,
         created_by=username,
+        schedule_id=schedule_id or None,
     )
     db.session.add(execution)
     db.session.flush()  # id assigned before outbox references it
@@ -122,7 +127,8 @@ def queue_plan_executions(username: str, plan: Plan,
                           binding: GitBinding = None,
                           source_sha: str = "",
                           entries: list = None,
-                          plan_run_id: str = "") -> tuple:
+                          plan_run_id: str = "",
+                          schedule_id: str = "") -> tuple:
     """Queue one execution per plan entry under a shared plan_run_id —
     the durable handle that lets summaries, stop-on-failure and
     rerun-failed group attempts of the same run (§10)."""
@@ -132,7 +138,8 @@ def queue_plan_executions(username: str, plan: Plan,
         exs.append(create_execution(
             username, entry.suite, binding=binding, source_sha=source_sha,
             plan_id=plan.id,
-            extra_snapshot={"plan_run_id": run_id}))
+            extra_snapshot={"plan_run_id": run_id},
+            schedule_id=schedule_id))
     return run_id, exs
 
 
@@ -371,18 +378,47 @@ def run_execution(execution_id: str) -> None:
         record_audit("system", "execution.dispatch_skipped",
                      f"{ex.id}: state={ex.state.value}")
         return
-    runner = ex.runner or pick_runner(ex)
-    if runner is None:
-        # Stay queued/dispatched — no free compatible runner right now.
-        ex.state = ExecutionState.DISPATCHED
-        db.session.commit()
-        return
-    runtime = ex.runtime or pick_runtime(ex, runner)
-    if runtime is None:
-        _fail(ex, "infrastructure",
-              "no enabled compatible runtime connection on runner "
-              f"{runner.name!r} — register an existing KRE installation")
-        return
+    # Explicit execution target (run_config.requested_runner/runtime):
+    # re-validate eligibility HERE — drain/disable/mismatch may have
+    # happened since the form was filled. An unavailable explicit pick
+    # REJECTS visibly — never silently falls back to another target.
+    rc = ex.snapshot().get("run_config") or {}
+    req_runner = rc.get("requested_runner") or ""
+    req_runtime = rc.get("requested_runtime") or ""
+    if req_runner:
+        runner = db.session.get(Runner, req_runner)
+        if not runner or not runner.enabled or runner.draining:
+            _fail(ex, "infrastructure",
+                  f"explicitly selected runner {req_runner[:12]}… is "
+                  "unavailable (disabled/draining/missing) — no "
+                  "fallback to another target")
+            return
+    else:
+        runner = ex.runner or pick_runner(ex)
+        if runner is None:
+            # Stay QUEUED — retry the next worker tick; do NOT mark
+            # DISPATCHED (the assignment CAS requires QUEUED).
+            return
+    if req_runtime:
+        runtime = db.session.get(RuntimeConnection, req_runtime)
+        rt_allowed = (json.loads(runtime.allowed_projects or "[]")
+                      if runtime else [])
+        if (not runtime or not runtime.enabled
+                or runtime.runner_id != runner.id
+                or (rt_allowed and ex.project_id not in rt_allowed)):
+            _fail(ex, "infrastructure",
+                  f"explicitly selected runtime {req_runtime[:12]}… is "
+                  "unavailable or incompatible with the selected "
+                  "runner — no fallback")
+            return
+    else:
+        runtime = ex.runtime or pick_runtime(ex, runner)
+        if runtime is None:
+            _fail(ex, "infrastructure",
+                  "no enabled compatible runtime connection on runner "
+                  f"{runner.name!r} — register an existing KRE "
+                  "installation")
+            return
     if runner.connection_mode != "local":
         # Remote transport (§6): the assigned agent picks the task up via
         # /api/agent/tasks; the portal holds the lease, heartbeats renew
@@ -844,6 +880,22 @@ def fire_due_schedules(now=None) -> int:
             # raises here and stays unfired.
             db.session.refresh(sched)
             cfg = sched.run_config()
+            # Overlap policy (interval schedules only — 'once' fires a
+            # single time): skip = drop this occurrence while a previous
+            # execution from THIS schedule is still active. Evaluated
+            # inside the already-claimed row's transaction — the claim
+            # already advanced next_run_at, so the skipped slot moves
+            # forward (no catch-up storm). UNKNOWN counts as active —
+            # uncertain work blocks overlap until resolved.
+            if sched.kind == "interval" and                     sched.overlap_policy == "skip":
+                active = db.session.query(Execution).filter(
+                    Execution.schedule_id == sched.id,
+                    Execution.state.in_(_ACTIVE_STATES)).count()
+                if active:
+                    record_audit("system", "schedule.overlap_skipped",
+                                 f"{sched.id}: {active} active")
+                    db.session.commit()
+                    continue
             binding = GitBinding.query.filter_by(
                 project_id=sched.project_id).first()
             sha = binding.last_synced_sha if binding else ""
@@ -852,13 +904,15 @@ def fire_due_schedules(now=None) -> int:
                 if plan is None:
                     raise DispatchError("scheduled plan no longer exists")
                 queue_plan_executions(sched.created_by, plan,
-                                      binding=binding, source_sha=sha)
+                                      binding=binding, source_sha=sha,
+                                      schedule_id=sched.id)
             elif sched.target_type == "suite" and sched.suite_id:
                 suite = db.session.get(Suite, sched.suite_id)
                 if suite is None:
                     raise DispatchError("scheduled suite no longer exists")
                 create_execution(sched.created_by, suite, binding=binding,
-                                 source_sha=sha, run_config=cfg)
+                                 source_sha=sha, run_config=cfg,
+                                 schedule_id=sched.id)
             else:
                 raise DispatchError(
                     f"invalid schedule target {sched.target_type!r}")

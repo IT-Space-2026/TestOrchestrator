@@ -60,6 +60,14 @@ class ScheduleForm(FlaskForm):
     timeout_seconds = IntegerField(
         "Timeout (seconds)", validators=[Optional()],
         default=3600)
+    runner_id = SelectField("Runner", validators=[Optional()],
+                            choices=[])
+    runtime_id = SelectField("Runtime", validators=[Optional()],
+                             choices=[])
+    overlap_policy = SelectField(
+        "Overlap", choices=[("allow", "Allow overlap"),
+                            ("skip", "Skip if previous run active")],
+        default="allow")
 
 
 class PlainForm(FlaskForm):

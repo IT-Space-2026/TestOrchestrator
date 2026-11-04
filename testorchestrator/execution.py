@@ -143,6 +143,10 @@ class Schedule(db.Model):
                         nullable=True)
     kind = db.Column(db.String(16), nullable=False,
                      default="interval")                   # once|interval
+    # allow = previous behaviour; skip = drop the new occurrence while
+    # an active execution from this schedule exists.
+    overlap_policy = db.Column(db.String(16), nullable=False,
+                               default="allow")
     interval_minutes = db.Column(db.Integer, nullable=True)
     next_run_at = db.Column(db.DateTime(timezone=True), nullable=True)
     last_run_at = db.Column(db.DateTime(timezone=True), nullable=True)
@@ -279,6 +283,11 @@ class Execution(db.Model):
                         default=Outcome.NONE)
     git_state = db.Column(db.Enum(SyncState), nullable=False,
                           default=SyncState.NONE)
+    # Which schedule fired this execution — None for manual runs.
+    # Records origin for overlap checks + history filtering; Run now
+    # links back to the same schedule row.
+    schedule_id = db.Column(db.String(32),
+                            db.ForeignKey("schedules.id"), nullable=True)
     dispatch_id = db.Column(db.String(64), nullable=False, default="")
     workspace_path = db.Column(db.String(512), nullable=False, default="")
     report_dir = db.Column(db.String(512), nullable=False, default="")
@@ -306,6 +315,7 @@ class Execution(db.Model):
     suite = db.relationship("Suite")
     runner = db.relationship("Runner")
     runtime = db.relationship("RuntimeConnection")
+    schedule = db.relationship("Schedule")
 
     def snapshot(self) -> dict:
         return json.loads(self.snapshot_json or "{}")

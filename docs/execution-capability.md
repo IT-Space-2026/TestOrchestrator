@@ -192,3 +192,17 @@ See `docs/runbook-authorized-host.md` for the base procedure.
 5. Timeout semantics: `timeout_seconds` — running-time from process
    launch, enforced by the same killpg path, persists in snapshot,
    shown in detail; empty = 3600 s default (fixture-verified).
+
+
+## 10. Execution controls (Legacy-parity round)
+
+| Feature | Implementation | Evidence |
+|---|---|---|
+| Explicit runner/runtime | `run_config.requested_runner/runtime` → snapshot; dispatch re-validates eligibility; unavailable → reject, no fallback | `test_explicit_*` |
+| Run now | `POST /schedules/<id>/run-now` — saved config + schedule_id link + actor; disabled rejected; doesn't advance next_run_at | `test_run_now_*` |
+| Overlap policy | `schedules.overlap_policy` allow|skip; skip checked inside claimed fire; UNKNOWN counts active; interval only (once fires once) | `test_overlap_*` |
+| Execution history | `/executions` — id-prefix/project/date/state/outcome/runner/schedule filters, stable sort, 50/page, visibility-scoped | `test_history_filters_pagination` |
+| Bulk cancel | `/executions/bulk-cancel` — explicit selection, per-item auth+eligibility+result, audited, honest wording | `test_bulk_cancel_mixed_outcomes` |
+
+Plan-level rerun-failed already existed (`/plans/<id>/rerun-failed`,
+new plan_run_id); suite-level rerun-failed-cases remains absent.

@@ -67,6 +67,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   new **Resolve UNKNOWN** action (audited); multi-process race tests.
   docs/execution-capability.md + docs/runbook-two-host.md.
 
+- **Execution controls (Legacy-parity round):** explicit runner/
+  runtime selectors (auto default, revalidated at dispatch, no
+  fallback); Run now on schedules (saved config, recurrence
+  preserved); per-schedule overlap policy (allow|skip, UNKNOWN
+  blocks); searchable/paginated /executions history with filters;
+  bulk cancel on selected rows; executions.schedule_id linkage
+  (migration e6f7a8b9c0d1).
+
 ### Fixed (unreleased)
 - **Remote WebDriver contract:** corrected to Katalon's documented
   `-browserType=Remote` + `-remoteWebDriverUrl=` +

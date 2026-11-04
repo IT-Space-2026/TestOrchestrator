@@ -270,3 +270,12 @@ guessed. URL credentials are scrubbed from logs/evidence. **Precedence:** the sc
 `run_config.browser` wins → stored in the immutable execution snapshot
 → adapter default `Chrome (headless)` only when unset. Plan schedules
 inherit the schedule's run_config (no per-entry override exists).
+
+## Execution controls (Unreleased)
+
+Run/schedule forms support explicit runner+runtime selection (auto
+default; unavailable explicit picks reject — no fallback), Run-now on
+saved schedules, per-schedule overlap policy (allow|skip), a
+filterable/paginated `/executions` history view, and bulk cancel on
+selected rows. See `docs/legacy-testops-gap-audit.md` and
+`docs/execution-capability.md` §10.

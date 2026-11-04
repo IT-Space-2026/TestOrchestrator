@@ -22,6 +22,23 @@
     {{ plain_form.csrf_token }}
     <div class="field"><label for="execution_profile">Execution profile</label>
       <input type="text" name="execution_profile" id="execution_profile" value="default"></div>
+    <div class="field"><label for="runner_id">Runner</label>
+      <select name="runner_id" id="runner_id">
+        <option value="">Auto — pick any eligible runner</option>
+        {% for r in runners %}<option value="{{ r.id }}">{{ r.name }}
+          ({{ r.os_arch or 'unknown os' }}, {{ r.health or 'ok' }})</option>{% endfor %}
+      </select>
+      <small>Auto picks the first eligible (enabled, not draining,
+      capacity free). An explicit runner that becomes unavailable
+      REJECTS the run — never falls back.</small></div>
+    <div class="field"><label for="runtime_id">Runtime</label>
+      <select name="runtime_id" id="runtime_id">
+        <option value="">Auto — compatible runtime on the runner</option>
+        {% for rt in runtimes %}<option value="{{ rt.id }}">{{ rt.name }}
+          — {{ rt.runner.name if rt.runner }} ({{ rt.detected_version or 'version unknown' }})</option>{% endfor %}
+      </select>
+      <small>Must belong to the selected runner — an incompatible
+      pairing rejects the run. Auto picks the first compatible.</small></div>
     <div class="field"><label for="timeout_seconds">Timeout (seconds)</label>
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" max="86400"
              placeholder="3600">
