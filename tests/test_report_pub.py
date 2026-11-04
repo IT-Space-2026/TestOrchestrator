@@ -14,7 +14,7 @@ from testorchestrator.execution import (Execution, ExecutionState,
 
 def _repo(tmp_path):
     src = tmp_path / "repo"
-    src.mkdir()
+    src.mkdir(parents=True)
     import subprocess
     subprocess.run(["git", "init", "-q", str(src)], check=True)
     subprocess.run(["git", "-C", str(src), "config",
@@ -191,3 +191,64 @@ def test_tag_branch_rejected(app, tmp_path):
         db.session.commit()
         r = gitsync.publish_report(ex.id)
         assert r["error"] == "invalid branch"
+
+
+def test_concurrent_publish_different_executions(app, tmp_path):
+    """Two executions publishing from the same remote head both
+    survive — no lost reports."""
+    repo = _repo(tmp_path)
+    with app.app_context():
+        p, b, s = _env(app, repo)
+        e1 = dispatch.create_execution("m", s, binding=b)
+        e2 = dispatch.create_execution("m", s, binding=b)
+        e1.state = e2.state = ExecutionState.COMPLETED
+        db.session.commit()
+        r1 = gitsync.publish_report(e1.id)
+        r2 = gitsync.publish_report(e2.id)
+        assert r1.get("published") and r2.get("published")
+        import subprocess
+        for eid in (e1.id, e2.id):
+            out = subprocess.run(
+                ["git", "-C", str(repo), "ls-tree", "master",
+                 f"TestOrchestrator/Reports/{eid}"],
+                capture_output=True, text=True)
+            assert f"Reports/{eid}" in out.stdout
+
+
+def test_delete_uses_recorded_url_not_new_binding(app, tmp_path):
+    """Publish, then change binding.url — deletion must target the
+    ORIGINAL repo, never the newly configured one."""
+    repo = _repo(tmp_path); repo2 = _repo(tmp_path / "r2")
+    with app.app_context():
+        p, b, s = _env(app, repo)
+        ex = dispatch.create_execution("m", s, binding=b)
+        ex.state = ExecutionState.COMPLETED
+        db.session.commit()
+        gitsync.publish_report(ex.id)
+        # binding changed after publication
+        b.url = str(repo2); db.session.commit()
+        r = gitsync.delete_report(ex.id)
+        assert r.get("removed")
+        import subprocess
+        out = subprocess.run(
+            ["git", "-C", str(repo), "ls-tree", "master",
+             ex.report_pub_dir or "TestOrchestrator"],
+            capture_output=True, text=True)
+        assert ex.id not in out.stdout
+
+
+def test_duplicate_publish_delivery_safe(app, tmp_path):
+    """Duplicate outbox delivery is safe — second publish is a
+    digest-identical skip, not a duplicate commit."""
+    repo = _repo(tmp_path)
+    with app.app_context():
+        p, b, s = _env(app, repo)
+        ex = dispatch.create_execution("m", s, binding=b)
+        ex.state = ExecutionState.COMPLETED
+        db.session.commit()
+        gitsync.publish_report(ex.id)
+        sha1 = ex.report_pub_sha
+        r = gitsync.publish_report(ex.id)   # duplicate delivery
+        assert r.get("skipped")
+        db.session.refresh(ex)
+        assert ex.report_pub_sha == sha1

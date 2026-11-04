@@ -623,7 +623,7 @@ def publish_report(execution_id: str) -> dict:
             db.session.commit()
             return {"error": str(exc)[:200]}
         ex.report_pub_status = "published"
-        ex.report_pub_repo = str(binding.id)
+        ex.report_pub_repo = binding.url
         ex.report_pub_branch = branch
         ex.report_pub_dir = _report_dir(ex)
         ex.report_pub_sha = sha
@@ -673,7 +673,7 @@ def delete_report(execution_id: str) -> dict:
     try:
         if not (wt / ".git").exists():
             wt.parent.mkdir(parents=True, exist_ok=True)
-            git_backend.run("clone", binding.url, wt,
+            git_backend.run("clone", dest_url, wt,
                             branch=branch,
                             auth=_binding_auth(binding))
         else:
