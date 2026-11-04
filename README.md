@@ -119,9 +119,11 @@ is queued or in flight (progress, not a verdict). Retried entries count
 by their latest attempt.
 
 Implemented: plan edit/reorder/remove, per-entry `on_failure` policy
-(`stop` cancels later queued/dispatched entries — enforced by the
-worker and by the dispatch boundary: a cancelled entry's already-queued
-event is skipped, never launched; running entries are left to finish),
+(`stop` cancels later queued/dispatched entries — the atomic launch
+boundary is QUEUED|DISPATCHED → PREPARING: a cancel that commits before
+the claim blocks launch; a claim that commits first means the entry
+finishes (or takes CANCEL_REQUESTED). Verified under synchronized
+claim→cancel→launch races),
 rerun-failed as a new plan run (originals immutable), execution
 **retry** as a linked immutable attempt (`retry_of` + incrementing
 `attempt`; each attempt keeps its own workspace, report dir and
@@ -189,7 +191,11 @@ uses the last good backup.
 GitHub prerelease `v1.9.0`: `tar.gz` + `.sha256` + `.manifest.json` +
 `.inventory.json` (release notes in the release body). `dist/` is never
 tracked. Standard build ≈179 MB; frozen candidate ≈144 MB (GitPython
-and the bundled git rootfs removed — Dulwich-only). Verify:
+and the bundled git rootfs removed — Dulwich-only). Revision-tagged
+names (`-frozen-<shortsha>`); `release.json` inside carries the build
+id the binary reports via `/healthz` and `toctl install-info`.
+`build_bundle --frozen` aborts if the onedir's embedded build differs
+from the repo stamp (stale-payload guard). Verify:
 `sha256sum -c <file>.sha256` inside `dist/`.
 
 ## Development
