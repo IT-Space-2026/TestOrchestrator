@@ -75,6 +75,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   bulk cancel on selected rows; executions.schedule_id linkage
   (migration e6f7a8b9c0d1).
 
+- **Katalon project onboarding:** `gitsync.discover_project` —
+  .prj root detection (bounded, containment-checked), typed
+  DiscoveredItem inventory (cases/suites/collections/profiles by
+  XML root tag), ordered membership refs, atomic replace per SHA,
+  stale-preserving failures, inventory UI section, suite-vs-collection
+  execution args (-testSuiteCollectionPath). Migrations
+  f8a9b0c1d2e3 + g9a0b1c2d3e4.
+
 ### Fixed (unreleased)
 - **Remote WebDriver contract:** corrected to Katalon's documented
   `-browserType=Remote` + `-remoteWebDriverUrl=` +

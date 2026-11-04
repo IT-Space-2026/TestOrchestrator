@@ -433,8 +433,15 @@ def discover_project(binding) -> dict:
                         members = [t.text.strip() for t in
                                    r.findall(".//testCaseLink/testCaseId")
                                    if t.text]
-                        dynamic = bool(r.findall(".//testCaseRunType")) or \
-                            "dynamic" in (r.findtext("name") or "").lower()
+                        # Explicit metadata first (authoritative);
+                        # name-match is an uncertain heuristic label.
+                        explicit = bool(r.findall(".//testCaseRunType"))
+                        name_hint = "dynamic" in (
+                            r.findtext("name") or "").lower()
+                        dynamic = explicit
+                        if name_hint and not explicit:
+                            warn = (warn or "") + \
+                                " name suggests dynamic (unverified)"
                     else:
                         members = [t.text.strip() for t in
                                    r.findall(".//TestSuiteRunConfiguration"

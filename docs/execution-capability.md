@@ -206,3 +206,13 @@ See `docs/runbook-authorized-host.md` for the base procedure.
 
 Plan-level rerun-failed already existed (`/plans/<id>/rerun-failed`,
 new plan_run_id); suite-level rerun-failed-cases remains absent.
+
+
+## 11. Source repository onboarding (discovery)
+
+`gitsync.discover_project` runs non-fatally after `sync_binding`:
+locates `.prj`, parses `.tc` cases + `.ts` suites/collections (by XML
+root tag — suites emit `-testSuitePath`, collections
+`-testSuiteCollectionPath`) + profile names; persists `DiscoveredItem`
+rows scoped to binding+SHA with atomic replace; failures keep the
+prior inventory marked stale. UI section on the project detail.
