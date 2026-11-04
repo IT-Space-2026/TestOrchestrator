@@ -237,7 +237,7 @@
       <tbody>
       {% for i in items %}
       <tr>
-        <td><code>{{ i.path }}</code>{% if i.dynamic %} <span class="badge">dynamic?</span>{% endif %}</td>
+        <td>{% if kind in ("suite","collection") %}<a href="{{ url_for('portal.discovered_detail', item_id=i.id) }}">{% endif %}<code>{{ i.path }}</code>{% if kind in ("suite","collection") %}</a>{% endif %}{% if i.dynamic %} <span class="badge">dynamic?</span>{% endif %}</td>
         {% if kind in ("suite","collection") %}<td>{{ i.members()|length if i.members() else "—" }}</td>{% endif %}
         <td class="muted">{{ i.warnings }}</td>
       </tr>

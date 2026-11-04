@@ -280,6 +280,57 @@ def suite_detail(suite_id):
 
 # ---------- executions ----------
 
+@portal_bp.route("/discovered/<item_id>")
+@login_required
+def discovered_detail(item_id):
+    from ..execution import DiscoveredItem
+    item = db.session.get(DiscoveredItem, item_id)
+    if item is None:
+        abort(404)
+    _project_or_404(item.project_id)
+    from ..execution import Runner, RuntimeConnection
+    runners = [x for x in Runner.query.filter_by(enabled=True).all()
+               if not x.draining]
+    runtimes = RuntimeConnection.query.filter_by(enabled=True).all()
+    profiles = [i.name for i in DiscoveredItem.query.filter_by(
+        binding_id=item.binding_id, kind="profile")]
+    return render_template(
+        "portal/discovered_detail.html", item=item, runners=runners,
+        runtimes=runtimes, profiles=profiles,
+        plain_form=PlainForm(),
+        can_run=current_user.role.value in
+        ("admin", "test_manager", "tester"))
+
+
+@portal_bp.route("/discovered/<item_id>/run", methods=["POST"])
+@role_required(*RUN_ROLES)
+def run_discovered(item_id):
+    from ..execution import DiscoveredItem
+    item = db.session.get(DiscoveredItem, item_id)
+    if item is None or item.kind not in ("suite", "collection"):
+        abort(404)
+    _project_or_404(item.project_id)
+    PlainForm().validate_on_submit()
+    binding = db.session.get(GitBinding, item.binding_id)
+    run_config = {
+        "profile": request.form.get("execution_profile") or "default",
+        "runner_id": request.form.get("runner_id", "").strip(),
+        "runtime_id": request.form.get("runtime_id", "").strip(),
+        "timeout_seconds":
+            int(request.form.get("timeout_seconds") or 0),
+        "suite_path": item.path,
+        "collection": item.kind == "collection",
+    }
+    ex = dispatch.create_execution(
+        current_user.username, binding=binding,
+        source_sha=binding.last_synced_sha if binding else "",
+        run_config=run_config, source_item=item)
+    record_audit(current_user.username, "execution.queued", ex.id)
+    flash(f"Execution {ex.id[:8]} queued for "
+          f"{item.kind} {item.path!r}.", "info")
+    return redirect(url_for("portal.execution_detail", execution_id=ex.id))
+
+
 @portal_bp.route("/executions")
 @login_required
 def executions():

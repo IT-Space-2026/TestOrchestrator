@@ -205,6 +205,9 @@ def test_upgrade_forward_path(tmp_path):
                 " order_idx INTEGER, dynamic INTEGER, warnings TEXT,"
                 " created_at TEXT)"))
             conn.execute(sa.text(
+                "CREATE TABLE executions (id TEXT PRIMARY KEY,"
+                " suite_id TEXT NOT NULL, snapshot_json TEXT)"))
+            conn.execute(sa.text(
                 "CREATE TABLE alembic_version (version_num TEXT)"))
             conn.execute(sa.text(
                 "INSERT INTO alembic_version VALUES ('f8a9b0c1d2e3')"))

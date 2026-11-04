@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }} · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>{{ item.name }} <span class="badge">{{ item.kind }}</span></h1>
+<p class="muted">Source definition — read-only inventory; does not
+  import historical executions.</p>
+<p>
+  Path <code>{{ item.path }}</code>
+  · binding <code>{{ item.binding_id[:8] }}</code>
+  · revision <code>{{ (item.sha or "—")[:12] }}</code>
+  {% if item.dynamic %}· <span class="badge">dynamic?</span>{% endif %}
+</p>
+{% if item.warnings %}<p class="warn">{{ item.warnings }}</p>{% endif %}
+
+{% if item.members() %}
+<details open><summary><strong>Members</strong> ({{ item.members()|length }})</summary>
+<ol>
+  {% for m in item.members() %}<li><code>{{ m }}</code></li>{% endfor %}
+</ol>
+</details>
+{% endif %}
+
+{% if can_run %}
+<section class="card">
+  <h2>Run</h2>
+  <form method="post" action="{{ url_for('portal.run_discovered', item_id=item.id) }}">
+    {{ plain_form.csrf_token }}
+    <div class="field"><label for="execution_profile">Profile</label>
+      <input name="execution_profile" id="execution_profile" value="default"
+             list="profs">
+      <datalist id="profs">
+        {% for p in profiles %}<option value="{{ p }}">{% endfor %}
+      </datalist></div>
+    <div class="field"><label for="runner_id">Runner</label>
+      <select name="runner_id" id="runner_id">
+        <option value="">Auto</option>
+        {% for r in runners %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="runtime_id">Runtime</label>
+      <select name="runtime_id" id="runtime_id">
+        <option value="">Auto</option>
+        {% for rt in runtimes %}<option value="{{ rt.id }}">{{ rt.name }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="timeout_seconds">Timeout (s)</label>
+      <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" placeholder="3600"></div>
+    <button type="submit" class="button">Run {{ item.kind }}</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

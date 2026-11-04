@@ -268,7 +268,13 @@ class Execution(db.Model):
     project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
                            nullable=False)
     suite_id = db.Column(db.String(32), db.ForeignKey("suites.id"),
-                         nullable=False)
+                         nullable=True)
+    # Direct repository-definition runs: convenience link to the
+    # DiscoveredItem index row (replaceable per-SHA — the durable
+    # identity lives in the snapshot's source_target triple).
+    source_item_id = db.Column(db.String(32),
+                               db.ForeignKey("discovered_items.id"),
+                               nullable=True)
     # Immutable snapshot: suite content hash + resolved source SHA per
     # binding — never mutated by later definition edits (A07).
     snapshot_json = db.Column(db.Text, nullable=False, default="{}")
@@ -325,6 +331,7 @@ class Execution(db.Model):
     runner = db.relationship("Runner")
     runtime = db.relationship("RuntimeConnection")
     schedule = db.relationship("Schedule")
+    source_item = db.relationship("DiscoveredItem")
 
     def snapshot(self) -> dict:
         return json.loads(self.snapshot_json or "{}")

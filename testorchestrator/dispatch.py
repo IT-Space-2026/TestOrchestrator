@@ -24,7 +24,8 @@ from flask import current_app
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
 from .adapters.dagu import DaguAdapter, NotConfigured as DaguNotConfigured
-from .execution import (Artifact, Execution, ExecutionState, GitBinding,
+from .execution import (Artifact, DiscoveredItem, Execution,
+                        ExecutionState, GitBinding,
                         OutboxEvent, Outcome, Plan, Runner,
                         RuntimeConnection, Schedule, Suite, SyncState,
                         TestResult, utcnow)
@@ -45,23 +46,43 @@ class DispatchError(RuntimeError):
 
 # ---------- creation / snapshot ----------
 
-def create_execution(username: str, suite: Suite, binding: GitBinding = None,
+def create_execution(username: str, suite: Suite = None,
+                     binding: GitBinding = None,
                      plan_id: str = "",
                      source_sha: str = "", run_config: dict = None,
                      extra_snapshot: dict = None,
-                     schedule_id: str = "") -> Execution:
-    """Create an immutable execution snapshot (§4, A07). Later suite edits
-    create new suite versions; this row's snapshot never changes."""
+                     schedule_id: str = "",
+                     source_item=None) -> Execution:
+    """Create an immutable execution snapshot (§4, A07). Exactly one
+    target: a TO suite OR a repository DiscoveredItem — never both,
+    never neither. Repo-def runs snapshot their durable identity
+    (binding+kind+path+sha) so history survives inventory replacement."""
+    if bool(suite) == bool(source_item):
+        raise DispatchError(
+            "exactly one execution target required: suite or "
+            "source item")
 
     rc = dict(run_config or {})
+    if source_item is not None:
+        rc.setdefault("suite_path", source_item.path)
+        rc.setdefault("collection", source_item.kind == "collection")
     snapshot = {
         "plan_id": plan_id,
         "plan_run_id": (extra_snapshot or {}).get("plan_run_id", ""),
-        "suite_id": suite.id,
-        "suite_name": suite.name,
-        "suite_version": suite.version,
-        "suite_hash": suite.content_hash,
-        "entries": [
+        "source_target": ({
+            "binding_id": source_item.binding_id,
+            "item_id": source_item.id,
+            "kind": source_item.kind,
+            "path": source_item.path,
+            "name": source_item.name,
+            "sha": source_item.sha,
+        } if source_item is not None else None),
+        "suite_id": suite.id if suite else "",
+        "suite_name": (source_item.name if source_item is not None
+                       else suite.name),
+        "suite_version": suite.version if suite else 0,
+        "suite_hash": suite.content_hash if suite else "",
+        "entries": ([
             {
                 "order": e.order,
                 "case_ref": e.case_ref,
@@ -69,7 +90,7 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
                 "config": json.loads(e.config_json or "{}"),
             }
             for e in suite.entries
-        ],
+        ] if suite else []),
         "run_config": {
             "profile": str(rc.get("profile") or "default")[:128],
             "browser": str(rc.get("browser") or "Chrome (headless)")[:128],
@@ -104,9 +125,12 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
     }
     snapshot.update(extra_snapshot or {})
     execution = Execution(
-        project_id=suite.project_id,
-        suite_id=suite.id,
-        binding_id=binding.id if binding else None,
+        project_id=(suite.project_id if suite
+                    else source_item.project_id),
+        suite_id=suite.id if suite else None,
+        source_item_id=source_item.id if source_item else None,
+        binding_id=(binding.id if binding else
+                    (source_item.binding_id if source_item else None)),
         snapshot_json=json.dumps(snapshot),
         source_sha=source_sha,
         created_by=username,
@@ -386,6 +410,20 @@ def run_execution(execution_id: str) -> None:
     # happened since the form was filled. An unavailable explicit pick
     # REJECTS visibly — never silently falls back to another target.
     rc = ex.snapshot().get("run_config") or {}
+    st = ex.snapshot().get("source_target")
+    if st:
+        # The inventory row is replaceable per-SHA — re-validate the
+        # durable triple, not the row id. A removed/renamed/type-changed
+        # definition fails VISIBLY, never silently retargets.
+        cur = DiscoveredItem.query.filter_by(
+            binding_id=st["binding_id"], kind=st["kind"],
+            path=st["path"]).first()
+        if cur is None:
+            _fail(ex, "config",
+                  f"source definition {st['kind']} {st['path']!r} is "
+                  "no longer in the binding's inventory — run rejected "
+                  "(no retargeting)")
+            return
     req_runner = rc.get("requested_runner") or ""
     req_runtime = rc.get("requested_runtime") or ""
     if req_runner:
