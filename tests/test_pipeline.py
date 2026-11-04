@@ -206,6 +206,7 @@ def test_run_config_profile_browser_reach_invocation(app, pipeline_env):
             "remote_webdriver_url": "", "remote_webdriver_type": "",
             "requested_runner": "", "requested_runtime": "",
             "collection": False,
+            "suite_path": "",
             "timeout_seconds": 0,
             "kre_options": {}, "kre_options_allow_drop": False}
     _run_worker(app)

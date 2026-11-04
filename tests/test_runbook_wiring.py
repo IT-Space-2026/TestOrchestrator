@@ -342,6 +342,7 @@ def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
             "remote_webdriver_url": "", "remote_webdriver_type": "",
             "requested_runner": "", "requested_runtime": "",
             "collection": False,
+            "suite_path": "",
             "timeout_seconds": 0,
             "kre_options": {}, "kre_options_allow_drop": False}
     with app.app_context():
