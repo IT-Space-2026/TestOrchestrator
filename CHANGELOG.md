@@ -8,12 +8,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Direct execution of discovered repository suites/collections:
   /discovered/<id> detail + Run (profile/runner/runtime selects);
   executions.suite_id nullable + source_item link; durable
-  source_target snapshot (binding+kind+path+sha); removed/type-changed
-  defs reject visibly, never retarget.
+  source_target snapshot — identity (binding,kind,path), sha is the
+  immutable revision; exactly-one-target enforced; removed/renamed/
+  type-changed defs reject visibly, never retarget; source_item_id
+  ON DELETE SET NULL preserves history.
+- Suites emit -testSuitePath; collections -testSuiteCollectionPath.
 - Report publication: TestOrchestrator/Reports/<id>/ at repo root,
   manifest v1 + assets, digest-idempotent retry, outbox-driven.
-- Synchronized deletion: recorded-URL+branch commit-removal, never
-  force-push/history rewrite; app deletion finalizes after remote.
+- Synchronized deletion: recorded-URL+branch commit-removal (a later
+  binding change can't redirect it), never force-push/history rewrite;
+  app deletion finalizes after remote; never-published deletes
+  immediately; deletion-requested blocks re-publication; the UI
+  confirmation states Git history is preserved.
 - git_bindings.report_writable admin opt-in; tags/detached rejected.
 - Single-worker report-op model via cross-process flock.
 - Project page: tab navigation + collapsible forms + edit binding.
