@@ -230,7 +230,7 @@ def create_suite(project_id):
 @portal_bp.route("/suites/<suite_id>")
 @login_required
 def suite_detail(suite_id):
-    from ..execution import DiscoveredItem as _DI
+    from ..execution import DiscoveredItem
     suite = db.session.get(Suite, suite_id)
     if suite is None:
         abort(404)
@@ -247,6 +247,11 @@ def suite_detail(suite_id):
                         x.allowed_projects or "[]"))]
     return render_template(
         "portal/suite_detail.html", suite=suite, can_run=can_run,
+        source_items=[i for i in DiscoveredItem.query.filter_by(
+            project_id=suite.project_id).all()
+            if i.kind in ("suite", "collection")],
+        profiles=[i.name for i in DiscoveredItem.query.filter_by(
+            project_id=suite.project_id, kind="profile")],
         binding=binding, plain_form=PlainForm(),
         runners=runners, runtimes=runtimes)
 
@@ -1269,5 +1274,5 @@ def _discovery_summary(project_id: str) -> dict:
     for i in items:
         counts[i.kind] = counts.get(i.kind, 0) + 1
     warns = [i for i in items if i.warnings]
-    return {"binding": b, "counts": counts, "items": items,
+    return {"binding": b, "counts": counts, "rows": items,
             "warnings": warns}

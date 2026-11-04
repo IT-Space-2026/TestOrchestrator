@@ -241,4 +241,44 @@
   </table>
   {% else %}<p class="muted">No executions yet.</p>{% endif %}
 </section>
+
+{% if discovered and discovered.binding %}
+<section class="card">
+  <h2>Katalon inventory</h2>
+  <p class="muted">Read-only source discovery — separate from Git
+    evidence export; does not import historical executions.</p>
+  <p>
+    Root <code>{{ discovered.binding.project_root or "." }}</code>
+    · fetched <code>{{ (discovered.binding.last_synced_sha or "—")[:12] }}</code>
+    · discovered <code>{{ (discovered.binding.discovered_sha or "—")[:12] }}</code>
+    · status <span class="badge">{{ discovered.binding.discovery_status }}</span>
+  </p>
+  {% if discovered.binding.discovery_status == "failed" %}
+  <p class="warn">Discovery failed: {{ discovered.binding.discovery_error }}
+     — previous inventory kept (stale).</p>
+  {% endif %}
+  {% if discovered.counts %}
+  <p class="muted">
+    {% for k,v in discovered.counts.items() %}
+    <strong>{{ v }}</strong> {{ k }}{% if not loop.last %} · {% endif %}
+    {% endfor %}</p>
+  <details><summary>Inventory ({{ discovered["rows"]|length }})</summary>
+    <table class="audit-table">
+      <thead><tr><th>Type</th><th>Path</th><th>Members</th><th></th></tr></thead>
+      <tbody>
+      {% for i in discovered["rows"] %}
+      <tr><td><span class="badge">{{ i.kind }}</span>{% if i.dynamic %} <span class="badge">dynamic?</span>{% endif %}</td>
+          <td><code>{{ i.path }}</code></td>
+          <td>{{ i.members()|length if i.members() else "—" }}</td>
+          <td class="muted">{{ i.warnings }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% else %}
+  <p class="muted">No inventory discovered yet — sync the source
+    binding above to populate it.</p>
+  {% endif %}
+</section>
+{% endif %}
 {% endblock %}
