@@ -72,11 +72,10 @@ as a Runtime on the agent's runner. No licensed KRE.
 ## Consolidated Stage A build proposal (NOT built yet)
 
 Prior pin `57e2211` predates the execution-controls round. Proposed
-consolidated revision: final tested application revision from the
-acceptance round — **`0e69693` + this round's fixes** (see below for
-exact SHA once committed; application code = run-now idempotency +
-scope-guarded targets + dedupe/safe-return). Server AND agent from
-the same checkout.
+consolidated revision: **a063e12a79144b10c2e927ff0bd81de9cca0b090**
+  (run-now idempotency + scope-guarded explicit targets +
+  dedupe/safe-return — final tested application revision). Server AND
+  agent from the same checkout.
 
 - **Migration head:** `f7a8b9c0d1e2` (`submit_tokens` table —
   `db-upgrade` during install; requires app stopped or single-writer
