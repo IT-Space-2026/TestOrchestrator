@@ -75,7 +75,7 @@ been exercised against a live service — see `implementation-status.md`.
 - Status: **implemented, unverified** — needs live RP instance. A02
   (screenshot→case mapping in RP) unproven.
 
-## Git — `testorchestrator/gitsync.py` (GitPython)
+## Git — `testorchestrator/gitsync.py` + `git_backend.py` (Dulwich default; GitPython removed)
 
 - Source bindings: clone/fetch into `instance/bindings/<id>`; read-only
   index (case/suite listing); no code execution, no auto submodules.

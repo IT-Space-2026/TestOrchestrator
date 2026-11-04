@@ -113,10 +113,23 @@ orchestrator-level retry (KRE `retry`/`retryStrategy` is KRE-side only).
 Aggregate = **worst entry**: `failed > error > cancelled > unknown >
 skipped > passed`; `not-started` is never a result; an empty plan is
 `"empty"` — incomplete required work can never read as successful.
+`skipped` means *no execution was ever dispatched for that entry* (a
+calculated state, not a result); `not-started` means a real execution
+is queued or in flight (progress, not a verdict). Retried entries count
+by their latest attempt.
 
-**Unfinished:** schedule CRUD UI, remaining plan management (edit /
-reorder / rerun subset), retry-attempt evidence, version-gated KRE
-licence-retry flags.
+Implemented: plan edit/reorder/remove, per-entry `on_failure` policy
+(`stop` cancels later queued entries — enforced by the worker,
+restart-safe), rerun-failed as a new plan run, execution **retry** as a
+linked immutable attempt (`retry_of` + incrementing `attempt` in the
+snapshot; each attempt keeps its own workspace, report dir and
+artifacts), **schedules** (once/interval, durable table, fired by the
+worker tick — a missed time runs late and is audited, never dropped),
+and **version-gated KRE options** (allowlisted flags with declared
+minimum majors — `retry`, `retryStrategy`, `maxFailedTests`; dropped
+options are recorded in `kre-gating.log` evidence and audit instead of
+being emitted as guessed flags; thresholds are declared, not verified
+against a licensed KRE build).
 
 ## Reports & artifacts
 
@@ -133,14 +146,20 @@ licence-retry flags.
 
 ## Git
 
-A backend interface (`git_backend.py`, `TO_GIT_BACKEND=cli|dulwich`,
-default `cli`) covers remote ops: clone, fetch+update (hard-reset to
-`origin/<ref>`, `.git` preserved), push (never force), and exact-commit
-tree export for isolated run workspaces. Verified on local/bare remotes;
-HTTPS/SSH/proxy/custom-CA and Azure DevOps interoperability are gated on
-an authorized repository. Internal export-repo ops (init/add/commit/
-merge/diff) still run on GitPython over bundled git — declared, not a
-hidden system-git fallback.
+All Git operations run through `git_backend.py`
+(`TO_GIT_BACKEND=dulwich|cli`, default `dulwich`). The Dulwich backend is
+pure Python — no GitPython, no bundled git in the frozen candidate, no
+host-git prerequisite: init, clone/fetch/update (`.git` preserved for
+incremental sync), exact-commit tree export, add-all/commit (incl.
+deletions), conservative three-way merge (disjoint-path divergence
+merges; same-path conflicts surface — never force-push), non-force push
+with rejection handling, and branch/tag/exact-sha resolution. Verified
+on local/bare remotes; HTTPS auth uses SecretRef `user:pass` secrets;
+SSH uses host ssh/agent. HTTPS/proxy/custom-CA and Azure DevOps
+interoperability remain gated on an authorized repository. The `cli`
+backend (bundled/host git subprocess) stays as the opt-in fallback for
+source builds; selecting it in the frozen build without a host git
+fails honestly, never silently.
 
 ## Backup / recovery / upgrades
 
@@ -154,7 +173,8 @@ uses the last good backup.
 
 GitHub prerelease `v1.9.0`: `tar.gz` + `.sha256` + `.manifest.json` +
 `.inventory.json` (release notes in the release body). `dist/` is never
-tracked. Standard build ≈179 MB; frozen candidate ≈169 MB. Verify:
+tracked. Standard build ≈179 MB; frozen candidate ≈144 MB (GitPython
+and the bundled git rootfs removed — Dulwich-only). Verify:
 `sha256sum -c <file>.sha256` inside `dist/`.
 
 ## Development
@@ -174,6 +194,5 @@ installs use `TO_ADMIN_PASSWORD` (≥12 chars).
 
 Clean-host install + reboot health · real licensed-KRE suite · remote
 worker on a second host · Windows Server 2025 installer build/acceptance
-· Azure DevOps repo interoperability · schedule CRUD + plan-management
-finish · retry-attempt evidence · service-account install path under
-root/systemd.
+· Azure DevOps repo interoperability · root/systemd service-account
+install path (blocked on this build host: no sudo).

@@ -12,7 +12,7 @@ Required by handoff §3/§13. Every entry states what is actually verified —
 | SQLAlchemy + SQLite | 2.1.6 | tested; Alembic migrations verified on v1.7→v1.8→v1.9 paths |
 | Waitress | 3.0.2 | tested (loopback bind 127.0.0.1:18080) |
 | Caddy (bundled) | 2.9.1 linux/amd64 | binary verified (SHA-256); `caddy validate` exercised in tests; HTTPS serving unverified end-to-end |
-| GitPython | 3.2.1 | tested on local file repos; HTTPS/SSH remotes unverified |
+| dulwich | 1.2.20 | all git ops; local/bare remotes verified; HTTPS/SSH/proxy/CA gated | GitPython removed |
 | requests | 2.34.2 | client paths written; live services unverified |
 | cryptography | 50.0.2 | tested (certs, Fernet) |
 | argon2-cffi | 25.1.0 | tested |

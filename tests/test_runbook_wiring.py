@@ -338,7 +338,8 @@ def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
         ex = Execution.query.order_by(Execution.created_at.desc()).first()
         ex_id = ex.id
         assert ex.snapshot()["run_config"] == {
-            "profile": "smoke-profile", "browser": "Firefox"}
+            "profile": "smoke-profile", "browser": "Firefox",
+            "kre_options": {}}
     with app.app_context():
         dispatch.run_execution(ex_id)
     with app.app_context():
