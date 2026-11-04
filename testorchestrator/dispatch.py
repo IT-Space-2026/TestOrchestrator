@@ -274,6 +274,28 @@ def _transition(ex: Execution, state: ExecutionState) -> None:
     db.session.commit()
 
 
+def _claim_for_start(ex: Execution) -> bool:
+    """Atomic QUEUED|DISPATCHED -> PREPARING claim — the precise launch
+    boundary. Below it the execution is cancel-scope (user cancel,
+    plan stop-on-failure); at/above it, started work runs (or takes
+    CANCEL_REQUESTED). A single conditional UPDATE decides the race:
+    whoever commits first wins — a cancelled entry can never reach
+    process launch."""
+    n = db.session.query(Execution).filter(
+        Execution.id == ex.id,
+        Execution.state.in_([ExecutionState.QUEUED,
+                             ExecutionState.DISPATCHED]),
+    ).update({"state": ExecutionState.PREPARING,
+              "heartbeat_at": utcnow()},
+             synchronize_session=False)
+    db.session.commit()
+    if n:
+        db.session.refresh(ex)
+    else:
+        db.session.rollback()
+    return bool(n)
+
+
 def run_execution(execution_id: str) -> None:
     """Run one execution through the full state machine. Any infra error is
     recorded; test failures do not stop collection (§7)."""
@@ -325,7 +347,10 @@ def run_execution(execution_id: str) -> None:
     log_dir = attempt_dir / "logs"
 
     try:
-        _transition(ex, ExecutionState.PREPARING)
+        if not _claim_for_start(ex):
+            record_audit("system", "execution.dispatch_skipped",
+                         f"{ex.id}: cancelled before launch boundary")
+            return
         attempt_dir.mkdir(parents=True, exist_ok=True)
         report_dir.mkdir(parents=True, exist_ok=True)
         source_dir = _resolve_source(ex)
@@ -721,10 +746,13 @@ def fire_due_schedules(now=None) -> int:
                 ).update({"next_run_at": now + timedelta(
                              minutes=sched.interval_minutes or 60)},
                          synchronize_session=False)
-        except OperationalError:
-            # Writer-lock contention under a second worker — this tick
-            # skips; the next tick retries the still-due schedule.
-            db.session.rollback()
+        except OperationalError as exc:
+            # Only expected writer-lock/busy conditions are retried —
+            # unrelated DB failures stay visible (raised, not skipped).
+            if "locked" not in str(exc).lower() \
+                    and "busy" not in str(exc).lower():
+                raise
+            db.session.rollback()   # session stays usable next tick
             continue
         if not claimed:
             db.session.rollback()
@@ -822,12 +850,25 @@ def enforce_plan_policies() -> int:
             entry = entries.get(snap.get("suite_id"))
             if entry is None or entry.order <= threshold:
                 continue
-            sib.state = ExecutionState.CANCELED
-            sib.cancel_reason = (
-                f"plan stop-on-failure: entry order {threshold} "
-                "ended non-passed")
-            sib.outcome = Outcome.INCOMPLETE
-            sib.finished_at = utcnow()
+            # Atomic cancel-scope transition: only if the sibling is
+            # STILL queued/dispatched. If its launch claim landed first
+            # (PREPARING+), this UPDATE matches 0 rows — started work
+            # continues; cancel scope is defined at the DB row, not on
+            # a stale ORM snapshot.
+            n = db.session.query(Execution).filter(
+                Execution.id == sib.id,
+                Execution.state.in_([ExecutionState.QUEUED,
+                                     ExecutionState.DISPATCHED]),
+            ).update({
+                "state": ExecutionState.CANCELED,
+                "cancel_reason": (
+                    f"plan stop-on-failure: entry order {threshold} "
+                    "ended non-passed"),
+                "outcome": Outcome.INCOMPLETE,
+                "finished_at": utcnow(),
+            }, synchronize_session=False)
+            if not n:
+                continue   # already started — out of cancel scope
             if sib.dispatch_id:
                 try:
                     DaguAdapter.from_settings().cancel(sib.dispatch_id)

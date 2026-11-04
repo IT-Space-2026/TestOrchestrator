@@ -248,3 +248,133 @@ def test_kre_reject_launches_no_process(app, tmp_path):
             execution_id=ex.id, rel_path="logs/kre-gating.log").one()
         assert art.sha256 and art.size > 0
         assert (ws / "logs" / "kre-gating.log").exists()
+
+
+# ---------- launch-boundary race: claim -> cancel -> launch attempt ----------
+
+def _fixture_env(tmp_path):
+    from testorchestrator.execution import Runner, RuntimeConnection
+    p = Project(name="P"); db.session.add(p); db.session.flush()
+    s = Suite(project_id=p.id, name="S"); db.session.add(s)
+    db.session.flush()
+    runner = Runner(name="local", connection_mode="local", max_slots=1)
+    db.session.add(runner); db.session.flush()
+    rt = RuntimeConnection(name="fx", runner_id=runner.id,
+                           executable_path="/bin/true",
+                           detected_version="9.0.0", enabled=True,
+                           workspace_root=str(tmp_path / "ws"))
+    db.session.add(rt); db.session.commit()
+    return s
+
+
+def test_cancel_between_claim_and_launch_aborts(app, tmp_path):
+    """Synchronized interleave: dispatcher has entered run_execution
+    (event claimed), cancellation lands mid-flight, and the atomic
+    QUEUED|DISPATCHED->PREPARING claim then fails — the cancelled entry
+    is never launched. This is the exact race sequential order tests
+    cannot establish."""
+    import threading
+    with app.app_context():
+        s = _fixture_env(tmp_path)
+        ex = dispatch.create_execution("m", s)
+        ex_id = ex.id
+
+    entered = threading.Event()
+    proceed = threading.Event()
+    orig = dispatch.pick_runtime
+
+    def blocking_pick(e, r):
+        rt = orig(e, r)
+        entered.set()
+        proceed.wait(timeout=10)
+        return rt
+
+    dispatch.pick_runtime = blocking_pick
+    done = []
+    def worker():
+        with app.app_context():
+            dispatch.run_execution(ex_id)
+            done.append(True)
+
+    t = threading.Thread(target=worker)
+    t.start()
+    assert entered.wait(timeout=10), "dispatcher never reached seam"
+    with app.app_context():
+        # Cancellation lands while the dispatcher is mid-flight.
+        assert dispatch.request_cancel(ex_id, "admin", "race cancel")
+    proceed.set()
+    t.join(timeout=30)
+    dispatch.pick_runtime = orig
+    assert done
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        # The CAS aborted the launch: no PREPARING/RUNNING happened.
+        assert ex.state == ExecutionState.CANCEL_REQUESTED
+        ws = Path(ex.workspace_path) if ex.workspace_path else None
+        assert ws is None or not (ws / "logs" / "kre-invocation.log").exists()
+
+
+def test_launch_boundary_commit_wins_over_cancel(app, tmp_path):
+    """Inverse order: the launch claim commits first -> a subsequent
+    enforcement cancel UPDATE matches 0 rows (entry left running)."""
+    with app.app_context():
+        s = _fixture_env(tmp_path)
+        ex = dispatch.create_execution("m", s)
+        # Simulate the committed claim boundary.
+        assert dispatch._claim_for_start(ex)
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.PREPARING
+        # Enforcement cancel-scope UPDATE can no longer match it.
+        n = db.session.query(Execution).filter(
+            Execution.id == ex.id,
+            Execution.state.in_([ExecutionState.QUEUED,
+                                 ExecutionState.DISPATCHED]),
+        ).update({"state": ExecutionState.CANCELED},
+                 synchronize_session=False)
+        db.session.commit()
+        assert n == 0
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.PREPARING
+
+
+def test_non_lock_operational_error_propagates(app):
+    """Only sqlite lock/busy contention is retried — unrelated DB
+    failures must surface, never be silently skipped."""
+    import sqlalchemy.exc as exc_mod
+    with app.app_context():
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        db.session.add(Schedule(
+            project_id=p.id, name="x", target_type="suite",
+            suite_id=s.id, kind="once",
+            next_run_at=utcnow() - timedelta(minutes=1),
+            created_by="m"))
+        db.session.commit()
+        orig = db.session.query
+        def boom(*a, **k):
+            q = orig(*a, **k)
+            class Exploding:
+                def filter(self, *x): return self
+                def update(self, *x, **y):
+                    raise exc_mod.OperationalError(
+                        "UPDATE schedules", {}, Exception("disk full"))
+            return Exploding()
+        db.session.query = boom
+        try:
+            import pytest as _p
+            with _p.raises(exc_mod.OperationalError):
+                dispatch.fire_due_schedules()
+        finally:
+            db.session.query = orig
+        # Lock phrasing IS swallowed (retried next tick) — assert narrow.
+        class Locked:
+            def filter(self, *x): return self
+            def update(self, *x, **y):
+                raise exc_mod.OperationalError(
+                    "UPDATE schedules", {}, Exception("database is locked"))
+        db.session.query = lambda *a, **k: Locked()
+        try:
+            assert dispatch.fire_due_schedules() == 0   # skipped, not raised
+        finally:
+            db.session.query = orig
