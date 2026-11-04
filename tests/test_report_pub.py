@@ -32,6 +32,7 @@ def _env(app, repo):
     p = Project(name="P"); db.session.add(p); db.session.flush()
     b = GitBinding(project_id=p.id, name="b", url=str(repo),
                    ref="master", worktree_path=str(repo),
+                   report_writable=True,
                    last_synced_sha="sha1", status="synced")
     db.session.add(b); db.session.flush()
     s = Suite(project_id=p.id, name="S"); db.session.add(s)
@@ -160,3 +161,33 @@ def test_deletion_blocks_republication(app, tmp_path):
         db.session.commit()
         r = gitsync.publish_report(ex.id)
         assert "deletion" in r["error"]
+
+
+def test_unconfigured_destination_rejected(app, tmp_path):
+    """A binding without report_writable refuses publication — clear
+    unconfigured state, not a silent skip."""
+    repo = _repo(tmp_path)
+    with app.app_context():
+        p, b, s = _env(app, repo)
+        b.report_writable = False; db.session.commit()
+        ex = dispatch.create_execution("m", s, binding=b)
+        ex.state = ExecutionState.COMPLETED
+        db.session.commit()
+        r = gitsync.publish_report(ex.id)
+        assert r["error"] == "unconfigured"
+        db.session.refresh(ex)
+        assert ex.report_pub_status == "failed"
+        assert "write-back" in ex.report_pub_error
+
+
+def test_tag_branch_rejected(app, tmp_path):
+    """A tag/detached ref is not a valid report destination."""
+    repo = _repo(tmp_path)
+    with app.app_context():
+        p, b, s = _env(app, repo)
+        b.ref = "refs/tags/v1"; db.session.commit()
+        ex = dispatch.create_execution("m", s, binding=b)
+        ex.state = ExecutionState.COMPLETED
+        db.session.commit()
+        r = gitsync.publish_report(ex.id)
+        assert r["error"] == "invalid branch"

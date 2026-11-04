@@ -44,6 +44,10 @@ class GitBinding(db.Model):
     subdirectory = db.Column(db.String(256), nullable=False, default="")
     prj_path = db.Column(db.String(256), nullable=False, default="")  # .prj
     credential_ref = db.Column(db.String(64), nullable=False, default="")
+    # Explicit admin opt-in for report write-back — read access is NOT
+    # publish permission. Report destination stays on this branch.
+    report_writable = db.Column(db.Boolean, nullable=False,
+                                default=False)
     worktree_path = db.Column(db.String(512), nullable=False, default="")
     # Discovery state (separate from fetch status): the last commit whose
     # inventory was successfully parsed — stale if newer SHA unfetched.
@@ -273,7 +277,8 @@ class Execution(db.Model):
     # DiscoveredItem index row (replaceable per-SHA — the durable
     # identity lives in the snapshot's source_target triple).
     source_item_id = db.Column(db.String(32),
-                               db.ForeignKey("discovered_items.id"),
+                               db.ForeignKey("discovered_items.id",
+                                             ondelete="SET NULL"),
                                nullable=True)
     # Immutable snapshot: suite content hash + resolved source SHA per
     # binding — never mutated by later definition edits (A07).

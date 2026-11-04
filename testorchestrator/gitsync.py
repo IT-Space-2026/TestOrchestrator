@@ -561,7 +561,21 @@ def publish_report(execution_id: str) -> dict:
         ex.report_pub_error = "no source binding"
         db.session.commit()
         return {"error": "no source binding"}
-    branch = binding.ref or "main"
+    # Writable-destination validation — read access is not publish
+    # permission; an explicit admin opt-in + a named branch are
+    # required. Refusing here shows an actionable unconfigured state.
+    if not binding.report_writable:
+        ex.report_pub_status = "failed"
+        ex.report_pub_error = ("binding not enabled for report "
+                               "write-back — admin must opt in")
+        db.session.commit()
+        return {"error": "unconfigured"}
+    branch = binding.ref or ""
+    if not branch or branch.startswith("refs/tags/") or             branch.startswith("detached"):
+        ex.report_pub_status = "failed"
+        ex.report_pub_error = "destination must be a named branch"
+        db.session.commit()
+        return {"error": "invalid branch"}
     wt = _pub_worktree(binding.id, ex.id)
     try:
         if not (wt / ".git").exists():
