@@ -91,7 +91,7 @@ def candidate_includes(frozen: bool) -> list:
     documented cli-backend fallback."""
     if not frozen:
         return INCLUDE
-    out = [("dist/frozen/testorchestrator", "frozen-app")]
+    out = [("dist/testorchestrator", "frozen-app")]
     return out + [(i, c) for i, c in INCLUDE
                   if not i.startswith("3rdparty/python")
                   and i != "3rdparty/git"]
@@ -100,8 +100,26 @@ def candidate_includes(frozen: bool) -> list:
 def required_list(frozen: bool) -> list:
     reqs = [r for r in REQUIRED
             if r != "3rdparty/python-runtime/python/bin/python3"]
-    return reqs + ["dist/frozen/testorchestrator/toctl"] if frozen \
+    return reqs + ["dist/testorchestrator/toctl"] if frozen \
         else reqs
+
+
+def check_frozen_fresh() -> str | None:
+    """Guard: the onedir's embedded release.json build must equal the
+    repo stamp — a stale frozen dir (e.g. PyInstaller output moved or
+    never refreshed) aborts the bundle instead of shipping old code."""
+    emb = REPO / "dist/testorchestrator/_internal/release/release.json"
+    repo = REPO / "release/release.json"
+    try:
+        eb = json.loads(emb.read_text()).get("build")
+        rb = json.loads(repo.read_text()).get("build")
+    except (OSError, json.JSONDecodeError):
+        return "cannot read embedded/repo release.json for freshness check"
+    if eb != rb:
+        return (f"stale frozen build: onedir embeds build {eb!r} but "
+                f"repo stamp is {rb!r} — rerun pyinstaller before "
+                "build_bundle")
+    return None
 
 
 def collect(frozen: bool = False
@@ -178,6 +196,10 @@ def main():
     OUT.mkdir(exist_ok=True)
     bundle = OUT / f"{name}.tar.gz"
 
+    if args.frozen:
+        stale = check_frozen_fresh()
+        if stale:
+            raise SystemExit(f"bundle build FAILED — {stale}")
     files, missing = collect(frozen=args.frozen)
     if missing:
         raise SystemExit(f"bundle build FAILED — required files missing: "
