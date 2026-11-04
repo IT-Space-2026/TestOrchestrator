@@ -260,6 +260,10 @@ def launch_execution(suite_id):
     run_config = {
         "profile": request.form.get("execution_profile") or "default",
         "browser": request.form.get("browser_type") or "Chrome (headless)",
+        "remote_webdriver_url":
+            request.form.get("remote_webdriver_url", "").strip(),
+        "remote_webdriver_type":
+            request.form.get("remote_webdriver_type", "").strip(),
         "kre_options": kre_options,
     }
     ex = dispatch.create_execution(
@@ -896,6 +900,10 @@ def create_schedule(project_id):
             run_config_json=json.dumps({
                 "profile": form.execution_profile.data or "default",
                 "browser": form.browser_type.data or "Chrome (headless)",
+                "remote_webdriver_url":
+                    (form.remote_webdriver_url.data or "").strip(),
+                "remote_webdriver_type":
+                    (form.remote_webdriver_type.data or "").strip(),
             }),
             created_by=current_user.username))
         db.session.commit()

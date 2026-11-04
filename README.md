@@ -254,3 +254,17 @@ section post-dates candidate `10300832` (unreleased).
 - **Admin nav:** third-party notices & licences moved under Admin
   (URL `/about/notices` unchanged; every role still reaches it via
   About).
+
+## Browser & WebDriver selection (Unreleased)
+
+Suite runs and schedules take `browser` from a supported-choice
+selector (Chrome / Chrome headless / Firefox / Firefox headless /
+Edge / Safari) — never hard-coded; the browser runs on the **KRE
+host** unless a Remote WebDriver URL is set (which emits
+`-remoteWebDriverUrl=`/`-remoteWebDriverType=` instead of
+`-browserType=`). Edge requires a Windows runner, Safari macOS —
+platform-incompatible or unknown values fail the launch rather than
+being guessed. **Precedence:** the schedule or launch form's
+`run_config.browser` wins → stored in the immutable execution snapshot
+→ adapter default `Chrome (headless)` only when unset. Plan schedules
+inherit the schedule's run_config (no per-entry override exists).

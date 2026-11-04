@@ -3,6 +3,11 @@ from wtforms import (IntegerField, SelectField, SelectMultipleField,
                      StringField, TextAreaField)
 from wtforms.validators import DataRequired, Length, Optional
 
+from ..adapters.kre import SUPPORTED_BROWSERS
+
+BROWSER_CHOICES = [(m["label"], m["label"])
+                   for m in SUPPORTED_BROWSERS.values()]
+
 
 class ProjectForm(FlaskForm):
     name = StringField("Name", validators=[DataRequired(), Length(max=128)])
@@ -46,7 +51,12 @@ class ScheduleForm(FlaskForm):
     interval_minutes = IntegerField("Every N minutes", default=60)
     execution_profile = StringField("Execution profile",
                                     default="default")
-    browser_type = StringField("Browser", default="Chrome (headless)")
+    browser_type = SelectField("Browser", choices=BROWSER_CHOICES,
+                               default="Chrome (headless)")
+    remote_webdriver_url = StringField(
+        "Remote WebDriver URL", validators=[Optional(), Length(max=512)])
+    remote_webdriver_type = StringField(
+        "WebDriver driver type", validators=[Optional(), Length(max=64)])
 
 
 class PlainForm(FlaskForm):

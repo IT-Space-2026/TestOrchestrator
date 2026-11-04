@@ -46,6 +46,55 @@ class InvocationResult:
     error_text: str = ""
 
 
+# Browser choices the adapter emits to -browserType=. Values are KRE's
+# documented names — the browser itself must be installed on the RUNNER
+# host (not this portal). Edge is Windows-only, Safari macOS-only.
+SUPPORTED_BROWSERS = {
+    "chrome":          {"label": "Chrome",          "platforms": None},
+    "chrome_headless": {"label": "Chrome (headless)", "platforms": None},
+    "firefox":         {"label": "Firefox",          "platforms": None},
+    "firefox_headless": {"label": "Firefox (headless)", "platforms": None},
+    "edge":            {"label": "Edge",             "platforms": ("windows",)},
+    "safari":          {"label": "Safari",           "platforms": ("darwin", "macos")},
+}
+
+# Remote WebDriver: an explicit opt-in that overrides local browser use.
+# url/driver-type/capabilities are passed verbatim to KRE — the adapter
+# validates shape, not reachability.
+DEFAULT_BROWSER = "chrome_headless"
+
+
+def normalize_browser(value: str, os_arch: str = "") -> str:
+    """Map a stored/requested value to a supported browser id, or "".
+    Accepts the ids above and the legacy display strings (e.g. the old
+    free-text 'Chrome (headless)')."""
+    v = (value or "").strip().lower()
+    if not v:
+        return ""
+    for bid, meta in SUPPORTED_BROWSERS.items():
+        if v in (bid, meta["label"].lower()):
+            if meta["platforms"]:
+                arch = (os_arch or "").lower()
+                if arch and not any(p in arch for p in meta["platforms"]):
+                    return ""   # platform-incompatible choice — do not guess
+            return meta["label"]
+    return ""
+
+
+def validate_browser(value: str, os_arch: str = "") -> tuple[bool, str]:
+    """(ok, normalized|error) — empty is allowed (falls back to the
+    documented default); anything non-empty must normalize."""
+    v = (value or "").strip()
+    if not v:
+        return True, ""
+    norm = normalize_browser(v, os_arch)
+    if not norm:
+        return False, (f"unsupported browser {value!r} for this target "
+                       f"({os_arch or 'unknown platform'}) — supported: "
+                       + ", ".join(sorted(SUPPORTED_BROWSERS)))
+    return True, norm
+
+
 # Well-known KRE console flag set (Katalon-documented form). Kept version-
 # aware: flags may be overridden per detected version once the operator's
 # installed version is probed — never assumed universal (§5).
@@ -56,19 +105,29 @@ def build_args(
     report_dir: str,
     profile: str = "default",
     browser: str = "Chrome (headless)",
+    remote_webdriver_url: str = "",
+    remote_webdriver_type: str = "",
     extra: list | None = None,
 ) -> list:
-    return [
+    args = [
         executable,
         "-noSplash",
         "-runMode=console",
         f"-projectPath={project_path}",
         f"-testSuitePath={suite_path}",
         f"-executionProfile={profile}",
-        f"-browserType={browser}",
-        f"-reportFolder={report_dir}",
-        *(extra or []),
     ]
+    if remote_webdriver_url:
+        # Remote WebDriver session — browser runs on the WebDriver
+        # service, not the KRE host. Driver type tells KRE which
+        # capability set to request.
+        args += [f"-remoteWebDriverUrl={remote_webdriver_url}"]
+        if remote_webdriver_type:
+            args += [f"-remoteWebDriverType={remote_webdriver_type}"]
+    else:
+        args += [f"-browserType={browser}"]
+    args += [f"-reportFolder={report_dir}", *(extra or [])]
+    return args
 
 
 # Version-gated console options (§5): each flag declares the minimum KRE

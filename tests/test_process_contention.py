@@ -378,3 +378,52 @@ def test_non_lock_operational_error_propagates(app):
             assert dispatch.fire_due_schedules() == 0   # skipped, not raised
         finally:
             db.session.query = orig
+
+
+def test_scheduled_firefox_reaches_kre_args(app, tmp_path):
+    """Schedule run_config browser=Firefox -> snapshot -> dispatch ->
+    -browserType=Firefox in the fixture KRE invocation (never replaced
+    by the default)."""
+    import json
+    with app.app_context():
+        s = _fixture_env(tmp_path)
+        # Schedule carries the operator's browser choice.
+        sch = Schedule(
+            project_id=s.project_id, name="ff", target_type="suite",
+            suite_id=s.id, kind="once",
+            next_run_at=utcnow() - timedelta(minutes=1),
+            run_config_json=json.dumps({"browser": "Firefox"}),
+            created_by="t")
+        db.session.add(sch); db.session.commit()
+        assert dispatch.fire_due_schedules() == 1
+        ex = Execution.query.order_by(
+            Execution.created_at.desc()).first()
+        # Immutable snapshot carries the choice.
+        assert ex.snapshot()["run_config"]["browser"] == "Firefox"
+        dispatch.run_execution(ex.id)
+        db.session.refresh(ex)
+        ws = Path(ex.workspace_path)
+        log = (ws / "logs" / "kre-invocation.log").read_text()
+        assert "-browserType=Firefox" in log
+        assert "-browserType=Chrome (headless)" not in log
+
+
+def test_browser_validation_and_remote_override(app, tmp_path):
+    """Unsupported/platform-incompatible choices are rejected at launch;
+    a remote WebDriver URL overrides -browserType entirely."""
+    from testorchestrator.adapters import kre
+    ok, v = kre.validate_browser("Firefox", "linux/amd64")
+    assert ok and v == "Firefox"
+    ok, v = kre.validate_browser("Safari", "linux/amd64")
+    assert not ok                      # platform-incompatible
+    ok, v = kre.validate_browser("Netscape", "linux/amd64")
+    assert not ok                      # unknown value, never guessed
+    args = kre.build_args("/x", "/p", "/s", "/r", browser="Firefox")
+    assert "-browserType=Firefox" in args
+    args = kre.build_args(
+        "/x", "/p", "/s", "/r", browser="Firefox",
+        remote_webdriver_url="https://wd.example:4444/wd/hub",
+        remote_webdriver_type="chrome")
+    assert "-browserType=Firefox" not in args
+    assert "-remoteWebDriverUrl=https://wd.example:4444/wd/hub" in args
+    assert "-remoteWebDriverType=chrome" in args

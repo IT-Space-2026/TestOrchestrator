@@ -72,6 +72,12 @@ def create_execution(username: str, suite: Suite, binding: GitBinding = None,
         "run_config": {
             "profile": str(rc.get("profile") or "default")[:128],
             "browser": str(rc.get("browser") or "Chrome (headless)")[:128],
+            # Remote WebDriver (opt-in): browser runs on the WebDriver
+            # service, not the KRE host — overrides -browserType=.
+            "remote_webdriver_url":
+                str(rc.get("remote_webdriver_url") or "")[:512],
+            "remote_webdriver_type":
+                str(rc.get("remote_webdriver_type") or "")[:64],
             # Requested version-gated KRE options — applied only if the
             # detected runtime version supports them (adapters/kre.py).
             "kre_options": {
@@ -407,13 +413,20 @@ def run_execution(execution_id: str) -> None:
                     mime="text/plain", mapped=False))
                 db.session.commit()
                 return
+        ok_b, browser_val = kre_adapter.validate_browser(
+            rc.get("browser", ""), runner.os_arch if runner else "")
+        if not ok_b:
+            _fail(ex, "config", browser_val)
+            return
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             project_path=str(project_dir),
             suite_path=_snapshot_suite_path(ex),
             report_dir=str(report_dir),
             profile=rc.get("profile", "default"),
-            browser=rc.get("browser", "Chrome (headless)"),
+            browser=browser_val or "Chrome (headless)",
+            remote_webdriver_url=rc.get("remote_webdriver_url", ""),
+            remote_webdriver_type=rc.get("remote_webdriver_type", ""),
             extra=flags,
         )
 

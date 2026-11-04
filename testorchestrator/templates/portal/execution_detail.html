@@ -22,6 +22,14 @@
   {% endif %}
   <dt>Runner</dt><dd>{{ ex.runner.name if ex.runner else "—" }}</dd>
   <dt>Runtime</dt><dd>{{ ex.runtime.name if ex.runtime else "—" }}</dd>
+  {% set rc = ex.snapshot().get('run_config') or {} %}
+  <dt>Browser</dt><dd>
+    {% if rc.get('remote_webdriver_url') %}
+      Remote WebDriver @ <code>{{ rc.remote_webdriver_url }}</code>
+      ({{ rc.get('remote_webdriver_type') or 'driver type unset' }})
+    {% else %}
+      {{ rc.get('browser') or 'Chrome (headless)' }} — runs on the KRE host
+    {% endif %}</dd>
   <dt>Started</dt><dd>{{ ex.started_at or "—" }}</dd>
   <dt>Finished</dt><dd>{{ ex.finished_at or "—" }}</dd>
   <dt>Exit status</dt><dd>{{ ex.exit_status if ex.exit_status is not none else "—" }}</dd>

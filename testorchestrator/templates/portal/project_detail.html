@@ -148,7 +148,15 @@
     <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}</div>
     <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes() }}</div>
     <div class="field">{{ schedule_form.execution_profile.label }} {{ schedule_form.execution_profile() }}</div>
-    <div class="field">{{ schedule_form.browser_type.label }} {{ schedule_form.browser_type() }}</div>
+    <div class="field">{{ schedule_form.browser_type.label }} {{ schedule_form.browser_type() }}
+      <small>Runs on the <em>KRE host</em> unless a Remote WebDriver URL
+      is set below. Edge = Windows runners only; Safari = macOS only.</small></div>
+    <div class="field">{{ schedule_form.remote_webdriver_url.label }} {{ schedule_form.remote_webdriver_url() }}
+      <small>Optional. e.g. <code>https://selenium.example:4444/wd/hub</code>
+      — browser runs on the WebDriver service, overriding the choice above.</small></div>
+    <div class="field">{{ schedule_form.remote_webdriver_type.label }} {{ schedule_form.remote_webdriver_type() }}
+      <small>Optional. Driver capability type: <code>chrome</code>,
+      <code>firefox</code>, or <code>edge</code>.</small></div>
     <button type="submit" class="button">Create schedule</button>
   </form>
   {% endif %}

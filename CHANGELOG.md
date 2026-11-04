@@ -53,6 +53,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   & licences; URL unchanged (/about/notices) and still reachable by
   every role via About.
 
+- **Browser selector:** supported-choice dropdown (suite run +
+  schedule forms) replaces the hard-coded Chrome default; remote
+  WebDriver URL/type fields override -browserType; platform validation
+  (Edge=Windows, Safari=macOS); choice persisted in the snapshot and
+  shown on the execution page. Scheduled Firefox verified end-to-end
+  as `-browserType=Firefox` on the fixture KRE.
+
 ### Known limitations
 - `CANCEL_REQUESTED` running-process kill path recorded but not yet
   verified on the frozen worker.
