@@ -65,6 +65,25 @@ enhanced reporting backend; saving never regenerates reports.</p>
   <button class="btn" type="submit">Save settings</button>
 </form>
 
+<details><summary>Example — accepted configuration</summary><pre class="example">allure_java_home: /usr/lib/jvm/java-17-openjdk-amd64   # JAVA_HOME dir…
+                  /usr/bin/java                         # …or java binary path
+allure_enabled:   checked</pre>
+<p class="muted"><strong>Java home vs executable:</strong> the field
+accepts either a JDK/JRE home directory (like JAVA_HOME — the
+<code>bin/java</code> inside it is used) or the path to the
+<code>java</code> executable itself. <strong>Platform note:</strong>
+paths are host-specific — on the packaged Linux target a JDK/JRE
+installed by the distro or unpacked to e.g.
+<code>/opt/java/openjdk</code> is expected; Windows paths are not
+valid on this target. <strong>Enablement:</strong> the checkbox turns
+generation on; without a validated runtime generation still fails —
+enabling does not substitute for a working Java.
+<strong>Probe:</strong> saving a path or pressing <em>Check
+readiness</em> runs a real Allure report-generation probe with the
+bundled generator — pass/fail is recorded and shown under Readiness.
+Changes apply to future generations; existing reports are unaffected.</p>
+</details>
+
 <form method="post" action="{{ url_for('system.reporting_check') }}"
       style="display:inline">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -63,6 +63,10 @@
     <div class="field">
       {{ address_form.external_host.label }} — or enter manually
       {{ address_form.external_host(placeholder="192.0.2.10 or tests.example.com") }}
+      <br><small>Address clients use to reach this host — a detected
+      NIC address, or a manually entered IP/hostname (no port, no
+      scheme). Required when external access is enabled; affects the
+      generated certificate and links, applies on next save/apply.</small>
     </div>
     <button type="submit" class="button">Save address</button>
   </form>
@@ -70,6 +74,13 @@
 
 <section class="card" aria-labelledby="ports-h">
   <h2 id="ports-h">Ports &amp; HTTP mode</h2>
+  <p class="muted">All ports: integers 1–65535; apply on the next
+  service restart. HTTPS port (default 443) serves the portal;
+  HTTP port (default 80) only exists for the redirect/ACME modes;
+  the internal app port (default 18080) is the loopback app behind
+  the reverse proxy — leave it unless it collides. HTTP mode picks
+  how plaintext is handled: redirect to HTTPS, close, or serve
+  (insecure — local networks only).</p>
   <form method="post" action="{{ url_for('system.save_ports') }}">
     {{ ports_form.csrf_token }}
     <div class="field">{{ ports_form.https_port.label }} {{ ports_form.https_port() }}</div>

@@ -95,3 +95,22 @@ def test_integrations_save_persists(client, login_as, app):
     with app.app_context():
         assert sm.get("dagu_endpoint") == "https://dagu.internal:8080"
         assert sm.get("git_export_ref") == "main"
+
+
+def test_settings_guidance_rendering(client, login_as, app):
+    """Every config section renders its help/example blocks; secrets
+    never appear in any config page body."""
+    login_as("admin")
+    checks = {"/system/reporting": ["Example — accepted configuration",
+                                    "Java home vs executable"],
+              "/system/network":   ["internal app port", "1–65535"],
+              "/system/secrets":   ["Example — create + reference",
+                                    "never re-displayed"],
+              "/system/integrations": ["Example"]}
+    for path, needles in checks.items():
+        body = client.get(path).data.decode()
+        for n in needles:
+            assert n in body, f"{path} missing {n!r}"
+        # Placeholder values only — no real secret material rendered.
+        for leak in ("sk-live", "AKIA", "BEGIN PRIVATE", "xoxb"):
+            assert leak not in body
