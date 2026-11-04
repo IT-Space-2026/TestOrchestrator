@@ -371,6 +371,16 @@ def run_execution(execution_id: str) -> None:
                       + ", ".join(dropped)
                       + " — launch aborted before dispatch; acknowledge "
                         "in run config to proceed without them")
+                # The rejection record is registered evidence — _fail
+                # skips _collect, so the gating log is filed here.
+                gating_log = log_dir / "kre-gating.log"
+                db.session.add(Artifact(
+                    execution_id=ex.id, kind="log",
+                    rel_path="logs/kre-gating.log",
+                    sha256=results_mod.sha256_file(gating_log),
+                    size=gating_log.stat().st_size,
+                    mime="text/plain", mapped=False))
+                db.session.commit()
                 return
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
