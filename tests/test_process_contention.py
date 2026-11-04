@@ -178,12 +178,13 @@ def test_dispatch_then_cancel_still_cancels_queued_scope(app):
         exs[0].outcome = Outcome.INCOMPLETE
         db.session.commit()
         # Worker's event lands first — no runner registered, so the
-        # execution parks at DISPATCHED (still in cancel scope).
+        # execution parks at QUEUED (still in cancel scope AND still
+            # assignable — DISPATCHED would wedge it).
         event = OutboxEvent.query.filter(
             OutboxEvent.payload_json.contains(exs[1].id)).first()
         dispatch._handle_event(event)
         db.session.refresh(exs[1])
-        assert exs[1].state == ExecutionState.DISPATCHED
+        assert exs[1].state == ExecutionState.QUEUED
         assert dispatch.enforce_plan_policies() == 1
         db.session.refresh(exs[1])
         assert exs[1].state == ExecutionState.CANCELED
