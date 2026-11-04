@@ -84,11 +84,20 @@ def _task_payload(ex: Execution) -> dict:
     }
 
 
+# Protocol capability required for task pickup — agents must advertise
+# "task-claim" at register to receive executable work. Pre-claim agents
+# (or any agent lacking the capability) get an empty task list plus an
+# explicit incompatibility note instead of work.
+REQUIRED_CAPABILITY = "task-claim"
+
+
 @agent_bp.route("/register", methods=["POST"])
 @require_agent
 def register():
     runner = g.runner
     runner.agent_version = request.json.get("agent_version", "")[:32]
+    caps = request.json.get("capabilities") or []
+    runner.agent_capabilities = json.dumps(caps[:16])
     runner.heartbeat_at = utcnow()
     runner.health = "ok"
     db.session.commit()
@@ -96,7 +105,17 @@ def register():
         "runner_id": runner.id, "name": runner.name,
         "max_slots": runner.max_slots, "draining": runner.draining,
         "allowed_projects": json.loads(runner.allowed_projects or "[]"),
+        "claim_required": True,
+        "compatible": REQUIRED_CAPABILITY in caps,
     })
+
+
+def _agent_compatible() -> bool:
+    try:
+        return REQUIRED_CAPABILITY in json.loads(
+            g.runner.agent_capabilities or "[]")
+    except (TypeError, ValueError):
+        return False
 
 
 @agent_bp.route("/tasks")
@@ -106,6 +125,11 @@ def tasks():
     the portal. The payload is an immutable snapshot — no arbitrary commands."""
     if g.runner.draining:
         return jsonify({"tasks": [], "draining": True})
+    if not _agent_compatible():
+        return jsonify({
+            "tasks": [], "incompatible": True,
+            "error": "agent does not support task-claim pickup — "
+                     "upgrade the agent before it can receive work"})
     assigned = Execution.query.filter(
         Execution.runner_id == g.runner.id,
         Execution.state == ExecutionState.DISPATCHED,

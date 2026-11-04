@@ -55,13 +55,15 @@
 <form method="post" action="{{ url_for('portal.resolve_unknown', execution_id=ex.id) }}" class="inline">
   {{ plain_form.csrf_token }}
   <input type="hidden" name="confirm_stopped" value="yes">
-  <button type="submit" class="button secondary"
-          title="Confirm the original process has stopped — marks this
-                 execution failed and releases its slot">Resolve UNKNOWN
-    (original confirmed stopped)</button>
-  <small class="muted">UNKNOWN holds the runner's slot — resolve only
-    after confirming the original process has stopped. Never marks the
-    run successful.</small>
+  <div class="field"><label>Confirmation note (required)</label>
+    <input type="text" name="reason" required maxlength="400"
+           placeholder="how the original process was confirmed stopped"></div>
+  <button type="submit" class="button secondary">Resolve UNKNOWN
+    (administrative — does NOT stop a process)</button>
+  <small class="muted">UNKNOWN holds the runner's slot. Confirm on the
+    execution host that the original process and its children have
+    stopped before resolving — this records an administrative
+    resolution, not proof the run completed or failed normally.</small>
 </form>
 {% endif %}
 

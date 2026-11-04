@@ -321,26 +321,42 @@ def resolve_unknown(execution_id):
     It never marks a run successful and never auto-retries."""
     ex = _execution_or_404(execution_id)
     PlainForm().validate_on_submit()
-    if ex.state != ExecutionState.UNKNOWN:
-        flash("Only UNKNOWN executions can be resolved this way.", "error")
-        return redirect(url_for("portal.execution_detail",
-                              execution_id=execution_id))
     confirm = request.form.get("confirm_stopped") == "yes"
+    reason = (request.form.get("reason") or "").strip()
     if not confirm:
-        flash("Confirmation required — verify the original process has "
-              "stopped before resolving (this releases its slot).",
-              "error")
+        flash("Confirmation required — resolving UNKNOWN does NOT stop "
+              "a process; verify the original process and its children "
+              "have stopped on the execution host before releasing its "
+              "slot.", "error")
         return redirect(url_for("portal.execution_detail",
                               execution_id=execution_id))
-    ex.state = ExecutionState.FAILED
-    ex.outcome = Outcome.INCOMPLETE
-    ex.finished_at = utcnow()
-    ex.error_text = ((ex.error_text or "")[:1500] +
-                     " | RESOLVED by operator: original confirmed "
-                     "stopped")[:2000]
+    if not reason:
+        flash("A confirmation note is required — record how you "
+              "verified the original process stopped.", "error")
+        return redirect(url_for("portal.execution_detail",
+                              execution_id=execution_id))
+    # CAS: only an execution still UNKNOWN can be resolved — a
+    # concurrent terminal transition or double-resolve cannot
+    # overwrite a newer state.
+    n = db.session.query(Execution).filter(
+        Execution.id == ex.id,
+        Execution.state == ExecutionState.UNKNOWN,
+    ).update({"state": ExecutionState.FAILED,
+              "outcome": Outcome.INCOMPLETE,
+              "finished_at": utcnow(),
+              "error_text": (db.func.substr(Execution.error_text, 1, 1400) +
+                             " | ADMIN-RESOLVED by " +
+                             current_user.username + ": " + reason[:500])},
+             synchronize_session=False)
     db.session.commit()
+    if not n:
+        db.session.rollback()
+        flash("Execution is no longer UNKNOWN — its state already "
+              "resolved elsewhere.", "info")
+        return redirect(url_for("portal.execution_detail",
+                              execution_id=execution_id))
     record_audit(current_user.username, "execution.unknown_resolved",
-                 ex.id)
+                 f"{ex.id}: {reason[:400]}")
     flash("Execution resolved — capacity released. Retry only when "
           "safe.", "info")
     return redirect(url_for("portal.execution_detail",

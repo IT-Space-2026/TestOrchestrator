@@ -28,29 +28,41 @@ recovery — the full two-host agent lifecycle remains pending. The
 sequential `test_remote_pickup_claim_exactly_once` asserts API CAS
 semantics; the concurrent multi-process tests cover the local path.
 
-**Agent compat:** `run_task` calls `POST /api/agent/tasks/<id>/claim`
-and skips the task unless it returns 200 — no launch on conflict or
-lost response. Runner identity comes from the authenticated bearer
-token (`require_agent`), never a caller-supplied id. Agents built
-before this revision bypass the claim entirely — that combination is
-**unsupported for concurrent remote execution**; `AGENT_VERSION`
-reports "0.1" at register (check it before host tests).
+**Agent compat (enforced):** agents advertise `capabilities` at
+`register`; `tasks` returns work ONLY to agents declaring the
+`task-claim` capability — pre-claim agents get `{"tasks": [],
+"incompatible": true, "error": ...}` and can never receive executable
+work (task discovery cannot bypass the claim requirement).
+`run_task` claims before launching and skips unless the claim returns
+200. Runner identity comes from the authenticated bearer token
+(`require_agent` — SHA-256 digest), never a caller-supplied id.
+`AGENT_VERSION = "0.2"`, `AGENT_CAPABILITIES = ["task-claim"]`.
+`test_agent_capability_gate` covers both cases.
 
 **Remote failure windows (documented, not all verified):**
 - Claim ok → agent crash before launch: lease expires → reconcile →
   UNKNOWN (impl).
 - Claim ok → response lost: agent skips launch (safe); portal sees
   RUNNING until lease/reconcile marks it ambiguous (impl).
-- Launch → connectivity loss: process keeps running remotely;
-  heartbeat stops → lease expiry → UNKNOWN; late results preserved
-  for review (impl, `/result` handler).
+- Launch → connectivity loss: the agent's ALREADY-RUNNING process
+  may continue remotely — "unreachable" does NOT mean "stopped".
+  Heartbeat stops → lease expiry → UNKNOWN; capacity held; late
+  results preserved for review (impl, `/result` handler).
+- Agent unreachable BEFORE launch: no confirmed claim → no launch;
+  unreachable AFTER launch: work may continue — remote termination
+  remains unverified until Stage A demonstrates it.
 - Portal restart mid-run: agent heartbeats may fail → lease expiry
   → UNKNOWN; result posted on recovery is preserved (impl).
-- **UNKNOWN resolution (operator):** confirm original process stopped
-  → **Resolve UNKNOWN** button on the execution page (admin, requires
-  explicit confirm) → execution marked FAILED, slot released, audited
-  `execution.unknown_resolved`. Only then retry — the retry CAS will
-  simply not find capacity until the unknown slot frees.
+- **UNKNOWN resolution (operator, administrative):** confirm the
+  original process AND its children have stopped ON THE EXECUTION HOST
+  → **Resolve UNKNOWN** (admin-only, requires `confirm_stopped` + a
+  recorded reason) → CAS `UNKNOWN→FAILED` (cannot overwrite a newer
+  terminal state, cannot double-resolve), slot released, audited
+  `execution.unknown_resolved` with the note. Resolution does NOT stop
+  a process and does NOT prove the run completed or failed normally —
+  it's an administrative release of held capacity. Late agent results
+  after a FAILED resolution hit the `already-terminal` branch and
+  cannot silently restore/replace the outcome.
 
 **Remote timeout/cancellation:** the agent passes the snapshot's
 `timeout_seconds` + remote-webdriver fields to `run_invocation` on the

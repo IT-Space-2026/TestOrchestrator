@@ -17,7 +17,10 @@ import requests
 from .adapters import kre as kre_adapter
 from .results import build_evidence_manifest, parse_junit
 
-AGENT_VERSION = "0.1"
+AGENT_VERSION = "0.2"
+# Capabilities advertised at register — the portal only hands work to
+# agents that declare the claim protocol.
+AGENT_CAPABILITIES = ["task-claim"]
 
 
 class RemoteCancelEvent:
@@ -51,7 +54,8 @@ class AgentClient:
 
     def register(self):
         resp = self.post("/api/agent/register",
-                         json={"agent_version": AGENT_VERSION})
+                         json={"agent_version": AGENT_VERSION,
+                               "capabilities": AGENT_CAPABILITIES})
         resp.raise_for_status()
         self.runner = resp.json()
         return self.runner

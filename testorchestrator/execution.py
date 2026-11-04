@@ -188,6 +188,8 @@ class Runner(db.Model):
     # stored or logged.
     agent_token_hash = db.Column(db.String(64), nullable=False, default="")
     agent_version = db.Column(db.String(32), nullable=False, default="")
+    agent_capabilities = db.Column(db.String(256), nullable=False,
+                                   default="[]")
 
 
 class RuntimeConnection(db.Model):

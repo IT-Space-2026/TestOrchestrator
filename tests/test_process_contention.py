@@ -736,10 +736,60 @@ def test_resolve_unknown_releases_capacity(app, client, login_as,
             f"/executions/{eid}/resolve-unknown",
             data={"confirm_stopped": "yes"}, follow_redirects=True)
         ex = db.session.get(Execution, eid)
+        assert ex.state == ExecutionState.UNKNOWN      # no reason
+        resp = client.post(
+            f"/executions/{eid}/resolve-unknown",
+            data={"confirm_stopped": "yes",
+                  "reason": "checked ps — process + children gone"},
+            follow_redirects=True)
+        ex = db.session.get(Execution, eid)
         assert ex.state == ExecutionState.FAILED
-        assert "confirmed" in ex.error_text
+        assert "ADMIN-RESOLVED" in ex.error_text
+        assert "checked ps" in ex.error_text
         db.session.refresh(r)
         assert dispatch.effective_slots(r) == 1        # slot released
+        # double-resolve: CAS refuses (state no longer UNKNOWN)
+        resp = client.post(
+            f"/executions/{eid}/resolve-unknown",
+            data={"confirm_stopped": "yes", "reason": "again"},
+            follow_redirects=True)
+        ex = db.session.get(Execution, eid)
+        assert ex.state == ExecutionState.FAILED       # unchanged
+
+
+def test_agent_capability_gate(app, client, tmp_path):
+    """Only agents that advertise task-claim receive work; old agents
+    get an explicit incompatibility marker, not tasks."""
+    from testorchestrator.agent_api import issue_agent_token
+    from testorchestrator.execution import Runner
+    with app.app_context():
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        r = Runner(name="rem", connection_mode="remote", enabled=True)
+        db.session.add(r); db.session.flush()
+        token = issue_agent_token(r)
+        ex = dispatch.create_execution("m", s)
+        ex.runner_id = r.id
+        ex.state = ExecutionState.DISPATCHED
+        db.session.commit()
+        eid = ex.id
+    h = {"Authorization": f"Bearer {token}"}
+    # register WITHOUT capabilities — pre-claim agent
+    client.post("/api/agent/register",
+                json={"agent_version": "0.1"}, headers=h)
+    resp = client.get("/api/agent/tasks", headers=h)
+    d = resp.get_json()
+    assert d["tasks"] == [] and d["incompatible"]
+    # register WITH the capability — work flows
+    client.post("/api/agent/register",
+                json={"agent_version": "0.2",
+                      "capabilities": ["task-claim"]}, headers=h)
+    resp = client.get("/api/agent/tasks", headers=h)
+    assert len(resp.get_json()["tasks"]) == 1
+    # claim still works on the listed task
+    assert client.post(f"/api/agent/tasks/{eid}/claim",
+                       headers=h).status_code == 200
 
 
 def test_agent_run_config_wiring(tmp_path):
