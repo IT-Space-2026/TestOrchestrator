@@ -52,7 +52,8 @@ def test_agent_register_and_task_poll(client, remote_env):
                        headers=_auth("toa_wrong")).status_code == 401
 
     resp = client.post("/api/agent/register",
-                       json={"agent_version": "0.1"},
+                       json={"agent_version": "0.2",
+                                "capabilities": ["task-claim"]},
                        headers=_auth(env["token"]))
     assert resp.status_code == 200
     assert resp.json["runner_id"] == env["runner"].id
