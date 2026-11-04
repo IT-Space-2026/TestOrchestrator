@@ -163,10 +163,9 @@ def project_detail(project_id):
     dash = {"count": _n, "passed": _pass,
             "failed": sum(1 for e in _done
                           if e.outcome.value == "failed"),
-            "running": _qs.filter(Execution.outcome ==
-                                  Outcome.running).count(),
-            "queued": _qs.filter(Execution.outcome ==
-                                 Outcome.queued).count(),
+            "running": _qs.filter(Execution.started_at.isnot(None),
+                                  Execution.finished_at.is_(None)).count(),
+            "queued": _qs.filter(Execution.started_at.is_(None)).count(),
             "rate": _rate,
             "recent": _qs.order_by(
                 Execution.created_at.desc()).limit(8).all()}
