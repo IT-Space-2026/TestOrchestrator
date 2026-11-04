@@ -122,8 +122,9 @@ Implemented: plan edit/reorder/remove, per-entry `on_failure` policy
 (`stop` cancels later queued/dispatched entries — the atomic launch
 boundary is QUEUED|DISPATCHED → PREPARING: a cancel that commits before
 the claim blocks launch; a claim that commits first means the entry
-finishes (or takes CANCEL_REQUESTED). Verified under synchronized
-claim→cancel→launch races),
+finishes (or takes CANCEL_REQUESTED — the running-process kill path is
+recorded but **not** yet verified on the frozen worker). Verified under
+synchronized claim→cancel→launch races),
 rerun-failed as a new plan run (originals immutable), execution
 **retry** as a linked immutable attempt (`retry_of` + incrementing
 `attempt`; each attempt keeps its own workspace, report dir and
