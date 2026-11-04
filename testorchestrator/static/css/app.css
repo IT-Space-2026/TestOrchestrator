@@ -401,3 +401,16 @@ pre.example {
 @media (max-width: 40rem) {
   .card { overflow-x: auto; }
 }
+
+/* Admin submenu in sidebar */
+.nav-sub summary {
+  display: block; padding: 0.4rem 1.2rem; cursor: pointer;
+  color: var(--sidebar-fg); font-weight: 600;
+  list-style-position: inside;
+}
+.nav-sub summary:hover, .nav-sub summary:focus-visible {
+  background: rgba(255,255,255,0.08);
+}
+.nav-sub-list { list-style: none; margin: 0; padding: 0; }
+.nav-sub-list a { padding-left: 2.4rem; display: block; }
+.nav-sub:not([open]) .nav-sub-list { display: none; }
