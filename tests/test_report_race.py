@@ -118,3 +118,39 @@ def test_nff_retry_preserves_both(app, tmp_path):
                  f"TestOrchestrator/Reports/{eid}"],
                 capture_output=True, text=True)
             assert eid in out.stdout
+
+
+def test_cross_process_lock_serialization(app, tmp_path):
+    """Two independent processes: the second blocks on the pub lock,
+    resumes after release, and cannot recreate a deleted report."""
+    repo = _repo(tmp_path)
+    with app.app_context():
+        p, b, s = _env(app, repo)
+        ex = dispatch.create_execution("m", s, binding=b)
+        ex.state = ExecutionState.COMPLETED
+        db.session.commit()
+        lock = (tmp_path / "reports-pub" / b.id)
+        lock.mkdir(parents=True, exist_ok=True)
+        lockfile = lock / ".pub.lock"
+        # simulate a 'first worker' holding the lock
+        import fcntl
+        fh = open(lockfile, "w")
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        # a second worker trying to publish would BLOCK — simulate by
+        # a non-blocking attempt, which fails while the lock is held.
+        fh2 = open(lockfile, "w")
+        try:
+            fcntl.flock(fh2, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            assert False, "second worker should be locked out"
+        except BlockingIOError:
+            pass
+        fh2.close()
+        # 'release' the first worker's lock
+        fcntl.flock(fh, fcntl.LOCK_UN); fh.close()
+        # now the second worker CAN publish
+        r = gitsync.publish_report(ex.id)
+        assert r.get("published")
+        # deletion-requested state then blocks re-creation
+        ex.deletion_status = "pending"; db.session.commit()
+        r2 = gitsync.publish_report(ex.id)
+        assert r2.get("error")

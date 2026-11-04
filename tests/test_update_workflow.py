@@ -87,3 +87,64 @@ def test_failed_discovery_preserves_prior_inventory(app, tmp_path):
         assert n2 == n1                          # preserved
         db.session.refresh(b)
         assert b.discovery_status in ("failed", "stale")
+
+
+def test_collection_membership_and_profile_updates(app, tmp_path):
+    """Collection membership/order + a new profile land via
+    rediscovery; the collection keeps -testSuiteCollectionPath."""
+    with app.app_context():
+        wt = _fixture(tmp_path / "wt", _base_files())
+        b = _binding(app, wt)
+        gitsync.discover_project(b, "sha1")
+        coll = DiscoveredItem.query.filter_by(
+            binding_id=b.id, kind="collection").first()
+        # upstream: second suite + extend collection + new profile
+        (wt / "Test Suites/S2.ts").write_text(
+            "<TestSuiteEntity><name>S2</name></TestSuiteEntity>")
+        (wt / "Test Suites/Coll 1.ts").write_text(
+            (wt / "Test Suites/Coll 1.ts").read_text().replace(
+                "</testSuiteRunConfigurations>",
+                "<TestSuiteRunConfiguration><profileName>default"
+                "</profileName><testSuiteEntity>Test Suites/S2"
+                "</testSuiteEntity></TestSuiteRunConfiguration>"
+                "</testSuiteRunConfigurations>"))
+        (wt / "Profiles/staging.glbl").write_text(
+            "<GlobalVariableEntity><name>staging</name>"
+            "</GlobalVariableEntity>")
+        b.last_synced_sha = "sha2"; db.session.commit()
+        gitsync.discover_project(b, "sha2")
+        items = DiscoveredItem.query.filter_by(binding_id=b.id).all()
+        colls = [i for i in items if i.kind == "collection"]
+        profs = [i for i in items if i.kind == "profile"]
+        assert len(profs) == 2                     # default+staging
+        assert "staging" in {p.name for p in profs}
+        assert len(colls[0].members() or []) == 2  # S1+S2, ordered
+        ex = dispatch.create_execution("m", source_item=colls[0])
+        rc = ex.snapshot()["run_config"]
+        assert rc["collection"] is True            # collection arg
+
+
+def test_renamed_definition_is_delete_plus_add(app, tmp_path):
+    """A renamed .ts file is a remove+add — the OLD path becomes
+    unavailable (no silent rename-following), the new one appears."""
+    with app.app_context():
+        wt = _fixture(tmp_path / "wt", _base_files())
+        b = _binding(app, wt)
+        gitsync.discover_project(b, "sha1")
+        old = DiscoveredItem.query.filter_by(
+            binding_id=b.id, kind="suite").first()
+        ex = dispatch.create_execution("m", source_item=old)
+        # upstream rename
+        (wt / "Test Suites/S1.ts").rename(
+            wt / "Test Suites/S1-renamed.ts")
+        b.last_synced_sha = "sha2"; db.session.commit()
+        gitsync.discover_project(b, "sha2")
+        items = DiscoveredItem.query.filter_by(
+            binding_id=b.id, kind="suite").all()
+        paths = {i.path for i in items}
+        assert "Test Suites/S1-renamed.ts" in paths
+        assert "Test Suites/S1.ts" not in paths
+        # queued run on the OLD path fails — no rename-following
+        dispatch.run_execution(ex.id)
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
