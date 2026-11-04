@@ -435,6 +435,11 @@ def run_execution(execution_id: str) -> None:
         # -apiKey= argv as KRE expects, but is scrubbed from every log/
         # artifact by run_invocation's redact pass.
         creds = _redact_values(runtime)
+        # Remote WebDriver URL may embed user:pass@ — scrub the
+        # userinfo portion from logs/audit/artifacts like any secret.
+        rw_url = rc.get("remote_webdriver_url") or ""
+        if "://" in rw_url and "@" in rw_url:
+            creds.append(rw_url.split("@", 1)[0].split("://", 1)[1])
         if creds:
             args = args + [f"-apiKey={creds[0]}"]
         result = kre_adapter.run_invocation(

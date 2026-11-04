@@ -50,12 +50,16 @@ class InvocationResult:
 # documented names — the browser itself must be installed on the RUNNER
 # host (not this portal). Edge is Windows-only, Safari macOS-only.
 SUPPORTED_BROWSERS = {
-    "chrome":          {"label": "Chrome",          "platforms": None},
+    "chrome":          {"label": "Chrome",           "platforms": None},
     "chrome_headless": {"label": "Chrome (headless)", "platforms": None},
-    "firefox":         {"label": "Firefox",          "platforms": None},
+    "firefox":         {"label": "Firefox",           "platforms": None},
     "firefox_headless": {"label": "Firefox (headless)", "platforms": None},
-    "edge":            {"label": "Edge",             "platforms": ("windows",)},
-    "safari":          {"label": "Safari",           "platforms": ("darwin", "macos")},
+    # Edge Chromium (Chromium-based) ships Linux drivers per Katalon 8.x
+    # notes — NOT the discontinued legacy Edge, which was Windows-only.
+    # "edge_legacy" stays Windows-only; plain "edge" means Chromium.
+    "edge":            {"label": "Edge",              "platforms": None},
+    "edge_legacy":     {"label": "Edge (legacy)",     "platforms": ("windows",)},
+    "safari":          {"label": "Safari",            "platforms": ("darwin", "macos")},
 }
 
 # Remote WebDriver: an explicit opt-in that overrides local browser use.
@@ -118,10 +122,15 @@ def build_args(
         f"-executionProfile={profile}",
     ]
     if remote_webdriver_url:
-        # Remote WebDriver session — browser runs on the WebDriver
-        # service, not the KRE host. Driver type tells KRE which
-        # capability set to request.
-        args += [f"-remoteWebDriverUrl={remote_webdriver_url}"]
+        # Katalon-documented remote form: -browserType=Remote is still
+        # REQUIRED — the browser runs on the WebDriver service (e.g.
+        # Selenium Grid node), not the KRE host. remoteWebDriverType
+        # names the remote driver type (commonly Selenium); the actual
+        # browser choice on the grid comes from desired capabilities in
+        # the KRE project config — the URL/type alone does NOT select
+        # Chrome vs Firefox on the node.
+        args += ["-browserType=Remote",
+                 f"-remoteWebDriverUrl={remote_webdriver_url}"]
         if remote_webdriver_type:
             args += [f"-remoteWebDriverType={remote_webdriver_type}"]
     else:

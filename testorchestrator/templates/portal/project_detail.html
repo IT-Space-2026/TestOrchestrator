@@ -153,10 +153,13 @@
       is set below. Edge = Windows runners only; Safari = macOS only.</small></div>
     <div class="field">{{ schedule_form.remote_webdriver_url.label }} {{ schedule_form.remote_webdriver_url() }}
       <small>Optional. e.g. <code>https://selenium.example:4444/wd/hub</code>
-      — browser runs on the WebDriver service, overriding the choice above.</small></div>
+      — connects to a WebDriver service (emits
+      <code>-browserType=Remote</code>); the grid browser comes from the
+      project's desired capabilities, not the selector above.
+      URL credentials are scrubbed from logs/evidence.</small></div>
     <div class="field">{{ schedule_form.remote_webdriver_type.label }} {{ schedule_form.remote_webdriver_type() }}
-      <small>Optional. Driver capability type: <code>chrome</code>,
-      <code>firefox</code>, or <code>edge</code>.</small></div>
+      <small>Optional. Driver type for the remote session — typically
+      <code>Selenium</code>.</small></div>
     <button type="submit" class="button">Create schedule</button>
   </form>
   {% endif %}

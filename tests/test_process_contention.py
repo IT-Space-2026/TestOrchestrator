@@ -423,7 +423,10 @@ def test_browser_validation_and_remote_override(app, tmp_path):
     args = kre.build_args(
         "/x", "/p", "/s", "/r", browser="Firefox",
         remote_webdriver_url="https://wd.example:4444/wd/hub",
-        remote_webdriver_type="chrome")
+        remote_webdriver_type="Selenium")
+    # Katalon-documented remote form: -browserType=Remote is REQUIRED —
+    # it does NOT drop browserType, and never carries the local choice.
+    assert "-browserType=Remote" in args
     assert "-browserType=Firefox" not in args
     assert "-remoteWebDriverUrl=https://wd.example:4444/wd/hub" in args
-    assert "-remoteWebDriverType=chrome" in args
+    assert "-remoteWebDriverType=Selenium" in args

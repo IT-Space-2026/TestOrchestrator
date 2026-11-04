@@ -31,15 +31,21 @@
         <option>Edge</option>
         <option>Safari</option>
       </select>
-      <small>Runs on the <em>KRE host</em> unless a Remote WebDriver URL
-      is configured below. Edge = Windows runners only; Safari = macOS
-      only.</small></div>
+      <small>Runs on the <em>KRE host</em> — ignored when a Remote
+      WebDriver URL is set below (the grid node's browser comes from
+      the KRE project's desired capabilities, not this field).</small></div>
     <div class="field"><label for="remote_webdriver_url">Remote WebDriver URL (optional)</label>
       <input type="text" name="remote_webdriver_url" id="remote_webdriver_url"
-             placeholder="https://selenium.example:4444/wd/hub"></div>
+             placeholder="https://selenium.example:4444/wd/hub">
+      <small>Selenium Grid / WebDriver service the KRE connects to —
+      emits <code>-browserType=Remote</code>. Credentials in the URL
+      are scrubbed from logs/evidence.</small></div>
     <div class="field"><label for="remote_webdriver_type">WebDriver driver type (optional)</label>
       <input type="text" name="remote_webdriver_type" id="remote_webdriver_type"
-             placeholder="chrome | firefox | edge"></div>
+             placeholder="Selenium">
+      <small>Driver type passed to KRE (typically
+      <code>Selenium</code>) — the node's browser is selected by the
+      project's desired capabilities, not here.</small></div>
     <div class="field"><label for="kre_retry">KRE retry (0–3, version-gated)</label>
       <input type="number" name="kre_retry" id="kre_retry" min="0" max="3" value="0"></div>
     <button type="submit" class="button">Run suite</button>

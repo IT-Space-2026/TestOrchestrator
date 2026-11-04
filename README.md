@@ -260,11 +260,13 @@ section post-dates candidate `10300832` (unreleased).
 Suite runs and schedules take `browser` from a supported-choice
 selector (Chrome / Chrome headless / Firefox / Firefox headless /
 Edge / Safari) — never hard-coded; the browser runs on the **KRE
-host** unless a Remote WebDriver URL is set (which emits
-`-remoteWebDriverUrl=`/`-remoteWebDriverType=` instead of
-`-browserType=`). Edge requires a Windows runner, Safari macOS —
-platform-incompatible or unknown values fail the launch rather than
-being guessed. **Precedence:** the schedule or launch form's
+host** unless a Remote WebDriver URL is set, which emits the
+Katalon-documented `-browserType=Remote` + `-remoteWebDriverUrl=` +
+`-remoteWebDriverType=` form (the grid node's browser comes from the
+KRE project's desired capabilities — not this URL). Edge means Edge
+Chromium (all platforms); legacy Edge is Windows-only, Safari macOS —
+incompatible or unknown values fail the launch rather than being
+guessed. URL credentials are scrubbed from logs/evidence. **Precedence:** the schedule or launch form's
 `run_config.browser` wins → stored in the immutable execution snapshot
 → adapter default `Chrome (headless)` only when unset. Plan schedules
 inherit the schedule's run_config (no per-entry override exists).

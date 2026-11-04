@@ -60,6 +60,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   shown on the execution page. Scheduled Firefox verified end-to-end
   as `-browserType=Firefox` on the fixture KRE.
 
+### Fixed (unreleased)
+- **Remote WebDriver contract:** corrected to Katalon's documented
+  `-browserType=Remote` + `-remoteWebDriverUrl=` +
+  `-remoteWebDriverType=` (was dropping -browserType); URL credential
+  scrubbing; grid-browser selection documented as desired-capabilities
+  driven, not URL-driven. See docs/execution-capability.md.
+
 ### Known limitations
 - `CANCEL_REQUESTED` running-process kill path recorded but not yet
   verified on the frozen worker.
