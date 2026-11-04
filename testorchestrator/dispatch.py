@@ -130,7 +130,8 @@ def queue_plan_executions(username: str, plan: Plan,
                           source_sha: str = "",
                           entries: list = None,
                           plan_run_id: str = "",
-                          schedule_id: str = "") -> tuple:
+                          schedule_id: str = "",
+                          run_config: dict = None) -> tuple:
     """Queue one execution per plan entry under a shared plan_run_id —
     the durable handle that lets summaries, stop-on-failure and
     rerun-failed group attempts of the same run (§10)."""
@@ -139,7 +140,7 @@ def queue_plan_executions(username: str, plan: Plan,
     for entry in (entries if entries is not None else plan.entries):
         exs.append(create_execution(
             username, entry.suite, binding=binding, source_sha=source_sha,
-            plan_id=plan.id,
+            plan_id=plan.id, run_config=run_config,
             extra_snapshot={"plan_run_id": run_id},
             schedule_id=schedule_id))
     return run_id, exs
@@ -917,7 +918,8 @@ def fire_due_schedules(now=None) -> int:
                     raise DispatchError("scheduled plan no longer exists")
                 queue_plan_executions(sched.created_by, plan,
                                       binding=binding, source_sha=sha,
-                                      schedule_id=sched.id)
+                                      schedule_id=sched.id,
+                                      run_config=cfg)
             elif sched.target_type == "suite" and sched.suite_id:
                 suite = db.session.get(Suite, sched.suite_id)
                 if suite is None:

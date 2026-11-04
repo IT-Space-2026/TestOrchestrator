@@ -374,7 +374,7 @@ def _xml_root(path):
     return None, "malformed: empty"
 
 
-def discover_project(binding) -> dict:
+def discover_project(binding, sha: str = "") -> dict:
     """Typed inventory discovery under the selected Katalon project
     root — .prj root detection, .tc cases, suites vs collections by
     XML root tag, profile names. Read-only; never executes repo code.
@@ -384,7 +384,7 @@ def discover_project(binding) -> dict:
     import xml.etree.ElementTree as ET
     out = {"cases": 0, "suites": 0, "collections": 0, "profiles": 0,
            "warnings": []}
-    sha = binding.last_synced_sha or ""
+    sha = sha or binding.last_synced_sha or ""
     try:
         base = Path(binding.worktree_path or "")
         if binding.subdirectory:
@@ -478,7 +478,17 @@ def discover_project(binding) -> dict:
                 path=str(p.relative_to(root)), name=p.stem))
             out["profiles"] += 1
         out["cases"] = sum(1 for i in items if i.kind == "case")
-        # Atomic replace: delete prior set + insert new in one commit.
+        # Atomic replace — but NEVER overwrite a NEWER committed
+        # inventory: if a later discovery already persisted a different
+        # SHA (and the binding's last fetched sha moved past ours),
+        # this late result is stale — keep the newer set.
+        if (binding.discovered_sha
+                and binding.discovered_sha != sha
+                and binding.last_synced_sha != sha):
+            binding.discovery_status = "ok"      # newer already fine
+            db.session.commit()
+            out["stale_skip"] = True
+            return out
         DiscoveredItem.query.filter_by(binding_id=binding.id).delete()
         db.session.add_all(items)
         binding.discovered_sha = sha

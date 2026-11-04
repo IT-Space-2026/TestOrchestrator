@@ -161,3 +161,61 @@ def test_schedule_source_item_persists_type(app):
         rc = ex.snapshot()["run_config"]
         assert rc["collection"] is True
         assert rc["suite_path"] == "Test Suites/C"
+
+
+def test_older_discovery_cannot_overwrite_newer(app, tmp_path):
+    """Deterministic ordering: newer discovery B completes first, then
+    the late result of older A must NOT overwrite B's inventory —
+    A's write is skipped and marked stale."""
+    wt1 = tmp_path / "wt1"; wt2 = tmp_path / "wt2"
+    _mk(wt1, {"P.prj": "<p/>", "Test Cases/old.tc": CASE})
+    _mk(wt2, {"P.prj": "<p/>", "Test Cases/new.tc": CASE,
+              "Test Cases/new2.tc": CASE})
+    with app.app_context():
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        b = GitBinding(project_id=p.id, name="b", url="x",
+                       worktree_path=str(wt2),
+                       last_synced_sha="sha-B", status="synced")
+        db.session.add(b); db.session.commit()
+        # B (newer) completes first
+        rb = discover_project(b, sha="sha-B")
+        assert b.discovered_sha == "sha-B"
+        n_b = DiscoveredItem.query.count()
+        # A (older, started earlier, completes late) — sha-A is stale
+        b.worktree_path = str(wt1)
+        db.session.commit()
+        ra = discover_project(b, sha="sha-A")
+        assert ra.get("stale_skip")
+        # B's inventory intact — not replaced by A's
+        assert b.discovered_sha == "sha-B"
+        assert DiscoveredItem.query.count() == n_b
+        assert DiscoveredItem.query.filter(
+            DiscoveredItem.path.contains("new")).count() == n_b
+
+
+def test_plan_path_emits_collection_arg(app):
+    """queue_plan_executions forwards the schedule run_config — a
+    collection-typed plan entry gets -testSuiteCollectionPath, never
+    -testSuitePath."""
+    import json
+    from testorchestrator.execution import Plan, PlanEntry
+    from testorchestrator.adapters.kre import build_args
+    with app.app_context():
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        pl = Plan(project_id=p.id, name="Pl"); db.session.add(pl)
+        db.session.flush()
+        db.session.add(PlanEntry(plan_id=pl.id, suite_id=s.id,
+                                 order=0))
+        db.session.commit()
+        cfg = {"collection": True, "suite_path": "Test Suites/Coll",
+               "profile": "default"}
+        run_id, exs = dispatch.queue_plan_executions(
+            "m", pl, run_config=cfg, plan_run_id="pr1")
+        rc = exs[0].snapshot()["run_config"]
+        assert rc["collection"] is True
+        a = build_args("k", "/p", rc["suite_path"], "/r",
+                       rc["profile"], collection=rc["collection"])
+        assert "-testSuiteCollectionPath=Test Suites/Coll" in a
+        assert not any(x.startswith("-testSuitePath=") for x in a)
