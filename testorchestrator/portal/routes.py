@@ -65,10 +65,41 @@ def _suite_hash(suite: Suite) -> str:
 @portal_bp.route("/projects")
 @login_required
 def projects():
-    all_projects = Project.query.order_by(Project.name).all()
-    visible = [p for p in all_projects if current_user.project_allowed(p.id)]
-    return render_template("portal/projects.html", projects=visible,
-                           form=ProjectForm())
+    from ..dashboard import ACTIVE_STATES, TERMINAL_STATES
+    from ..execution import Execution
+    q = request.args.get("q", "").strip().lower()
+    sort = request.args.get("sort", "name")
+    all_projects = [p for p in Project.query.all()
+                    if current_user.project_allowed(p.id)]
+    if q:
+        all_projects = [p for p in all_projects
+                        if q in p.name.lower()
+                        or q in (p.description or "").lower()]
+    exs = Execution.query.all() if all_projects else []
+    by_p = {}
+    for e in exs:
+        by_p.setdefault(e.project_id, []).append(e)
+    cards = []
+    for p in all_projects:
+        pes = by_p.get(p.id, [])
+        term = [e for e in pes if e.state in TERMINAL_STATES
+                and e.finished_at]
+        term.sort(key=lambda e: e.finished_at, reverse=True)
+        active = sum(1 for e in pes if e.state in ACTIVE_STATES)
+        cards.append({
+            "project": p,
+            "latest": term[0] if term else None,
+            "active": active,
+            "total": len(pes),
+        })
+    if sort == "recent":
+        cards.sort(key=lambda c: (c["latest"].finished_at
+                                  if c["latest"] else ""),
+                   reverse=True)
+    else:
+        cards.sort(key=lambda c: c["project"].name.lower())
+    return render_template("portal/projects.html", cards=cards,
+                           form=ProjectForm(), q=q, sort=sort)
 
 
 @portal_bp.route("/projects", methods=["POST"])

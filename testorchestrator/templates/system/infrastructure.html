@@ -40,21 +40,38 @@
   </table>
   <form method="post" action="{{ url_for('system.create_runner') }}">
     {{ runner_form.csrf_token }}
-    <div class="field">{{ runner_form.name.label }} {{ runner_form.name() }}</div>
-    <div class="field">{{ runner_form.description.label }} {{ runner_form.description() }}</div>
-    <div class="field">{{ runner_form.os_arch.label }} {{ runner_form.os_arch(placeholder="linux/amd64") }}</div>
+    <div class="field">{{ runner_form.name.label }} {{ runner_form.name() }}
+      <small><strong>Required.</strong> Unique machine label, e.g.
+      <code>ci-linux-01</code>.</small></div>
+    <div class="field">{{ runner_form.description.label }} {{ runner_form.description() }}
+      <small>Optional note shown in this list.</small></div>
+    <div class="field">{{ runner_form.os_arch.label }} {{ runner_form.os_arch(placeholder="linux/amd64") }}
+      <small><strong>Required.</strong> Format <code>os/arch</code> —
+      e.g. <code>linux/amd64</code>, <code>windows/amd64</code>.</small></div>
     <fieldset class="field"><legend>{{ runner_form.connection_mode.label }}</legend>
       {% for sub in runner_form.connection_mode %}<div class="checkbox">{{ sub() }} {{ sub.label }}</div>{% endfor %}
+      <small><strong>Required.</strong> <em>local</em> runs on this host;
+      <em>remote</em> needs the agent + a heartbeat to dispatch.</small>
     </fieldset>
-    <div class="field">{{ runner_form.workspace_root.label }} {{ runner_form.workspace_root() }}</div>
-    <div class="field">{{ runner_form.max_slots.label }} {{ runner_form.max_slots() }}</div>
+    <div class="field">{{ runner_form.workspace_root.label }} {{ runner_form.workspace_root() }}
+      <small>Optional. Path on <em>the runner's filesystem</em> where
+      workspaces are created (local runner = this host). Default:
+      <code>instance/workspaces</code>. Example:
+      <code>/srv/to/workspaces</code>.</small></div>
+    <div class="field">{{ runner_form.max_slots.label }} {{ runner_form.max_slots() }}
+      <small><strong>Required.</strong> Max concurrent executions;
+      integer ≥ 1. Effective capacity is min(this, licence slots).</small></div>
     <p class="muted">Licence note: per-worker slot values are a
     configured allowance — the first release is scoped to
     operator-partitioned seats. Sum of allowances across workers must
     not exceed purchased floating seats; no shared-pool enforcement and
     no visibility into sessions started outside the Orchestrator.</p>
-    <div class="field">{{ runner_form.allowed_projects.label }} {{ runner_form.allowed_projects(size=4) }}</div>
-    <button type="submit" class="button">Register runner</button>
+    <div class="field">{{ runner_form.allowed_projects.label }} {{ runner_form.allowed_projects(size=4) }}
+      <small>Optional. Restrict this runner to listed projects;
+      empty = all projects may dispatch here.</small></div>
+    <div class="form-actions">
+      <button type="submit" class="button">Register runner</button>
+    </div>
   </form>
 </section>
 
@@ -85,20 +102,39 @@
   </table>
   <form method="post" action="{{ url_for('system.create_runtime') }}">
     {{ runtime_form.csrf_token }}
-    <div class="field">{{ runtime_form.name.label }} {{ runtime_form.name() }}</div>
-    <div class="field">{{ runtime_form.description.label }} {{ runtime_form.description() }}</div>
+    <div class="field">{{ runtime_form.name.label }} {{ runtime_form.name() }}
+      <small><strong>Required.</strong> Label for this installation,
+      e.g. <code>kre-9.2-ci01</code>.</small></div>
+    <div class="field">{{ runtime_form.description.label }} {{ runtime_form.description() }}
+      <small>Optional note.</small></div>
     <div class="field"><label for="runner_id">Runner</label>
       <select name="runner_id" id="runner_id" required>
         {% for value, label in runner_choices %}
         <option value="{{ value }}">{{ label }}</option>
         {% endfor %}
       </select>
+      <small><strong>Required.</strong> The runner host where this KRE
+      executable lives — dispatch only uses runtimes on dispatch-eligible
+      runners.</small>
     </div>
-    <div class="field">{{ runtime_form.executable_path.label }} {{ runtime_form.executable_path() }}</div>
-    <div class="field">{{ runtime_form.workspace_root.label }} {{ runtime_form.workspace_root() }}</div>
-    <div class="field">{{ runtime_form.credential_ref.label }} {{ runtime_form.credential_ref() }}</div>
-    <div class="field">{{ runtime_form.concurrency.label }} {{ runtime_form.concurrency() }}</div>
-    <button type="submit" class="button">Register runtime</button>
+    <div class="field">{{ runtime_form.executable_path.label }} {{ runtime_form.executable_path() }}
+      <small><strong>Required.</strong> Path on the <em>runner's</em>
+      filesystem (for local runners: this host) to the KRE CLI binary.
+      Example: <code>/opt/kre/bin/kre-console.sh</code>. Presence is
+      verified by <em>Test connection</em>, not assumed.</small></div>
+    <div class="field">{{ runtime_form.workspace_root.label }} {{ runtime_form.workspace_root() }}
+      <small>Optional. Overrides the runner's workspace root for this
+      runtime only — path on the runner's filesystem.</small></div>
+    <div class="field">{{ runtime_form.credential_ref.label }} {{ runtime_form.credential_ref() }}
+      <small>Optional. <em>Name</em> of a credential stored under
+      System → Credentials — never the value itself. Needed only when
+      the runtime requires an auth token.</small></div>
+    <div class="field">{{ runtime_form.concurrency.label }} {{ runtime_form.concurrency() }}
+      <small><strong>Required.</strong> Max parallel sessions for this
+      runtime; integer ≥ 1, capped by the runner's free slots.</small></div>
+    <div class="form-actions">
+      <button type="submit" class="button">Register runtime</button>
+    </div>
   </form>
 </section>
 {% endblock %}

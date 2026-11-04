@@ -12,14 +12,52 @@
   </form>
 </section>
 {% endif %}
-{% if projects %}
-<ul class="notice-list">
-  {% for p in projects %}
-  <li><a href="{{ url_for('portal.project_detail', project_id=p.id) }}">
-      <strong>{{ p.name }}</strong></a> — {{ p.description }}</li>
+
+<form method="get" class="filter-bar" role="search">
+  <div class="field"><label for="pq">Search</label>
+    <input type="search" id="pq" name="q" value="{{ q }}"
+           placeholder="name or description"></div>
+  <div class="field"><label for="ps">Sort</label>
+    <select id="ps" name="sort">
+      <option value="name" {% if sort == "name" %}selected{% endif %}>name A–Z</option>
+      <option value="recent" {% if sort == "recent" %}selected{% endif %}>latest activity</option>
+    </select></div>
+  <div class="form-actions">
+    <button type="submit" class="button">Apply</button>
+    <a class="button secondary" href="{{ url_for('portal.projects') }}">Clear</a>
+  </div>
+</form>
+
+{% if cards %}
+<div class="proj-grid">
+  {% for c in cards %}
+  <article class="card proj-card">
+    <header>
+      <a href="{{ url_for('portal.project_detail', project_id=c.project.id) }}">
+        <strong>{{ c.project.name }}</strong></a>
+      {% if c.latest %}
+      <span class="badge outcome-{{ c.latest.outcome.value }}">{{ c.latest.outcome.value }}</span>
+      {% else %}
+      <span class="badge outcome-none">never run</span>
+      {% endif %}
+    </header>
+    {% if c.project.description %}
+    <p class="muted">{{ c.project.description[:120] }}</p>
+    {% endif %}
+    <dl class="proj-meta">
+      <div><dt>Last execution</dt>
+        <dd>{{ (c.latest.finished_at|string)[:16] if c.latest else "—" }}</dd></div>
+      <div><dt>Active work</dt><dd>{{ c.active }}</dd></div>
+      <div><dt>Executions</dt><dd>{{ c.total }}</dd></div>
+    </dl>
+    <div class="form-actions">
+      <a class="button secondary" href="{{ url_for('portal.project_detail', project_id=c.project.id) }}">Open</a>
+    </div>
+  </article>
   {% endfor %}
-</ul>
+</div>
 {% else %}
-<p class="muted">No projects yet.</p>
+<p class="muted">{% if q %}No projects match "{{ q }}" — clear the
+   search.{% else %}No projects yet — create one above.{% endif %}</p>
 {% endif %}
 {% endblock %}

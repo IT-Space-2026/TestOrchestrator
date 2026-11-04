@@ -21,9 +21,8 @@
         <li><a href="{{ url_for('main.dashboard') }}">Dashboard</a></li>
         <li><a href="{{ url_for('portal.projects') }}">Projects</a></li>
         <li><a href="{{ url_for('portal.executions') }}">Executions</a></li>
-        <li><a href="{{ url_for('main.notices') }}">Third-party notices</a></li>
         {% if current_user.is_admin %}
-        <li class="nav-section" aria-hidden="true">System</li>
+        <li class="nav-section" aria-hidden="true">Admin</li>
         <li><a href="{{ url_for('system.network') }}">Network &amp; certificates</a></li>
         <li><a href="{{ url_for('system.users') }}">Users</a></li>
         <li><a href="{{ url_for('system.infrastructure') }}">Runners &amp; runtimes</a></li>
@@ -31,6 +30,7 @@
         <li><a href="{{ url_for('system.secrets') }}">Credentials</a></li>
         <li><a href="{{ url_for('main.changelog') }}">Changelog</a></li>
         <li><a href="{{ url_for('main.audit') }}">Audit</a></li>
+        <li><a href="{{ url_for('main.notices') }}">Third-party notices &amp; licences</a></li>
         {% endif %}
       </ul>
     </nav>

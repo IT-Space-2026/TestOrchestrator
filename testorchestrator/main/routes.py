@@ -1,5 +1,6 @@
 """Main blueprint: dashboard, About (v1.7), notices, admin System pages."""
 
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import current_app, render_template, request, send_from_directory
@@ -7,6 +8,7 @@ from flask_login import current_user, login_required
 
 from .. import settings as settings_mod
 from ..config import BASE_DIR
+from ..extensions import db
 from ..models import AuditEvent, Role, record_audit
 from ..network import access_links
 from ..security import role_required
@@ -52,9 +54,23 @@ def about_context():
 def dashboard():
     # Approved navigation links are visible to every role; internal bind
     # details (Waitress host/port) are not exposed here (v1.8 §6).
+    from .. import dashboard as dash
     return render_template(
-        "main/dashboard.html", links=access_links(settings_mod.all_settings())
+        "main/dashboard.html",
+        links=access_links(settings_mod.all_settings()),
+        data=dash.snapshot(current_user),
     )
+
+
+@main_bp.route("/dashboard/data")
+@login_required
+def dashboard_data():
+    """JSON snapshot for the dashboard's ~5 s near-real-time poll.
+
+    Same visibility scope as the page — project_allowed() applies."""
+    from flask import jsonify
+    from .. import dashboard as dash
+    return jsonify(dash.snapshot(current_user))
 
 
 @main_bp.route("/about")
@@ -106,16 +122,67 @@ def changelog():
     return render_template("system/changelog.html", changelog_text=changelog_text)
 
 
+AUDIT_PAGE_SIZE = 50
+
+
 @main_bp.route("/system/audit")
 @role_required(Role.ADMIN)
 def audit():
-    """Admin-only audit page-access log."""
+    """Admin-only audit page — server-side search/filter/pagination over
+    the stored safe fields (username, event, detail, occurred_at).
+    Free-text search never touches stored secrets (none are stored in
+    audit rows by design)."""
 
     record_audit(current_user.username, "page.audit", request.path)
-    events = (
-        AuditEvent.query.order_by(AuditEvent.occurred_at.desc()).limit(200).all()
-    )
-    return render_template("system/audit.html", events=events)
+    q = AuditEvent.query
+    filters = {
+        "q": request.args.get("q", "").strip(),
+        "event": request.args.get("event", "").strip(),
+        "actor": request.args.get("actor", "").strip(),
+        "related": request.args.get("related", "").strip(),
+        "from": request.args.get("from", "").strip(),
+        "to": request.args.get("to", "").strip(),
+    }
+    if filters["q"]:
+        like = f"%{filters['q']}%"
+        q = q.filter(db.or_(AuditEvent.event.like(like),
+                            AuditEvent.detail.like(like),
+                            AuditEvent.username.like(like)))
+    if filters["event"]:
+        q = q.filter(AuditEvent.event == filters["event"])
+    if filters["actor"]:
+        q = q.filter(AuditEvent.username == filters["actor"])
+    if filters["related"]:
+        q = q.filter(AuditEvent.detail.like(f"%{filters['related']}%"))
+    for bound in ("from", "to"):
+        raw = filters[bound]
+        if raw:
+            try:
+                dt = datetime.fromisoformat(raw)
+                if bound == "to" and len(raw) == 10:
+                    dt = dt + timedelta(days=1)
+                q = q.filter(AuditEvent.occurred_at >= dt
+                             if bound == "from"
+                             else AuditEvent.occurred_at <= dt)
+            except ValueError:
+                pass
+    page = max(1, request.args.get("page", 1, type=int) or 1)
+    total = q.count()
+    # Deterministic ordering: time then id tiebreak.
+    events = (q.order_by(AuditEvent.occurred_at.desc(),
+                         AuditEvent.id.desc())
+               .offset((page - 1) * AUDIT_PAGE_SIZE)
+               .limit(AUDIT_PAGE_SIZE).all())
+    pages = max(1, -(-total // AUDIT_PAGE_SIZE))
+    event_types = [r[0] for r in db.session.query(
+        AuditEvent.event).distinct().order_by(AuditEvent.event).all()]
+    actors = [r[0] for r in db.session.query(
+        AuditEvent.username).distinct().order_by(
+        AuditEvent.username).all()]
+    return render_template(
+        "system/audit.html", events=events, filters=filters,
+        page=page, pages=pages, total=total,
+        event_types=event_types, actors=actors)
 
 
 @main_bp.app_errorhandler(403)

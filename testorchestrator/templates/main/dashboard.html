@@ -2,11 +2,99 @@
 {% block title %}Dashboard · TestOrchestrator{% endblock %}
 {% block content %}
 <h1>Dashboard</h1>
-<p>Welcome, {{ current_user.display_name or current_user.username }}
-   ({{ current_user.role.label }}).</p>
-<p>Access this installation at <code>{{ links.local }}</code>{% if links.external %}
-   or <code>{{ links.external }}</code>{% endif %}.</p>
-<p class="muted">Test orchestration views arrive with the v1.0–v1.6 feature
-   modules; this build implements the v1.7 About/branding and v1.8 bootstrap,
-   network, and certificate requirements.</p>
+<p class="muted" id="dash-status" role="status">
+  Live view — updates ≈ every 5&nbsp;s (near-real-time poll).
+  <span id="dash-updated">Updated {{ data.generated_at[:19] }}Z</span>
+  <span id="dash-stale" class="badge warn" hidden>stale — reconnecting…</span>
+</p>
+
+<section aria-label="Summary metrics">
+  <div class="metric-grid">
+    <div class="metric"><span class="metric-num" data-m="projects_total">{{ data.metrics.projects_total }}</span><span class="metric-label">Projects (visible to you)</span></div>
+    <div class="metric"><span class="metric-num" data-m="executions_active">{{ data.metrics.executions_active }}</span><span class="metric-label">Active executions (not terminal)</span></div>
+    <div class="metric"><span class="metric-num" data-m="executions_queued">{{ data.metrics.executions_queued }}</span><span class="metric-label">Queued</span></div>
+    <div class="metric"><span class="metric-num" data-m="passed_period">{{ data.metrics.passed_period }}</span><span class="metric-label">Passed attempts · {{ data.period_days }}d</span></div>
+    <div class="metric"><span class="metric-num" data-m="failed_period">{{ data.metrics.failed_period }}</span><span class="metric-label">Failed attempts · {{ data.period_days }}d</span></div>
+    <div class="metric"><span class="metric-num" data-m="runners_available">{{ data.metrics.runners_available }}/{{ data.metrics.runners_total }}</span><span class="metric-label">Runners dispatch-eligible (<span data-m="runners_healthy">{{ data.metrics.runners_healthy }}</span> healthy)</span></div>
+    <div class="metric"><span class="metric-num" data-m="schedules_upcoming">{{ data.metrics.schedules_upcoming }}</span><span class="metric-label">Upcoming scheduled runs</span></div>
+  </div>
+  <p class="muted"><small>Counts: each execution attempt counts once —
+    reruns are separate attempts. "Passed/failed" counts terminal
+    attempts finished in the last {{ data.period_days }} days;
+    "active" = any non-terminal state. Next scheduled run:
+    <span data-m="next_schedule_at">{{ (data.metrics.next_schedule_at or "—")[:19] }}</span></small></p>
+</section>
+
+<section class="card">
+  <h2>Projects</h2>
+  <div class="dash-search">
+    <input type="search" id="proj-q" placeholder="Filter projects…"
+           aria-label="Filter projects">
+  </div>
+  <div id="proj-empty" class="muted" hidden>No projects match.</div>
+  <table class="data-table" id="proj-table">
+    <thead><tr>
+      <th>Project</th><th>Latest execution</th><th>Outcome</th>
+      <th>Active</th><th>Pass rate · {{ data.period_days }}d</th>
+      <th>Next scheduled</th><th></th>
+    </tr></thead>
+    <tbody id="proj-rows">
+      {% for p in data.projects %}
+      <tr data-name="{{ p.name|lower }}">
+        <td><a href="{{ url_for('portal.project_detail', project_id=p.id) }}"><strong>{{ p.name }}</strong></a>
+            <div class="muted">{{ p.description[:80] }}</div></td>
+        <td>{{ (p.latest_finished_at or "—")[:16] }}</td>
+        <td>{% if p.latest_outcome %}<span class="badge outcome-{{ p.latest_outcome }}">{{ p.latest_outcome }}</span>{% else %}—{% endif %}</td>
+        <td>{{ p.active }}{% if p.queued %} ({{ p.queued }} queued){% endif %}</td>
+        <td>{% if p.pass_rate is not none %}{{ p.pass_rate }}% <span class="muted">of {{ p.pass_total }}</span>{% else %}—{% endif %}</td>
+        <td>{{ (p.next_run_at or "—")[:16] }}</td>
+        <td><a href="{{ url_for('portal.project_detail', project_id=p.id) }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted" id="proj-no-data" {% if data.projects %}hidden{% endif %}>No projects yet — create one under Projects.</p>
+</section>
+
+<div class="dash-2col">
+  <section class="card">
+    <h2>Recent executions</h2>
+    <table class="data-table" id="recent-table">
+      <thead><tr><th>ID</th><th>Suite</th><th>State</th><th>Outcome</th><th>By</th></tr></thead>
+      <tbody id="recent-rows">
+        {% for e in data.recent %}
+        <tr>
+          <td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
+          <td>{{ e.suite }}</td>
+          <td>{{ e.state }}</td>
+          <td>{% if e.outcome != 'none' %}<span class="badge outcome-{{ e.outcome }}">{{ e.outcome }}</span>{% else %}—{% endif %}</td>
+          <td>{{ e.created_by }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted" id="recent-no-data" {% if data.recent %}hidden{% endif %}>No executions yet.</p>
+  </section>
+
+  <section class="card">
+    <h2>Outcomes per day · {{ data.period_days }}d</h2>
+    <div class="bar-chart" id="chart-outcomes" role="img"
+         aria-label="Daily execution outcomes">
+      {% for d in data.chart_outcomes %}
+      <div class="bar-col" title="{{ d.day }}: {{ d.passed }} passed, {{ d.failed }} failed">
+        <div class="bar pass" style="height:{{ d.passed * 8 }}px"></div>
+        <div class="bar fail" style="height:{{ d.failed * 8 }}px"></div>
+        <span class="bar-day">{{ d.day[8:] }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="muted"><small>
+      <span class="badge outcome-passed">passed</span>
+      <span class="badge outcome-failed">failed</span>
+      terminal attempts per day.</small></p>
+  </section>
+</div>
+
+<script src="{{ url_for('static', filename='js/dashboard.js') }}" defer
+        data-url="{{ url_for('main.dashboard_data') }}"></script>
 {% endblock %}

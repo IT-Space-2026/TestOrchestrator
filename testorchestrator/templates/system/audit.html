@@ -2,6 +2,39 @@
 {% block title %}Audit · TestOrchestrator{% endblock %}
 {% block content %}
 <h1>System &rarr; Audit</h1>
+
+<form method="get" class="filter-bar" role="search">
+  <div class="field"><label for="aq">Search</label>
+    <input type="search" id="aq" name="q" value="{{ filters.q }}"
+           placeholder="event text, detail, or actor"></div>
+  <div class="field"><label for="ae">Event</label>
+    <select id="ae" name="event">
+      <option value="">all</option>
+      {% for t in event_types %}
+      <option value="{{ t }}" {% if filters.event == t %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select></div>
+  <div class="field"><label for="aa">Actor</label>
+    <select id="aa" name="actor">
+      <option value="">all</option>
+      {% for a in actors %}
+      <option value="{{ a }}" {% if filters.actor == a %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select></div>
+  <div class="field"><label for="ar">Related id</label>
+    <input type="text" id="ar" name="related" value="{{ filters.related }}"
+           placeholder="execution/project id"></div>
+  <div class="field"><label for="af">From</label>
+    <input type="date" id="af" name="from" value="{{ filters['from'] }}"></div>
+  <div class="field"><label for="at">To</label>
+    <input type="date" id="at" name="to" value="{{ filters.to }}"></div>
+  <div class="form-actions">
+    <button type="submit" class="button">Filter</button>
+    <a class="button secondary" href="{{ url_for('main.audit') }}">Clear</a>
+  </div>
+</form>
+<p class="muted">{{ total }} event(s) match · page {{ page }} of {{ pages }}</p>
+
 {% if events %}
 <table class="audit-table">
   <thead>
@@ -19,7 +52,19 @@
     {% endfor %}
   </tbody>
 </table>
+<nav class="pagination" aria-label="Audit pages">
+  {% set qs = "q=" ~ filters.q ~ "&event=" ~ filters.event ~ "&actor=" ~
+     filters.actor ~ "&related=" ~ filters.related ~ "&from=" ~
+     filters['from'] ~ "&to=" ~ filters.to %}
+  {% if page > 1 %}
+  <a class="button secondary" href="{{ url_for('main.audit') }}?{{ qs }}&page={{ page - 1 }}">&larr; Prev</a>
+  {% endif %}
+  <span class="muted">{{ page }} / {{ pages }}</span>
+  {% if page < pages %}
+  <a class="button secondary" href="{{ url_for('main.audit') }}?{{ qs }}&page={{ page + 1 }}">Next &rarr;</a>
+  {% endif %}
+</nav>
 {% else %}
-<p class="muted">No audit events recorded yet.</p>
+<p class="muted">No audit events match — adjust or clear the filters.</p>
 {% endif %}
 {% endblock %}
