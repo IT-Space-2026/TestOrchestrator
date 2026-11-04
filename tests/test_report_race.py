@@ -154,3 +154,55 @@ def test_cross_process_lock_serialization(app, tmp_path):
         ex.deletion_status = "pending"; db.session.commit()
         r2 = gitsync.publish_report(ex.id)
         assert r2.get("error")
+
+
+def test_push_succeeded_local_unrecorded_recovers(app, tmp_path):
+    """Remote push succeeded but the worker stopped before recording
+    'published' — status stays pending; a retry re-derives the same
+    digest content and finalizes without data loss."""
+    repo = _repo(tmp_path)
+    with app.app_context():
+        p, b, s = _env(app, repo)
+        ex = dispatch.create_execution("m", s, binding=b)
+        ex.state = ExecutionState.COMPLETED
+        db.session.commit()
+        # simulate: push landed remotely but the local commit to
+        # 'published' never happened (status still pending, no sha).
+        gitsync.publish_report(ex.id)
+        db.session.refresh(ex)
+        ex.report_pub_status = "pending"     # unrecorded success
+        ex.report_pub_sha = ""
+        db.session.commit()
+        # retry: same content — republishes and finalizes honestly
+        r = gitsync.publish_report(ex.id)
+        assert r.get("published")
+        db.session.refresh(ex)
+        assert ex.report_pub_status == "published"
+        import subprocess
+        out = subprocess.run(
+            ["git", "-C", str(repo), "ls-tree", "master",
+             ex.report_pub_dir], capture_output=True, text=True)
+        assert ex.report_pub_dir in out.stdout   # report present
+
+
+def test_interrupted_event_stays_eligible(app, tmp_path):
+    """Scan-based outbox: an event row that wasn't processed remains
+    for the next worker pass — no claim/ack needed."""
+    repo = _repo(tmp_path)
+    with app.app_context():
+        p, b, s = _env(app, repo)
+        ex = dispatch.create_execution("m", s, binding=b)
+        ex.state = ExecutionState.COMPLETED
+        db.session.commit()
+        import json as _j
+        db.session.add(OutboxEvent(
+            kind="report-publish",
+            payload_json=_j.dumps({"execution_id": ex.id})))
+        db.session.commit()
+        # 'interruption' — event still pending; next scan picks it up
+        ev = OutboxEvent.query.filter_by(kind="report-publish").first()
+        assert ev is not None
+        from testorchestrator.dispatch import _handle_event
+        _handle_event(ev)
+        db.session.refresh(ex)
+        assert ex.report_pub_status == "published"
