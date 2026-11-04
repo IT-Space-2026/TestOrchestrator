@@ -279,3 +279,14 @@ saved schedules, per-schedule overlap policy (allow|skip), a
 filterable/paginated `/executions` history view, and bulk cancel on
 selected rows. See `docs/legacy-testops-gap-audit.md` and
 `docs/execution-capability.md` §10.
+
+## Katalon project onboarding (Unreleased)
+
+Connect an existing Katalon repository to a TestOrchestrator project
+via the project's source Git binding (read-only — separate from Git
+evidence export). After `sync`, `gitsync.discover_project` locates the
+`.prj` root and builds a typed inventory of cases, suites, collections
+(by XML root tag — not filename), and profiles; the project detail
+shows counts, root, commit, status, warnings, and navigable items.
+Suites emit `-testSuitePath`, collections `-testSuiteCollectionPath`.
+Migrations `f8a9b0c1d2e3` + `g9a0b1c2d3e4` — run `db-upgrade`.
