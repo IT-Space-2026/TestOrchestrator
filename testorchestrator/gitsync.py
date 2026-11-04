@@ -1,11 +1,13 @@
 """Git persistence (§10–§11).
 
-Two directions, both through GitPython (no custom Git transport):
+Two directions, both through the git_backend facade (no custom Git
+transport, no GitPython):
 
 1. Source bindings — clone/fetch Katalon repositories into per-binding
-   worktrees for read-only indexing. Project code is never executed during
-   indexing; submodules are not auto-initialized (LFS/submodule policies
-   remain explicit).
+   worktrees for read-only indexing. The worktree keeps its .git so
+   updates stay incremental; project code is never executed during
+   indexing and submodules are not auto-initialized (LFS/submodule
+   policies remain explicit).
 
 2. Destination export — versioned definitions and permitted actual
    reports/evidence under `TestOrchestrator/` in a configured repository.
@@ -15,23 +17,16 @@ Two directions, both through GitPython (no custom Git transport):
    whitelists artifact kinds rather than filtering after the fact.
 """
 
-import hashlib
 import json
 import shutil
 from pathlib import Path
 
-import git
-
-from . import git_runtime
+from . import git_backend
 from . import settings as settings_mod
-from .execution import Execution, GitBinding, utcnow
+from .execution import Execution, GitBinding
 from .extensions import db
 
 EXPORT_ROOT = "TestOrchestrator"
-
-# Every GitPython invocation (fetch/push/diff/clone) goes through the
-# bundled-git launcher — bundled libs scoped to the child process only.
-git_runtime.configure()
 
 
 class NotConfigured(RuntimeError):
@@ -42,9 +37,30 @@ class SyncError(RuntimeError):
     pass
 
 
-def _backend() -> str:
-    from . import git_backend
-    return git_backend.backend()
+# ---------- credentials (§12) -----------------------------------------
+
+def _binding_auth(binding: GitBinding):
+    """Resolve the binding's SecretRef to an https (user, pass) pair.
+
+    Secret format: 'user:password' splits at the first colon; a bare
+    token maps to (token, '') — the PAT-as-username convention. SSH URLs
+    rely on the host ssh/agent (dulwich subprocess ssh, or system ssh via
+    the cli backend) — no password is ever placed on the URL."""
+    if not binding.credential_ref:
+        return None
+    url = (binding.url or "").lower()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return None
+    try:
+        from flask import current_app
+        from .secrets_store import SecretError, read_secret
+        secret = read_secret(current_app._get_current_object(),
+                             binding.credential_ref)
+    except SecretError as exc:
+        raise SyncError(f"credential {binding.credential_ref!r}: {exc}")
+    if ":" in secret:
+        return tuple(secret.split(":", 1))
+    return (secret, "")
 
 
 # ---------- source binding indexing ----------
@@ -64,38 +80,25 @@ def sync_binding(binding_id: str) -> dict:
         raise SyncError(f"unknown binding {binding_id}")
     worktree = binding_worktree(binding_id)
     try:
+        auth = _binding_auth(binding)
         if worktree.exists() and (worktree / ".git").exists():
-            if _backend() == "dulwich":
-                from . import git_backend
-                git_backend.run("update", worktree,
-                                binding.ref or "")
-                repo = git.Repo(worktree)
-            else:
-                repo = git.Repo(worktree)
-                repo.remotes.origin.fetch(binding.ref)
-                repo.git.checkout(f"origin/{binding.ref}" if binding.ref
-                                  else "HEAD")
+            # Selected backend update — failure surfaces honestly, never
+            # a silent fallback to the other backend (§8).
+            git_backend.run("update", worktree, binding.ref or "",
+                            auth=auth)
         else:
             worktree.parent.mkdir(parents=True, exist_ok=True)
-            if _backend() == "dulwich":
-                # Selected backend clone — failure surfaces honestly,
-                # never a silent fallback to the CLI path (§8).
-                from . import git_backend
-                git_backend.run("clone", binding.url, worktree)
-                repo = git.Repo(worktree)
-            else:
-                repo = git.Repo.clone_from(
-                    binding.url, worktree, branch=binding.ref or None,
-                    depth=1,  # shallow index; full history not required
-                )
-        sha = repo.head.commit.hexsha
+            git_backend.run("clone", binding.url, worktree,
+                            branch=binding.ref or None, depth=1,
+                            auth=auth)
+        sha = git_backend.run("resolve", worktree, "HEAD")
         binding.worktree_path = str(worktree)
         binding.last_synced_sha = sha
         binding.status = "synced"
         binding.last_error = ""
         db.session.commit()
         return {"sha": sha, "worktree": str(worktree)}
-    except git.GitCommandError as exc:
+    except Exception as exc:
         binding.status = "failed"
         binding.last_error = str(exc)[:2000]
         db.session.commit()
@@ -135,28 +138,22 @@ def list_test_suites(binding: GitBinding) -> list:
 
 # ---------- destination export (§11 layout) ----------
 
-def _export_repo() -> git.Repo:
+def _export_repo() -> Path:
+    """The export repository path — created on first use, .git always
+    preserved (commits/merges/pushes need real history). Repo-local
+    identity is configured for product commits (never global config)."""
     path = settings_mod.get("git_export_repo") or ""
     if not path:
         raise NotConfigured("git_export_repo is not configured")
     repo_path = Path(path)
-    if not (repo_path / ".git").exists():
-        repo_path.mkdir(parents=True, exist_ok=True)
-        git.Repo.init(repo_path)
-    repo = git.Repo(repo_path)
-    # Repo-local identity for product commits/merges (never global config).
-    with repo.config_writer() as cfg:
-        if not cfg.has_option("user", "name"):
-            cfg.set_value("user", "name", "TestOrchestrator")
-            cfg.set_value("user", "email", "testorchestrator@localhost")
-    return repo
+    git_backend.run("init", repo_path)
+    git_backend.run("identity", repo_path,
+                    git_backend.IDENTITY_NAME, git_backend.IDENTITY_EMAIL)
+    return repo_path
 
 
-def _commit(repo: git.Repo, message: str) -> str:
-    repo.git.add(A=True)
-    if repo.head.is_valid() and not repo.index.diff("HEAD"):
-        return repo.head.commit.hexsha  # clean tree; nothing to write
-    return repo.index.commit(message).hexsha
+def _commit(repo_path: Path, message: str) -> str:
+    return git_backend.run("commit_all", repo_path, message)
 
 
 # Whitelist: only these artifact kinds are exportable (§11 evidence policy).
@@ -173,8 +170,8 @@ def _serializable(value):
 def export_execution(execution: Execution) -> dict:
     """Write snapshot/summary/results/reporting + permitted evidence under
     TestOrchestrator/projects/<project-id>/executions/<execution-id>/."""
-    repo = _export_repo()
-    base = (Path(repo.working_dir) / EXPORT_ROOT / "projects"
+    repo_path = _export_repo()
+    base = (repo_path / EXPORT_ROOT / "projects"
             / execution.project_id / "executions" / execution.id)
     base.mkdir(parents=True, exist_ok=True)
 
@@ -237,14 +234,14 @@ def export_execution(execution: Execution) -> dict:
                 f"checksum mismatch exporting {artifact.rel_path}"
             )
 
-    sha = _commit(repo, f"execution {execution.id} evidence")
+    sha = _commit(repo_path, f"execution {execution.id} evidence")
     return {"commit": sha, "path": str(base)}
 
 
 def export_definitions(project) -> dict:
     """Versioned suite/plan/release definitions under the project dir."""
-    repo = _export_repo()
-    base = (Path(repo.working_dir) / EXPORT_ROOT / "projects" / project.id)
+    repo_path = _export_repo()
+    base = repo_path / EXPORT_ROOT / "projects" / project.id
     for name, rows in (
         ("suites", project.suites),
         ("plans", project.plans),
@@ -259,44 +256,56 @@ def export_definitions(project) -> dict:
             }
             (out / f"{row.id}.json").write_text(
                 json.dumps(data, indent=2, default=str), encoding="utf-8")
-    sha = _commit(repo, f"project {project.id} definitions")
+    sha = _commit(repo_path, f"project {project.id} definitions")
     return {"commit": sha, "path": str(base)}
 
 
 # ---------- push, conflict handling, restore ----------
 
-def push_export() -> str:
+def push_export(credential_ref: str = "") -> str:
     """Push the export repo to its configured remote (§11). Reconciles
     external edits via fetch+merge — NEVER force-push. Returns a status
     string; conflicts surface honestly rather than being overwritten."""
-    repo = _export_repo()
-    if not repo.remotes:
+    repo_path = _export_repo()
+    if not git_backend.run("has_remote", repo_path):
         raise NotConfigured("export repo has no remote 'origin'")
-    try:
-        branch = repo.active_branch.name
-        remote_ref = f"origin/{branch}"
-        from . import git_backend
-        git_backend.run("fetch", Path(repo.working_dir))
-        if remote_ref in {str(r) for r in repo.remotes.origin.refs}:
-            # Fast-forward/merge only — conflicts surface, never force-push.
-            repo.git.merge(remote_ref, no_edit=True)
-            git_backend.run("push", Path(repo.working_dir),
-                            f"HEAD:refs/heads/{branch}")
-        else:
-            # First push: establish the upstream branch.
-            git_backend.run("push", Path(repo.working_dir),
-                            f"HEAD:refs/heads/{branch}")
-            repo.git.push("--set-upstream", "origin", branch)
-        return "pushed"
-    except git.GitCommandError as exc:
-        text = str(exc)
-        if "CONFLICT" in text or "conflict" in text.lower():
-            repo.git.merge("--abort")
+    auth = _remote_auth(credential_ref)
+    branch = git_backend.run("branch", repo_path)
+    refspec = f"HEAD:refs/heads/{branch}"
+    git_backend.run("fetch", repo_path, auth=auth)
+    if git_backend.run("remote_ref", repo_path, branch):
+        # Fast-forward/merge only — conflicts surface, never force-push.
+        try:
+            git_backend.run("merge", repo_path, branch)
+        except git_backend.MergeConflictError as exc:
             raise SyncError(
                 "remote has conflicting edits — reconcile manually in "
-                f"{repo.working_dir}; automatic force-push is forbidden"
-            )
-        raise
+                f"{repo_path}; automatic force-push is forbidden "
+                f"({exc})") from exc
+        git_backend.run("push", repo_path, refspec, auth=auth)
+    else:
+        # First push: establish the upstream branch.
+        git_backend.run("push", repo_path, refspec, auth=auth,
+                        set_upstream=True)
+    return "pushed"
+
+
+def _remote_auth(credential_ref: str = ""):
+    """Export-remote credential: the git_export_credential setting holds a
+    SecretRef name; https remotes get (user, pass), ssh relies on the
+    host ssh/agent — never embedded in URLs or logs."""
+    name = credential_ref or settings_mod.get("git_export_credential", "")
+    if not name:
+        return None
+    try:
+        from flask import current_app
+        from .secrets_store import SecretError, read_secret
+        secret = read_secret(current_app._get_current_object(), name)
+    except SecretError as exc:
+        raise SyncError(f"credential {name!r}: {exc}")
+    if ":" in secret:
+        return tuple(secret.split(":", 1))
+    return (secret, "")
 
 
 def restore_definitions(project_id: str) -> dict:
@@ -304,8 +313,8 @@ def restore_definitions(project_id: str) -> dict:
     Reads exported JSON back into the DB — the inverse of
     export_definitions. Only definition objects are restored; users,
     secrets, sessions, keys and audit data are never in the export."""
-    repo = _export_repo()
-    base = (Path(repo.working_dir) / EXPORT_ROOT / "projects" / project_id)
+    repo_path = _export_repo()
+    base = repo_path / EXPORT_ROOT / "projects" / project_id
     if not base.exists():
         raise NotConfigured(f"no exported definitions for {project_id}")
 
@@ -321,7 +330,7 @@ def restore_definitions(project_id: str) -> dict:
             continue
         for path in src.glob("*.json"):
             data = json.loads(path.read_text(encoding="utf-8"))
-            row = model.query.get(data["id"])
+            row = db.session.get(model, data["id"])
             if row is None:
                 row = model(id=data["id"], project_id=project_id)
                 db.session.add(row)

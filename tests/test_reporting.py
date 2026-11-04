@@ -186,7 +186,8 @@ def test_git_launcher_scopes_env_and_preserves_os_environ():
         assert exe == "git"  # declared host prerequisite fallback
 
 
-def test_gitpython_configured():
-    import git
-    from testorchestrator import gitsync  # noqa: F401 — import configures
-    assert git.Git.GIT_PYTHON_GIT_EXECUTABLE
+def test_git_backend_is_dulwich_by_default():
+    """GitPython is gone; application git ops default to the pure-python
+    Dulwich backend — the cli backend (bundled/host git) is opt-in."""
+    from testorchestrator import git_backend
+    assert git_backend.backend() == "dulwich"

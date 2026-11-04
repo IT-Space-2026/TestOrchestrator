@@ -10,7 +10,7 @@ datas, binaries, hiddenimports = [], [], []
 for pkg in ("testorchestrator", "flask", "flask_wtf", "wtforms",
             "flask_sqlalchemy", "flask_migrate", "flask_login",
             "sqlalchemy", "alembic", "waitress", "jinja2", "mako",
-            "werkzeug", "click", "git", "gitdb", "smmap", "requests",
+            "werkzeug", "click", "dulwich", "requests",
             "urllib3", "certifi", "charset_normalizer", "idna",
             "cryptography", "cffi", "argon2", "mako.template",
             "itsdangerous", "blinker", "markupsafe", "pycparser",
@@ -35,7 +35,7 @@ a = Analysis([os.path.join(ROOT, "toctl.py")], pathex=[ROOT], binaries=binaries,
              ["testorchestrator.main.routes","testorchestrator.portal.routes",
               "testorchestrator.system.routes","testorchestrator.agent_api",
               "testorchestrator.adapters.allure","testorchestrator.adapters.kre",
-              "testorchestrator.adapters.dagu","testorchestrator.adapters.reportportal",
+              "testorchestrator.adapters.dagu",
               "logging.config","logging.handlers","sqlite3"],
              excludes=["tkinter","matplotlib","numpy","pandas","PyQt5","PyQt6","PySide2","PySide6","IPython","notebook","pytest"])
 pyz = PYZ(a.pure)

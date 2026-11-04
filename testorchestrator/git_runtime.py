@@ -71,14 +71,6 @@ def executable() -> str:
     return str(launcher)
 
 
-def configure() -> str:
-    """Point GitPython at the controlled launcher (app-process scoped —
-    no os.environ changes, no effect on other processes)."""
-    import git as _gitpython
-    _gitpython.Git.GIT_PYTHON_GIT_EXECUTABLE = executable()
-    return _gitpython.Git.GIT_PYTHON_GIT_EXECUTABLE
-
-
 def env(extra: dict = None) -> dict:
     """Per-invocation environment for git subprocesses — bundled libs
     and exec path scoped to the child only, merged over os.environ."""
@@ -92,12 +84,3 @@ def env(extra: dict = None) -> dict:
         e["PATH"] = f"{r / 'usr' / 'bin'}:{e.get('PATH', '')}"
     e.update(extra or {})
     return e
-
-
-def configure_gitpython() -> str:
-    """Point GitPython at the selected executable (app-process scope only).
-    Returns the executable in use — surfaced in diagnostics, not hidden."""
-    import git
-    exe = executable()
-    git.Git.GIT_PYTHON_GIT_EXECUTABLE = exe
-    return exe
