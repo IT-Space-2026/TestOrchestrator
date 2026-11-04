@@ -337,6 +337,7 @@ def save_suite(suite_id):
                 cases=gitsync.list_test_cases(binding),
                 selected=refs,
                 suite_form=SuiteForm(), can_edit=True,
+                posted_name=name,
                 error=("Some cases are not in the binding's source: "
                        + ", ".join(bad[:3])))
     if not name:
@@ -346,6 +347,7 @@ def save_suite(suite_id):
             cases=(gitsync.list_test_cases(binding)
                    if binding else []),
             selected=refs, suite_form=SuiteForm(), can_edit=True,
+            posted_name=name,
             error="Suite name is required.")
     # wholesale ordered replacement — positions come from the selector
     for e in suite.entries:

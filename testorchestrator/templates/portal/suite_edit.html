@@ -23,8 +23,12 @@
     <div class="field">
       <label for="name">Name <span class="req">*</span></label>
       <input type="text" name="name" id="name" required
-             value="{{ suite.name if suite else "" }}"
-             placeholder="Smoke suite">
+             value="{{ posted_name if posted_name is defined else (suite.name if suite else "") }}"
+             placeholder="Smoke suite"
+             {% if error and "name" in error|lower %}class="invalid" aria-invalid="true"{% endif %}>
+      {% if error and "name" in error|lower %}
+      <span class="error-text" role="alert">{{ error }}</span>
+      {% endif %}
     </div>
     <div class="field">
       <label for="description">Description</label>
@@ -34,11 +38,14 @@
     {% if bindings and bindings|length > 1 %}
     <div class="field">
       <label for="binding_id">Source binding <span class="req">*</span></label>
-      <select name="binding_id" id="binding_id">
+      <select name="binding_id" id="binding_id" data-guard-bind>
         {% for b in bindings %}
         <option value="{{ b.id }}" {% if binding and b.id == binding.id %}selected{% endif %}>{{ b.name }} — {{ b.url[:50] }}</option>
         {% endfor %}
       </select>
+      <span class="hint" id="binding-warn" hidden style="color:var(--warn)">
+        Cases from another binding won't validate — clear the
+        selection or save before switching.</span>
       <span class="hint">Case list comes from the selected binding's
         worktree — cases can't mix across repositories.</span>
     </div>
@@ -59,8 +66,8 @@
       <div data-hidden>
         {% for c in selected %}<input type="hidden" name="case_refs" value="{{ c }}">{% endfor %}
       </div>
-      <noscript><p class="warn">JavaScript required for the case
-        selector.</p></noscript>
+      <noscript><p class="warn">JavaScript is required for the
+        enhanced case selector.</p></noscript>
     </div>
   </section>
 

@@ -106,6 +106,17 @@
     });
     search.addEventListener("input", render);
     render();
+
+    // binding-change guard — selected cases may not exist in the
+    // other repo; warn (server-side validation is authoritative).
+    const bindSel = root.closest("form")
+      ?.querySelector("[data-guard-bind]");
+    const warnEl = document.getElementById("binding-warn");
+    if (bindSel && warnEl) {
+      bindSel.addEventListener("change", () => {
+        warnEl.hidden = selected.size === 0;
+      });
+    }
   }
 
   document.querySelectorAll("[data-case-selector]").forEach(build);
