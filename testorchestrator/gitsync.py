@@ -513,6 +513,27 @@ def discover_project(binding, sha: str = "") -> dict:
 REPORT_ROOT = "TestOrchestrator/Reports"
 
 
+import contextlib
+
+@contextlib.contextmanager
+def _pub_lock(binding_id: str):
+    """Single-worker model: report publish/delete ops serialize on a
+    cross-process file lock per binding — a second worker blocks, it
+    cannot race a publisher or deleter."""
+    import fcntl
+    from flask import current_app
+    lf = (Path(current_app.instance_path) / "reports-pub" /
+          binding_id)
+    lf.mkdir(parents=True, exist_ok=True)
+    fh = open(lf / ".pub.lock", "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fh, fcntl.LOCK_UN)
+        fh.close()
+
+
 def _pub_worktree(binding_id: str, op_id: str = "") -> Path:
     """Separate publication checkout — never the fetch or authoring
     worktree. Per-operation subdir isolates concurrent publishers."""
@@ -545,6 +566,10 @@ def _build_manifest(ex) -> dict:
 
 
 def publish_report(execution_id: str) -> dict:
+    return _publish_report_locked(execution_id)
+
+
+def _publish_report_locked(execution_id: str) -> dict:
     """Publish the finalized report tree to
     TestOrchestrator/Reports/<id>/ on the binding's writable branch —
     idempotent by digest: unchanged content skips the push."""
@@ -561,6 +586,11 @@ def publish_report(execution_id: str) -> dict:
         ex.report_pub_error = "no source binding"
         db.session.commit()
         return {"error": "no source binding"}
+    with _pub_lock(binding.id):
+        return _publish_report_inner(ex, binding)
+
+
+def _publish_report_inner(ex, binding) -> dict:
     # Writable-destination validation — read access is not publish
     # permission; an explicit admin opt-in + a named branch are
     # required. Refusing here shows an actionable unconfigured state.
