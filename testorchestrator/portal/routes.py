@@ -150,6 +150,7 @@ def project_detail(project_id):
         schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,
         executions=Execution.query.filter_by(project_id=project_id)
         .order_by(Execution.created_at.desc()).limit(25).all(),
+        discovered=_discovery_summary(project_id),
         plan_summaries={p.id: results_mod.plan_summary(p)
                         for p in project.plans},
         state_labels=results_mod.STATE_LABELS,
@@ -1237,3 +1238,20 @@ def delete_schedule(schedule_id):
     record_audit(current_user.username, "schedule.deleted", schedule_id)
     return redirect(url_for("portal.project_detail",
                           project_id=project_id))
+
+
+def _discovery_summary(project_id: str) -> dict:
+    """Typed discovered-inventory summary for the project page."""
+    from ..execution import DiscoveredItem, GitBinding
+    b = (GitBinding.query.filter_by(project_id=project_id)
+         .order_by(GitBinding.id.desc()).first())
+    if b is None:
+        return {}
+    items = (DiscoveredItem.query.filter_by(binding_id=b.id)
+             .order_by(DiscoveredItem.parent, DiscoveredItem.path).all())
+    counts = {}
+    for i in items:
+        counts[i.kind] = counts.get(i.kind, 0) + 1
+    warns = [i for i in items if i.warnings]
+    return {"binding": b, "counts": counts, "items": items,
+            "warnings": warns}
