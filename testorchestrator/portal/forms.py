@@ -57,6 +57,9 @@ class ScheduleForm(FlaskForm):
         "Remote WebDriver URL", validators=[Optional(), Length(max=512)])
     remote_webdriver_type = StringField(
         "WebDriver driver type", validators=[Optional(), Length(max=64)])
+    timeout_seconds = IntegerField(
+        "Timeout (seconds)", validators=[Optional()],
+        default=3600)
 
 
 class PlainForm(FlaskForm):

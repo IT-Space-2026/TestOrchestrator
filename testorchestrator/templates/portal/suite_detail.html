@@ -22,6 +22,11 @@
     {{ plain_form.csrf_token }}
     <div class="field"><label for="execution_profile">Execution profile</label>
       <input type="text" name="execution_profile" id="execution_profile" value="default"></div>
+    <div class="field"><label for="timeout_seconds">Timeout (seconds)</label>
+      <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" max="86400"
+             placeholder="3600">
+      <small>Running time from process launch — queue time excluded.
+      Blank or 0 = 3600    <div class="field"><label for="browser_type">Browser</label>nbsp;s default. No unlimited mode.</small></div>
     <div class="field"><label for="browser_type">Browser</label>
       <select name="browser_type" id="browser_type">
         <option>Chrome (headless)</option>

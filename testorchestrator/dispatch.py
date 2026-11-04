@@ -284,20 +284,36 @@ def _transition(ex: Execution, state: ExecutionState) -> None:
     db.session.commit()
 
 
-def _claim_for_start(ex: Execution) -> bool:
+def _claim_for_start(ex: Execution,
+                     runner: Runner | None = None) -> bool:
     """Atomic QUEUED|DISPATCHED -> PREPARING claim — the precise launch
-    boundary. Below it the execution is cancel-scope (user cancel,
-    plan stop-on-failure); at/above it, started work runs (or takes
-    CANCEL_REQUESTED). A single conditional UPDATE decides the race:
-    whoever commits first wins — a cancelled entry can never reach
-    process launch."""
-    n = db.session.query(Execution).filter(
+    boundary AND the capacity check, in one UPDATE. Below it the
+    execution is cancel-scope; at/above it, started work runs (or takes
+    CANCEL_REQUESTED). When a runner is given, the same conditional
+    UPDATE also requires the runner's active count < its effective
+    capacity — a slot is consumed atomically with the launch claim, so
+    two dispatchers racing one remaining slot cannot both win."""
+    q = db.session.query(Execution).filter(
         Execution.id == ex.id,
         Execution.state.in_([ExecutionState.QUEUED,
-                             ExecutionState.DISPATCHED]),
-    ).update({"state": ExecutionState.PREPARING,
-              "heartbeat_at": utcnow()},
-             synchronize_session=False)
+                             ExecutionState.DISPATCHED]))
+    if runner is not None:
+        cap = min(runner.max_slots,
+                  runner.license_slots or runner.max_slots)
+        active_count = (db.session.query(db.func.count(Execution.id))
+                        .filter(Execution.runner_id == runner.id,
+                                Execution.state.in_([
+                                    ExecutionState.DISPATCHED,
+                                    ExecutionState.PREPARING,
+                                    ExecutionState.RUNNING,
+                                    ExecutionState.COLLECTING,
+                                    ExecutionState.NORMALIZING,
+                                    ExecutionState.CANCEL_REQUESTED]))
+                        .scalar_subquery())
+        q = q.filter(active_count < cap)
+    n = q.update({"state": ExecutionState.PREPARING,
+                  "heartbeat_at": utcnow()},
+                 synchronize_session=False)
     db.session.commit()
     if n:
         db.session.refresh(ex)
@@ -357,9 +373,14 @@ def run_execution(execution_id: str) -> None:
     log_dir = attempt_dir / "logs"
 
     try:
-        if not _claim_for_start(ex):
-            record_audit("system", "execution.dispatch_skipped",
-                         f"{ex.id}: cancelled before launch boundary")
+        if not _claim_for_start(ex, runner):
+            db.session.refresh(ex)
+            if ex.state in (ExecutionState.CANCELED,
+                            ExecutionState.CANCEL_REQUESTED):
+                record_audit("system", "execution.dispatch_skipped",
+                             f"{ex.id}: cancelled before launch boundary")
+            # else: capacity won the race — stays queued for the next
+            # tick; runner_id assignment is harmless until it starts.
             return
         attempt_dir.mkdir(parents=True, exist_ok=True)
         report_dir.mkdir(parents=True, exist_ok=True)

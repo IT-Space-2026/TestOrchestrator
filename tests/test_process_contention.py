@@ -517,3 +517,69 @@ def test_timeout_kills_after_limit(app, tmp_path):
         assert ex.state in (ExecutionState.FAILED,
                             ExecutionState.UNKNOWN,
                             ExecutionState.CANCELED)
+
+
+def test_capacity_race_one_slot(app, tmp_path):
+    """Two queued jobs, one slot: the claim's capacity predicate lets
+    exactly one start; the other stays safely queued until release."""
+    fake = tmp_path / "fx"; fake.write_text("#!/bin/sh\nsleep 0.1\n")
+    fake.chmod(0o755)
+    with app.app_context():
+        from testorchestrator.execution import Runner, RuntimeConnection
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        r = Runner(name="local", connection_mode="local", max_slots=1)
+        db.session.add(r); db.session.flush()
+        db.session.add(RuntimeConnection(
+            name="fx", runner_id=r.id, executable_path=str(fake),
+            detected_version="9.0.0", enabled=True,
+            workspace_root=str(tmp_path / "ws")))
+        db.session.commit()
+        e1 = dispatch.create_execution("m", s)
+        e2 = dispatch.create_execution("m", s)
+        e1.runner_id = r.id; e2.runner_id = r.id
+        db.session.commit()
+        # Simultaneous claims: first wins, second sees active=1>=cap.
+        r1 = dispatch._claim_for_start(e1, r)
+        db.session.refresh(e2)
+        r2 = dispatch._claim_for_start(e2, r)
+        assert r1 and not r2
+        assert e2.state == ExecutionState.QUEUED   # safely queued
+        # Release: after e1 finishes, e2's claim succeeds.
+        e1.state = ExecutionState.COMPLETED; db.session.commit()
+        assert dispatch._claim_for_start(e2, r)
+
+
+def test_license_allowance_caps_claim(app, tmp_path):
+    """license_slots=1 beats max_slots=2 — second claim denied until
+    the active execution leaves the active set."""
+    with app.app_context():
+        from testorchestrator.execution import Runner
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        r = Runner(name="local", connection_mode="local", max_slots=2,
+                   license_slots=1)
+        db.session.add(r); db.session.commit()
+        e1 = dispatch.create_execution("m", s)
+        e2 = dispatch.create_execution("m", s)
+        e1.runner_id = r.id; e2.runner_id = r.id
+        db.session.commit()
+        assert dispatch._claim_for_start(e1, r)
+        db.session.refresh(e2)
+        assert not dispatch._claim_for_start(e2, r)   # licence cap hit
+
+
+def test_disabled_draining_not_picked(app):
+    """pick_runner skips disabled and draining runners."""
+    with app.app_context():
+        from testorchestrator.execution import Runner
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        db.session.add_all([Runner(name="off", enabled=False),
+                            Runner(name="drain", draining=True)])
+        db.session.commit()
+        ex = dispatch.create_execution("m", s)
+        assert dispatch.pick_runner(ex) is None

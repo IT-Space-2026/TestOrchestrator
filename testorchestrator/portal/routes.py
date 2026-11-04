@@ -264,6 +264,8 @@ def launch_execution(suite_id):
             request.form.get("remote_webdriver_url", "").strip(),
         "remote_webdriver_type":
             request.form.get("remote_webdriver_type", "").strip(),
+        "timeout_seconds":
+            int(request.form.get("timeout_seconds") or 0),
         "kre_options": kre_options,
     }
     ex = dispatch.create_execution(
@@ -904,6 +906,7 @@ def create_schedule(project_id):
                     (form.remote_webdriver_url.data or "").strip(),
                 "remote_webdriver_type":
                     (form.remote_webdriver_type.data or "").strip(),
+                "timeout_seconds": form.timeout_seconds.data or 3600,
             }),
             created_by=current_user.username))
         db.session.commit()
