@@ -2,7 +2,34 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — post-candidate fine-tuning (NOT in candidate 10300832)
+## [Unreleased]
+
+### Added
+- Direct execution of discovered repository suites/collections:
+  /discovered/<id> detail + Run (profile/runner/runtime selects);
+  executions.suite_id nullable + source_item link; durable
+  source_target snapshot (binding+kind+path+sha); removed/type-changed
+  defs reject visibly, never retarget.
+- Report publication: TestOrchestrator/Reports/<id>/ at repo root,
+  manifest v1 + assets, digest-idempotent retry, outbox-driven.
+- Synchronized deletion: recorded-URL+branch commit-removal, never
+  force-push/history rewrite; app deletion finalizes after remote.
+- git_bindings.report_writable admin opt-in; tags/detached rejected.
+- Single-worker report-op model via cross-process flock.
+- Project page: tab navigation + collapsible forms + edit binding.
+- Katalon inventory grouped by kind; suite/collection detail links.
+
+### Migrations
+- h0a1b2c3d4e5 (nullable suite_id + source_item_id)
+- h1a2b3c4d5e6 (report_pub_*/deletion_* fields)
+- h2a3b4c5d6e7 (source_item SET NULL + report_writable)
+
+### Limitations
+- Report ops serialize per-binding on a shared filesystem lock —
+  same-host only; independent hosts/containers unsupported.
+- Repository-target scheduling/Plans deferred.
+- Claimed-event crash recovery untested.
+- Studio interoperability fixture-verified only. — post-candidate fine-tuning (NOT in candidate 10300832)
 
 ### Added
 - **System → Integrations** page: subsystem-separated configuration
