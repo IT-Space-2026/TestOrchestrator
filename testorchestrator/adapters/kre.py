@@ -112,13 +112,15 @@ def build_args(
     remote_webdriver_url: str = "",
     remote_webdriver_type: str = "",
     extra: list | None = None,
+    collection: bool = False,
 ) -> list:
     args = [
         executable,
         "-noSplash",
         "-runMode=console",
         f"-projectPath={project_path}",
-        f"-testSuitePath={suite_path}",
+        (f"-testSuiteCollectionPath={suite_path}"
+         if collection else f"-testSuitePath={suite_path}"),
         f"-executionProfile={profile}",
     ]
     if remote_webdriver_url:

@@ -425,17 +425,28 @@ def discover_project(binding) -> dict:
             kind = ("collection" if tag == "TestSuiteCollectionEntity"
                     else "suite")
             dynamic = False
-            if kind == "suite" and tag:
+            members = []
+            if tag:
                 try:
                     r = ET.parse(str(p)).getroot()
-                    dynamic = bool(r.findall(".//testCaseRunType")) or                         "dynamic" in (r.findtext("name") or "").lower()
+                    if kind == "suite":
+                        members = [t.text.strip() for t in
+                                   r.findall(".//testCaseLink/testCaseId")
+                                   if t.text]
+                        dynamic = bool(r.findall(".//testCaseRunType")) or \
+                            "dynamic" in (r.findtext("name") or "").lower()
+                    else:
+                        members = [t.text.strip() for t in
+                                   r.findall(".//TestSuiteRunConfiguration"
+                                             "/testSuiteEntity") if t.text]
                 except Exception:
-                    pass
+                    warn = (warn or "") + " members unparseable"
             items.append(DiscoveredItem(
                 binding_id=binding.id, project_id=binding.project_id,
                 sha=sha, kind=kind, path=rel, name=p.stem,
                 parent=str(p.parent.relative_to(root)),
                 dynamic=dynamic,
+                members_json=json.dumps(members),
                 warnings=(warn or "")))
             out["suites" if kind == "suite" else "collections"] += 1
         # Profiles: names only — never parse/render values.

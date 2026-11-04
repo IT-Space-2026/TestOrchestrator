@@ -25,6 +25,7 @@ def upgrade():
         sa.Column('order_idx', sa.Integer(), nullable=False),
         sa.Column('dynamic', sa.Boolean(), nullable=False),
         sa.Column('warnings', sa.Text(), nullable=False),
+        sa.Column('members_json', sa.Text(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(['binding_id'], ['git_bindings.id']),
         sa.ForeignKeyConstraint(['project_id'], ['projects.id']),

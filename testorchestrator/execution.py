@@ -455,4 +455,12 @@ class DiscoveredItem(db.Model):
     order_idx = db.Column(db.Integer, nullable=False, default=0)
     dynamic = db.Column(db.Boolean, nullable=False, default=False)
     warnings = db.Column(db.Text, nullable=False, default="")
+    members_json = db.Column(db.Text, nullable=False, default="[]")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    def members(self) -> list:
+        import json as _j
+        try:
+            return _j.loads(self.members_json or "[]")
+        except Exception:
+            return []
