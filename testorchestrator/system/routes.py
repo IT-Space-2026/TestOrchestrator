@@ -303,6 +303,40 @@ def reporting_page():
     )
 
 
+@system_bp.route("/integrations")
+@role_required(Role.ADMIN)
+def integrations_page():
+    """Subsystem-separated integration config (Dagu orchestrator, Git
+    evidence export). Each section is its own labelled card; secrets are
+    referenced by name only."""
+    return render_template("system/integrations.html",
+                           settings=settings_mod.all_settings())
+
+
+@system_bp.route("/integrations/save", methods=["POST"])
+@role_required(Role.ADMIN)
+def integrations_save():
+    """Persist integration settings — names/paths only, never secret
+    values. Applies to future operations; no restart needed."""
+    from flask import request
+    updates = {}
+    for key in ("dagu_endpoint", "dagu_credential_ref", "dagu_username",
+                "git_export_repo", "git_export_credential_ref",
+                "git_export_ref"):
+        if key in request.form:
+            updates[key] = request.form.get(key, "").strip()
+    try:
+        settings_mod.update(updates)
+    except KeyError as exc:
+        flash(f"Integration field {exc} rejected — expected format "
+              "per its section.", "error")
+        return redirect(url_for("system.integrations_page"))
+    record_audit(current_user.username, "integrations.config.saved",
+                 "integration settings updated (no values)")
+    flash("Integration settings saved.", "info")
+    return redirect(url_for("system.integrations_page"))
+
+
 @system_bp.route("/reporting/save", methods=["POST"])
 @role_required(Role.ADMIN)
 def reporting_save():

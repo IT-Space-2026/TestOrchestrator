@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Integrations — TestOrchestrator{% endblock %}
+{% block content %}
+<h1>Integration settings</h1>
+<p class="muted">Each subsystem is configured separately — fields are
+scoped to their subsystem and never share a pooled config block.
+Secrets are <em>referenced by name</em> only (created under
+<a href="{{ url_for('system.secrets') }}">System → Secrets</a>);
+values are never entered or displayed here. Changes take effect for
+future operations; no restart is required.</p>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+
+<form method="post" action="{{ url_for('system.integrations_save') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <section class="card">
+    <h2>Dagu — orchestration</h2>
+    <p class="muted">Coordinates dispatch of executions to workers.
+      Required when Dagu is the mandatory orchestrator; executions
+      queue until reachable. Empty = not configured (local dispatch
+      only where the deployment permits it).</p>
+    <div class="field"><label>Dagu endpoint <span class="muted">(optional)</span><br>
+      <input type="text" name="dagu_endpoint" size="46"
+             value="{{ settings.dagu_endpoint }}"
+             placeholder="https://dagu.example:8080"></label><br>
+      <small>Base URL of the Dagu server. Format: http(s)://host[:port].
+      Used by the dispatch worker; applies to future dispatches.</small></div>
+    <div class="field"><label>Dagu credential <span class="muted">(conditional)</span><br>
+      <input type="text" name="dagu_credential_ref" size="46"
+             value="{{ settings.dagu_credential_ref }}"
+             placeholder="name of a Secret"></label><br>
+      <small>Reference to a stored secret (bearer token, or password
+      when basic-auth username is set). Required only if the Dagu
+      server enforces auth. Never the secret value itself.</small></div>
+    <div class="field"><label>Dagu username <span class="muted">(conditional)</span><br>
+      <input type="text" name="dagu_username" size="46"
+             value="{{ settings.dagu_username }}"
+             placeholder="basic-auth user (empty = bearer)"></label><br>
+      <small>Empty = bearer-token auth against the credential;
+      non-empty = HTTP basic auth (username + credential secret).</small></div>
+    <details><summary>Example</summary><pre class="example">dagu_endpoint: https://dagu.internal:8080
+dagu_credential_ref: dagu-api-key   # a Secret named 'dagu-api-key'
+dagu_username:                      # empty → bearer-token mode</pre></details>
+  </section>
+
+  <section class="card">
+    <h2>Git — evidence export repository</h2>
+    <p class="muted">Internal export repo receiving execution evidence
+      pushes (non-force). Optional — local artifact storage always
+      works without it. Runs under the Dulwich backend; HTTPS uses a
+      Secret with user:pass content, SSH uses host ssh/agent.</p>
+    <div class="field"><label>Export repository <span class="muted">(optional)</span><br>
+      <input type="text" name="git_export_repo" size="46"
+             value="{{ settings.git_export_repo }}"
+             placeholder="/srv/evidence/repo  or  https://git.example/evidence.git"></label><br>
+      <small>Destination repo path or URL for evidence pushes. Local
+      path, https://, or ssh:// / SCP-like. Empty = export disabled.</small></div>
+    <div class="field"><label>Export credential <span class="muted">(conditional)</span><br>
+      <input type="text" name="git_export_credential_ref" size="46"
+             value="{{ settings.git_export_credential_ref }}"
+             placeholder="name of a Secret"></label><br>
+      <small>Secret reference used for HTTPS pushes (expects
+      user:password content). Required only for authenticated remotes;
+      local paths and agent-based SSH need none.</small></div>
+    <div class="field"><label>Export ref <span class="muted">(optional)</span><br>
+      <input type="text" name="git_export_ref" size="46"
+             value="{{ settings.git_export_ref }}"
+             placeholder="main"></label><br>
+      <small>Branch the evidence repo tracks. Default: main.</small></div>
+    <details><summary>Example</summary><pre class="example">git_export_repo: /srv/evidence/export-repo
+git_export_credential_ref:            # none needed for a local path
+git_export_ref: main</pre></details>
+  </section>
+
+  <p><button class="button" type="submit">Save integration settings</button></p>
+</form>
+
+<p class="muted">Allure is configured under
+<a href="{{ url_for('system.reporting_page') }}">System → Reporting</a>;
+network/bind settings under
+<a href="{{ url_for('system.network') }}">System → Network</a>.</p>
+{% endblock %}

@@ -218,3 +218,14 @@ Clean-host install + reboot health · real licensed-KRE suite · remote
 worker on a second host · Windows Server 2025 installer build/acceptance
 · Azure DevOps repo interoperability · root/systemd service-account
 install path (blocked on this build host: no sudo).
+
+## Configuration (Unreleased fine-tuning)
+
+Integration settings live in **System → Integrations** — Dagu
+(endpoint, credential ref, auth username) and Git export (repo,
+credential ref, ref) each in their own labelled section with inline
+help, examples, and required/optional markers. Secrets are referenced
+by name only (System → Credentials); values never enter forms or
+exports. Allure: System → Reporting. Network/ports/certs: System →
+Network. Changes apply to future operations — no restart needed. This
+section post-dates candidate `10300832` (unreleased).

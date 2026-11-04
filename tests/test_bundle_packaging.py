@@ -65,3 +65,33 @@ def test_fresh_onedir_passes_and_reads_payload(tmp_path, monkeypatch):
            / "release.json")
     emb.write_text(json.dumps({"build": "tampered"}))
     assert build_bundle.check_frozen_fresh() is not None
+
+
+def test_integrations_page_sections(client, login_as, app):
+    """Integrations page: subsystem-separated sections with inline
+    help + examples, and no secret values rendered."""
+    login_as("admin")
+    r = client.get("/system/integrations")
+    assert r.status_code == 200
+    body = r.data.decode()
+    for section in ("Dagu — orchestration", "Git — evidence export"):
+        assert section in body
+    for field in ("dagu_endpoint", "git_export_repo",
+                  "git_export_ref"):
+        assert f'name="{field}"' in body
+    assert "Example" in body and "user:password content" in body
+
+
+def test_integrations_save_persists(client, login_as, app):
+    login_as("admin")
+    client.post("/system/integrations/save", data={
+        "dagu_endpoint": "https://dagu.internal:8080",
+        "dagu_credential_ref": "dagu-api-key",
+        "dagu_username": "",
+        "git_export_repo": "/srv/evidence/repo",
+        "git_export_credential_ref": "",
+        "git_export_ref": "main"})
+    from testorchestrator import settings as sm
+    with app.app_context():
+        assert sm.get("dagu_endpoint") == "https://dagu.internal:8080"
+        assert sm.get("git_export_ref") == "main"
