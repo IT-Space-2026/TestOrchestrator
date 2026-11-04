@@ -105,12 +105,15 @@ def run_task(client: AgentClient, task: dict, work_root: Path) -> None:
             report_dir=str(report_dir),
             profile=rc.get("profile", "default"),
             browser=rc.get("browser", "Chrome (headless)"),
+            remote_webdriver_url=rc.get("remote_webdriver_url", ""),
+            remote_webdriver_type=rc.get("remote_webdriver_type", ""),
         )
         creds = task.get("redact") or []
         if creds:
             args = args + [f"-apiKey={creds[0]}"]
         result = kre_adapter.run_invocation(
             args, log_dir,
+            timeout_s=int(rc.get("timeout_seconds") or 3600),
             cancel_event=RemoteCancelEvent(client, ex_id),
             redact=creds)
         payload["exit_status"] = result.exit_status

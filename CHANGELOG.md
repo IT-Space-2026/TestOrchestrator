@@ -60,6 +60,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   shown on the execution page. Scheduled Firefox verified end-to-end
   as `-browserType=Firefox` on the fixture KRE.
 
+- **Remote execution safety:** atomic assignment CAS (capacity +
+  ownership) on all paths; `POST /api/agent/tasks/<id>/claim` pickup
+  CAS; agent passes timeout_seconds + remote-webdriver config;
+  UNKNOWN executions hold capacity until admin resolves them via the
+  new **Resolve UNKNOWN** action (audited); multi-process race tests.
+  docs/execution-capability.md + docs/runbook-two-host.md.
+
 ### Fixed (unreleased)
 - **Remote WebDriver contract:** corrected to Katalon's documented
   `-browserType=Remote` + `-remoteWebDriverUrl=` +

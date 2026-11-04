@@ -51,6 +51,20 @@
 </form>
 {% endif %}
 
+{% if ex.state.value == "unknown" and current_user.is_admin %}
+<form method="post" action="{{ url_for('portal.resolve_unknown', execution_id=ex.id) }}" class="inline">
+  {{ plain_form.csrf_token }}
+  <input type="hidden" name="confirm_stopped" value="yes">
+  <button type="submit" class="button secondary"
+          title="Confirm the original process has stopped — marks this
+                 execution failed and releases its slot">Resolve UNKNOWN
+    (original confirmed stopped)</button>
+  <small class="muted">UNKNOWN holds the runner's slot — resolve only
+    after confirming the original process has stopped. Never marks the
+    run successful.</small>
+</form>
+{% endif %}
+
 {% if ex.state.value in ("completed", "failed", "canceled", "unknown")
    and ex.outcome.value != "passed" and current_user.role.value != "po" %}
 <form method="post" action="{{ url_for('portal.retry_execution', execution_id=ex.id) }}" class="inline">

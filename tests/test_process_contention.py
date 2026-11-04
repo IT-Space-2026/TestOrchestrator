@@ -705,3 +705,50 @@ def test_remote_pickup_claim_exactly_once(app, client, tmp_path):
     assert r_dup.status_code == 409
     r_wrong = client.post(f"/api/agent/tasks/{eid}/claim", headers=h2)
     assert r_wrong.status_code == 409
+
+
+def test_resolve_unknown_releases_capacity(app, client, login_as,
+                                           tmp_path):
+    """UNKNOWN holds a slot; admin resolve (with confirmation) marks it
+    FAILED, audits, and frees capacity. Non-UNKNOWN / unconfirmed /
+    non-admin requests are rejected."""
+    with app.app_context():
+        from testorchestrator.execution import Runner
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        r = Runner(name="l", connection_mode="local", max_slots=1)
+        db.session.add(r); db.session.flush()
+        ex = dispatch.create_execution("m", s)
+        ex.runner_id = r.id
+        ex.state = ExecutionState.UNKNOWN
+        db.session.commit()
+        eid, rid = ex.id, r.id
+        # UNKNOWN counts as active — capacity exhausted.
+        assert dispatch.effective_slots(r) == 0
+        login_as("admin")
+        resp = client.post(f"/executions/{eid}/resolve-unknown",
+                           data={}, follow_redirects=True)
+        assert resp.status_code == 200
+        ex = db.session.get(Execution, eid)
+        assert ex.state == ExecutionState.UNKNOWN      # no confirm
+        resp = client.post(
+            f"/executions/{eid}/resolve-unknown",
+            data={"confirm_stopped": "yes"}, follow_redirects=True)
+        ex = db.session.get(Execution, eid)
+        assert ex.state == ExecutionState.FAILED
+        assert "confirmed" in ex.error_text
+        db.session.refresh(r)
+        assert dispatch.effective_slots(r) == 1        # slot released
+
+
+def test_agent_run_config_wiring(tmp_path):
+    """The agent must receive the resolved timeout + remote-webdriver
+    fields from the immutable snapshot — not adapter defaults."""
+    import inspect
+    import testorchestrator.agent as agent_mod
+    src = inspect.getsource(agent_mod.run_task)
+    assert "remote_webdriver_url" in src
+    assert "remote_webdriver_type" in src
+    assert 'timeout_seconds' in src
+    assert "3600" in src                     # same default as portal

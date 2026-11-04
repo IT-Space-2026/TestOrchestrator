@@ -21,6 +21,47 @@ holds its slot until an operator resolves it; capacity never silently
 frees while the original process may still be running. Intended
 remote-KRE deployment uses the remote/agent path.
 
+**Remote-path status: fixture-verified assignment capacity +
+ownership-scoped claim.** API-level claim tests are NOT proof of actual
+remote process launch, cancellation, timeout, artifact return, or
+recovery — the full two-host agent lifecycle remains pending. The
+sequential `test_remote_pickup_claim_exactly_once` asserts API CAS
+semantics; the concurrent multi-process tests cover the local path.
+
+**Agent compat:** `run_task` calls `POST /api/agent/tasks/<id>/claim`
+and skips the task unless it returns 200 — no launch on conflict or
+lost response. Runner identity comes from the authenticated bearer
+token (`require_agent`), never a caller-supplied id. Agents built
+before this revision bypass the claim entirely — that combination is
+**unsupported for concurrent remote execution**; `AGENT_VERSION`
+reports "0.1" at register (check it before host tests).
+
+**Remote failure windows (documented, not all verified):**
+- Claim ok → agent crash before launch: lease expires → reconcile →
+  UNKNOWN (impl).
+- Claim ok → response lost: agent skips launch (safe); portal sees
+  RUNNING until lease/reconcile marks it ambiguous (impl).
+- Launch → connectivity loss: process keeps running remotely;
+  heartbeat stops → lease expiry → UNKNOWN; late results preserved
+  for review (impl, `/result` handler).
+- Portal restart mid-run: agent heartbeats may fail → lease expiry
+  → UNKNOWN; result posted on recovery is preserved (impl).
+- **UNKNOWN resolution (operator):** confirm original process stopped
+  → **Resolve UNKNOWN** button on the execution page (admin, requires
+  explicit confirm) → execution marked FAILED, slot released, audited
+  `execution.unknown_resolved`. Only then retry — the retry CAS will
+  simply not find capacity until the unknown slot frees.
+
+**Remote timeout/cancellation:** the agent passes the snapshot's
+`timeout_seconds` + remote-webdriver fields to `run_invocation` on the
+KRE host (process-group kill, POSIX). Cancellation reaches the agent
+via `RemoteCancelEvent` polling `/api/agent/cancel/<id>`. Verified:
+portal-side fixtures only. **Unverified:** actual remote kill, agent
+unreachable during cancel (flag persists — agent skips safely), and
+Windows termination.
+
+## 1. Execution-path audit matrix
+
 ## 1. Execution-path audit matrix
 
 | Setting | Manual run | Schedule | Plan | Snapshot | KRE arg | Evidence |

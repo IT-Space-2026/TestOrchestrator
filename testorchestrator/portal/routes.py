@@ -19,8 +19,8 @@ from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
 from ..execution import (Execution, ExecutionState, GitBinding, OutboxEvent,
-                         Plan, PlanEntry, Project, Release, Schedule, Suite,
-                         SuiteEntry, utcnow)
+                         Outcome, Plan, PlanEntry, Project, Release,
+                         Schedule, Suite, SuiteEntry, utcnow)
 from ..extensions import db
 from ..models import Role, record_audit
 from ..security import role_required
@@ -304,6 +304,45 @@ def cancel_execution(execution_id):
               "confirms termination.", "info")
     else:
         flash("Execution is already in a terminal state.", "info")
+    return redirect(url_for("portal.execution_detail",
+                          execution_id=execution_id))
+
+
+@portal_bp.route("/executions/<execution_id>/resolve-unknown",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def resolve_unknown(execution_id):
+    """Operator-confirmed resolution of an UNKNOWN execution.
+
+    UNKNOWN means 'uncertain — original process may still be running'
+    and the execution HOLDS its runner slot. This action is the
+    operator's recorded confirmation that the original is verified
+    stopped — it marks the execution FAILED and releases capacity.
+    It never marks a run successful and never auto-retries."""
+    ex = _execution_or_404(execution_id)
+    PlainForm().validate_on_submit()
+    if ex.state != ExecutionState.UNKNOWN:
+        flash("Only UNKNOWN executions can be resolved this way.", "error")
+        return redirect(url_for("portal.execution_detail",
+                              execution_id=execution_id))
+    confirm = request.form.get("confirm_stopped") == "yes"
+    if not confirm:
+        flash("Confirmation required — verify the original process has "
+              "stopped before resolving (this releases its slot).",
+              "error")
+        return redirect(url_for("portal.execution_detail",
+                              execution_id=execution_id))
+    ex.state = ExecutionState.FAILED
+    ex.outcome = Outcome.INCOMPLETE
+    ex.finished_at = utcnow()
+    ex.error_text = ((ex.error_text or "")[:1500] +
+                     " | RESOLVED by operator: original confirmed "
+                     "stopped")[:2000]
+    db.session.commit()
+    record_audit(current_user.username, "execution.unknown_resolved",
+                 ex.id)
+    flash("Execution resolved — capacity released. Retry only when "
+          "safe.", "info")
     return redirect(url_for("portal.execution_detail",
                           execution_id=execution_id))
 
