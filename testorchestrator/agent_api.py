@@ -113,6 +113,29 @@ def tasks():
     return jsonify({"tasks": [_task_payload(e) for e in assigned]})
 
 
+@agent_bp.route("/tasks/<execution_id>/claim", methods=["POST"])
+@require_agent
+def claim_task(execution_id):
+    """Atomic DISPATCHED -> RUNNING pickup claim scoped to this runner —
+    exactly one agent may take a task. A second claim (duplicate agent,
+    reconnect racing an in-flight launch) gets 409 and must skip it."""
+    n = db.session.query(Execution).filter(
+        Execution.id == execution_id,
+        Execution.runner_id == g.runner.id,
+        Execution.state == ExecutionState.DISPATCHED,
+    ).update({"state": ExecutionState.RUNNING,
+              "started_at": utcnow(),
+              "heartbeat_at": utcnow()},
+             synchronize_session=False)
+    db.session.commit()
+    if not n:
+        db.session.rollback()
+        record_audit(f"agent:{g.runner.name}",
+                     "execution.claim_rejected", execution_id)
+        return jsonify({"claimed": False}), 409
+    return jsonify({"claimed": True})
+
+
 @agent_bp.route("/heartbeat", methods=["POST"])
 @require_agent
 def heartbeat():

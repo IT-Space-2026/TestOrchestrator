@@ -217,11 +217,7 @@ def effective_slots(runner: Runner) -> int:
     hardware or the licence allowance permits (never multiplied)."""
     active = Execution.query.filter(
         Execution.runner_id == runner.id,
-        Execution.state.in_([
-            ExecutionState.DISPATCHED, ExecutionState.PREPARING,
-            ExecutionState.RUNNING, ExecutionState.COLLECTING,
-            ExecutionState.NORMALIZING, ExecutionState.CANCEL_REQUESTED,
-        ]),
+        Execution.state.in_(_ACTIVE_STATES),
     ).count()
     return max(0, capacity_limit(runner) - active)
 
@@ -284,6 +280,57 @@ def _transition(ex: Execution, state: ExecutionState) -> None:
     db.session.commit()
 
 
+# States that consume a runner's capacity. UNKNOWN is included
+# deliberately — an uncertain execution may still have a live process;
+# it must not silently free a slot until an operator resolves it.
+_ACTIVE_STATES = [
+    ExecutionState.DISPATCHED, ExecutionState.PREPARING,
+    ExecutionState.RUNNING, ExecutionState.COLLECTING,
+    ExecutionState.NORMALIZING, ExecutionState.CANCEL_REQUESTED,
+    ExecutionState.UNKNOWN,
+]
+
+
+def _active_count_subquery(runner: Runner, exclude_id):
+    return (db.session.query(db.func.count(Execution.id))
+            .filter(Execution.runner_id == runner.id,
+                    Execution.id != exclude_id,
+                    Execution.state.in_(_ACTIVE_STATES))
+            .scalar_subquery())
+
+
+def _runner_cap(runner: Runner) -> int:
+    return min(runner.max_slots,
+               runner.license_slots or runner.max_slots)
+
+
+def _assign_runner(ex: Execution, runner: Runner,
+                   runtime: RuntimeConnection) -> bool:
+    """Atomic QUEUED -> DISPATCHED assignment: runner/runtime/lease
+    fields and the capacity check land in ONE conditional UPDATE, so
+    two dispatchers can neither double-assign nor over-subscribe a
+    runner's slots. Both the local path (then claims PREPARING) and
+    the remote/agent path (agent picks up DISPATCHED) consume the slot
+    here — capacity is reserved from assignment, not launch."""
+    n = db.session.query(Execution).filter(
+        Execution.id == ex.id,
+        Execution.state == ExecutionState.QUEUED,
+        _active_count_subquery(runner, ex.id) < _runner_cap(runner),
+    ).update({"state": ExecutionState.DISPATCHED,
+              "runner_id": runner.id,
+              "runtime_id": runtime.id,
+              "lease_expires_at": utcnow() + timedelta(
+                  seconds=LEASE_SECONDS),
+              "heartbeat_at": utcnow()},
+             synchronize_session=False)
+    db.session.commit()
+    if n:
+        db.session.refresh(ex)
+    else:
+        db.session.rollback()
+    return bool(n)
+
+
 def _claim_for_start(ex: Execution,
                      runner: Runner | None = None) -> bool:
     """Atomic QUEUED|DISPATCHED -> PREPARING claim — the precise launch
@@ -298,19 +345,8 @@ def _claim_for_start(ex: Execution,
         Execution.state.in_([ExecutionState.QUEUED,
                              ExecutionState.DISPATCHED]))
     if runner is not None:
-        cap = min(runner.max_slots,
-                  runner.license_slots or runner.max_slots)
-        active_count = (db.session.query(db.func.count(Execution.id))
-                        .filter(Execution.runner_id == runner.id,
-                                Execution.state.in_([
-                                    ExecutionState.DISPATCHED,
-                                    ExecutionState.PREPARING,
-                                    ExecutionState.RUNNING,
-                                    ExecutionState.COLLECTING,
-                                    ExecutionState.NORMALIZING,
-                                    ExecutionState.CANCEL_REQUESTED]))
-                        .scalar_subquery())
-        q = q.filter(active_count < cap)
+        q = q.filter(_active_count_subquery(runner, ex.id)
+                     < _runner_cap(runner))
     n = q.update({"state": ExecutionState.PREPARING,
                   "heartbeat_at": utcnow()},
                  synchronize_session=False)
@@ -347,22 +383,23 @@ def run_execution(execution_id: str) -> None:
               "no enabled compatible runtime connection on runner "
               f"{runner.name!r} — register an existing KRE installation")
         return
-    ex.runner_id = runner.id
-    ex.runtime_id = runtime.id
-    ex.lease_expires_at = utcnow() + timedelta(seconds=LEASE_SECONDS)
-    db.session.commit()
-
     if runner.connection_mode != "local":
         # Remote transport (§6): the assigned agent picks the task up via
         # /api/agent/tasks; the portal holds the lease, heartbeats renew
         # it, expiry reconciles to UNKNOWN — never silent re-dispatch.
+        # Eligibility BEFORE the assignment CAS — a failed CAS just
+        # leaves the execution queued rather than producing evidence.
         if not runner.agent_token_hash:
             _fail(ex, "infrastructure",
                   f"remote runner {runner.name!r} has no issued agent token")
             return
-        ex.state = ExecutionState.DISPATCHED
-        db.session.commit()
+        if not _assign_runner(ex, runner, runtime):
+            return   # lost race (cancelled or capacity) — stays queued
         return
+
+    # Local path: consume the slot atomically, then claim PREPARING.
+    if not _assign_runner(ex, runner, runtime):
+        return   # lost race — another dispatcher owns it, or cancelled
 
     workspace_root = Path(
         runtime.workspace_root or runner.workspace_root
@@ -701,13 +738,9 @@ def _handle_event(event: OutboxEvent) -> None:
                                   "no eligible runner/runtime for "
                                   "dagu-coordinated dispatch")
                             return
-                        ex.runner_id = runner.id
-                        ex.runtime_id = runtime.id
-                        ex.state = ExecutionState.DISPATCHED
-                        ex.lease_expires_at = utcnow() + timedelta(
-                            seconds=LEASE_SECONDS)
-                        db.session.commit()
-                        return
+                        if not _assign_runner(ex, runner, runtime):
+                            return   # lost race — stays queued, next
+                        return       # tick retries
             except Exception as exc:
                 if _dagu_mandatory():
                     if ex:

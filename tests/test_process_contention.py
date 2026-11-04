@@ -583,3 +583,125 @@ def test_disabled_draining_not_picked(app):
         db.session.commit()
         ex = dispatch.create_execution("m", s)
         assert dispatch.pick_runner(ex) is None
+
+
+DISPATCH_WORKER = REPO / "tests" / "dispatch_worker.py"
+
+
+def _seed_dispatch_env(tmp_path, slots=1, license_slots=None, delay="3"):
+    """One suite, one local runner (slots), a fixture executable that
+    sleeps + appends its launch to a marker file, N queued executions."""
+    from tests.conftest import make_app
+    from testorchestrator.execution import Runner, RuntimeConnection
+    app = make_app(tmp_path)
+    marker = tmp_path / "launches"
+    fake = tmp_path / "fakekre"
+    fake.write_text(
+        "#!/bin/sh\n"
+        f"echo $$ >> {marker}\n"
+        f"sleep {delay}\n")
+    fake.chmod(0o755)
+    with app.app_context():
+        db.create_all()
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        r = Runner(name="local", connection_mode="local",
+                   max_slots=slots, license_slots=license_slots)
+        db.session.add(r); db.session.flush()
+        db.session.add(RuntimeConnection(
+            name="fx", runner_id=r.id, executable_path=str(fake),
+            detected_version="9.0.0", enabled=True,
+            workspace_root=str(tmp_path / "ws")))
+        db.session.commit()
+    return app, marker
+
+
+def test_two_dispatchers_one_execution_single_launch(tmp_path):
+    """Two independent processes run_execution on the SAME queued
+    execution — exactly one process launches (marker has one line),
+    and the execution has one coherent terminal state."""
+    app, marker = _seed_dispatch_env(tmp_path)
+    with app.app_context():
+        s = Suite.query.first()
+        ex = dispatch.create_execution("m", s)
+        eid = ex.id
+    procs = [subprocess.Popen(
+        [sys.executable, str(DISPATCH_WORKER), str(tmp_path),
+         str(i), eid], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        for i in range(2)]
+    (tmp_path / "go").write_text("go")
+    for p in procs:
+        assert p.wait(timeout=60) == 0, p.stderr.read().decode()[-500:]
+    launches = marker.read_text().split() if marker.exists() else []
+    assert len(launches) == 1, launches        # one process only
+    with app.app_context():
+        ex = db.session.get(Execution, eid)
+        assert ex.state == ExecutionState.COMPLETED
+
+
+def test_two_jobs_one_slot_sequential_release(tmp_path):
+    """Two executions, one slot, two processes: only one launches now;
+    the loser stays QUEUED (not failed), and runs once capacity frees."""
+    app, marker = _seed_dispatch_env(tmp_path, slots=1, delay="2")
+    with app.app_context():
+        s = Suite.query.first()
+        r = __import__("testorchestrator.execution",
+                       fromlist=["Runner"]).Runner.query.first()
+        e1 = dispatch.create_execution("m", s)
+        e2 = dispatch.create_execution("m", s)
+        e1.runner_id = r.id; e2.runner_id = r.id
+        db.session.commit()
+        ids = [e1.id, e2.id]
+    procs = [subprocess.Popen(
+        [sys.executable, str(DISPATCH_WORKER), str(tmp_path),
+         str(i), eid], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        for i, eid in enumerate(ids)]
+    (tmp_path / "go").write_text("go")
+    for p in procs:
+        p.wait(timeout=60)
+    results = [(tmp_path / f"result-{i}").read_text() for i in range(2)]
+    assert results.count("completed") == 1     # exactly one ran now
+    assert "queued" in results                 # loser safely queued —
+                                             # not failed, not running
+    launches1 = marker.read_text().split() if marker.exists() else []
+    assert len(launches1) == 1
+    # Release happened — retry the queued one: it now completes.
+    with app.app_context():
+        q = Execution.query.filter_by(
+            state=ExecutionState.QUEUED).first()
+        assert q is not None
+        dispatch.run_execution(q.id)
+        db.session.refresh(q)
+        assert q.state == ExecutionState.COMPLETED
+
+
+def test_remote_pickup_claim_exactly_once(app, client, tmp_path):
+    """Agent pickup is a CAS: first claim DISPATCHED->RUNNING wins and
+    is scoped to the owning runner; a second claim gets 409, and a
+    non-DISPATCHED or foreign-runner claim never wins."""
+    from testorchestrator.agent_api import issue_agent_token
+    from testorchestrator.execution import Runner
+    with app.app_context():
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        r = Runner(name="rem", connection_mode="remote", enabled=True)
+        db.session.add(r); db.session.flush()
+        token = issue_agent_token(r)
+        r2 = Runner(name="rem2", connection_mode="remote", enabled=True)
+        db.session.add(r2); db.session.flush()
+        token2 = issue_agent_token(r2)
+        ex = dispatch.create_execution("m", s)
+        ex.runner_id = r.id
+        ex.state = ExecutionState.DISPATCHED
+        db.session.commit()
+        eid = ex.id
+    h = {"Authorization": f"Bearer {token}"}
+    h2 = {"Authorization": f"Bearer {token2}"}
+    r_ok = client.post(f"/api/agent/tasks/{eid}/claim", headers=h)
+    assert r_ok.status_code == 200 and r_ok.get_json()["claimed"]
+    r_dup = client.post(f"/api/agent/tasks/{eid}/claim", headers=h)
+    assert r_dup.status_code == 409
+    r_wrong = client.post(f"/api/agent/tasks/{eid}/claim", headers=h2)
+    assert r_wrong.status_code == 409

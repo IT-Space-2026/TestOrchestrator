@@ -3,6 +3,24 @@
 Status: unreleased source. Evidence classes: **impl** (code exists),
 **fixture** (fixture KRE verified), **host** (needs licensed env).
 
+## 0. Execution paths and their protection
+
+| Step | Local worker | Remote runner / agent |
+|---|---|---|
+| Runner selection | `pick_runner` (eligible: enabled, not draining, slot>0) | same |
+| Capacity reserve | `_assign_runner` CAS `QUEUED→DISPATCHED` + fields + `active_count < cap` | same CAS |
+| Execution claim | `_claim_for_start` CAS `QUEUED|DISPATCHED→PREPARING` (+capacity) | `POST /api/agent/tasks/<id>/claim` CAS `DISPATCHED→RUNNING` scoped to runner |
+| Process launch | portal `run_invocation` subprocess | agent `run_invocation` on the KRE host |
+| Capacity release | state leaves `_ACTIVE_STATES` on terminal | same |
+| Duplicate-launch guard | CAS predicates on one row | CAS pickup + `result` idempotency |
+| Oversubscription guard | capacity subquery in assignment CAS | capacity subquery in assignment CAS |
+
+`_ACTIVE_STATES` (consume a slot): DISPATCHED, PREPARING, RUNNING,
+COLLECTING, NORMALIZING, CANCEL_REQUESTED, **UNKNOWN** — uncertain work
+holds its slot until an operator resolves it; capacity never silently
+frees while the original process may still be running. Intended
+remote-KRE deployment uses the remote/agent path.
+
 ## 1. Execution-path audit matrix
 
 | Setting | Manual run | Schedule | Plan | Snapshot | KRE arg | Evidence |
@@ -56,11 +74,12 @@ installed on the host.
 
 | Item | Evidence |
 |---|---|
-| One job, competing workers | `test_schedule_contention_independent_processes` (N=2,3) — 1 execution |
-| One-slot capacity, competing jobs | `test_dispatch_then_cancel_still_cancels_queued_scope` + effective_slots unit coverage — queued when full; NOT proven under two live jobs racing one slot — **partial** |
-| Licence allowance | `effective_slots` caps at `min(slots, license_slots)` (impl); exhausted-licence race **unverified** |
-| Disabled/draining runner | `pick_runner` filters `enabled & not draining` (impl); **unverified** end-to-end |
-| Stale worker | `reconcile_stale` → UNKNOWN (impl); host path **unverified** |
+| One job, competing workers | `test_schedule_contention_independent_processes` (N=2,3) — 1 execution; `test_two_dispatchers_one_execution_single_launch` — 2 processes, 1 launch marker, one terminal state |
+| One-slot capacity, competing jobs | `test_two_jobs_one_slot_sequential_release` — 2 processes, exactly 1 launch, loser stays QUEUED then runs after release; `test_capacity_race_one_slot` (claim CAS) |
+| Licence allowance | `test_license_allowance_caps_claim` — licence_slots=1 beats max_slots=2 under contention |
+| Disabled/draining runner | `test_disabled_draining_not_picked`; draining agents get `{"tasks": []}` |
+| Remote pickup dedupe | `test_remote_pickup_claim_exactly_once` — 200 then 409, wrong-runner 409 |
+| Stale worker | `reconcile_stale` → UNKNOWN (impl); UNKNOWN now holds its slot; host path **unverified** |
 | Restart during execution | UNKNOWN/audited path (impl); mid-run restart **unverified** |
 | Artifact-return failure | collection failure marks execution, no re-dispatch (impl); **unverified** |
 | Running-process cancel | `test_cancel_kills_process_tree` — killpg TERM→KILL, parent+child dead, state CANCELED, evidence preserved, slot held until confirmed stop (**fixture-verified; real-KRE kill unverified**) |

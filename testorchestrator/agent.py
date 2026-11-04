@@ -69,6 +69,15 @@ def _heartbeat_loop(client, execution_id, stop):
 def run_task(client: AgentClient, task: dict, work_root: Path) -> None:
     """Execute one assigned execution locally, then report back."""
     ex_id = task["execution_id"]
+    # Portal-side pickup claim — exactly one agent may take the task.
+    # A 409 means another claim already won (duplicate/reconnect).
+    try:
+        c = client.post(f"/api/agent/tasks/{ex_id}/claim")
+    except requests.RequestException:
+        c = None
+    if c is None or c.status_code != 200:
+        return   # skip — another claim won or portal unreachable;
+               # reconciliation decides, never duplicate-launch
     runtime = task["runtime"]
     attempt_dir = work_root / ex_id
     report_dir = attempt_dir / "Reports"
