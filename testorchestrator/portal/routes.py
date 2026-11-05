@@ -929,13 +929,15 @@ def release_detail(release_id):
     # latest keyed by target + execution configuration — a pass under
     # one profile/runtime must not mask a failure under another.
     def _cfg(e):
-        c = e.config()
+        c = e.snapshot().get("run_config", {})
         return (c.get("profile", ""), c.get("browser", ""),
                 c.get("runner_id", ""), c.get("runtime_id", ""))
     latest_by_path = {}
     for e in runs:
-        tgt = e.snapshot().get("source_target", {}).get("path", "")
-        key = (tgt, _cfg(e))
+        st = e.snapshot().get("source_target", {})
+        tgt = st.get("path", "")
+        key = (tgt, st.get("kind", ""), st.get("binding_id", ""),
+               _cfg(e))
         if tgt and key not in latest_by_path:
             latest_by_path[key] = e
     scope_rows = []
@@ -945,7 +947,7 @@ def release_detail(release_id):
         src = (db.session.get(DiscoveredItem, it.source_item_id)
                if it.source_item_id else None)
         missing = src is None and it.source_item_id
-        latest = next((e for (t, _c), e in
+        latest = next((e for (t, _k, _b, _c), e in
                        latest_by_path.items() if t == it.path), None)
         if missing:
             unavailable += 1
