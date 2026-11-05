@@ -817,3 +817,10 @@ html[data-theme="dark"] {
 .release-overview{margin-top:1rem}
 .timeline-overdue{position:absolute;right:.4rem;top:0;font-size:.7rem;
   color:var(--danger);font-weight:600}
+.badge.outcome-passed{background:#d1fae5;color:#065f46}
+.badge.outcome-failed{background:#fee2e2;color:#991b1b}
+.badge.outcome-running,.badge.outcome-in_progress{background:#fef3c7;color:#92400e}
+.badge.outcome-none,.badge.outcome-queued,.badge.outcome-cancelled{background:var(--bg-subtle);color:var(--text-muted)}
+[data-theme="dark"] .badge.outcome-passed{background:#064e3b;color:#a7f3d0}
+[data-theme="dark"] .badge.outcome-failed{background:#7f1d1d;color:#fca5a5}
+[data-theme="dark"] .badge.outcome-running,[data-theme="dark"] .badge.outcome-in_progress{background:#713f12;color:#fde68a}

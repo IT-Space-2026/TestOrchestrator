@@ -263,7 +263,7 @@ def project_detail(project_id):
         active_releases=active, dated_active=dated_active,
         undated_active=undated_active,
         overdue_active=overdue_active,
-        today=_today, tlo=tlo, thi=thi, dash=dash,
+        tlo=tlo, thi=thi, dash=dash,
         binding_form=BindingForm(),
         can_author=GitBinding.query.filter_by(
             project_id=project.id, authoring_writable=True).count() > 0,
