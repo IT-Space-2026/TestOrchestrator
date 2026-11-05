@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ release.name }} · TestOrchestrator{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=release.project_id) }}">← Back to project</a></p>
+<h1>{{ release.name }} <span class="badge {{ release.status }}">{{ release.status }}</span></h1>
+<p class="muted">{{ release.description }}
+  {% if release.released_at %}· released {{ release.released_at|string|truncate(16, true, '') }}{% endif %}</p>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for c, m in messages %}<p class="flash flash-{{ c }}">{{ m }}</p>{% endfor %}
+{% endwith %}
+
+<div class="stat-cards">
+  <div class="stat-card"><b>{{ runs|length }}</b><span>executions</span></div>
+  <div class="stat-card"><b>{{ done }}</b><span>finished</span></div>
+  <div class="stat-card"><b>{{ passed }}</b><span>passed</span></div>
+</div>
+
+<section class="card"><h2>Testing scope</h2>
+{% if items %}
+<ul class="notice-list">
+  {% for i in items %}
+  <li><span class="badge">{{ i.kind }}</span> <code>{{ i.path }}</code>
+    <form method="post" class="inline" action="{{ url_for('portal.release_scope_remove', release_id=release.id, item_id=i.id) }}">
+      {{ plain_form.csrf_token }}
+      <button type="submit" class="button danger sm">Remove</button>
+    </form></li>
+  {% endfor %}
+</ul>
+{% else %}<p class="muted">No scope yet — add repository suites/collections.</p>{% endif %}
+<form method="post" action="{{ url_for('portal.release_scope_add', release_id=release.id) }}" class="add-form">
+  {{ plain_form.csrf_token }}
+  <select name="item_id">
+    {% for a in avail %}<option value="{{ a.id }}">{{ a.kind }}: {{ a.path }}</option>{% endfor %}
+  </select>
+  <button type="submit" class="button secondary">Add</button>
+</form>
+</section>
+
+<section class="card"><h2>Run scope</h2>
+<form method="post" action="{{ url_for('portal.run_release', release_id=release.id) }}">
+  {{ plain_form.csrf_token }}
+  <button type="submit" class="button" {% if not items %}disabled{% endif %}>Run all in scope</button>
+</form></section>
+
+<section class="card"><h2>Executions</h2>
+{% if runs %}
+<table class="data-table"><thead><tr><th>ID</th><th>Target</th><th>Outcome</th><th>Started</th></tr></thead><tbody>
+{% for e in runs %}
+<tr><td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
+  <td><code>{{ e.target_path }}</code></td>
+  <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
+  <td>{{ (e.started_at|string)[:16] if e.started_at else "—" }}</td></tr>
+{% endfor %}</tbody></table>
+{% else %}<p class="muted">No executions yet.</p>{% endif %}
+</section>
+
+<section class="card"><h2>Status</h2>
+<form method="post" action="{{ url_for('portal.release_status', release_id=release.id) }}" class="form-actions">
+  {{ plain_form.csrf_token }}
+  {% for s in ["draft","in_progress","released","archived"] %}
+  <button type="submit" name="status" value="{{ s }}" class="button {{ 'primary' if release.status != s else 'secondary' }}">{{ s }}</button>
+  {% endfor %}
+</form></section>
+{% endblock %}

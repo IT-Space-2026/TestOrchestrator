@@ -913,6 +913,132 @@ def create_release(project_id):
                           project_id=project_id))
 
 
+@portal_bp.route("/releases/<release_id>")
+@login_required
+def release_detail(release_id):
+    release = db.session.get(Release, release_id)
+    if release is None:
+        abort(404)
+    _project_or_404(release.project_id)
+    items = ReleaseItem.query.filter_by(release_id=release.id).all()
+    runs = Execution.query.filter_by(release_id=release.id).order_by(
+        Execution.created_at.desc()).all()
+    done = [e for e in runs if e.finished_at]
+    latest = sum(1 for e in done if e.outcome.value == "passed")
+    avail = DiscoveredItem.query.filter_by(
+        binding_id=GitBinding.query.filter_by(
+            project_id=release.project_id).first().id if
+        GitBinding.query.filter_by(project_id=release.project_id).first()
+        else "").all()
+    return render_template(
+        "portal/release_detail.html", release=release, items=items,
+        runs=runs, done=len(done), passed=latest, avail=avail,
+        plain_form=PlainForm())
+
+
+@portal_bp.route("/releases/<release_id>/scope", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def release_scope_add(release_id):
+    release = db.session.get(Release, release_id)
+    if release is None:
+        abort(404)
+    _project_or_404(release.project_id)
+    PlainForm().validate_on_submit()
+    item_id = request.form.get("item_id", "")
+    item = db.session.get(DiscoveredItem, item_id)
+    if item and item.kind in ("suite", "collection"):
+        if not ReleaseItem.query.filter_by(
+                release_id=release.id, path=item.path).first():
+            db.session.add(ReleaseItem(
+                release_id=release.id, kind=item.kind,
+                path=item.path, source_item_id=item.id))
+            db.session.commit()
+    return redirect(url_for("portal.release_detail",
+                          release_id=release.id))
+
+
+@portal_bp.route("/releases/<release_id>/scope/<item_id>/remove",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def release_scope_remove(release_id, item_id):
+    release = db.session.get(Release, release_id)
+    if release is None:
+        abort(404)
+    _project_or_404(release.project_id)
+    PlainForm().validate_on_submit()
+    it = db.session.get(ReleaseItem, item_id)
+    if it and it.release_id == release.id:
+        db.session.delete(it); db.session.commit()
+    return redirect(url_for("portal.release_detail",
+                          release_id=release.id))
+
+
+@portal_bp.route("/releases/<release_id>/status", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def release_status(release_id):
+    release = db.session.get(Release, release_id)
+    if release is None:
+        abort(404)
+    _project_or_404(release.project_id)
+    PlainForm().validate_on_submit()
+    st = request.form.get("status", "")
+    if st in ("draft", "in_progress", "released", "archived"):
+        release.status = st
+        if st == "released":
+            release.released_at = utcnow()
+        db.session.commit()
+        record_audit(current_user.username, "release.status", release.id)
+    return redirect(url_for("portal.release_detail",
+                          release_id=release.id))
+
+
+@portal_bp.route("/releases/<release_id>/run", methods=["POST"])
+@role_required(*RUN_ROLES)
+def run_release(release_id):
+    """Queue executions for every in-scope definition, linked to the
+    release — same profile/runner/runtime flow as a direct run."""
+    release = db.session.get(Release, release_id)
+    if release is None:
+        abort(404)
+    _project_or_404(release.project_id)
+    PlainForm().validate_on_submit()
+    items = ReleaseItem.query.filter_by(release_id=release.id).all()
+    n = 0
+    for it in items:
+        src = db.session.get(DiscoveredItem, it.source_item_id) \
+            if it.source_item_id else None
+        path = src.path if src else it.path
+        ex = Execution(
+            project_id=release.project_id,
+            release_id=release.id,
+            suite_id=None, source_item_id=it.source_item_id,
+            source_sha=(src.sha if src else ""),
+            outcome=Outcome.NONE,
+            snapshot_json=json.dumps({
+                "source_target": {"kind": it.kind, "path": path,
+                                  "binding_id": (src.binding_id
+                                                 if src else "")}}),
+            config_json=json.dumps({
+                "profile": request.form.get("profile", "default"),
+                "browser": request.form.get("browser",
+                                           "Chrome (headless)"),
+                "runner_id": request.form.get("runner_id", ""),
+                "runtime_id": request.form.get("runtime_id", ""),
+                "timeout_seconds": 3600}),
+            created_by=current_user.username)
+        db.session.add(ex); n += 1
+        db.session.flush()
+        db.session.add(OutboxEvent(
+            kind="local-dispatch",
+            payload_json=json.dumps({"execution_id": ex.id})))
+    db.session.commit()
+    record_audit(current_user.username, "release.run", release.id)
+    flash(f"Queued {n} execution{'s' if n != 1 else ''} for "
+          f"{release.name}.", "info")
+    return redirect(url_for("portal.release_detail",
+                          release_id=release.id))
+
+
 @portal_bp.route("/releases/<release_id>/edit", methods=["POST"])
 @role_required(*EDIT_ROLES)
 def edit_release(release_id):
