@@ -414,3 +414,22 @@ def test_save_without_checkbox_posts_all_disabled(app, tmp_path):
         d.member_cfg_json = json.dumps(cfg)
         db.session.commit()
         assert all(v["isRun"] == "false" for v in cfg.values())
+
+
+def test_draft_init_when_authoring_clone_empty(app, tmp_path):
+    """Draft initializes members+enabled from the fetched worktree
+    even when the authoring clone doesn't exist yet."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        # fetched worktree has the real file; authoring clone is absent
+        import subprocess
+        wc = tmp_path / "fetched"
+        (wc / "Test Suites").mkdir(parents=True)
+        (wc / "Test Suites/S1.ts").write_text(SUITE_XML.replace(
+            "<testCaseLink><guid>g1</guid>",
+            '<testCaseLink><guid>g1</guid><isRun>false</isRun>'))
+        b.worktree_path = str(wc); db.session.commit()
+        d = authoring.open_draft("alice", item)
+        assert d.members() == ["Test Cases/API/tc1",
+                               "Test Cases/API/tc2"]
+        assert d.member_cfg()["Test Cases/API/tc1"]["isRun"] == "false"

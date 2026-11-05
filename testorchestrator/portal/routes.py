@@ -690,6 +690,19 @@ def author_save(draft_id):
     for ref in draft.members():
         cfg.setdefault(ref, {})["isRun"] = (
             "true" if ref in enabled else "false")
+    # collection per-member config: runEnabled/profileName/
+    # runConfigurationId are posted as membercfg_<idx>_<field> for
+    # each selected ref in order.
+    if draft.kind == "collection":
+        for i, ref in enumerate(draft.members()):
+            cfg.setdefault(ref, {})
+            cfg[ref]["runEnabled"] = (
+                "true" if request.form.get(
+                    f"membercfg_{i}_runEnabled") else "false")
+            for f in ("profileName", "runConfigurationId"):
+                v = request.form.get(f"membercfg_{i}_{f}")
+                if v:
+                    cfg[ref][f] = v
     draft.member_cfg_json = json.dumps(cfg)
     # suite-level editable settings (verified .ts fields)
     st = draft.settings()
