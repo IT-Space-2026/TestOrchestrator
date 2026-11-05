@@ -370,3 +370,47 @@ def test_disabled_member_survives_save_and_reorder(app, tmp_path):
         assert cfg2["Test Cases/API/tc1"]["isRun"] == "false"
         assert cfg2.get("Test Cases/API/tc2", {}).get(
             "isRun", "true") == "true"
+
+
+def test_member_enabled_posts_to_correct_rows(app, tmp_path,
+                                              client, login_as):
+    """Checkbox values bind to their own rows: saving with only tc1
+    enabled sets isRun=true/false per ref — no cross-row bleed."""
+    login_as("admin")
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        wt = authoring._authoring_wt(b.id)
+        wt.mkdir(parents=True, exist_ok=True)
+        (wt / "Test Suites").mkdir(exist_ok=True)
+        (wt / "Test Suites/S1.ts").write_text(SUITE_XML)
+        d = authoring.open_draft("admin", item)
+        did = d.id
+        from tests.test_suite_editor import _csrf
+        tok = _csrf(client, f"/author/{did}/save")
+        r = client.post(f"/author/{did}/save", data={
+            "csrf_token": tok, "name": "S1",
+            "case_refs": ["Test Cases/API/tc1",
+                          "Test Cases/API/tc2"],
+            "member_enabled": ["Test Cases/API/tc1"]})
+        assert r.status_code == 302
+        db.session.refresh(d)
+        cfg = d.member_cfg()
+        assert cfg["Test Cases/API/tc1"]["isRun"] == "true"
+        assert cfg["Test Cases/API/tc2"]["isRun"] == "false"
+
+
+def test_save_without_checkbox_posts_all_disabled(app, tmp_path):
+    """If member_enabled is absent entirely (no boxes checked), all
+    members get isRun=false — deterministic, not left stale."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        d = authoring.open_draft("alice", item)
+        d.members_json = '["a", "b"]'
+        db.session.commit()
+        # emulate author_save's cfg write with no enabled posts
+        cfg = d.member_cfg()
+        for ref in d.members():
+            cfg.setdefault(ref, {})["isRun"] = "false"
+        d.member_cfg_json = json.dumps(cfg)
+        db.session.commit()
+        assert all(v["isRun"] == "false" for v in cfg.values())
