@@ -453,7 +453,10 @@ def suite_detail(suite_id):
                     or suite.project_id in json.loads(
                         x.allowed_projects or "[]"))]
     return render_template(
-        "portal/suite_detail.html", suite=suite, can_run=can_run,
+        "portal/suite_detail.html", suite=suite,
+        can_author=GitBinding.query.filter_by(
+            project_id=suite.project_id,
+            authoring_writable=True).count() > 0, can_run=can_run,
         source_items=[i for i in DiscoveredItem.query.filter_by(
             project_id=suite.project_id).all()
             if i.kind in ("suite", "collection")],
@@ -555,6 +558,37 @@ def publish_execution_report(execution_id):
                  ex.id)
     return redirect(url_for("portal.execution_detail",
                           execution_id=ex.id))
+
+
+@portal_bp.route("/suites/<suite_id>/sync-to-repo", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def sync_suite_to_repo(suite_id):
+    """Export an App suite into a native-authoring draft — same
+    draft/diff/publish flow as repo-created definitions."""
+    from .. import authoring
+    suite = db.session.get(Suite, suite_id)
+    if suite is None:
+        abort(404)
+    _project_or_404(suite.project_id)
+    binding = GitBinding.query.filter_by(
+        project_id=suite.project_id, authoring_writable=True).first()
+    if binding is None:
+        flash("Enable Source authoring on a binding first.", "error")
+        return redirect(url_for("portal.suite_detail",
+                              suite_id=suite.id))
+    PlainForm().validate_on_submit()
+    name = suite.name.replace(" ", "_")
+    d = authoring.open_new_draft(
+        current_user.username, binding, "suite",
+        f"Test Suites/{name}.ts", suite.name)
+    refs = [e.case_ref for e in
+            sorted(suite.entries, key=lambda e: e.order)]
+    d.members_json = json.dumps(refs)
+    db.session.commit()
+    record_audit(current_user.username, "suite.sync_to_repo", suite.id)
+    flash("Draft created — review the diff and publish.", "info")
+    return redirect(url_for("portal.author_item",
+                            item_id="", draft_id=d.id))
 
 
 @portal_bp.route("/bindings/<binding_id>/author-new", methods=["POST"])

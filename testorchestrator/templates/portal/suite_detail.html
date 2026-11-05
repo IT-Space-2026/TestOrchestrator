@@ -16,6 +16,12 @@
     {% else %}no git binding — workspace copy only{% endif %}
   </dd>
 </dl>
+{% if can_author %}
+<form method="post" action="{{ url_for('portal.sync_suite_to_repo', suite_id=suite.id) }}" class="inline">
+  {{ plain_form.csrf_token }}
+  <button type="submit" class="button">Sync to repository</button>
+</form>
+{% endif %}
 {% if can_run %}
 <section class="card">
   <h2>Start execution</h2>
