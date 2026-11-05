@@ -98,8 +98,12 @@
         <td><span class="badge {{ 'ok' if rt.enabled else '' }}">{{ "enabled" if rt.enabled else "disabled" }}</span></td>
         <td>{% if not rt.last_diagnostic %}<span class="badge">Not checked</span>
           {% elif "fail" in rt.last_diagnostic|lower or "error" in rt.last_diagnostic|lower %}
-          <span class="badge danger">Check failed</span>
-          {% else %}<span class="badge ok">Checked</span>{% endif %}
+          <span class="badge danger">Probe failed</span>
+          {% elif "re-check" in rt.last_diagnostic|lower %}
+          <span class="badge">Re-check required</span>
+          {% else %}<span class="badge ok">Probe passed</span>{% endif %}
+          <small class="muted">Executable/version only — license and
+          test execution not verified.</small>
           {{ rt.last_diagnostic[:60] }}</td>
         <td>
           <form method="post" action="{{ url_for('system.probe_runtime', runtime_id=rt.id) }}" class="inline">

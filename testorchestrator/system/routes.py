@@ -620,6 +620,68 @@ def issue_token(runner_id):
     return redirect(url_for("system.infrastructure"))
 
 
+@system_bp.route("/runners/<runner_id>/edit", methods=["POST"])
+@role_required(Role.ADMIN)
+def edit_runner(runner_id):
+    """Edit mutable runner fields; probe-relevant changes invalidate
+    the last check."""
+    from ..execution import Runner
+    ApplyForm().validate_on_submit()
+    runner = db.session.get(Runner, runner_id)
+    if runner is None:
+        abort(404)
+    runner.name = request.form.get("name", runner.name).strip()
+    runner.description = request.form.get(
+        "description", runner.description)
+    runner.os_arch = request.form.get("os_arch", runner.os_arch)
+    ws = request.form.get("workspace_root")
+    if ws is not None and ws != runner.workspace_root:
+        runner.workspace_root = ws
+    ms = request.form.get("max_slots")
+    if ms:
+        runner.max_slots = int(ms)
+    db.session.commit()
+    record_audit(current_user.username, "runner.edited", runner.name)
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/runtimes/<runtime_id>/edit", methods=["POST"])
+@role_required(Role.ADMIN)
+def edit_runtime(runtime_id):
+    """Edit mutable runtime fields; executable/workspace changes
+    clear the last probe result (old check no longer validates the
+    new config)."""
+    from ..execution import RuntimeConnection
+    ApplyForm().validate_on_submit()
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt is None:
+        abort(404)
+    rt.name = request.form.get("name", rt.name).strip()
+    rt.description = request.form.get("description", rt.description)
+    ep = request.form.get("executable_path")
+    wr = request.form.get("workspace_root")
+    probe_changed = (ep is not None and ep != rt.executable_path) or (
+        wr is not None and wr != rt.workspace_root)
+    if ep is not None:
+        rt.executable_path = ep
+    if wr is not None:
+        rt.workspace_root = wr
+    # credential_ref preserved unless explicitly changed/cleared
+    cr = request.form.get("credential_ref")
+    if cr is not None:
+        rt.credential_ref = cr
+    conc = request.form.get("concurrency")
+    if conc:
+        rt.concurrency = int(conc)
+    if probe_changed:
+        rt.detected_version = ""
+        rt.last_diagnostic = (
+            "re-check required — probe-relevant config changed")
+    db.session.commit()
+    record_audit(current_user.username, "runtime.edited", rt.name)
+    return redirect(url_for("system.infrastructure"))
+
+
 @system_bp.route("/runtimes/<runtime_id>/toggle", methods=["POST"])
 @role_required(Role.ADMIN)
 def toggle_runtime(runtime_id):

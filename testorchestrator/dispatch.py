@@ -123,6 +123,15 @@ def create_execution(username: str, suite: Suite = None,
         "source_sha": source_sha,
         "created_by": username,
     }
+    # disabled runtime connections must not launch — selectors
+    # filter them, but a direct submission is rejected here too.
+    rt_id = (run_config or {}).get("runtime_id")
+    if rt_id:
+        from .execution import RuntimeConnection as _RC
+        _rt = db.session.get(_RC, rt_id)
+        if _rt is None or not _rt.enabled:
+            raise DispatchError(
+                "runtime connection unavailable or disabled")
     snapshot.update(extra_snapshot or {})
     execution = Execution(
         project_id=(suite.project_id if suite
