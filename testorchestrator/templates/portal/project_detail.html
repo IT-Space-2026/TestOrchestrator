@@ -295,6 +295,11 @@
     </div>
     {% endfor %}
   </div>
+  {% else %}
+  <div class="card release-timeline"><div class="empty-state">
+    <p>No dated releases yet.</p>
+    <p class="muted">Set Start and Target end dates on a release to see the timeline.</p>
+  </div></div>
   {% endif %}
   <input type="search" id="release-search" placeholder="Search releases…"
          style="max-width:20rem;margin-bottom:.5rem">
