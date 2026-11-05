@@ -230,6 +230,7 @@
       <div class="field">{{ schedule_form.timeout_seconds.label }} {{ schedule_form.timeout_seconds() }}</div>
       <div class="field">{{ schedule_form.overlap_policy.label }} {{ schedule_form.overlap_policy() }}</div>
       <button type="submit" class="button">Apply</button>
+      <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form>
   </details>
   {% endif %}

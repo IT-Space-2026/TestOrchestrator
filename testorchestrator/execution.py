@@ -296,6 +296,7 @@ class Execution(db.Model):
                          nullable=True)
     release_id = db.Column(db.String(32), db.ForeignKey("releases.id"),
                            nullable=True)
+    release = db.relationship("Release", foreign_keys=[release_id])
     # Direct repository-definition runs: convenience link to the
     # DiscoveredItem index row (replaceable per-SHA — the durable
     # identity lives in the snapshot's source_target triple).
