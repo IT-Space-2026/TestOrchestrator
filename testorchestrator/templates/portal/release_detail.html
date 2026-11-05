@@ -64,7 +64,8 @@
 
 <section class="card"><h2>Repository sync</h2>
 {% if release.synced_sha %}
-<p>Synced: <code>{{ release.sync_path }}</code> @ <code>{{ release.synced_sha[:12] }}</code>
+<p>Last synced authoring commit: <code>{{ release.synced_sha[:12] }}</code>
+  · <code>{{ release.sync_path }}</code> on binding <code>{{ release.sync_binding_id[:8] }}</code>
   {% if release.sync_dirty %}<span class="badge warn">unsynced changes</span>{% endif %}</p>
 {% else %}<p class="muted">Not synced to a repository yet.</p>{% endif %}
 <p><a class="button secondary" href="{{ url_for('portal.release_sync_preview', release_id=release.id) }}">Sync to repository</a></p>

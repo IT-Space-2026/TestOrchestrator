@@ -1031,7 +1031,7 @@ def release_sync_preview(release_id):
                 "resolve", Path(binding.worktree_path), "HEAD") or ""
         except Exception:
             pass
-    sig = (_release_sync_sig(release, items, binding, path)
+    sig = (_release_sync_sig(release, items, binding, path, base)
            if binding else "")
     return render_template(
         "portal/release_sync.html", release=release, export=export,
@@ -1066,7 +1066,8 @@ def release_sync(release_id):
     path = (release.sync_path or
             f"TestOrchestration/release/{slug}.json")
     if request.form.get("sig") != _release_sync_sig(
-            release, items, binding, path):
+            release, items, binding, path,
+            request.form.get("base", "")):
         flash("Release changed since preview — review again.",
               "error")
         return redirect(url_for("portal.release_sync_preview",
