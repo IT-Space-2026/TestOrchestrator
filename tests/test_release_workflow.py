@@ -116,3 +116,37 @@ def test_config_keyed_latest(app, tmp_path):
         db.session.add_all([e1, e2]); db.session.commit()
         assert e1.snapshot()["run_config"]["profile"] == "default"
         assert e2.snapshot()["run_config"]["profile"] == "staging"
+
+
+def test_export_content(app, tmp_path):
+    """Export carries metadata + scope paths, no DB ids/secrets."""
+    from testorchestrator.portal.routes import _release_export
+    pid, rid = _seed(app, tmp_path)
+    with app.app_context():
+        rel = _rel(rid)
+        db.session.add(ReleaseItem(release_id=rid, kind="suite",
+                                 path="Test Suites/S.ts"))
+        db.session.commit()
+        items = ReleaseItem.query.filter_by(release_id=rid).all()
+        out = _release_export(rel, items)
+        assert out["name"] == "R1"
+        assert out["scope"] == [{"kind": "suite",
+                                 "path": "Test Suites/S.ts"}]
+        assert "id" not in out["scope"][0]
+        assert "sync_binding_id" not in out
+
+
+def test_sync_sig_changes_on_content(app, tmp_path):
+    """Sig covers export + path + binding + base — a changed release
+    or destination produces a different signature."""
+    from testorchestrator.portal.routes import _release_sync_sig
+    pid, rid = _seed(app, tmp_path)
+    with app.app_context():
+        rel = _rel(rid)
+        class B:
+            id = "b1"
+            name = "b"
+        s1 = _release_sync_sig(rel, [], B(), "a.json", "sha1")
+        s2 = _release_sync_sig(rel, [], B(), "a.json", "sha2")
+        s3 = _release_sync_sig(rel, [], B(), "b.json", "sha1")
+        assert s1 != s2 != s3       # base + path both bind the sig

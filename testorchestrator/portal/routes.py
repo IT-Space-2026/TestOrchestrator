@@ -988,13 +988,14 @@ def _release_export(release, items, binding=None):
         "scope": [{"kind": i.kind, "path": i.path} for i in items]}
 
 
-def _release_sync_sig(release, items, binding, path):
+def _release_sync_sig(release, items, binding, path, base=""):
     h = hashlib.sha256()
     h.update(json.dumps(
         _release_export(release, items, binding),
         sort_keys=True).encode())
     h.update(path.encode())
     h.update(binding.id.encode())
+    h.update(base.encode())
     return h.hexdigest()
 
 
