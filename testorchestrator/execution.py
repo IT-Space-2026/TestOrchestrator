@@ -294,6 +294,8 @@ class Execution(db.Model):
                            nullable=False)
     suite_id = db.Column(db.String(32), db.ForeignKey("suites.id"),
                          nullable=True)
+    release_id = db.Column(db.String(32), db.ForeignKey("releases.id"),
+                           nullable=True)
     # Direct repository-definition runs: convenience link to the
     # DiscoveredItem index row (replaceable per-SHA — the durable
     # identity lives in the snapshot's source_target triple).
@@ -305,8 +307,6 @@ class Execution(db.Model):
     # binding — never mutated by later definition edits (A07).
     snapshot_json = db.Column(db.Text, nullable=False, default="{}")
     source_sha = db.Column(db.String(64), nullable=False, default="")
-    release_id = db.Column(db.String(32), db.ForeignKey("releases.id"),
-                           nullable=True)
     binding_id = db.Column(db.String(32), db.ForeignKey("git_bindings.id"),
                            nullable=True)
     runner_id = db.Column(db.String(32), db.ForeignKey("runners.id"),
@@ -494,8 +494,6 @@ class DiscoveredItem(db.Model):
     never erases the last good set."""
     __tablename__ = "discovered_items"
     id = db.Column(db.String(32), primary_key=True, default=new_id)
-    release_id = db.Column(db.String(32), db.ForeignKey("releases.id"),
-                           nullable=True)
     binding_id = db.Column(db.String(32), db.ForeignKey("git_bindings.id"),
                            nullable=False)
     project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
