@@ -10,6 +10,9 @@
 
 <section class="card">
   <h2>Runners</h2>
+  <p class="muted">A <strong>runner</strong> is the execution worker or
+    destination — the machine that runs tests. Runtime connections
+    (below) are the KRE installations used on a runner.</p>
   <table class="audit-table">
     <thead><tr><th>Name</th><th>Mode</th><th>OS/arch</th><th>Slots</th><th>Health</th><th>Heartbeat</th><th>Agent</th><th>Drain</th></tr></thead>
     <tbody>
@@ -17,7 +20,8 @@
       <tr>
         <td>{{ r.name }}</td><td>{{ r.connection_mode }}</td>
         <td>{{ r.os_arch }}</td><td>{{ r.max_slots }}</td>
-        <td>{{ r.health }}</td><td>{{ r.heartbeat_at or "—" }}</td>
+        <td><span class="badge {{ 'danger' if r.health in ('unhealthy','down') else ('warn' if r.health in ('unknown','stale') else 'ok') }}">{{ r.health }}</span></td>
+        <td>{{ r.heartbeat_at or "—" }}</td>
         <td>
           {% if r.agent_token_hash %}issued{% else %}none{% endif %}
           {{ "· v" + r.agent_version if r.agent_version else "" }}
@@ -80,6 +84,9 @@
   <p class="muted">Register runtimes that are already installed and licensed
      by the operator. TestOrchestrator never installs, upgrades, or licenses
      KRE; executable presence is not licence proof.</p>
+  <p class="muted"><strong>Test connection</strong> checks executable presence
+     + version probe only — it does not verify licence availability or start
+     an execution.</p>
   <table class="audit-table">
     <thead><tr><th>Name</th><th>Runner</th><th>Executable</th><th>Version</th><th>Enabled</th><th>Diagnostics</th><th></th></tr></thead>
     <tbody>
@@ -88,12 +95,20 @@
         <td>{{ rt.name }}</td><td>{{ rt.runner.name if rt.runner else rt.runner_id[:8] }}</td>
         <td><code>{{ rt.executable_path }}</code></td>
         <td>{{ rt.detected_version or "unprobed" }}</td>
-        <td>{{ "yes" if rt.enabled else "no" }}</td>
-        <td>{{ rt.last_diagnostic[:80] }}</td>
+        <td><span class="badge {{ 'ok' if rt.enabled else '' }}">{{ "enabled" if rt.enabled else "disabled" }}</span></td>
+        <td>{% if not rt.last_diagnostic %}<span class="badge">Not checked</span>
+          {% elif "fail" in rt.last_diagnostic|lower or "error" in rt.last_diagnostic|lower %}
+          <span class="badge danger">Check failed</span>
+          {% else %}<span class="badge ok">Checked</span>{% endif %}
+          {{ rt.last_diagnostic[:60] }}</td>
         <td>
           <form method="post" action="{{ url_for('system.probe_runtime', runtime_id=rt.id) }}" class="inline">
             {{ runtime_form.csrf_token }}
             <button type="submit" class="button secondary">Test connection</button>
+          </form>
+          <form method="post" action="{{ url_for('system.toggle_runtime', runtime_id=rt.id) }}" class="inline">
+            {{ runtime_form.csrf_token }}
+            <button type="submit" class="button secondary">{{ "Disable" if rt.enabled else "Enable" }}</button>
           </form>
         </td>
       </tr>

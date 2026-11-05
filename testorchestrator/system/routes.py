@@ -620,6 +620,22 @@ def issue_token(runner_id):
     return redirect(url_for("system.infrastructure"))
 
 
+@system_bp.route("/runtimes/<runtime_id>/toggle", methods=["POST"])
+@role_required(Role.ADMIN)
+def toggle_runtime(runtime_id):
+    """Enable/disable the runtime — disabled connections are excluded
+    from launch/runtime selectors; history is preserved."""
+    from ..execution import RuntimeConnection
+    ApplyForm().validate_on_submit()
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt is None:
+        abort(404)
+    rt.enabled = not rt.enabled
+    db.session.commit()
+    record_audit(current_user.username, "runtime.toggle", rt.name)
+    return redirect(url_for("system.infrastructure"))
+
+
 @system_bp.route("/infrastructure/runners/<runner_id>/drain",
                  methods=["POST"])
 @role_required(Role.ADMIN)
@@ -634,3 +650,5 @@ def drain_runner(runner_id):
     db.session.commit()
     record_audit(current_user.username, "runner.drain", runner.name)
     return redirect(url_for("system.infrastructure"))
+
+
