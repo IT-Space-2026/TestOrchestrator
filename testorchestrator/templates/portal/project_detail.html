@@ -238,11 +238,14 @@
 <!-- ============ RELEASES ============ -->
 <section class="tab-panel card" id="panel-releases">
   <h2>Releases</h2>
+  <input type="search" id="release-search" placeholder="Search releases…"
+         style="max-width:20rem;margin-bottom:.5rem">
   {% if project.releases %}
-  <ul class="notice-list">
+  <ul class="notice-list" id="releases-list">
     {% for r in project.releases %}
-    <li><strong>{{ r.name }}</strong>
+    <li data-release-row><strong><a href="{{ url_for('portal.release_detail', release_id=r.id) }}">{{ r.name }}</a></strong>
       — <span class="badge">{{ r.status.value }}</span>
+      <span class="muted">{{ (r.created_at|string)[:16] }}</span>
       {% if can_edit %}
       <details class="inline-details">
         <summary class="button secondary">Edit</summary>
