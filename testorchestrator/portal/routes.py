@@ -1805,6 +1805,45 @@ def toggle_schedule(schedule_id):
                           project_id=sched.project_id))
 
 
+@portal_bp.route("/schedules/<schedule_id>/edit", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def edit_schedule(schedule_id):
+    """Update timing/config + repository targets — preserves history."""
+    sched = db.session.get(Schedule, schedule_id)
+    if sched is None:
+        abort(404)
+    _project_or_404(sched.project_id)
+    form = ScheduleForm()
+    form.validate_on_submit()
+    if request.form.get("name"):
+        sched.name = request.form["name"].strip()
+    for f in ("run_at", "interval_minutes", "kind",
+              "execution_profile", "browser_type",
+              "remote_webdriver_url", "remote_webdriver_type",
+              "runner_id", "runtime_id", "timeout_seconds"):
+        v = request.form.get(f)
+        if v is not None and v != "":
+            setattr(sched, f if f != "kind" else "kind", v)
+    refs = [x for x in request.form.getlist("case_refs")
+            if x.startswith("repo:")]
+    if refs:
+        targets = []
+        for ref in refs:
+            d = db.session.get(DiscoveredItem, ref[5:])
+            if d and d.binding.project_id == sched.project_id:
+                targets.append({"kind": d.kind, "path": d.path,
+                                "source_item_id": d.id,
+                                "binding_id": d.binding_id})
+        if targets:
+            sched.targets_json = json.dumps(targets)
+            sched.target_type = "suite"   # off legacy plan
+            sched.plan_id = None
+    db.session.commit()
+    record_audit(current_user.username, "schedule.edited", sched.id)
+    return redirect(url_for("portal.project_detail",
+                          project_id=sched.project_id))
+
+
 @portal_bp.route("/schedules/<schedule_id>/run-now", methods=["POST"])
 @role_required(*RUN_ROLES)
 def run_schedule_now(schedule_id):

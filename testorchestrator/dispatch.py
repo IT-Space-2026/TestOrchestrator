@@ -972,7 +972,9 @@ def fire_due_schedules(now=None) -> int:
                 for tgt in targets:
                     d_item = db.session.get(
                         DiscoveredItem, tgt.get("source_item_id"))
-                    if d_item is None:
+                    if (d_item is None or
+                            d_item.binding.project_id
+                            != sched.project_id):
                         record_audit("worker", "schedule.target_unavailable",
                                      sched.id)
                         continue
