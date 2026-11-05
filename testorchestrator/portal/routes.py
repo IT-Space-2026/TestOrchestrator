@@ -259,6 +259,8 @@ def edit_binding(binding_id):
         binding.subdirectory = form.subdirectory.data.strip()
         binding.prj_path = form.prj_path.data.strip()
         binding.credential_ref = form.credential_ref.data.strip()
+        binding.authoring_writable = bool(
+            request.form.get("authoring_writable"))
         db.session.commit()
         record_audit(current_user.username, "binding.edited", binding.id)
         flash("Binding updated.", "info")
@@ -547,6 +549,135 @@ def publish_execution_report(execution_id):
                  ex.id)
     return redirect(url_for("portal.execution_detail",
                           execution_id=ex.id))
+
+
+@portal_bp.route("/bindings/<binding_id>/author-new", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def author_new(binding_id):
+    from .. import authoring
+    binding = db.session.get(GitBinding, binding_id)
+    if binding is None:
+        abort(404)
+    _project_or_404(binding.project_id)
+    if not binding.authoring_writable:
+        abort(403)
+    PlainForm().validate_on_submit()
+    kind = request.form.get("kind", "suite")
+    name = request.form.get("name", "").strip() or "New"
+    path = request.form.get("path", "").strip()
+    if not path or ".." in path or path.startswith("/"):
+        flash("A safe repository-relative path is required.", "error")
+        return redirect(url_for("portal.project_detail",
+                              project_id=binding.project_id))
+    d = authoring.open_new_draft(current_user.username, binding,
+                                 kind, path, name)
+    item = _draft_item(d)
+    return redirect(url_for("portal.author_item",
+                            item_id=item.id if item else "",
+                            draft_id=d.id))
+
+
+@portal_bp.route("/discovered/<item_id>/author")
+@role_required(*EDIT_ROLES)
+def author_item(item_id):
+    from .. import authoring
+    from ..execution import AuthoringDraft
+    draft = db.session.get(AuthoringDraft,
+                           request.args.get("draft_id", ""))
+    if draft is None:
+        item = db.session.get(DiscoveredItem, item_id)
+        if item is None or item.kind not in ("suite", "collection"):
+            abort(404)
+        _project_or_404(item.project_id)
+        b = db.session.get(GitBinding, item.binding_id)
+        if not (b and b.authoring_writable):
+            abort(403)
+        draft = AuthoringDraft.query.filter_by(
+            binding_id=item.binding_id, path=item.path,
+            owner=current_user.username, status="draft").first()
+        if draft is None:
+            draft = authoring.open_draft(current_user.username, item)
+    else:
+        _project_or_404(draft.project_id)
+        if draft.owner != current_user.username:
+            abort(403)
+        b = db.session.get(GitBinding, draft.binding_id)
+        item = db.session.get(DiscoveredItem, item_id)
+    avail = (gitsync.list_test_cases(b) if draft.kind == "suite"
+             else [i.path for i in DiscoveredItem.query.filter_by(
+                 binding_id=b.id, kind="suite")])
+    return render_template(
+        "portal/author_edit.html", item=item, draft=draft, binding=b,
+        cases=avail, diff=authoring.draft_diff(draft),
+        review_sig=authoring.draft_signature(draft),
+        plain_form=PlainForm())
+
+
+def _draft_item(draft):
+    return DiscoveredItem.query.filter_by(
+        binding_id=draft.binding_id, path=draft.path).first()
+
+
+@portal_bp.route("/author/<draft_id>/save", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def author_save(draft_id):
+    from ..execution import AuthoringDraft
+    draft = db.session.get(AuthoringDraft, draft_id)
+    if draft is None or draft.owner != current_user.username:
+        abort(404)
+    _project_or_404(draft.project_id)
+    PlainForm().validate_on_submit()
+    refs = [x.strip() for x in request.form.getlist("case_refs")
+            if x.strip()]
+    draft.members_json = json.dumps(list(dict.fromkeys(refs)))
+    name = request.form.get("name", "").strip()
+    if name:
+        draft.name = name
+    db.session.commit()
+    record_audit(current_user.username, "author.draft_saved", draft.id)
+    item = _draft_item(draft)
+    return redirect(url_for("portal.author_item",
+                            item_id=item.id if item else "",
+                            draft_id=draft.id))
+
+
+@portal_bp.route("/author/<draft_id>/publish", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def author_publish(draft_id):
+    from .. import authoring
+    from ..execution import AuthoringDraft
+    draft = db.session.get(AuthoringDraft, draft_id)
+    if draft is None or draft.owner != current_user.username:
+        abort(404)
+    _project_or_404(draft.project_id)
+    PlainForm().validate_on_submit()
+    res = authoring.publish_draft(
+        draft, request.form.get("review_sig", ""))
+    if res.get("error"):
+        flash(f"Publish failed: {res['error']}", "error")
+    else:
+        flash("Published to the authoring branch.", "info")
+        record_audit(current_user.username, "author.published", draft.id)
+    item = _draft_item(draft)
+    return redirect(url_for("portal.author_item",
+                            item_id=item.id if item else "",
+                            draft_id=draft.id))
+
+
+@portal_bp.route("/author/<draft_id>/abandon", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def author_abandon(draft_id):
+    from ..execution import AuthoringDraft
+    draft = db.session.get(AuthoringDraft, draft_id)
+    if draft is None or draft.owner != current_user.username:
+        abort(404)
+    _project_or_404(draft.project_id)
+    PlainForm().validate_on_submit()
+    draft.status = "abandoned"
+    db.session.commit()
+    record_audit(current_user.username, "author.abandoned", draft.id)
+    return redirect(url_for("portal.project_detail",
+                          project_id=draft.project_id))
 
 
 @portal_bp.route("/executions")
