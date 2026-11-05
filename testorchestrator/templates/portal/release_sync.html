@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Sync {{ release.name }} · TestOrchestrator{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.release_detail', release_id=release.id) }}">← {{ release.name }}</a></p>
+<h1>Sync to repository</h1>
+<p>Publish this release definition to <code>{{ path }}</code>
+  on binding <strong>{{ binding.name if binding else "(none — enable Source authoring on a binding)" }}</strong>.</p>
+<h2>Export</h2>
+<pre>{{ export | tojson(indent=2) }}</pre>
+{% if binding %}
+<form method="post" action="{{ url_for('portal.release_sync', release_id=release.id) }}">
+  {{ plain_form.csrf_token }}
+  <input type="hidden" name="binding_id" value="{{ binding.id }}">
+  <button type="submit" class="button">Publish to {{ binding.name }}</button>
+</form>
+{% endif %}
+{% endblock %}

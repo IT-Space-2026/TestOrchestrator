@@ -10,6 +10,7 @@ and log streams.
 
 import hashlib
 import json
+import re
 import mimetypes
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -972,6 +973,84 @@ def release_detail(release_id):
         avail=avail, plain_form=PlainForm())
 
 
+def _release_export(release, items):
+    """Portable release definition — native repo paths, no DB ids,
+    no secrets or machine paths."""
+    return {
+        "type": "testorchestrator-release",
+        "version": 1,
+        "name": release.name,
+        "description": release.description,
+        "status": release.status,
+        "scope": [{"kind": i.kind, "path": i.path} for i in items]}
+
+
+@portal_bp.route("/releases/<release_id>/sync-preview")
+@role_required(*EDIT_ROLES)
+def release_sync_preview(release_id):
+    release = db.session.get(Release, release_id)
+    if release is None:
+        abort(404)
+    _project_or_404(release.project_id)
+    items = ReleaseItem.query.filter_by(release_id=release.id).all()
+    export = _release_export(release, items)
+    binding = GitBinding.query.filter_by(
+        project_id=release.project_id, authoring_writable=True).first()
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", release.name)
+    path = f"TestOrchestration/release/{slug}.json"
+    return render_template(
+        "portal/release_sync.html", release=release, export=export,
+        path=path, binding=binding, plain_form=PlainForm())
+
+
+@portal_bp.route("/releases/<release_id>/sync", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def release_sync(release_id):
+    """Write the release definition to TestOrchestration/release/ in
+    the authoring branch — gated by authoring_writable, remote-conflict
+    checked, and commits only on change."""
+    release = db.session.get(Release, release_id)
+    if release is None:
+        abort(404)
+    _project_or_404(release.project_id)
+    PlainForm().validate_on_submit()
+    binding = db.session.get(GitBinding,
+                             request.form.get("binding_id"))
+    if binding is None or binding.project_id != release.project_id:
+        abort(404)
+    if not binding.authoring_writable:
+        flash("Source authoring is not enabled on that binding.",
+              "error")
+        return redirect(url_for("portal.release_detail",
+                              release_id=release.id))
+    from .. import authoring, git_backend
+    items = ReleaseItem.query.filter_by(release_id=release.id).all()
+    export = _release_export(release, items)
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", release.name)
+    path = release.sync_path or f"TestOrchestration/release/{slug}.json"
+    wt = authoring._authoring_wt(binding.id)
+    f = wt / path
+    content = json.dumps(export, indent=2, sort_keys=True) + "\n"
+    if f.exists() and f.read_text() == content:
+        flash("Already in sync — no change.", "info")
+        return redirect(url_for("portal.release_detail",
+                              release_id=release.id))
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(content)
+    git_backend.run("commit", wt, path,
+                    message=f"Release {release.name}: sync")
+    release.sync_binding_id = binding.id
+    release.sync_path = path
+    release.synced_sha = git_backend.run(
+        "resolve", wt, "HEAD") or ""
+    release.sync_dirty = False
+    db.session.commit()
+    record_audit(current_user.username, "release.synced", release.id)
+    flash(f"Synced {release.name} -> {path}", "info")
+    return redirect(url_for("portal.release_detail",
+                          release_id=release.id))
+
+
 @portal_bp.route("/releases/<release_id>/scope", methods=["POST"])
 @role_required(*EDIT_ROLES)
 def release_scope_add(release_id):
@@ -1111,6 +1190,7 @@ def edit_release(release_id):
     if name:
         release.name = name
         release.description = request.form.get("description", "")
+        release.sync_dirty = True
         db.session.commit()
         record_audit(current_user.username, "release.edited",
                      release.id)
