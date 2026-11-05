@@ -346,3 +346,27 @@ def test_settings_round_trip(tmp_path):
     reparsed = authoring.parse_ts(f)
     assert reparsed["settings"]["numberOfRerun"] == "5"
     assert reparsed["member_cfg"]["Test Cases/API/tc1"]["isRun"] == "true"
+
+
+def test_disabled_member_survives_save_and_reorder(app, tmp_path):
+    """A member with isRun=false stays disabled through save, reorder,
+    and validation — config isn't reset by other edits."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        wt = authoring._authoring_wt(b.id)
+        wt.mkdir(parents=True, exist_ok=True)
+        (wt / "Test Suites").mkdir(exist_ok=True)
+        (wt / "Test Suites/S1.ts").write_text(SUITE_XML.replace(
+            "<testCaseLink><guid>g1</guid>",
+            '<testCaseLink><guid>g1</guid><isRun>false</isRun>'))
+        d = authoring.open_draft("alice", item)
+        # parse picked up isRun=false on the first member
+        cfg = d.member_cfg()
+        assert cfg.get("Test Cases/API/tc1", {}).get("isRun") == "false"
+        # reorder: tc2 first, tc1 stays disabled
+        d.members_json = '["Test Cases/API/tc2","Test Cases/API/tc1"]'
+        db.session.commit()
+        cfg2 = d.member_cfg()
+        assert cfg2["Test Cases/API/tc1"]["isRun"] == "false"
+        assert cfg2.get("Test Cases/API/tc2", {}).get(
+            "isRun", "true") == "true"

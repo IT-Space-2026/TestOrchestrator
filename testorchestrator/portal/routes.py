@@ -655,6 +655,9 @@ def author_item(item_id):
         "portal/author_edit.html", item=item, draft=draft, binding=b,
         cases=avail, diff=authoring.draft_diff(draft),
         review_sig=authoring.draft_signature(draft),
+        disabled=[m for m in draft.members()
+                  if draft.member_cfg().get(m, {}).get("isRun")
+                  == "false"],
         plain_form=PlainForm())
 
 

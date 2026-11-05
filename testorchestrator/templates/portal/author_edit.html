@@ -66,7 +66,8 @@
     {{ plain_form.csrf_token }}
     <div data-case-selector
          data-cases='{{ cases | tojson }}'
-         data-selected='{{ draft.members() | tojson }}'>
+         data-selected='{{ draft.members() | tojson }}'
+         data-disabled='{{ disabled | tojson }}'>
       <div data-hidden>
         {% for c in draft.members() %}<input type="hidden" name="case_refs" value="{{ c }}">{% endfor %}
       </div>
