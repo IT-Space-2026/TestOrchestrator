@@ -19,7 +19,8 @@ from flask import (abort, flash, redirect, render_template, request,
 from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
-from ..execution import (Execution, ExecutionState, GitBinding, OutboxEvent,
+from ..execution import (DiscoveredItem, Execution, ExecutionState,
+                       GitBinding, OutboxEvent,
                          Outcome, Plan, PlanEntry, Project, Release,
                          Schedule, Suite, SuiteEntry, utcnow)
 from ..extensions import db
@@ -206,6 +207,11 @@ def project_detail(project_id):
         binding_form=BindingForm(),
         can_author=GitBinding.query.filter_by(
             project_id=project.id, authoring_writable=True).count() > 0,
+        repo_cases=cases,
+        repo_suites=[i.path for i in
+                     DiscoveredItem.query.filter_by(
+                         binding_id=first_binding.id if first_binding else '',
+                         kind='suite').all()],
         suite_form=suite_form, plain_form=PlainForm(),
         schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,
         executions=Execution.query.filter_by(project_id=project_id)
@@ -569,8 +575,13 @@ def author_new(binding_id):
         flash("A safe repository-relative path is required.", "error")
         return redirect(url_for("portal.project_detail",
                               project_id=binding.project_id))
+    refs = [x.strip() for x in
+            request.form.getlist("case_refs") if x.strip()]
     d = authoring.open_new_draft(current_user.username, binding,
                                  kind, path, name)
+    if refs:
+        d.members_json = json.dumps(list(dict.fromkeys(refs)))
+        db.session.commit()
     item = _draft_item(d)
     return redirect(url_for("portal.author_item",
                             item_id=item.id if item else "",

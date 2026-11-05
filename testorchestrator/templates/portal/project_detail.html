@@ -142,6 +142,10 @@
       <div class="field"><label>Name</label><input name="name" required></div>
       <div class="field"><label>Source path</label>
         <input name="path" placeholder="Test Suites/Name.ts" required></div>
+      <div class="field"><label>Test cases</label>
+        <div data-case-selector
+             data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
+          <div data-hidden></div></div></div>
       <button type="submit" class="button">Create</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form></details>
@@ -152,6 +156,10 @@
       <div class="field"><label>Name</label><input name="name" required></div>
       <div class="field"><label>Source path</label>
         <input name="path" placeholder="Test Suites/Name.ts" required></div>
+      <div class="field"><label>Suites</label>
+        <div data-case-selector
+             data-cases='{{ repo_suites | tojson }}' data-selected='[]'>
+          <div data-hidden></div></div></div>
       <button type="submit" class="button">Create</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form></details>
