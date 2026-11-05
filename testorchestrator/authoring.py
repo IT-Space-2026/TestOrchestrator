@@ -185,8 +185,11 @@ def write_ts_members(path: Path, parsed: dict, members: list,
 def open_draft(username: str, item: DiscoveredItem) -> AuthoringDraft:
     """Open a user-owned draft of a discovered suite/collection —
     isolated per owner; base revision recorded."""
-    wt = _authoring_wt(item.binding_id)
-    parsed = parse_ts(wt / item.path) if (wt / item.path).exists()         else {}
+    b = db.session.get(GitBinding, item.binding_id)
+    src = (Path(b.worktree_path) / item.path
+           if b and b.worktree_path
+           else _authoring_wt(b.id) / item.path)
+    parsed = parse_ts(src) if src.exists() else {}
     d = AuthoringDraft(
         binding_id=item.binding_id, project_id=item.project_id,
         owner=username, kind=item.kind, path=item.path,
