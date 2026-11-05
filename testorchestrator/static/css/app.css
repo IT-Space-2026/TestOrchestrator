@@ -745,3 +745,11 @@ html[data-theme="dark"] {
 .bulk-toolbar .button { white-space: normal; max-width: 100%;
   line-height: 1.2; padding: .4rem .8rem; }
 .bulk-toolbar #sel-count { font-weight: 700; }
+
+/* repo create actions — stacked, don't shift each other */
+.repo-actions { display: flex; flex-direction: column;
+  gap: .5rem; margin-top: .5rem; }
+.repo-actions .block-details summary { list-style: none;
+  display: inline-block; }
+.repo-actions .block-details[open] { padding: .5rem;
+  border: 1px solid var(--border); border-radius: var(--radius); }
