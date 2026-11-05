@@ -103,10 +103,15 @@ installations; it does not install or license KRE.</p>
 
 <section class="card">
   <h2>KRE installations</h2>
+  <p class="muted"><strong>Check executable &amp; version</strong> runs
+    a probe on the portal host by default — on a remote runner, the
+    executable must exist on <em>that</em> worker; the check does not
+    currently verify remote availability end-to-end.</p>
   {% for r in runners %}
   <div class="runner-group">
     <div class="runner-group-head">
       <strong>{{ r.name }}</strong>
+      <span class="badge">{{ r.connection_mode }}</span>
       <span class="badge {{ 'warn' if r.health in ('unknown','stale') else 'ok' }}">{{ r.health }}</span>
       {% if r.draining %}<span class="badge">draining</span>{% endif %}
       <span class="muted">Last heartbeat {{ r.heartbeat_at or "never" }}</span>
