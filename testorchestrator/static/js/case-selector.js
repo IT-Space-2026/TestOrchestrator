@@ -70,7 +70,10 @@
       const selArr = [...selected.keys()];
       sel.innerHTML = selArr.length
         ? selArr.map((c, i) => `
-          <li><span class="case-path" title="${c}">${c}</span>
+          <li><label class="member-enabled" title="Enabled (isRun)">
+            <input type="checkbox" name="member_enabled" value="${c}"
+                   ${selectedCfg.get(c) !== false ? "checked" : ""}>
+          </label><span class="case-path" title="${c}">${c}</span>
             <span class="case-actions">
               <button type="button" class="button ghost icon" data-up="${i}"
                       aria-label="Move up" ${i === 0 ? "disabled" : ""}>↑</button>
