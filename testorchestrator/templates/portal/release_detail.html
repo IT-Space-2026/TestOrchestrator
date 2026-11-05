@@ -52,7 +52,7 @@
       <option value="suite">Test Suite</option>
       <option value="collection">Collection</option>
     </select></div>
-  <div class="field" style="flex:2"><label>Add repository definition</label>
+  <div class="field field-grow"><label>Add repository definition</label>
     <select name="item_id" id="scope-item-select" class="form-input">
       {% for a in avail %}<option value="{{ a.id }}" data-kind="{{ a.kind }}">{{ a.kind }}: {{ a.path }}</option>{% endfor %}
     </select></div>
@@ -90,7 +90,8 @@
 <form method="post" action="{{ url_for('portal.release_status', release_id=release.id) }}" class="form-actions">
   {{ plain_form.csrf_token }}
   {% for s in ["draft","in_progress","released","archived"] %}
-  <button type="submit" name="status" value="{{ s }}" class="button {{ 'primary' if release.status != s else 'secondary' }}">{{ s }}</button>
+  <button type="submit" name="status" value="{{ s }}"
+          class="button status-btn status-{{ s }}">{{ s }}</button>
   {% endfor %}
 </form></section>
 {% endblock %}

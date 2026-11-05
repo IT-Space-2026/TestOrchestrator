@@ -774,3 +774,22 @@ html[data-theme="dark"] {
 .scope-add #scope-type-filter{width:9rem}
 .scope-add .field:nth-of-type(2){flex:1}
 .scope-add .field:nth-of-type(2) select{width:100%}
+.scope-add .field-grow{flex:1;min-width:0}
+.scope-add .field-grow select{width:100%}
+.status-btn{border-width:1px;border-style:solid}
+.status-btn.status-draft{background:var(--bg-subtle);color:var(--text);
+  border-color:var(--border)}
+.status-btn.status-in_progress{background:#fef3c7;color:#92400e;
+  border-color:#f59e0b}
+.status-btn.status-released{background:#d1fae5;color:#065f46;
+  border-color:#10b981}
+.status-btn.status-archived{background:#dbeafe;color:#1e40af;
+  border-color:#3b82f6}
+[data-theme="dark"] .status-btn.status-in_progress{background:#713f12;
+  color:#fde68a}
+[data-theme="dark"] .status-btn.status-released{background:#064e3b;
+  color:#a7f3d0}
+[data-theme="dark"] .status-btn.status-archived{background:#1e3a8a;
+  color:#bfdbfe}
+.scope-add .field:first-of-type{flex:0 0 9rem}
+.scope-add .field-grow{flex:1 1 auto}

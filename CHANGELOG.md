@@ -5,6 +5,61 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+
+### Added — repository-native authoring, releases, dashboard
+
+- **Project Dashboard** (first/default tab): stat cards (total/
+  passed/failed/running/queued + pass rate), date filter, 14-day
+  passed/failed trend, recent executions, inventory + repo health,
+  publication pending/failed.
+- **Repository Suites** — discovered suites/collections shown with
+  type badges, member counts, direct Run, Edit (authoring-gated);
+  read-only badge only when authoring isn't enabled.
+- **Native authoring** — round-trip .ts parse/write: members + name +
+  verified settings only; comments/namespaces/unknown nodes preserved;
+  dynamic suites read-only. Per-owner drafts (base_sha, members,
+  settings, member_cfg); review-bound publish (signature covers
+  name+members+settings+cfg+destination+base); remote fetched before
+  conflict check; cleanup of abandoned drafts.
+- **Verified editable fields** — suite: description/tag/isRerun/
+  numberOfRerun/rerunImmediately/rerunFailedTestCasesOnly/
+  pageLoadTimeout; member: isRun/isReuseDriver/
+  usingDataBindingAtTestSuiteLevel; collection: executionMode/
+  delayBetweenInstances/maxConcurrentInstances + per-suite
+  runEnabled/profileName/runConfigurationId. Preserved-not-editable:
+  guid/testSuiteGuid/mailRecipient/hooks/groovy/unknown nodes.
+- **Publish -> auto-sync** — a git-sync outbox event follows a
+  successful publish so the new/edited definition is rediscovered
+  without a manual Sync.
+- **Create suite/collection** — one action each: name -> .ts path +
+  member selector -> native draft -> diff -> publish. App suites are
+  an explicitly labelled fallback ("not written to the repository");
+  "Sync to repository" exports App suites into the same draft flow.
+- **Plans removed** — routes/tab/panel/schedule targets gone;
+  rows/history preserved; restored create_schedule/create_release/
+  edit_release.
+- **Release workflow** — detail page (scope, run-scope, status
+  transitions, execution summary); scope items reference repo
+  definitions (not copies); run_release queues release_id-linked
+  executions with profile/runner/runtime; config-scoped latest
+  results; unavailable defs blocked; released_at stamps/clears on
+  reopen/restamps on re-release; exec.release link on detail.
+- **Release Sync to repository** — TestOrchestration/release/<slug>.json
+  (proposed app manifest): metadata + status + binding + scope refs;
+  signature-bound preview (content+path+binding+base); publish
+  rejects stale sig/base-tamper/upstream-advance; single/multi-binding
+  guards; sync_dirty on every edit; synced_sha = last successful
+  authoring commit; identical content -> no commit.
+- **Schedules** — Cancel button on the create form.
+- **UI** — enabled checkboxes in the case selector; status-badge
+  colors (draft/in_progress/released/archived); scope-add type
+  filter; css cache-buster (mtime).
+
+### Migrations
+- h3a4b5c6d7e8 (authoring drafts)
+- h4a5b6c7d8e9 (draft settings/member_cfg)
+- h5a6b7c8d9e0 (release_items + executions.release_id)
+- h6a7b8c9d0e1 (release sync state)
 - Direct execution of discovered repository suites/collections:
   /discovered/<id> detail + Run (profile/runner/runtime selects);
   executions.suite_id nullable + source_item link; durable
