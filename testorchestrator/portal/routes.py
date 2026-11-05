@@ -174,10 +174,11 @@ def project_detail(project_id):
         DiscoveredItem.kind.in_(("suite", "collection"))).all()
     bind_names = {b.id: b.name for b in GitBinding.query.filter_by(
         project_id=project.id)}
-    repo_targets = [f"repo:{d.id}" for d in repo_defs]
-    repo_target_labels = {f"repo:{d.id}":
-        f"{bind_names.get(d.binding_id, '?')} · {d.kind} · {d.path}"
-        for d in repo_defs}
+    repo_targets = [
+        {"v": f"repo:{d.id}",
+         "l": f"{d.name or d.path.split('/')[-1].rsplit('.', 1)[0]} "
+             f"({d.kind}) · {bind_names.get(d.binding_id, '?')} · "
+             f"{d.path}"} for d in repo_defs]
     schedule_form.target_id.choices = (
         [(f"repo:{d.id}", f"{bind_names.get(d.binding_id, '?')} · "
           f"{d.kind} · {d.path}") for d in repo_defs] +

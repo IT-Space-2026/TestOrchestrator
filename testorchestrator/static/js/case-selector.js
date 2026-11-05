@@ -5,7 +5,16 @@
   "use strict";
 
   function build(root) {
-    const data = JSON.parse(root.dataset.cases || "[]");
+    let data = JSON.parse(root.dataset.cases || "[]");
+    const labels = {};
+    data = data.map((x) => {
+      if (typeof x === "object" && x !== null) {
+        labels[x.v] = x.l; return x.v;
+      }
+      return x;
+    });
+    data.forEach((v) => { labels[v] = labels[v] || v; });
+    const label = (v) => labels[v] || v;
     const selected = new Map();   // ref -> true, insertion-ordered
     (JSON.parse(root.dataset.selected || "[]"))
       .forEach((r) => selected.set(r, true));
@@ -73,7 +82,7 @@
           <li><label class="member-enabled" title="Enabled (isRun)">
             <input type="checkbox" name="member_enabled" value="${c}"
                    ${selectedCfg.get(c) !== false ? "checked" : ""}>
-          </label><span class="case-path" title="${c}">${c}</span>
+          </label><span class="case-path" title="${c}">${esc(label(c))}</span>
             <span class="case-actions">
               <button type="button" class="button ghost icon" data-up="${i}"
                       aria-label="Move up" ${i === 0 ? "disabled" : ""}>↑</button>
