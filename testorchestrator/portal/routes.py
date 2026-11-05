@@ -1065,6 +1065,10 @@ def _release_export(release, items, binding=None):
         "name": release.name,
         "description": release.description,
         "status": release.status,
+        "start_date": (release.start_date.isoformat()
+                       if release.start_date else None),
+        "end_date": (release.end_date.isoformat()
+                     if release.end_date else None),
         "binding": binding.name if binding else "",
         "scope": [{"kind": i.kind, "path": i.path} for i in items]}
 

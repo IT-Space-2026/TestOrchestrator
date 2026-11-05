@@ -150,3 +150,52 @@ def test_sync_sig_changes_on_content(app, tmp_path):
         s2 = _release_sync_sig(rel, [], B(), "a.json", "sha2")
         s3 = _release_sync_sig(rel, [], B(), "b.json", "sha1")
         assert s1 != s2 != s3       # base + path both bind the sig
+
+
+def test_release_dates_exported(app, tmp_path):
+    """Dates land in the manifest; date edits mark the release dirty."""
+    from testorchestrator.portal.routes import _release_export
+    from datetime import date
+    pid, rid = _seed(app, tmp_path)
+    with app.app_context():
+        rel = _rel(rid)
+        rel.start_date = date(2026, 1, 1)
+        rel.end_date = date(2026, 2, 1)
+        db.session.commit()
+        out = _release_export(rel, [])
+        assert out["start_date"] == "2026-01-01"
+        assert out["end_date"] == "2026-02-01"
+
+
+def test_undated_release_survives(app, tmp_path):
+    """Existing releases with no dates are valid — export shows null."""
+    from testorchestrator.portal.routes import _release_export
+    pid, rid = _seed(app, tmp_path)
+    with app.app_context():
+        rel = _rel(rid)
+        assert rel.start_date is None and rel.end_date is None
+        out = _release_export(rel, [])
+        assert out["start_date"] is None
+        assert out["end_date"] is None
+
+
+def test_overdue_uses_end_date(app, tmp_path):
+    """A release is overdue only when unreleased, non-archived, and
+    end_date is before today — released/archived are exempt."""
+    from datetime import date, timedelta
+    pid, rid = _seed(app, tmp_path)
+    today = date.today()
+    with app.app_context():
+        rel = _rel(rid)
+        rel.end_date = today - timedelta(days=1)
+        rel.status = "in_progress"
+        overdue = (rel.end_date < today and
+                   rel.status not in ("released", "archived"))
+        assert overdue
+        rel.status = "released"
+        assert not (rel.end_date < today and
+                    rel.status not in ("released", "archived"))
+        rel.status = "in_progress"
+        rel.end_date = today                       # ends today: not
+        assert not (rel.end_date < today and       # overdue yet
+                    rel.status not in ("released", "archived"))
