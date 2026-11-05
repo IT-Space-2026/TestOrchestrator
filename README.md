@@ -232,6 +232,32 @@ section post-dates candidate `10300832` (unreleased).
 
 ## Dashboard & UI (Unreleased)
 
+The project Dashboard is the first/default tab: execution stat cards
+(total/passed/failed/running/queued + pass rate), a date filter,
+14-day passed/failed trend, recent executions, inventory and repo
+health, and report-publication pending/failed state.
+
+## Repository-native suite authoring (Unreleased)
+
+Repository suites and collections are first-class: discovered
+definitions open in a modern editor (member selector, enabled flags,
+verified suite/collection settings). Drafts are per-owner, record the
+base revision, and publish through a signature-bound review that
+checks the remote before writing. Publication automatically triggers
+a git-sync so the definition is rediscovered without a manual Sync.
+App suites are a labelled fallback; "Sync to repository" exports them
+into the same draft flow.
+
+## Releases (Unreleased)
+
+A release carries a testing scope of repository suite/collection
+references, linked executions (profile/runner/runtime), a config-
+scoped latest-result summary, lifecycle status (draft/in_progress/
+released/archived), and an optional **Sync to repository** export
+(TestOrchestration/release/<slug>.json — a proposed app manifest,
+signature-bound review, conflict-checked publish, sync-state
+tracking).
+
 - **Dashboard:** real-data metric cards (visible projects, active/
   queued executions, passed/failed terminal attempts over 14 days —
   each attempt counts once, reruns are separate attempts; dispatch-
