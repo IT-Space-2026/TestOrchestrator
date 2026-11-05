@@ -199,3 +199,39 @@ def test_overdue_uses_end_date(app, tmp_path):
         rel.end_date = today                       # ends today: not
         assert not (rel.end_date < today and       # overdue yet
                     rel.status not in ("released", "archived"))
+
+
+def test_release_sync_permission_denied(app, tmp_path, client,
+                                        login_as):
+    """Sync on a binding without authoring_writable is rejected."""
+    login_as("admin")
+    pid, rid = _seed(app, tmp_path)
+    with app.app_context():
+        b = GitBinding(project_id=pid, name="ro", url="/x",
+                       authoring_writable=False, ref="main",
+                       worktree_path=str(tmp_path))
+        db.session.add(b); db.session.commit()
+        bid = b.id
+        r = client.post(f"/releases/{rid}/sync",
+                        data={"binding_id": bid, "sig": "x"},
+                        follow_redirects=True)
+        assert b"not enabled" in r.data or r.status_code == 200
+
+
+def test_release_sync_bad_sig_rejected(app, tmp_path, client,
+                                       login_as):
+    """A stale/forged review signature blocks publication."""
+    login_as("admin")
+    pid, rid = _seed(app, tmp_path)
+    with app.app_context():
+        b = GitBinding(project_id=pid, name="w", url="/x",
+                       authoring_writable=True, ref="main",
+                       worktree_path=str(tmp_path))
+        db.session.add(b); db.session.commit()
+        r = client.post(f"/releases/{rid}/sync",
+                        data={"binding_id": b.id, "sig": "forged"},
+                        follow_redirects=False)
+        # rejected -> redirected to preview, never published
+        assert r.status_code == 302
+        rel = _rel(rid)
+        assert rel.synced_sha == ""     # failed publish: no stamp
