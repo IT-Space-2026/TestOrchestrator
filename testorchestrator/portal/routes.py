@@ -34,6 +34,20 @@ EDIT_ROLES = (Role.ADMIN, Role.TEST_MANAGER)
 RUN_ROLES = (Role.ADMIN, Role.TEST_MANAGER, Role.TESTER)
 
 
+def _dash_trend(qs, days: int = 14):
+    """Daily run counts over the window — returns [(day, n), ...]"""
+    from collections import Counter
+    from datetime import date, timedelta
+    c = Counter()
+    for e in qs.all():
+        if e.created_at:
+            c[e.created_at.date().isoformat()] += 1
+    return [( (date.today() - timedelta(days=days - 1 - i))
+              .isoformat(),
+             c.get((date.today() - timedelta(days=days - 1 - i))
+                   .isoformat(), 0)) for i in range(days)]
+
+
 def _project_or_404(project_id) -> Project:
     project = db.session.get(Project, project_id)
     if project is None:
@@ -156,6 +170,11 @@ def project_detail(project_id):
         (x.id, f"{x.name} ({x.detected_version or 'unknown ver'})")
         for x in RuntimeConnection.query.filter_by(enabled=True).all()]
     _qs = Execution.query.filter_by(project_id=project.id)
+    _since = request.args.get("since", "")
+    if _since:
+        from datetime import datetime as _dt, timezone as _tz
+        _qs = _qs.filter(Execution.created_at >= _dt.fromisoformat(
+            _since).replace(tzinfo=_tz.utc))
     _n = _qs.count()
     _done = _qs.filter(Execution.finished_at.isnot(None)).all()
     _pass = sum(1 for e in _done if e.outcome.value == "passed")
@@ -166,7 +185,12 @@ def project_detail(project_id):
             "running": _qs.filter(Execution.started_at.isnot(None),
                                   Execution.finished_at.is_(None)).count(),
             "queued": _qs.filter(Execution.started_at.is_(None)).count(),
-            "rate": _rate,
+            "rate": _rate, "since": _since,
+            "trend": _dash_trend(_qs),
+            "pub_pending": OutboxEvent.query.filter_by(
+                status="pending").count(),
+            "pub_failed": OutboxEvent.query.filter_by(
+                status="failed").count(),
             "recent": _qs.order_by(
                 Execution.created_at.desc()).limit(8).all()}
     return render_template(

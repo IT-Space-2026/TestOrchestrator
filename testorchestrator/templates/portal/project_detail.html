@@ -30,9 +30,29 @@
 <!-- ============ SUITES ============ -->
 <section class="tab-panel card" id="panel-dash">
   <h2>Dashboard</h2>
+  <form method="get" class="filter-bar">
+    <input type="hidden" name="tab" value="dash">
+    <div class="field"><label>Since (UTC)</label>
+      <input type="date" name="since" value="{{ dash.since }}"></div>
+    <button type="submit" class="button secondary">Apply</button>
+  </form>
   <p class="muted">Executions {{ dash.count }} — {{ dash.passed }} passed,
     {{ dash.failed }} failed, {{ dash.running }} running,
-    {{ dash.queued }} queued · pass rate {{ dash.rate }}% of completed</p>
+    {{ dash.queued }} queued · pass rate {{ dash.rate }}% of completed
+    (passed / finished)</p>
+  {% if dash.trend %}
+  <div class="trend-row">
+    {% for day, n in dash.trend %}
+    <div class="trend-bar" title="{{ day }}: {{ n }} runs"
+         style="height:{{ 4 + n * 6 }}px"></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if dash.pub_pending or dash.pub_failed %}
+  <p class="warn">Report ops: {{ dash.pub_pending }} pending,
+    {{ dash.pub_failed }} failed —
+    <a href="{{ url_for('portal.executions') }}">review</a></p>
+  {% endif %}
   {% if dash.recent %}
   <table class="data-table"><thead><tr><th>Definition</th><th>Status</th><th>Revision</th><th>Started</th></tr></thead><tbody>
     {% for e in dash.recent %}
@@ -43,7 +63,7 @@
     {% endfor %}
   </tbody></table>
   {% else %}<p class="muted">No executions yet.</p>{% endif %}
-  <p class="muted">Inventory: {{ discovered.rows|selectattr('kind','equalto','case')|list|length if discovered and discovered.rows else 0 }} cases ·
+  <p class="muted"><em>current state</em> — Inventory: {{ discovered.rows|selectattr('kind','equalto','case')|list|length if discovered and discovered.rows else 0 }} cases ·
     {{ discovered.rows|selectattr('kind','equalto','suite')|list|length if discovered and discovered.rows else 0 }} suites ·
     {{ discovered.rows|selectattr('kind','equalto','collection')|list|length if discovered and discovered.rows else 0 }} collections
     {% if discovered and discovered.binding %}· synced

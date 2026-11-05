@@ -52,3 +52,21 @@ def test_restored_schedule_and_release_routes(app, client):
     for ep in ("portal.create_schedule", "portal.create_release",
                "portal.edit_release"):
         assert ep in rules, ep
+
+
+def test_plan_backed_schedule_preserved_not_executed(app):
+    """A schedule whose plan target is removed keeps its config —
+    preserved, not silently re-pointed at a suite or executed."""
+    from testorchestrator.extensions import db
+    from testorchestrator.execution import (Plan, Project, Schedule)
+    with app.app_context():
+        p = Project(name="P3"); db.session.add(p); db.session.flush()
+        pl = Plan(project_id=p.id, name="old plan", parallelism=2)
+        db.session.add(pl); db.session.flush()
+        sch = Schedule(project_id=p.id, name="plan sched",
+                       target_type="plan", kind="once", enabled=True)
+        sch.plan_id = pl.id
+        db.session.add(sch); db.session.commit()
+        got = db.session.get(Schedule, sch.id)
+        assert got.plan_id == pl.id          # config preserved
+        assert got.target_type == "plan"     # not reinterpreted
