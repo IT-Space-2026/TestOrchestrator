@@ -102,3 +102,17 @@ document.addEventListener("change", (e) => {
     if (firstVisible) sel.value = firstVisible.value;
   });
 })();
+
+/* Timeline/progress geometry — CSP blocks inline style=, so bars
+   carry data-left/data-width and JS applies them via CSSOM (allowed
+   by style-src 'self'). */
+(function () {
+  "use strict";
+  function geom(el) {
+    if (el.dataset.left) el.style.left = el.dataset.left + "%";
+    if (el.dataset.width) el.style.width = el.dataset.width + "%";
+  }
+  document.querySelectorAll(
+    ".timeline-bar, .timeline-today, .release-progress span, "
+    + "[data-left], [data-width]").forEach(geom);
+})();

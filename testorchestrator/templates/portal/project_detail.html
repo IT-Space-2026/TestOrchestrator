@@ -92,11 +92,11 @@
     <div class="timeline-row">
       <a class="timeline-name" href="{{ url_for('portal.release_detail', release_id=r.id) }}">{{ r.name }}</a>
       <div class="timeline-track">
-        <div class="timeline-bar status-{{ r.status.value }}"
-             style="left:{{ ((r.start_date - tlo).days / span * 100) | round(1) }}%;
-                    width:{{ [(((r.end_date or today()) - r.start_date).days + 1) / span * 100, 2] | max | round(1) }}%"></div>
+        <div class="timeline-bar status-{{ r.status }}"
+             data-left="{{ ((r.start_date - tlo).days / span * 100) | round(1) }}"
+             data-width="{{ [[(((r.end_date or today()) - r.start_date).days + 1) / span * 100, 100 - ((r.start_date - tlo).days / span * 100)] | min | round(1), 2] | max }}"></div>
         {% if r in overdue_active %}<span class="timeline-overdue">overdue</span>{% endif %}
-        <div class="timeline-today" style="left:{{ [(today() - tlo).days / span * 100, 0] | max | round(1) }}%"></div>
+        <div class="timeline-today" data-left="{{ [(today() - tlo).days / span * 100, 0] | max | round(1) }}"></div>
       </div>
     </div>
     {% endfor %}
@@ -285,11 +285,11 @@
       <a href="{{ url_for('portal.release_detail', release_id=r.id) }}"
          class="timeline-name">{{ r.name }}</a>
       <div class="timeline-track">
-        <div class="timeline-bar status-{{ r.status.value }}"
-             style="left:{{ ((r.start_date - lo).days / span * 100) | round(1) }}%;
-                    width:{{ [(((r.end_date or today()) - r.start_date).days + 1) / span * 100, 2] | max | round(1) }}%"></div>
+        <div class="timeline-bar status-{{ r.status }}"
+             data-left="{{ ((r.start_date - lo).days / span * 100) | round(1) }}"
+             data-width="{{ [[(((r.end_date or today()) - r.start_date).days + 1) / span * 100, 100 - ((r.start_date - tlo).days / span * 100)] | min | round(1), 2] | max }}"></div>
         <div class="timeline-today"
-             style="left:{{ [(today() - lo).days / span * 100, 0] | max | round(1) }}%"
+             data-left="{{ [(today() - lo).days / span * 100, 0] | max | round(1) }}"
              {% if today() > hi %}hidden{% endif %}></div>
       </div>
     </div>
@@ -306,11 +306,11 @@
   <ul class="notice-list" id="releases-list">
     {% for r in project.releases %}
     <li data-release-row><strong><a href="{{ url_for('portal.release_detail', release_id=r.id) }}">{{ r.name }}</a></strong>
-      — <span class="badge">{{ r.status.value }}</span>
+      — <span class="badge {{ r.status }}">{{ r.status }}</span>
       {% if r.start_date or r.end_date %}
       <span class="muted">{{ r.start_date or '—' }} → {{ r.end_date or '—' }}</span>
       {% endif %}
-      {% if r.end_date and r.status.value not in ('released','archived') and r.end_date < today() %}
+      {% if r.end_date and r.status not in ('released','archived') and r.end_date < today() %}
       <span class="badge danger">overdue</span>
       {% endif %}
       {% set pc = rel_progress.get(r.id, {}) %}
@@ -319,7 +319,7 @@
       <div class="release-progress" title="{{ pc }}">
         {% for k in ['passed','failed','running','queued','cancelled','unexecuted','unavailable'] %}
         {% if pc.get(k, 0) %}
-        <span class="rp-{{ k }}" style="width:{{ (pc[k] / tot * 100) | round(1) }}%"
+        <span class="rp-{{ k }}" data-width="{{ (pc[k] / tot * 100) | round(1) }}"
               title="{{ pc[k] }} {{ k }}"></span>
         {% endif %}
         {% endfor %}
@@ -373,7 +373,7 @@
       <tr>
         <td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
         <td>{{ e.snapshot().get('suite_name', '') }}</td>
-        <td>{{ e.state.value }}</td><td>{{ e.outcome.value }}</td>
+        <td>{{ e.state.value }}</td><td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
         <td>{{ e.git_state.value }}</td>
         <td>{{ e.created_by }}</td>
         <td>{{ e.started_at or "—" }}</td>

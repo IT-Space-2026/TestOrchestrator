@@ -79,7 +79,7 @@
       <td>{{ e.project.name if e.project }}</td>
       <td>{{ e.snapshot().get('suite_name', '') }}</td>
       <td><span class="badge {{ e.state.value }}">{{ e.state.value }}</span></td>
-      <td><span class="badge {{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
+      <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
       <td>{{ e.runner.name if e.runner else "—" }}</td>
       <td>{{ e.schedule.name if e.schedule else "—" }}</td>
       <td>{{ (e.created_at|string)[:16] }}</td>

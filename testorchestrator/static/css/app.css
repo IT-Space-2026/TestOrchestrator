@@ -824,3 +824,13 @@ html[data-theme="dark"] {
 [data-theme="dark"] .badge.outcome-passed{background:#064e3b;color:#a7f3d0}
 [data-theme="dark"] .badge.outcome-failed{background:#7f1d1d;color:#fca5a5}
 [data-theme="dark"] .badge.outcome-running,[data-theme="dark"] .badge.outcome-in_progress{background:#713f12;color:#fde68a}
+.timeline-name{width:10rem;min-width:10rem;font-weight:600}
+.timeline-track{height:1.1rem}
+.timeline-bar.status-draft{background:#94a3b8}
+.timeline-bar.status-in_progress{background:#f59e0b}
+.timeline-bar.status-released{background:#10b981}
+.timeline-bar.status-archived{background:#3b82f6}
+[data-theme="dark"] .timeline-bar.status-draft{background:#64748b}
+.badge.outcome-incomplete{background:#ffedd5;color:#9a3412}
+[data-theme="dark"] .badge.outcome-incomplete{background:#7c2d12;color:#fdba74}
+.timeline-track{overflow:hidden}
