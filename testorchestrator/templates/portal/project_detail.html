@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}{{ project.name }} · TestOrchestrator{% endblock %}
+{% block title %}{{ project.name }} · TestOrchestrator<script src="{{ url_for('static', filename='js/case-selector.js') }}" defer></script>
+{% endblock %}
 {% block content %}
 <h1>{{ project.name }}</h1>
 <p>{{ project.description }}</p>
@@ -414,4 +415,5 @@
 </section>
 
 </div>
+<script src="{{ url_for('static', filename='js/case-selector.js') }}" defer></script>
 {% endblock %}
