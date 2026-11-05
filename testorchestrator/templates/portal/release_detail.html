@@ -7,7 +7,7 @@
   {% if release.start_date or release.end_date %}
   · {{ release.start_date or '—' }} → {{ release.end_date or '—' }}
   {% endif %}
-  {% if release.end_date and release.status not in ('released','archived') and release.end_date < now().date() %}
+  {% if release.end_date and release.status not in ('released','archived') and release.end_date < today() %}
   <span class="badge danger">overdue</span>
   {% endif %}
   {% if release.released_at %}· released {{ release.released_at|string|truncate(16, true, '') }}{% endif %}</p>

@@ -242,9 +242,28 @@ def project_detail(project_id):
             else:
                 counts["queued"] += 1
         progress[rel.id] = counts
+    # Dashboard release overview: active releases (draft+in_progress),
+    # dated timeline + undated list — "current state", not
+    # date-filtered.
+    active = [rel for rel in project.releases
+              if rel.status in ("draft", "in_progress")]
+    dated_active = [rel for rel in active if rel.start_date]
+    undated_active = [rel for rel in active if not rel.start_date]
+    from datetime import timezone as _tz, datetime as _dt
+    _today = _dt.now(_tz.utc).date()
+    overdue_active = [rel for rel in active
+                      if rel.end_date and rel.end_date < _today]
+    tlo = (min((rel.start_date for rel in dated_active))
+           if dated_active else None)
+    thi = (max((rel.end_date or _today for rel in dated_active))
+           if dated_active else None)
     return render_template(
         "portal/project_detail.html", project=project,
-        rel_progress=progress, dash=dash,
+        rel_progress=progress,
+        active_releases=active, dated_active=dated_active,
+        undated_active=undated_active,
+        overdue_active=overdue_active,
+        today=_today, tlo=tlo, thi=thi, dash=dash,
         binding_form=BindingForm(),
         can_author=GitBinding.query.filter_by(
             project_id=project.id, authoring_writable=True).count() > 0,

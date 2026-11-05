@@ -814,3 +814,6 @@ html[data-theme="dark"] {
 .rp-running{background:#f59e0b}.rp-queued{background:#8b5cf6}
 .rp-cancelled{background:#6b7280}.rp-unexecuted{background:var(--border)}
 .rp-unavailable{background:#7f1d1d}
+.release-overview{margin-top:1rem}
+.timeline-overdue{position:absolute;right:.4rem;top:0;font-size:.7rem;
+  color:var(--danger);font-weight:600}
