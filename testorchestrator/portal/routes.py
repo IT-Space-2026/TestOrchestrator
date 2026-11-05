@@ -906,12 +906,15 @@ def create_release(project_id):
     project = _project_or_404(project_id)
     name = request.form.get("name", "").strip()
     if name:
-        db.session.add(Release(project_id=project.id, name=name,
-                               description=request.form.get(
-                                   "description", "")))
+        rel = Release(project_id=project.id, name=name,
+                      description=request.form.get(
+                          "description", ""))
+        db.session.add(rel)
         db.session.commit()
         record_audit(current_user.username, "release.created",
-                     project.id)
+                     rel.id)
+        return redirect(url_for("portal.release_detail",
+                              release_id=rel.id))
     return redirect(url_for("portal.project_detail",
                           project_id=project_id))
 
