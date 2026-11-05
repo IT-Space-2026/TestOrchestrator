@@ -519,6 +519,7 @@ def run_discovered(item_id):
     }
     ex = dispatch.create_execution(
         current_user.username, binding=binding,
+        release_id=(request.form.get("release_id") or None),
         source_sha=binding.last_synced_sha if binding else "",
         run_config=run_config, source_item=item)
     record_audit(current_user.username, "execution.queued", ex.id)
@@ -1010,6 +1011,8 @@ def release_status(release_id):
         release.status = st
         if st == "released":
             release.released_at = utcnow()
+        elif release.released_at:
+            release.released_at = None   # reopened — re-release restamps
         db.session.commit()
         record_audit(current_user.username, "release.status", release.id)
     return redirect(url_for("portal.release_detail",
@@ -1126,7 +1129,9 @@ def launch_execution(suite_id):
             flash("Selected source definition is invalid for this "
                   "project.", "error")
             return redirect(url_for("portal.suite_detail",
-                                  suite_id=suite_id))
+                                  suite_id=suite_id,
+                                  release_id=(request.form.get(
+                                      "release_id") or None)))
         run_config["suite_path"] = item.path
         run_config["collection"] = (item.kind == "collection")
     ex = dispatch.create_execution(
