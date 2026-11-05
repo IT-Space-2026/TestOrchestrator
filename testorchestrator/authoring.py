@@ -190,10 +190,20 @@ def open_draft(username: str, item: DiscoveredItem) -> AuthoringDraft:
            if b and b.worktree_path
            else _authoring_wt(b.id) / item.path)
     parsed = parse_ts(src) if src.exists() else {}
+    # base_sha must be the actual remote head at draft-open — the
+    # discovery marker (item.sha) is not a commit SHA and would
+    # false-positive the upstream-conflict check.
+    base = ""
+    if b and b.worktree_path:
+        try:
+            base = git_backend.run(
+                "resolve", Path(b.worktree_path), "HEAD")
+        except Exception:
+            base = ""
     d = AuthoringDraft(
         binding_id=item.binding_id, project_id=item.project_id,
         owner=username, kind=item.kind, path=item.path,
-        base_sha=item.sha, name=item.name,
+        base_sha=base or item.sha, name=item.name,
         members_json=json.dumps(
             parsed.get("members") or item.members() or []),
         settings_json=json.dumps(parsed.get("settings", {})),
