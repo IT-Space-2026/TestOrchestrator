@@ -45,9 +45,16 @@
 {% endif %}
 <form method="post" action="{{ url_for('portal.release_scope_add', release_id=release.id) }}" class="add-form scope-add">
   {{ plain_form.csrf_token }}
-  <div class="field"><label>Add repository definition</label>
-    <select name="item_id" class="form-input">
-      {% for a in avail %}<option value="{{ a.id }}">{{ a.kind }}: {{ a.path }}</option>{% endfor %}
+  <div class="field"><label>Type</label>
+    <select id="scope-type-filter" class="form-input" style="width:auto">
+      <option value="">All</option>
+      <option value="case">Test Case</option>
+      <option value="suite">Test Suite</option>
+      <option value="collection">Collection</option>
+    </select></div>
+  <div class="field" style="flex:2"><label>Add repository definition</label>
+    <select name="item_id" id="scope-item-select" class="form-input">
+      {% for a in avail %}<option value="{{ a.id }}" data-kind="{{ a.kind }}">{{ a.kind }}: {{ a.path }}</option>{% endfor %}
     </select></div>
   <button type="submit" class="button">Add to scope</button>
 </form>

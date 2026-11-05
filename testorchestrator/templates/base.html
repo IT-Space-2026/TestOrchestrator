@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}TestOrchestrator{% endblock %}</title>
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ config.get('TO_VERSION','0') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ app_v }}">
   <link rel="icon" type="image/png"
         href="{{ url_for('static', filename='branding/iT-space-logo.png') }}">
 </head>

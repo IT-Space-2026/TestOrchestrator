@@ -82,3 +82,23 @@ document.addEventListener("change", (e) => {
     if (btn) btn.disabled = n === 0;
   }
 });
+
+/* Release scope type filter — narrows the add-select by kind. */
+(function () {
+  "use strict";
+  const f = document.getElementById("scope-type-filter");
+  if (!f) return;
+  f.addEventListener("change", () => {
+    const k = f.value;
+    const sel = document.getElementById("scope-item-select");
+    if (!sel) return;
+    let firstVisible = null;
+    sel.querySelectorAll("option").forEach((o) => {
+      o.hidden = k && !o.dataset.kind.startsWith(k);
+      if (!o.hidden && firstVisible === null) firstVisible = o;
+    });
+    // reselect the first visible option — a hidden selection stays
+    // selected otherwise.
+    if (firstVisible) sel.value = firstVisible.value;
+  });
+})();

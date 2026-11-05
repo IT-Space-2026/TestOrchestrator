@@ -54,6 +54,11 @@ def create_app(config_object=Config) -> Flask:
 
     # Verified bundled release metadata — loaded once at startup (AB04).
     app.config["RELEASE_METADATA"] = load_release_metadata(BASE_DIR)
+    # cache-buster: app.css mtime so the browser refetches on every
+    # stylesheet change.
+    _css = Path(BASE_DIR) / "testorchestrator/static/css/app.css"
+    app.jinja_env.globals["app_v"] = (
+        str(int(_css.stat().st_mtime)) if _css.exists() else "0")
 
     app.wsgi_app = TrustedProxyFix(
         app.wsgi_app, app.config["TRUSTED_PROXY_IPS"]

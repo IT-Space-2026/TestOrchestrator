@@ -761,3 +761,16 @@ html[data-theme="dark"] {
 .scope-add{display:flex;gap:.75rem;align-items:flex-end;margin-top:1rem}
 .scope-add .field{flex:1}
 .scope-add select{max-width:100%}
+.scope-add{display:flex;gap:.75rem;align-items:flex-end;margin-top:1rem}
+.scope-add .field{flex:1;margin-bottom:0}
+.scope-add .button{white-space:nowrap;margin-bottom:.125rem}
+.badge.draft{background:var(--bg-subtle);color:var(--text-muted)}
+.badge.in_progress{background:#fef3c7;color:#92400e}
+.badge.released{background:#d1fae5;color:#065f46}
+.badge.archived{background:#dbeafe;color:#1e40af}
+[data-theme="dark"] .badge.in_progress{background:#713f12;color:#fde68a}
+[data-theme="dark"] .badge.released{background:#064e3b;color:#a7f3d0}
+[data-theme="dark"] .badge.archived{background:#1e3a8a;color:#bfdbfe}
+.scope-add #scope-type-filter{width:9rem}
+.scope-add .field:nth-of-type(2){flex:1}
+.scope-add .field:nth-of-type(2) select{width:100%}
