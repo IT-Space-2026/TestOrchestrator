@@ -857,3 +857,5 @@ td .row-actions{min-width:9rem}
 .inline-details .edit-form .button,.inline-details .edit-form
   .button.danger{align-self:flex-start;margin-right:.4rem}
 .runner-rts td:last-child{vertical-align:top;min-width:16rem}
+.block-details > *:not(summary){margin-top:.8rem}
+.block-details form > .field{margin-bottom:.6rem}

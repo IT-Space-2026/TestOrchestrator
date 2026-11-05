@@ -583,6 +583,13 @@ def create_runtime():
                  methods=["POST"])
 @role_required(Role.ADMIN)
 def probe_runtime(runtime_id):
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt and rt.runner and rt.runner.connection_mode != "local":
+        flash("Remote installation — the portal-host check cannot "
+              "verify a remote worker's KRE. Remote verification "
+              "through the agent is not implemented.", "error")
+        return redirect(url_for("system.infrastructure"))
+        return redirect(url_for("system.infrastructure"))
     """Test connection: executable presence + version probe only. Does not
     install anything, change licensing, or run project tests (§5)."""
     from ..adapters.kre import KreError, probe_version

@@ -160,9 +160,14 @@ installations; it does not install or license KRE.</p>
             {% else %}<span class="badge ok">Check passed</span>{% endif %}
             <small class="muted">{{ rt.last_check_at or "" }}</small></td>
           <td><span class="row-actions">
+            {% if r.connection_mode == "local" %}
             <form method="post" action="{{ url_for('system.probe_runtime', runtime_id=rt.id) }}" class="inline">
               {{ runtime_form.csrf_token }}
               <button type="submit" class="button secondary sm">Check</button></form>
+            {% else %}
+            <span class="badge" title="Portal-host check can't verify a
+              remote worker's installation">Remote — not verified</span>
+            {% endif %}
             <form method="post" action="{{ url_for('system.toggle_runtime', runtime_id=rt.id) }}" class="inline">
               {{ runtime_form.csrf_token }}
               <button type="submit" class="button secondary sm">{{ "Disable" if rt.enabled else "Enable" }}</button></form>
@@ -229,7 +234,7 @@ installations; it does not install or license KRE.</p>
       <small><strong>Required.</strong> Max parallel sessions for this
       runtime; integer ≥ 1, capped by the runner's free slots.</small></div>
     <div class="form-actions">
-      <button type="submit" class="button">Register existing KRE installation</button>
+      <button type="submit" class="button">Apply</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </div>
   </form></details>
