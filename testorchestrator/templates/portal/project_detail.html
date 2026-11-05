@@ -85,8 +85,8 @@
 <section class="tab-panel card" id="panel-suites">
   <h2>Suites</h2>
   {% if discovered and discovered.rows %}
-  <h3 class="muted">Repository definitions
-    <span class="badge accent">read-only</span></h3>
+  <h3 class="muted">Repository Suites
+    {% if not can_author %}<span class="badge">read-only — enable Source authoring on the binding to edit</span>{% endif %}</h3>
   {% for kind, label in [("suite","Suites"),("collection","Collections")] %}
   {% set items = discovered["rows"]|selectattr("kind","equalto",kind)|list %}
   {% if items %}
@@ -112,7 +112,7 @@
   {% endfor %}
   {% endif %}
   {% if project.suites %}
-  <h3 class="muted">App suites</h3>
+  <h3 class="muted">App suites <span class="badge">app-side — sync to repository to reconcile</span></h3>
   <ul class="notice-list">
     {% for s in project.suites %}
     <li>

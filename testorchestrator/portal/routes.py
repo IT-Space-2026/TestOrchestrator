@@ -232,6 +232,8 @@ def create_binding(project_id):
     form = BindingForm()
     if form.validate_on_submit():
         binding = GitBinding(
+            authoring_writable=bool(
+                request.form.get("authoring_writable", "1")),
             project_id=project.id,
             name=form.name.data.strip(),
             url=form.url.data.strip(),
