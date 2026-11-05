@@ -581,7 +581,7 @@ def author_new(binding_id):
 @role_required(*EDIT_ROLES)
 def author_item(item_id):
     from .. import authoring
-    from ..execution import AuthoringDraft
+    from ..execution import AuthoringDraft, DiscoveredItem
     draft = db.session.get(AuthoringDraft,
                            request.args.get("draft_id", ""))
     if draft is None:
@@ -614,6 +614,7 @@ def author_item(item_id):
 
 
 def _draft_item(draft):
+    from ..execution import DiscoveredItem
     return DiscoveredItem.query.filter_by(
         binding_id=draft.binding_id, path=draft.path).first()
 
