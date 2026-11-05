@@ -62,6 +62,7 @@ installations; it does not install or license KRE.</p>
       {% endfor %}
     </tbody>
   </table>
+  <details class="block-details"><summary class="button">Add runner</summary>
   <form method="post" action="{{ url_for('system.create_runner') }}">
     {{ runner_form.csrf_token }}
     <div class="field">{{ runner_form.name.label }} {{ runner_form.name() }}
@@ -95,8 +96,9 @@ installations; it does not install or license KRE.</p>
       empty = all projects may dispatch here.</small></div>
     <div class="form-actions">
       <button type="submit" class="button">Add runner</button>
+      <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </div>
-  </form>
+  </form></details>
 </section>
 
 <section class="card">
@@ -154,6 +156,7 @@ installations; it does not install or license KRE.</p>
       {% endfor %}
     </tbody>
   </table>
+  <details class="block-details"><summary class="button">Register existing KRE installation</summary>
   <form method="post" action="{{ url_for('system.create_runtime') }}">
     {{ runtime_form.csrf_token }}
     <div class="field">{{ runtime_form.name.label }} {{ runtime_form.name() }}
@@ -188,7 +191,8 @@ installations; it does not install or license KRE.</p>
       runtime; integer ≥ 1, capped by the runner's free slots.</small></div>
     <div class="form-actions">
       <button type="submit" class="button">Register existing KRE installation</button>
+      <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </div>
-  </form>
+  </form></details>
 </section>
 {% endblock %}
