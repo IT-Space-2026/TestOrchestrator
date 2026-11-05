@@ -113,7 +113,46 @@ installations; it does not install or license KRE.</p>
     </div>
     {% set its = per_runner.get(r.id, []) %}
     {% if its %}
-    
+    <table class="audit-table runner-rts">
+      <thead><tr><th>Name</th><th>Executable</th><th>Version</th>
+        <th>Enabled</th><th>Check</th><th></th></tr></thead>
+      <tbody>
+        {% for rt in its %}
+        <tr>
+          <td>{{ rt.name }}</td><td><code>{{ rt.executable_path }}</code></td>
+          <td>{{ rt.detected_version or "unprobed" }}</td>
+          <td><span class="badge {{ 'ok' if rt.enabled else '' }}">{{ "enabled" if rt.enabled else "disabled" }}</span></td>
+          <td>{% if not rt.last_diagnostic %}<span class="badge">Not checked</span>
+            {% elif "fail" in rt.last_diagnostic|lower or "error" in rt.last_diagnostic|lower %}
+            <span class="badge danger">Check failed</span>
+            {% elif "re-check" in rt.last_diagnostic|lower %}
+            <span class="badge">Re-check required</span>
+            {% else %}<span class="badge ok">Check passed</span>{% endif %}
+            <small class="muted">{{ rt.last_check_at or "" }}</small></td>
+          <td><span class="row-actions">
+            <form method="post" action="{{ url_for('system.probe_runtime', runtime_id=rt.id) }}" class="inline">
+              {{ runtime_form.csrf_token }}
+              <button type="submit" class="button secondary sm">Check</button></form>
+            <form method="post" action="{{ url_for('system.toggle_runtime', runtime_id=rt.id) }}" class="inline">
+              {{ runtime_form.csrf_token }}
+              <button type="submit" class="button secondary sm">{{ "Disable" if rt.enabled else "Enable" }}</button></form>
+            <details class="inline-details">
+              <summary class="button secondary sm">Edit</summary>
+              <form method="post" action="{{ url_for('system.edit_runtime', runtime_id=rt.id) }}" class="edit-form">
+                {{ runtime_form.csrf_token }}
+                <div class="field"><label>Name</label><input name="name" value="{{ rt.name }}"></div>
+                <div class="field"><label>Executable path</label><input name="executable_path" value="{{ rt.executable_path }}"></div>
+                <div class="field"><label>Working directory</label><input name="workspace_root" value="{{ rt.workspace_root }}"></div>
+                <div class="field"><label>Credential reference</label><input name="credential_ref" value="{{ rt.credential_ref }}"></div>
+                <div class="field"><label>Concurrency</label><input name="concurrency" value="{{ rt.concurrency }}"></div>
+                <button type="submit" class="button">Apply</button>
+                <button type="button" class="button danger" data-cancel-details>Cancel</button>
+              </form></details>
+          </span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
     {% else %}
     <div class="empty-state runner-rts"><p>No KRE installations
       on this runner.</p></div>
