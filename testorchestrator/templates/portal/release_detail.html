@@ -4,6 +4,12 @@
 <p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=release.project_id) }}">← Back to project</a></p>
 <h1>{{ release.name }} <span class="badge {{ release.status }}">{{ release.status }}</span></h1>
 <p class="muted">{{ release.description }}
+  {% if release.start_date or release.end_date %}
+  · {{ release.start_date or '—' }} → {{ release.end_date or '—' }}
+  {% endif %}
+  {% if release.end_date and release.status not in ('released','archived') and release.end_date < now().date() %}
+  <span class="badge danger">overdue</span>
+  {% endif %}
   {% if release.released_at %}· released {{ release.released_at|string|truncate(16, true, '') }}{% endif %}</p>
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% for c, m in messages %}<p class="flash flash-{{ c }}">{{ m }}</p>{% endfor %}

@@ -138,6 +138,8 @@ class Release(db.Model):
     plan_id = db.Column(db.String(32), db.ForeignKey("plans.id"), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     released_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    start_date = db.Column(db.Date, nullable=True)
+    end_date = db.Column(db.Date, nullable=True)
     # sync-to-repo state: destination binding + path + published sha;
     # sync_dirty marks edits not yet exported. A failed publish never
     # stamps synced_sha.

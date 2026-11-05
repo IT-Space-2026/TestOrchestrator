@@ -793,3 +793,24 @@ html[data-theme="dark"] {
   color:#bfdbfe}
 .scope-add .field:first-of-type{flex:0 0 9rem}
 .scope-add .field-grow{flex:1 1 auto}
+.release-timeline{padding:.75rem 1rem;margin-bottom:1rem}
+.timeline-row{display:flex;align-items:center;gap:.75rem;margin:.4rem 0}
+.timeline-name{width:9rem;font-size:.85rem;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.timeline-track{flex:1;height:.9rem;background:var(--bg-subtle);
+  border-radius:3px;position:relative}
+.timeline-bar{position:absolute;top:0;bottom:0;border-radius:3px;
+  opacity:.85}
+.timeline-bar.status-draft{background:var(--border)}
+.timeline-bar.status-in_progress{background:#f59e0b}
+.timeline-bar.status-released{background:#10b981}
+.timeline-bar.status-archived{background:#3b82f6}
+.timeline-today{position:absolute;top:-2px;bottom:-2px;width:2px;
+  background:var(--text);opacity:.6}
+.release-progress{display:flex;height:.7rem;border-radius:3px;
+  overflow:hidden;gap:1px;margin:.3rem 0}
+.release-progress span{display:block}
+.rp-passed{background:#10b981}.rp-failed{background:#ef4444}
+.rp-running{background:#f59e0b}.rp-queued{background:#8b5cf6}
+.rp-cancelled{background:#6b7280}.rp-unexecuted{background:var(--border)}
+.rp-unavailable{background:#7f1d1d}

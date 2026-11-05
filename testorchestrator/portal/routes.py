@@ -204,8 +204,47 @@ def project_detail(project_id):
                 status="failed").count(),
             "recent": _qs.order_by(
                 Execution.created_at.desc()).limit(8).all()}
+    # per-release testing progress: latest outcome per scoped target
+    # (path+kind+binding+config), not all history.
+    progress = {}
+    for rel in project.releases:
+        items = ReleaseItem.query.filter_by(
+            release_id=rel.id).all()
+        counts = {"passed": 0, "failed": 0, "running": 0,
+                  "queued": 0, "cancelled": 0, "unexecuted": 0,
+                  "unavailable": 0}
+        latest = {}
+        for e in Execution.query.filter_by(release_id=rel.id).order_by(
+                Execution.created_at.desc()):
+            st = e.snapshot().get("source_target", {})
+            key = (st.get("path", ""), st.get("kind", ""),
+                   st.get("binding_id", ""))
+            if key not in latest:
+                latest[key] = e
+        for it in items:
+            src = (db.session.get(DiscoveredItem, it.source_item_id)
+                   if it.source_item_id else None)
+            key = (it.path, it.kind,
+                   src.binding_id if src else "")
+            if src is None and it.source_item_id:
+                counts["unavailable"] += 1
+                continue
+            e = latest.get(key) or next(
+                (e for (p, _k, _b), e in latest.items()
+                 if p == it.path), None)
+            if e is None:
+                counts["unexecuted"] += 1
+            elif e.finished_at:
+                counts["passed" if e.outcome.value == "passed"
+                        else "failed"] += 1
+            elif e.started_at:
+                counts["running"] += 1
+            else:
+                counts["queued"] += 1
+        progress[rel.id] = counts
     return render_template(
-        "portal/project_detail.html", project=project, dash=dash,
+        "portal/project_detail.html", project=project,
+        rel_progress=progress, dash=dash,
         binding_form=BindingForm(),
         can_author=GitBinding.query.filter_by(
             project_id=project.id, authoring_writable=True).count() > 0,
@@ -908,7 +947,17 @@ def create_release(project_id):
     if name:
         rel = Release(project_id=project.id, name=name,
                       description=request.form.get(
-                          "description", ""))
+                          "description", ""),
+                      start_date=_parse_date(
+                          request.form.get("start_date")),
+                      end_date=_parse_date(
+                          request.form.get("end_date")))
+        if (rel.start_date and rel.end_date and
+                rel.end_date < rel.start_date):
+            flash("Target end date must be on or after the "
+                  "start date.", "error")
+            return redirect(url_for("portal.project_detail",
+                                  project_id=project.id))
         db.session.add(rel)
         db.session.commit()
         record_audit(current_user.username, "release.created",
@@ -974,6 +1023,16 @@ def release_detail(release_id):
         runs=runs, scope_rows=scope_rows,
         unexecuted=unexecuted, unavailable=unavailable,
         avail=avail, plain_form=PlainForm())
+
+
+def _parse_date(s):
+    from datetime import date as _d
+    if not s:
+        return None
+    try:
+        return _d.fromisoformat(s.strip())
+    except ValueError:
+        return None
 
 
 def _release_export(release, items, binding=None):
@@ -1242,6 +1301,15 @@ def edit_release(release_id):
     if name:
         release.name = name
         release.description = request.form.get("description", "")
+        sd = _parse_date(request.form.get("start_date"))
+        ed = _parse_date(request.form.get("end_date"))
+        if sd and ed and ed < sd:
+            flash("Target end date must be on or after the "
+                  "start date.", "error")
+            return redirect(url_for("portal.release_detail",
+                                  release_id=release.id))
+        release.start_date = sd
+        release.end_date = ed
         release.sync_dirty = True
         db.session.commit()
         record_audit(current_user.username, "release.edited",

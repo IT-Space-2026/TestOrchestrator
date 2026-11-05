@@ -56,6 +56,8 @@ def create_app(config_object=Config) -> Flask:
     app.config["RELEASE_METADATA"] = load_release_metadata(BASE_DIR)
     # cache-buster: app.css mtime so the browser refetches on every
     # stylesheet change.
+    from datetime import datetime as _dt
+    app.jinja_env.globals["now"] = _dt.now
     _css = Path(BASE_DIR) / "testorchestrator/static/css/app.css"
     app.jinja_env.globals["app_v"] = (
         str(int(_css.stat().st_mtime)) if _css.exists() else "0")
