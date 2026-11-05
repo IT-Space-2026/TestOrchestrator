@@ -974,6 +974,29 @@ def release_scope_remove(release_id, item_id):
                           release_id=release.id))
 
 
+@portal_bp.route("/executions/<execution_id>/link-release",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def link_execution_release(execution_id):
+    """Link or unlink an existing project execution to a release."""
+    ex = db.session.get(Execution, execution_id)
+    if ex is None:
+        abort(404)
+    _project_or_404(ex.project_id)
+    PlainForm().validate_on_submit()
+    rel = request.form.get("release_id") or None
+    if rel:
+        release = db.session.get(Release, rel)
+        if release is None or release.project_id != ex.project_id:
+            abort(404)
+    ex.release_id = rel
+    db.session.commit()
+    record_audit(current_user.username, "execution.link_release",
+                 ex.id)
+    return redirect(url_for("portal.execution_detail",
+                          execution_id=ex.id))
+
+
 @portal_bp.route("/releases/<release_id>/status", methods=["POST"])
 @role_required(*EDIT_ROLES)
 def release_status(release_id):
