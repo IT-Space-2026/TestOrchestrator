@@ -316,3 +316,33 @@ def test_create_new_suite_draft_publishes(app, tmp_path):
         assert parsed["supported"] and parsed["kind"] == "suite"
         assert parsed["members"] == ["Test Cases/API/tc1"]
         assert parsed["name"] == "New"
+
+
+def test_settings_round_trip(tmp_path):
+    """Suite retry/timeout/description settings + per-member isRun
+    survive the write — verified against the real .ts field names."""
+    f = tmp_path / "Test Suites" / "S1.ts"
+    f.parent.mkdir(parents=True)
+    f.write_text(SUITE_XML.replace(
+        "<runEnabled>true</runEnabled>",
+        "<description>d</description><tag>t</tag>"
+        "<isRerun>true</isRerun><numberOfRerun>3</numberOfRerun>"
+        "<rerunFailedTestCasesOnly>false</rerunFailedTestCasesOnly>"
+        "<rerunImmediately>true</rerunImmediately>"
+        "<pageLoadTimeout>30</pageLoadTimeout>"
+        "<runEnabled>true</runEnabled>"
+        "<testCaseLink><guid>x</guid><isRun>false</isRun>"
+        "<testCaseId>Test Cases/API/tc1</testCaseId>"
+        "<isReuseDriver>false</isReuseDriver>"
+        "<usingDataBindingAtTestSuiteLevel>true"
+        "</usingDataBindingAtTestSuiteLevel></testCaseLink>"))
+    parsed = authoring.parse_ts(f)
+    assert parsed["settings"]["isRerun"] == "true"
+    assert parsed["settings"]["numberOfRerun"] == "3"
+    assert parsed["member_cfg"]["Test Cases/API/tc1"]["isRun"] == "false"
+    parsed["settings"]["numberOfRerun"] = "5"
+    parsed["member_cfg"]["Test Cases/API/tc1"]["isRun"] = "true"
+    authoring.write_ts_members(f, parsed, parsed["members"])
+    reparsed = authoring.parse_ts(f)
+    assert reparsed["settings"]["numberOfRerun"] == "5"
+    assert reparsed["member_cfg"]["Test Cases/API/tc1"]["isRun"] == "true"

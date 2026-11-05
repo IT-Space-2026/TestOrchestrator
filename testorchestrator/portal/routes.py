@@ -679,6 +679,28 @@ def author_save(draft_id):
     name = request.form.get("name", "").strip()
     if name:
         draft.name = name
+    # per-member enabled state: enabled[] mirrors case_refs order
+    enabled = set(request.form.getlist("member_enabled"))
+    cfg = draft.member_cfg()
+    for ref in draft.members():
+        cfg.setdefault(ref, {})["isRun"] = (
+            "true" if ref in enabled else "false")
+    draft.member_cfg_json = json.dumps(cfg)
+    # suite-level editable settings (verified .ts fields)
+    st = draft.settings()
+    for k in ("description", "tag", "isRerun", "numberOfRerun",
+              "rerunFailedTestCasesOnly", "rerunImmediately",
+              "pageLoadTimeout", "pageLoadTimeoutDefault",
+              "delayBetweenInstances", "executionMode",
+              "maxConcurrentInstances"):
+        v = request.form.get(f"setting_{k}")
+        if v is not None and v != "":
+            st[k] = v
+    for k in ("isRerun", "rerunFailedTestCasesOnly",
+              "rerunImmediately", "pageLoadTimeoutDefault"):
+        if request.form.get(f"setting_{k}") is None:
+            st[k] = "false"
+    draft.settings_json = json.dumps(st)
     db.session.commit()
     record_audit(current_user.username, "author.draft_saved", draft.id)
     item = _draft_item(draft)

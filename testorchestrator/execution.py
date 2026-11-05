@@ -514,6 +514,11 @@ class AuthoringDraft(db.Model):
     path = db.Column(db.String(512), nullable=False)
     base_sha = db.Column(db.String(64), nullable=False, default="")
     members_json = db.Column(db.Text, nullable=False, default="[]")
+    # suite/collection-level editable settings (verified .ts fields)
+    settings_json = db.Column(db.Text, nullable=False, default="{}")
+    # per-member config: ref -> {isRun, isReuseDriver, ...}
+    member_cfg_json = db.Column(db.Text, nullable=False,
+                                default="{}")
     name = db.Column(db.String(256), nullable=False, default="")
     status = db.Column(db.String(16), nullable=False, default="draft")
     published_sha = db.Column(db.String(64), nullable=False,
@@ -524,3 +529,9 @@ class AuthoringDraft(db.Model):
 
     def members(self) -> list:
         return json.loads(self.members_json or "[]")
+
+    def settings(self) -> dict:
+        return json.loads(self.settings_json or "{}")
+
+    def member_cfg(self) -> dict:
+        return json.loads(self.member_cfg_json or "{}")

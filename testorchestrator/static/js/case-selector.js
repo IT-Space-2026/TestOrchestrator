@@ -9,6 +9,14 @@
     const selected = new Map();   // ref -> true, insertion-ordered
     (JSON.parse(root.dataset.selected || "[]"))
       .forEach((r) => selected.set(r, true));
+    // per-member enabled state (isRun) — disabled rows listed in
+    // data-disabled
+    const disabledSet = new Set(
+      JSON.parse(root.dataset.disabled || "[]"));
+    const selectedCfg = new Map();
+    data.forEach(() => {});
+    selected.forEach((_, r) =>
+      selectedCfg.set(r, !disabledSet.has(r)));
 
     root.innerHTML = `
       <div class="case-selector">

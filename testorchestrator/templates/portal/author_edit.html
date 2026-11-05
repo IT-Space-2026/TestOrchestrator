@@ -24,6 +24,45 @@
   <form method="post" action="{{ url_for('portal.author_save', draft_id=draft.id) }}">
     <div class="field"><label>Name</label>
       <input name="name" value="{{ draft.name or item.name }}"></div>
+    <div class="field"><label>Description</label>
+      <input name="setting_description"
+             value="{{ draft.settings().get('description','') }}"></div>
+    {% if draft.kind == "suite" %}
+    <div class="field"><label>Tag</label>
+      <input name="setting_tag"
+             value="{{ draft.settings().get('tag','') }}"></div>
+    <div class="field"><label>
+      <input type="checkbox" name="setting_isRerun" value="true"
+             {% if draft.settings().get('isRerun') == 'true' %}checked{% endif %}>
+      Retry on failure (isRerun)</label>
+      <input name="setting_numberOfRerun" type="number" min="0" max="10"
+             value="{{ draft.settings().get('numberOfRerun','0') }}"
+             style="width:5rem"></div>
+    <div class="field"><label>
+      <input type="checkbox" name="setting_rerunImmediately" value="true"
+             {% if draft.settings().get('rerunImmediately') == 'true' %}checked{% endif %}>
+      Rerun immediately</label>
+      <label>
+      <input type="checkbox" name="setting_rerunFailedTestCasesOnly" value="true"
+             {% if draft.settings().get('rerunFailedTestCasesOnly') == 'true' %}checked{% endif %}>
+      Failed cases only</label></div>
+    <div class="field"><label>Page-load timeout (s)</label>
+      <input name="setting_pageLoadTimeout" type="number" min="0"
+             value="{{ draft.settings().get('pageLoadTimeout','30') }}"></div>
+    {% else %}
+    <div class="field"><label>Execution mode</label>
+      <select name="setting_executionMode">
+        {% for m in ["SEQUENTIAL","PARALLEL"] %}
+        <option value="{{ m }}" {% if draft.settings().get('executionMode') == m %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select></div>
+    <div class="field"><label>Delay between instances (s)</label>
+      <input name="setting_delayBetweenInstances" type="number" min="0"
+             value="{{ draft.settings().get('delayBetweenInstances','0') }}"></div>
+    <div class="field"><label>Max concurrent</label>
+      <input name="setting_maxConcurrentInstances" type="number" min="1"
+             value="{{ draft.settings().get('maxConcurrentInstances','1') }}"></div>
+    {% endif %}
     {{ plain_form.csrf_token }}
     <div data-case-selector
          data-cases='{{ cases | tojson }}'

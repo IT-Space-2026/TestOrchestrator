@@ -44,13 +44,35 @@ def parse_ts(path: Path) -> dict:
                 "reason": f"unparseable XML: {exc}"}
     root = tree.getroot()
     tag = root.tag.split('}')[-1]
+    def _ln(e):
+        return e.tag.split('}')[-1] if isinstance(e.tag, str) else ""
     if tag == "TestSuiteEntity":
         members = []
-        for el in root.iter():
-            if not isinstance(el.tag, str):
-                continue                    # comment/PI nodes
-            if el.tag.split('}')[-1] == "testCaseId":
-                members.append(el.text or "")
+        cfg = {}
+        for p in root.iter():
+            if _ln(p) != "testCaseLink":
+                continue
+            ref = ""
+            mc = {}
+            for e in p.iter():
+                ln = _ln(e)
+                if ln == "testCaseId":
+                    ref = e.text or ""
+                elif ln in ("isRun", "isReuseDriver",
+                            "usingDataBindingAtTestSuiteLevel"):
+                    mc[ln] = (e.text or "").strip()
+            members.append(ref)
+            # merge — a duplicate ref with no config must not wipe an
+            # earlier parsed config block.
+            cfg.setdefault(ref, {}).update(mc)
+        settings = {}
+        for e in root:
+            ln = _ln(e)
+            if ln in ("description", "tag", "isRerun",
+                      "numberOfRerun", "rerunFailedTestCasesOnly",
+                      "rerunImmediately", "pageLoadTimeout",
+                      "pageLoadTimeoutDefault", "mailRecipient"):
+                settings[ln] = e.text or ""
         dyn = any(isinstance(e.tag, str) and
                   e.tag.split('}')[-1] == "testCaseRunType"
                   and (e.text or "").lower() in ("dynamic", "data")
@@ -64,16 +86,36 @@ def parse_ts(path: Path) -> dict:
                            "editable" if dyn else ""),
                 "name": (name_el.text if name_el is not None
                          else path.stem),
-                "members": members, "_tree": tree}
+                "members": members, "member_cfg": cfg,
+                "settings": settings, "_tree": tree}
     if tag == "TestSuiteCollectionEntity":
         members = []
-        for el in root.iter():
-            if not isinstance(el.tag, str):
+        cfg = {}
+        for p in root.iter():
+            if _ln(p) != "TestSuiteRunConfiguration":
                 continue
-            if el.tag.split('}')[-1] == "testSuiteEntity":
-                members.append(el.text or "")
+            ref = ""
+            mc = {}
+            for e in p.iter():
+                ln = _ln(e)
+                if ln == "testSuiteEntity":
+                    ref = e.text or ""
+                elif ln in ("runEnabled", "profileName",
+                            "runConfigurationId", "groupName",
+                            "requireConfigurationData"):
+                    mc[ln] = e.text or ""
+            members.append(ref)
+            cfg.setdefault(ref, {}).update(mc)
+        settings = {}
+        for e in root:
+            if _ln(e) in ("description", "tag",
+                          "delayBetweenInstances", "executionMode",
+                          "maxConcurrentInstances"):
+                settings[_ln(e)] = e.text or ""
         return {"kind": "collection", "supported": True,
-                "name": path.stem, "members": members, "_tree": tree}
+                "name": path.stem, "members": members,
+                "member_cfg": cfg, "settings": settings,
+                "_tree": tree}
     return {"kind": tag, "supported": False,
             "reason": f"unsupported root <{tag}>"}
 
@@ -97,6 +139,13 @@ def write_ts_members(path: Path, parsed: dict, members: list,
                   else "testSuiteEntity")
     parent_tag = ("testCaseLink" if kind == "suite"
                   else "TestSuiteRunConfiguration")
+    cfg = parsed.get("member_cfg", {})
+    settings = parsed.get("settings", {})
+    # apply suite-level editable settings back into the tree
+    for e in root:
+        ln = e.tag.split('}')[-1] if isinstance(e.tag, str) else ""
+        if ln in settings:
+            e.text = str(settings[ln])
     parents = [e for e in root.iter()
                if isinstance(e.tag, str) and
                e.tag.split('}')[-1] == parent_tag]
@@ -105,10 +154,15 @@ def write_ts_members(path: Path, parsed: dict, members: list,
     for i, m in enumerate(members):
         if i < len(parents):
             p = parents[i]
+            mc = cfg.get(m, {})
             for e in p.iter():
-                if isinstance(e.tag, str) and \
-                    e.tag.split('}')[-1] == member_tag:
+                if not isinstance(e.tag, str):
+                    continue
+                ln = e.tag.split('}')[-1]
+                if ln == member_tag:
                     e.text = m
+                elif ln in mc:
+                    e.text = str(mc[ln])
     # extra parents beyond new length → remove via the map
     for p in parents[len(members):]:
         pmap[p].remove(p)
@@ -131,11 +185,16 @@ def write_ts_members(path: Path, parsed: dict, members: list,
 def open_draft(username: str, item: DiscoveredItem) -> AuthoringDraft:
     """Open a user-owned draft of a discovered suite/collection —
     isolated per owner; base revision recorded."""
-    d = AuthoringDraft(binding_id=item.binding_id,
-                       project_id=item.project_id, owner=username,
-                       kind=item.kind, path=item.path,
-                       base_sha=item.sha, name=item.name,
-                       members_json=json.dumps(item.members() or []))
+    wt = _authoring_wt(item.binding_id)
+    parsed = parse_ts(wt / item.path) if (wt / item.path).exists()         else {}
+    d = AuthoringDraft(
+        binding_id=item.binding_id, project_id=item.project_id,
+        owner=username, kind=item.kind, path=item.path,
+        base_sha=item.sha, name=item.name,
+        members_json=json.dumps(
+            parsed.get("members") or item.members() or []),
+        settings_json=json.dumps(parsed.get("settings", {})),
+        member_cfg_json=json.dumps(parsed.get("member_cfg", {})))
     db.session.add(d)
     db.session.commit()
     return d
@@ -164,6 +223,8 @@ def draft_signature(draft: AuthoringDraft) -> str:
     import hashlib
     h = hashlib.sha256()
     h.update(draft.members_json.encode())
+    h.update(draft.settings_json.encode())
+    h.update(draft.member_cfg_json.encode())
     h.update(draft.name.encode())
     h.update(draft.path.encode())
     h.update(draft.base_sha.encode())
@@ -206,6 +267,11 @@ def publish_draft(draft: AuthoringDraft,
     parsed = parse_ts(f)
     if not parsed.get("supported"):
         return {"error": parsed.get("reason", "unsupported")}
+    # merge draft's cfg/settings into the parsed artifact
+    for k, v in draft.member_cfg().items():
+        parsed.setdefault("member_cfg", {}).setdefault(
+            k, {}).update(v)
+    parsed.setdefault("settings", {}).update(draft.settings())
     write_ts_members(f, parsed, draft.members(),
                      name=draft.name)
     sha = git_backend.run("commit_all", wt,
