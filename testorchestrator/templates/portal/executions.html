@@ -63,7 +63,7 @@
 <table class="data-table">
   <thead><tr>
     {% if can_run %}<th><input type="checkbox" id="sel-all"
-        onclick="document.querySelectorAll('.sel-ex').forEach(c=>c.checked=this.checked)"></th>{% endif %}
+        data-select-all></th>{% endif %}
     <th>ID</th><th>Project</th><th>Suite</th><th>State</th>
     <th>Outcome</th><th>Runner</th><th>Schedule</th><th>Created</th>
     <th>By</th></tr></thead>
@@ -90,8 +90,9 @@
 </table>
 
 {% if can_run %}
-<div class="form-actions">
-  <button type="submit" class="button secondary">Cancel selected</button>
+<div class="form-actions bulk-toolbar">
+  <button type="submit" class="button danger" id="bulk-cancel" disabled>
+    Cancel <span id="sel-count">0</span> selected</button>
   <small class="muted">Requests cancellation per selected item — does
     NOT confirm a remote process has stopped. Eligibility and per-item
     results are reported.</small>

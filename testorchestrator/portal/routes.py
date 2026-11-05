@@ -204,6 +204,8 @@ def project_detail(project_id):
     return render_template(
         "portal/project_detail.html", project=project, dash=dash,
         binding_form=BindingForm(),
+        can_author=GitBinding.query.filter_by(
+            project_id=project.id, authoring_writable=True).count() > 0,
         suite_form=suite_form, plain_form=PlainForm(),
         schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,
         executions=Execution.query.filter_by(project_id=project_id)

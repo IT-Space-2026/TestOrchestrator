@@ -99,6 +99,11 @@
       <code class="muted">{{ i.path }}</code>
       {% if i.members() %}<span class="muted">{{ i.members()|length }} members</span>{% endif %}
       {% if i.warnings %}<span class="badge warn" title="{{ i.warnings }}">warn</span>{% endif %}
+      {% if can_author and i.kind == "suite" and not i.dynamic %}
+      <a class="button ghost sm" href="{{ url_for('portal.author_item', item_id=i.id) }}">Edit</a>
+      {% elif i.kind == "suite" and i.dynamic %}
+      <span class="badge warn" title="query membership is read-only">dynamic</span>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>
@@ -127,7 +132,29 @@
   <p class="muted">No suites yet.</p>
   {% endif %}
   {% if can_edit %}
-  <p><a class="button" href="{{ url_for('portal.suite_new', project_id=project.id) }}">Create suite</a></p>
+  <p><a class="button" href="{{ url_for('portal.suite_new', project_id=project.id) }}">Create suite</a>
+  {% if can_author %}
+  <details class="inline-details"><summary class="button">New repository suite</summary>
+    <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
+      {{ plain_form.csrf_token }}
+      <input type="hidden" name="kind" value="suite">
+      <div class="field"><label>Name</label><input name="name" required></div>
+      <div class="field"><label>Source path</label>
+        <input name="path" placeholder="Test Suites/Name.ts" required></div>
+      <button type="submit" class="button">Create</button>
+      <button type="button" class="button danger" data-cancel-details>Cancel</button>
+    </form></details>
+  <details class="inline-details"><summary class="button">New collection</summary>
+    <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
+      {{ plain_form.csrf_token }}
+      <input type="hidden" name="kind" value="collection">
+      <div class="field"><label>Name</label><input name="name" required></div>
+      <div class="field"><label>Source path</label>
+        <input name="path" placeholder="Test Suites/Name.ts" required></div>
+      <button type="submit" class="button">Create</button>
+      <button type="button" class="button danger" data-cancel-details>Cancel</button>
+    </form></details>
+  {% endif %}</p>
   {% endif %}
 </section>
 

@@ -67,3 +67,18 @@ document.addEventListener("click", (e) => {
   const d = btn.closest("details");
   if (d) d.removeAttribute("open");
 });
+
+
+/* bulk-cancel toolbar — select-all + count + disable, CSP-safe. */
+document.addEventListener("change", (e) => {
+  const all = e.target.closest("[data-select-all]");
+  const items = document.querySelectorAll(".sel-ex");
+  if (all) items.forEach((c) => { c.checked = all.checked; });
+  if (e.target.classList.contains("sel-ex") || all) {
+    const n = [...items].filter((c) => c.checked && !c.disabled).length;
+    const cnt = document.getElementById("sel-count");
+    const btn = document.getElementById("bulk-cancel");
+    if (cnt) cnt.textContent = n;
+    if (btn) btn.disabled = n === 0;
+  }
+});

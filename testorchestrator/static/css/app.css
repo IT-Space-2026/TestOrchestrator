@@ -740,3 +740,8 @@ html[data-theme="dark"] {
   min-width: 6.5rem; }
 .stat-card b { display: block; font-size: 1.3rem; }
 .stat-card span { color: var(--muted); font-size: var(--fs-sm); }
+
+.bulk-toolbar { align-items: center; flex-wrap: wrap; }
+.bulk-toolbar .button { white-space: normal; max-width: 100%;
+  line-height: 1.2; padding: .4rem .8rem; }
+.bulk-toolbar #sel-count { font-weight: 700; }
