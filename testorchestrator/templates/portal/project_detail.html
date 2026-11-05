@@ -216,7 +216,11 @@
       {% for s in project.schedules %}
       <tr>
         <td>{{ s.name }}</td>
-        <td>{{ s.suite.name if s.suite else "(missing)" }}</td>
+        <td>{% if s.target_type == "plan" %}
+          <span class="badge danger">Unsupported legacy Test Plan target — select suites or collections to enable</span>
+        {% elif s.targets() %}
+          {% for x in s.targets() %}<span class="badge {{ x.kind }}">{{ x.kind }} · {{ x.path }}</span> {% endfor %}
+        {% else %}{{ s.suite.name if s.suite else "(missing)" }}{% endif %}</td>
         <td>{{ s.kind }}{% if s.kind == "interval" %} ({{ s.interval_minutes }} min){% endif %}</td>
         <td>{{ s.next_run_at or "—" }}</td>
         <td>{{ "yes" if s.enabled else "no" }}{% if s.overlap_policy == "skip" %} <span class="badge">no-overlap</span>{% endif %}</td>
@@ -234,6 +238,20 @@
             {{ plain_form.csrf_token }}<button class="button secondary" type="submit">{{ "Disable" if s.enabled else "Enable" }}</button></form>
           <form method="post" action="{{ url_for('portal.delete_schedule', schedule_id=s.id) }}" class="inline">
             {{ plain_form.csrf_token }}<button class="button secondary" type="submit">Delete</button></form>
+          <details class="inline-details">
+            <summary class="button secondary">Edit</summary>
+            <form method="post" action="{{ url_for('portal.edit_schedule', schedule_id=s.id) }}" class="edit-form">
+              {{ plain_form.csrf_token }}
+              <div class="field"><label>Name</label>
+                <input name="name" value="{{ s.name }}"></div>
+              <div class="field"><label>Targets</label>
+                <div data-case-selector
+                     data-cases='{{ repo_targets | tojson }}'
+                     data-selected='{{ s.targets() | map(attribute="source_item_id") | map("regex_replace", "^", "repo:") | list | tojson }}'>
+                  <div data-hidden></div></div></div>
+              <button type="submit" class="button">Apply</button>
+              <button type="button" class="button danger" data-cancel-details>Cancel</button>
+            </form></details>
         </td>
         {% endif %}
       </tr>
