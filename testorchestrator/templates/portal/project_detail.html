@@ -132,16 +132,16 @@
   <p class="muted">No suites yet.</p>
   {% endif %}
   {% if can_edit %}
-  <p><a class="button" href="{{ url_for('portal.suite_new', project_id=project.id) }}">Create suite</a>
-  {% if can_author %}
   <div class="repo-actions">
-  <details class="block-details"><summary class="button">New repository suite</summary>
+  {% if can_author %}
+  <details class="block-details"><summary class="button">Create suite</summary>
     <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
       {{ plain_form.csrf_token }}
       <input type="hidden" name="kind" value="suite">
-      <div class="field"><label>Name</label><input name="name" required></div>
-      <div class="field"><label>Source path</label>
-        <input name="path" placeholder="Test Suites/Name.ts" required></div>
+      <input type="hidden" name="path" id="suite-path-auto">
+      <div class="field"><label>Name</label>
+        <input name="name" required
+               oninput="document.getElementById('suite-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
       <div class="field"><label>Test cases</label>
         <div data-case-selector
              data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
@@ -149,13 +149,14 @@
       <button type="submit" class="button">Create</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form></details>
-  <details class="block-details"><summary class="button">New collection</summary>
+  <details class="block-details"><summary class="button">Create collection</summary>
     <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
       {{ plain_form.csrf_token }}
       <input type="hidden" name="kind" value="collection">
-      <div class="field"><label>Name</label><input name="name" required></div>
-      <div class="field"><label>Source path</label>
-        <input name="path" placeholder="Test Suites/Name.ts" required></div>
+      <input type="hidden" name="path" id="coll-path-auto">
+      <div class="field"><label>Name</label>
+        <input name="name" required
+               oninput="document.getElementById('coll-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
       <div class="field"><label>Suites</label>
         <div data-case-selector
              data-cases='{{ repo_suites | tojson }}' data-selected='[]'>
@@ -163,8 +164,13 @@
       <button type="submit" class="button">Create</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form></details>
+  {% else %}
+  <p class="warn">Native authoring is not enabled on the binding —
+    enable <em>Source authoring</em> in Git bindings to create or
+    edit repository definitions.</p>
+  <p><a class="button secondary" href="{{ url_for('portal.suite_new', project_id=project.id) }}">Create app-side suite</a></p>
+  {% endif %}
   </div>
-  {% endif %}</p>
   {% endif %}
 </section>
 
