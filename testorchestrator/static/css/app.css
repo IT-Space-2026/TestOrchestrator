@@ -838,3 +838,10 @@ html[data-theme="dark"] {
 .row-actions{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
 .row-actions .inline{flex:none}
 td .row-actions{min-width:9rem}
+.card > .block-details{margin-top:1rem}
+.runner-group{border:1px solid var(--border);border-radius:var(--radius);
+  padding:.75rem 1rem;margin:.75rem 0}
+.runner-group-head{display:flex;gap:.6rem;align-items:center;
+  flex-wrap:wrap;margin-bottom:.5rem}
+.runner-rts{margin:.4rem 0}
+.runner-group .empty-state{padding:.6rem}

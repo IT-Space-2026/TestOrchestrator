@@ -103,6 +103,30 @@ installations; it does not install or license KRE.</p>
 
 <section class="card">
   <h2>KRE installations</h2>
+  {% for r in runners %}
+  <div class="runner-group">
+    <div class="runner-group-head">
+      <strong>{{ r.name }}</strong>
+      <span class="badge {{ 'warn' if r.health in ('unknown','stale') else 'ok' }}">{{ r.health }}</span>
+      {% if r.draining %}<span class="badge">draining</span>{% endif %}
+      <span class="muted">Last heartbeat {{ r.heartbeat_at or "never" }}</span>
+    </div>
+    {% set its = per_runner.get(r.id, []) %}
+    {% if its %}
+    
+    {% else %}
+    <div class="empty-state runner-rts"><p>No KRE installations
+      on this runner.</p></div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% if unbound %}
+  <div class="runner-group"><div class="runner-group-head">
+    <strong>Unassigned</strong></div>
+    <p class="muted">{{ unbound|length }} installation(s) not
+    associated with a runner.</p></div>
+  {% endif %}
+  <details class="block-details"><summary class="button">Register existing KRE installation</summary>
   <p class="muted">Register runtimes that are already installed and licensed
      by the operator. TestOrchestrator never installs, upgrades, or licenses
      KRE; executable presence is not licence proof.</p>

@@ -516,10 +516,19 @@ def infrastructure():
     runner_form.allowed_projects.choices = [
         (p.id, p.name) for p in Project.query.all()]
     runtime_form.runner_id = ""
+    runners = Runner.query.all()
+    runtimes = RuntimeConnection.query.all()
+    per_runner = {}
+    unbound = []
+    for rt in runtimes:
+        if rt.runner_id and rt.runner:
+            per_runner.setdefault(rt.runner_id, []).append(rt)
+        else:
+            unbound.append(rt)
     return render_template(
         "system/infrastructure.html",
-        runners=Runner.query.all(),
-        runtimes=RuntimeConnection.query.all(),
+        runners=runners, runtimes=runtimes,
+        per_runner=per_runner, unbound=unbound,
         runner_form=runner_form, runtime_form=runtime_form,
         runner_choices=[(r.id, r.name) for r in Runner.query.all()],
     )
