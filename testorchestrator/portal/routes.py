@@ -973,16 +973,29 @@ def release_detail(release_id):
         avail=avail, plain_form=PlainForm())
 
 
-def _release_export(release, items):
-    """Portable release definition — native repo paths, no DB ids,
-    no secrets or machine paths."""
+def _release_export(release, items, binding=None):
+    """Portable release definition — repo paths + binding name, no
+    DB ids, no secrets or machine paths. Per-run configuration is
+    NOT exported — it is a launch-time choice, not part of the
+    release definition."""
     return {
         "type": "testorchestrator-release",
         "version": 1,
         "name": release.name,
         "description": release.description,
         "status": release.status,
+        "binding": binding.name if binding else "",
         "scope": [{"kind": i.kind, "path": i.path} for i in items]}
+
+
+def _release_sync_sig(release, items, binding, path):
+    h = hashlib.sha256()
+    h.update(json.dumps(
+        _release_export(release, items, binding),
+        sort_keys=True).encode())
+    h.update(path.encode())
+    h.update(binding.id.encode())
+    return h.hexdigest()
 
 
 @portal_bp.route("/releases/<release_id>/sync-preview")
@@ -993,14 +1006,28 @@ def release_sync_preview(release_id):
         abort(404)
     _project_or_404(release.project_id)
     items = ReleaseItem.query.filter_by(release_id=release.id).all()
-    export = _release_export(release, items)
     binding = GitBinding.query.filter_by(
         project_id=release.project_id, authoring_writable=True).first()
+    # cross-binding: scope items may reference defs on other bindings
+    # — their paths don't resolve in the destination repo.
+    bindings = {db.session.get(DiscoveredItem, i.source_item_id).binding_id
+                for i in items
+                if i.source_item_id and
+                db.session.get(DiscoveredItem, i.source_item_id)}
+    if len(bindings) > 1:
+        flash("Release scope spans multiple bindings — sync exports "
+              "only to the single binding the scope targets.", "error")
+        return redirect(url_for("portal.release_detail",
+                              release_id=release.id))
+    export = _release_export(release, items, binding)
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", release.name)
-    path = f"TestOrchestration/release/{slug}.json"
+    path = (release.sync_path or
+            f"TestOrchestration/release/{slug}.json")
+    sig = (_release_sync_sig(release, items, binding, path)
+           if binding else "")
     return render_template(
         "portal/release_sync.html", release=release, export=export,
-        path=path, binding=binding, plain_form=PlainForm())
+        path=path, binding=binding, sig=sig, plain_form=PlainForm())
 
 
 @portal_bp.route("/releases/<release_id>/sync", methods=["POST"])
@@ -1025,9 +1052,16 @@ def release_sync(release_id):
                               release_id=release.id))
     from .. import authoring, git_backend
     items = ReleaseItem.query.filter_by(release_id=release.id).all()
-    export = _release_export(release, items)
+    export = _release_export(release, items, binding)
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", release.name)
-    path = release.sync_path or f"TestOrchestration/release/{slug}.json"
+    path = (release.sync_path or
+            f"TestOrchestration/release/{slug}.json")
+    if request.form.get("sig") != _release_sync_sig(
+            release, items, binding, path):
+        flash("Release changed since preview — review again.",
+              "error")
+        return redirect(url_for("portal.release_sync_preview",
+                              release_id=release.id))
     wt = authoring._authoring_wt(binding.id)
     f = wt / path
     content = json.dumps(export, indent=2, sort_keys=True) + "\n"
@@ -1067,6 +1101,7 @@ def release_scope_add(release_id):
             db.session.add(ReleaseItem(
                 release_id=release.id, kind=item.kind,
                 path=item.path, source_item_id=item.id))
+            release.sync_dirty = True
             db.session.commit()
     return redirect(url_for("portal.release_detail",
                           release_id=release.id))
@@ -1083,7 +1118,9 @@ def release_scope_remove(release_id, item_id):
     PlainForm().validate_on_submit()
     it = db.session.get(ReleaseItem, item_id)
     if it and it.release_id == release.id:
-        db.session.delete(it); db.session.commit()
+        db.session.delete(it)
+        release.sync_dirty = True
+        db.session.commit()
     return redirect(url_for("portal.release_detail",
                           release_id=release.id))
 
@@ -1122,6 +1159,7 @@ def release_status(release_id):
     st = request.form.get("status", "")
     if st in ("draft", "in_progress", "released", "archived"):
         release.status = st
+        release.sync_dirty = True
         if st == "released":
             release.released_at = utcnow()
         elif release.released_at:
