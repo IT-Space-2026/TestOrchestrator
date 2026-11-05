@@ -425,8 +425,8 @@ pre.example {
                  border-radius: .35rem .35rem 0 0; color: #7a8a9a; }
 .tab-bar label:hover { color: #dfe7ee; }
 #tab-bindings:checked ~ .tab-bar label[for=tab-bindings],
+#tab-dash:checked ~ .tab-bar label[for=tab-dash],
 #tab-suites:checked ~ .tab-bar label[for=tab-suites],
-#tab-plans:checked ~ .tab-bar label[for=tab-plans],
 #tab-schedules:checked ~ .tab-bar label[for=tab-schedules],
 #tab-releases:checked ~ .tab-bar label[for=tab-releases],
 #tab-executions:checked ~ .tab-bar label[for=tab-executions],
@@ -434,8 +434,8 @@ pre.example {
   { color: #eef3f7; border-color: #334; background: #1c2630; }
 .tab-panel { display: none; }
 #tab-bindings:checked ~ #panel-bindings,
+#tab-dash:checked ~ #panel-dash,
 #tab-suites:checked ~ #panel-suites,
-#tab-plans:checked ~ #panel-plans,
 #tab-schedules:checked ~ #panel-schedules,
 #tab-releases:checked ~ #panel-releases,
 #tab-executions:checked ~ #panel-executions,
@@ -714,3 +714,29 @@ html[data-theme="dark"] {
 .theme-menu-item .menu-label { font-size: var(--fs-sm);
   color: var(--muted); }
 .theme-menu-item .theme-select { flex: 1; min-width: 5rem; }
+
+/* project dashboard chart */
+.dash-chart { display: flex; align-items: flex-end; gap: 4px;
+  height: 90px; padding: .5rem 0; }
+.dash-chart .bar-col { display: flex; flex-direction: column;
+  justify-content: flex-end; align-items: center; gap: 2px;
+  flex: 1; }
+.dash-chart .bar { width: 60%; border-radius: 2px; min-height: 2px; }
+.dash-chart .bar.pass { background: var(--success, #2ea26c); }
+.dash-chart .bar.fail { background: var(--danger, #d9534f); }
+.dash-chart .bar-day { font-size: 9px; color: var(--muted);
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  max-height: 36px; overflow: hidden; }
+.chart-legend { display: flex; gap: 1rem; font-size: var(--fs-sm); }
+.chart-legend .swatch { display: inline-block; width: 10px;
+  height: 10px; border-radius: 2px; margin-right: .3rem; }
+.chart-legend .swatch.pass { background: var(--success, #2ea26c); }
+.chart-legend .swatch.fail { background: var(--danger, #d9534f); }
+
+.stat-cards { display: flex; gap: .75rem; flex-wrap: wrap;
+  margin: .5rem 0 1rem; }
+.stat-card { background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: .7rem 1rem;
+  min-width: 6.5rem; }
+.stat-card b { display: block; font-size: 1.3rem; }
+.stat-card span { color: var(--muted); font-size: var(--fs-sm); }

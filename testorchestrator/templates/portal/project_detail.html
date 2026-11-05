@@ -10,7 +10,7 @@
 {% endwith %}
 
 <div class="tabs">
-  
+  <input type="radio" name="ptabs" id="tab-dash" class="tab-input" checked>
   <input type="radio" name="ptabs" id="tab-suites" class="tab-input">
   <input type="radio" name="ptabs" id="tab-schedules" class="tab-input">
   <input type="radio" name="ptabs" id="tab-releases" class="tab-input">
@@ -18,6 +18,7 @@
   <input type="radio" name="ptabs" id="tab-inventory" class="tab-input">
   <input type="radio" name="ptabs" id="tab-bindings" class="tab-input">
   <nav class="tab-bar">
+    <label for="tab-dash">Dashboard</label>
     <label for="tab-suites">Suites</label>
     <label for="tab-schedules">Schedules</label>
     <label for="tab-releases">Releases</label>
@@ -36,16 +37,26 @@
       <input type="date" name="since" value="{{ dash.since }}"></div>
     <button type="submit" class="button secondary">Apply</button>
   </form>
-  <p class="muted">Executions {{ dash.count }} — {{ dash.passed }} passed,
-    {{ dash.failed }} failed, {{ dash.running }} running,
-    {{ dash.queued }} queued · pass rate {{ dash.rate }}% of completed
-    (passed / finished)</p>
+  <div class="stat-cards">
+    <div class="stat-card"><b>{{ dash.count }}</b><span>executions</span></div>
+    <div class="stat-card"><b>{{ dash.passed }}</b><span>passed</span></div>
+    <div class="stat-card"><b>{{ dash.failed }}</b><span>failed</span></div>
+    <div class="stat-card"><b>{{ dash.running }}</b><span>running</span></div>
+    <div class="stat-card"><b>{{ dash.queued }}</b><span>queued</span></div>
+    <div class="stat-card"><b>{{ dash.rate }}%</b><span>pass rate (of finished)</span></div>
+  </div>
   {% if dash.trend %}
-  <div class="trend-row">
-    {% for day, n in dash.trend %}
-    <div class="trend-bar" title="{{ day }}: {{ n }} runs"
-         style="height:{{ 4 + n * 6 }}px"></div>
+  <div class="dash-chart" id="proj-chart">
+    {% for d in dash.trend %}
+    <div class="bar-col" title="{{ d.day }}: {{ d.passed }} passed, {{ d.failed }} failed">
+      <div class="bar pass" style="height:{{ 2 + d.passed * 14 }}px"></div>
+      <div class="bar fail" style="height:{{ 2 + d.failed * 14 }}px"></div>
+      <span class="bar-day">{{ d.day[8:] }}</span></div>
     {% endfor %}
+  </div>
+  <div class="chart-legend muted">
+    <span><i class="swatch pass"></i>passed</span>
+    <span><i class="swatch fail"></i>failed</span>
   </div>
   {% endif %}
   {% if dash.pub_pending or dash.pub_failed %}
@@ -321,6 +332,10 @@
                 <input name="url" value="{{ b.url }}"></div>
               <div class="field"><label>Ref / branch</label>
                 <input name="ref" value="{{ b.ref }}"></div>
+              <div class="field"><label>
+                <input type="checkbox" name="authoring_writable" value="1"
+                       {% if b.authoring_writable %}checked{% endif %}>
+                Source authoring (edit native definitions)</label></div>
               <div class="field"><label>Subdirectory</label>
                 <input name="subdirectory" value="{{ b.subdirectory }}"></div>
               <div class="field"><label>Project root (.prj)</label>

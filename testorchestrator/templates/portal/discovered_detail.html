@@ -21,10 +21,16 @@
 </details>
 {% endif %}
 
-{% if can_author and item.kind == "suite" and not item.dynamic %}
+{% if item.kind == "suite" and item.dynamic %}
+<p class="warn">Dynamic suite — query membership is read-only this
+  phase (query editing unsupported).</p>
+{% elif item.kind == "suite" and not can_author %}
+<p class="warn">Source authoring is not enabled for
+  <strong>{{ binding.name if binding else "the binding" }}</strong> — enable
+  <em>authoring</em> on the binding to edit this definition.
+  Report-write permission is separate.</p>
+{% elif item.kind == "suite" %}
 <p><a class="button" href="{{ url_for('portal.author_item', item_id=item.id) }}">Edit in repository</a></p>
-{% elif item.dynamic %}
-<p class="warn">Dynamic suite — query membership is read-only this phase.</p>
 {% endif %}
 {% if can_run %}
 <section class="card">

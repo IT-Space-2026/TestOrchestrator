@@ -35,17 +35,25 @@ RUN_ROLES = (Role.ADMIN, Role.TEST_MANAGER, Role.TESTER)
 
 
 def _dash_trend(qs, days: int = 14):
-    """Daily run counts over the window — returns [(day, n), ...]"""
+    """Daily passed/failed counts — bar-chart data like the main
+    dashboard's chart_outcomes."""
     from collections import Counter
     from datetime import date, timedelta
-    c = Counter()
+    cp, cf = Counter(), Counter()
     for e in qs.all():
-        if e.created_at:
-            c[e.created_at.date().isoformat()] += 1
-    return [( (date.today() - timedelta(days=days - 1 - i))
-              .isoformat(),
-             c.get((date.today() - timedelta(days=days - 1 - i))
-                   .isoformat(), 0)) for i in range(days)]
+        if not e.created_at:
+            continue
+        d = e.created_at.date().isoformat()
+        if e.outcome.value == "passed":
+            cp[d] += 1
+        elif e.outcome.value in ("failed", "incomplete"):
+            cf[d] += 1
+    out = []
+    for i in range(days):
+        day = (date.today() - timedelta(days=days - 1 - i)).isoformat()
+        out.append({"day": day, "passed": cp.get(day, 0),
+                    "failed": cf.get(day, 0)})
+    return out
 
 
 def _project_or_404(project_id) -> Project:
@@ -469,6 +477,7 @@ def discovered_detail(item_id):
         can_author=bool(b2 and b2.authoring_writable and
                         current_user.role.value in
                         ("admin", "test_manager")),
+        binding=b2,
         can_run=current_user.role.value in
         ("admin", "test_manager", "tester"))
 
