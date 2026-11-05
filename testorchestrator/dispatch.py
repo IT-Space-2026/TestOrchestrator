@@ -967,6 +967,21 @@ def fire_due_schedules(now=None) -> int:
             binding = GitBinding.query.filter_by(
                 project_id=sched.project_id).first()
             sha = binding.last_synced_sha if binding else ""
+            targets = sched.targets()
+            if targets:
+                for tgt in targets:
+                    d_item = db.session.get(
+                        DiscoveredItem, tgt.get("source_item_id"))
+                    if d_item is None:
+                        record_audit("worker", "schedule.target_unavailable",
+                                     sched.id)
+                        continue
+                    create_execution(sched.created_by, None,
+                                     binding=binding,
+                                     source_sha=sha, run_config=cfg,
+                                     schedule_id=sched.id,
+                                     source_item=d_item)
+                continue
             if sched.target_type == "plan" and sched.plan_id:
                 plan = db.session.get(Plan, sched.plan_id)
                 if plan is None:

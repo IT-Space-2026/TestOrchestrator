@@ -248,7 +248,14 @@
       {{ schedule_form.csrf_token }}
       <div class="field">{{ schedule_form.name.label }} {{ schedule_form.name() }}</div>
       <div class="field">{{ schedule_form.target_type.label }} {{ schedule_form.target_type() }}</div>
-      <div class="field">{{ schedule_form.target_id.label }} {{ schedule_form.target_id() }}</div>
+      <div class="field"><label>Targets</label>
+        <div data-case-selector
+             data-cases='{{ repo_targets | tojson }}'
+             data-selected='{{ sched_targets | tojson }}'>
+          <div data-hidden></div></div>
+        <small class="muted">Repository suites/collections — each
+          runs through the configured profile/runner/runtime.</small></div>
+      <div class="field" style="display:none">{{ schedule_form.target_id() }}</div>
       <div class="field">{{ schedule_form.kind.label }} {{ schedule_form.kind() }}</div>
       <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}</div>
       <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes() }}</div>

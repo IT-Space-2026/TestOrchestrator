@@ -41,8 +41,7 @@ class ScheduleForm(FlaskForm):
     name = StringField("Schedule name",
                        validators=[DataRequired(), Length(max=128)])
     description = TextAreaField("Description", validators=[Optional()])
-    target_type = SelectField("Target", choices=[("suite", "Suite"),
-                                                 ("plan", "Plan")])
+    target_type = SelectField("Target", choices=[("suite", "Suite")])
     target_id = SelectField("Runs", validators=[DataRequired()])
     kind = SelectField("Kind", choices=[("once", "Once"),
                                         ("interval", "Repeating")])

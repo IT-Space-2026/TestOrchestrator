@@ -167,8 +167,22 @@ def project_detail(project_id):
     cases = gitsync.list_test_cases(first_binding) if first_binding else []
     suite_form.case_refs.choices = [(c, c) for c in cases]
     schedule_form = ScheduleForm()
-    schedule_form.target_id.choices = [
-        (s.id, f"Suite: {s.name}") for s in project.suites]
+    # repository definitions first (binding · kind · path), then
+    # legacy App suites explicitly labelled.
+    repo_defs = DiscoveredItem.query.join(GitBinding).filter(
+        GitBinding.project_id == project.id,
+        DiscoveredItem.kind.in_(("suite", "collection"))).all()
+    bind_names = {b.id: b.name for b in GitBinding.query.filter_by(
+        project_id=project.id)}
+    repo_targets = [f"repo:{d.id}" for d in repo_defs]
+    repo_target_labels = {f"repo:{d.id}":
+        f"{bind_names.get(d.binding_id, '?')} · {d.kind} · {d.path}"
+        for d in repo_defs}
+    schedule_form.target_id.choices = (
+        [(f"repo:{d.id}", f"{bind_names.get(d.binding_id, '?')} · "
+          f"{d.kind} · {d.path}") for d in repo_defs] +
+        [(f"app:{s.id}", f"app-side suite · {s.name}")
+         for s in project.suites])
     from ..execution import Runner, RuntimeConnection
     _runners = [x for x in Runner.query.filter_by(enabled=True).all()
                 if not x.draining]
@@ -260,6 +274,8 @@ def project_detail(project_id):
     return render_template(
         "portal/project_detail.html", project=project,
         rel_progress=progress,
+        repo_targets=repo_targets,
+        sched_targets=repo_targets,
         active_releases=active, dated_active=dated_active,
         undated_active=undated_active,
         overdue_active=overdue_active,
@@ -1749,7 +1765,8 @@ def create_schedule(project_id):
             project_id=project.id, name=form.name.data.strip(),
             description=form.description.data or "",
             target_type="suite", suite_id=form.target_id.data,
-            plan_id=None, kind=kind,
+            plan_id=None,
+            targets_json=json.dumps(targets), kind=kind,
             interval_minutes=interval if kind == "interval" else None,
             next_run_at=run_at, enabled=True,
             overlap_policy=form.overlap_policy.data or "allow",
