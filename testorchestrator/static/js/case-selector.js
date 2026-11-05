@@ -69,7 +69,7 @@
       const vis = visibleAvailable();
       avail.innerHTML = vis.length
         ? vis.map((c) => `
-          <li><span class="case-path" title="${c}">${c}</span>
+          <li><span class="case-path" title="${c}">${esc(label(c))}</span>
             <span class="case-actions">
               <button type="button" class="button ghost icon"
                       data-add="${c}" aria-label="Add ${c}">+</button>
@@ -139,5 +139,7 @@
     }
   }
 
-  document.querySelectorAll("[data-case-selector]").forEach(build);
+  document.querySelectorAll("[data-case-selector]").forEach((root) => {
+    try { build(root); } catch (e) { console.warn('case-selector', e); }
+  });
 })();

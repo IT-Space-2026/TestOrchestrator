@@ -83,6 +83,6 @@
   </div>
 </form>
 
-<script src="{{ url_for('static', filename='js/case-selector.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ app_v }}" defer></script>
 <script src="{{ url_for('static', filename='js/form-guard.js') }}" defer></script>
 {% endblock %}
