@@ -926,11 +926,18 @@ def release_detail(release_id):
     runs = Execution.query.filter_by(release_id=release.id).order_by(
         Execution.created_at.desc()).all()
     # scope summary vs historical totals — separate counts.
+    # latest keyed by target + execution configuration — a pass under
+    # one profile/runtime must not mask a failure under another.
+    def _cfg(e):
+        c = e.config()
+        return (c.get("profile", ""), c.get("browser", ""),
+                c.get("runner_id", ""), c.get("runtime_id", ""))
     latest_by_path = {}
     for e in runs:
         tgt = e.snapshot().get("source_target", {}).get("path", "")
-        if tgt and tgt not in latest_by_path:
-            latest_by_path[tgt] = e
+        key = (tgt, _cfg(e))
+        if tgt and key not in latest_by_path:
+            latest_by_path[key] = e
     scope_rows = []
     unexecuted = 0
     unavailable = 0
@@ -938,7 +945,8 @@ def release_detail(release_id):
         src = (db.session.get(DiscoveredItem, it.source_item_id)
                if it.source_item_id else None)
         missing = src is None and it.source_item_id
-        latest = latest_by_path.get(it.path)
+        latest = next((e for (t, _c), e in
+                       latest_by_path.items() if t == it.path), None)
         if missing:
             unavailable += 1
             state = "unavailable — definition removed from repository"
