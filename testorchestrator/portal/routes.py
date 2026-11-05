@@ -729,8 +729,17 @@ def author_publish(draft_id):
     if res.get("error"):
         flash(f"Publish failed: {res['error']}", "error")
     else:
-        flash("Published to the authoring branch.", "info")
-        record_audit(current_user.username, "author.published", draft.id)
+        flash("Published to the authoring branch — syncing "
+              "inventory.", "info")
+        record_audit(current_user.username, "author.published",
+                     draft.id)
+        # publish -> auto-sync: the new/edited definition appears
+        # under Repository Suites without a manual Sync click.
+        db.session.add(OutboxEvent(
+            kind="git-sync",
+            payload_json=json.dumps(
+                {"binding_id": draft.binding_id})))
+        db.session.commit()
     item = _draft_item(draft)
     return redirect(url_for("portal.author_item",
                             item_id=item.id if item else "",
