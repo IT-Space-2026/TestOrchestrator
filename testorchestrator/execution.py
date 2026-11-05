@@ -141,6 +141,22 @@ class Release(db.Model):
     project = db.relationship("Project", backref="releases")
 
 
+class ReleaseItem(db.Model):
+    """A release's testing scope — a reference to a repository
+    definition (suite or collection), never a copy."""
+    __tablename__ = "release_items"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    release_id = db.Column(db.String(32), db.ForeignKey("releases.id"),
+                           nullable=False)
+    kind = db.Column(db.String(16), nullable=False)
+    path = db.Column(db.String(512), nullable=False)
+    source_item_id = db.Column(
+        db.String(32), db.ForeignKey("discovered_items.id",
+                                     ondelete="SET NULL"),
+        nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
 class Schedule(db.Model):
     """Scheduled suite/plan execution (§10, §16 Test Manager).
 
@@ -289,6 +305,8 @@ class Execution(db.Model):
     # binding — never mutated by later definition edits (A07).
     snapshot_json = db.Column(db.Text, nullable=False, default="{}")
     source_sha = db.Column(db.String(64), nullable=False, default="")
+    release_id = db.Column(db.String(32), db.ForeignKey("releases.id"),
+                           nullable=True)
     binding_id = db.Column(db.String(32), db.ForeignKey("git_bindings.id"),
                            nullable=True)
     runner_id = db.Column(db.String(32), db.ForeignKey("runners.id"),
@@ -476,6 +494,8 @@ class DiscoveredItem(db.Model):
     never erases the last good set."""
     __tablename__ = "discovered_items"
     id = db.Column(db.String(32), primary_key=True, default=new_id)
+    release_id = db.Column(db.String(32), db.ForeignKey("releases.id"),
+                           nullable=True)
     binding_id = db.Column(db.String(32), db.ForeignKey("git_bindings.id"),
                            nullable=False)
     project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),

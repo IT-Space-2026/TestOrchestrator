@@ -433,3 +433,28 @@ def test_draft_init_when_authoring_clone_empty(app, tmp_path):
         assert d.members() == ["Test Cases/API/tc1",
                                "Test Cases/API/tc2"]
         assert d.member_cfg()["Test Cases/API/tc1"]["isRun"] == "false"
+
+
+def test_non_commit_discovery_marker_resolves_real_head(app, tmp_path):
+    """item.sha is a discovery marker, not a commit — the draft base
+    must come from the fetched worktree's real HEAD, or every publish
+    false-positives as an upstream conflict."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        import subprocess
+        wc = tmp_path / "fwt"
+        (wc / "Test Suites").mkdir(parents=True)
+        (wc / "Test Suites/S1.ts").write_text(SUITE_XML)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            subprocess.run(["git", "-C", str(wc.parent), "init", "-q"],
+                           check=False)
+        # use the real repo's head — worktree_path = a clone
+        wc2 = tmp_path / "fwt2"
+        subprocess.run(["git", "clone", "-q", str(repo), str(wc2)],
+                       check=True)
+        b.worktree_path = str(wc2); db.session.commit()
+        item.sha = "discovery-marker-not-a-sha"
+        db.session.commit()
+        d = authoring.open_draft("alice", item)
+        assert d.base_sha != "discovery-marker-not-a-sha"
+        assert len(d.base_sha) >= 30        # looks like a real commit
