@@ -835,3 +835,6 @@ html[data-theme="dark"] {
 [data-theme="dark"] .badge.outcome-incomplete{background:#7c2d12;color:#fdba74}
 .timeline-track{overflow:hidden}
 .hidden-field{display:none!important}
+.row-actions{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.row-actions .inline{flex:none}
+td .row-actions{min-width:9rem}

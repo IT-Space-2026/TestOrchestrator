@@ -22,22 +22,26 @@ installations; it does not install or license KRE.</p>
     <tbody>
       {% for r in runners %}
       <tr>
-        <td>{{ r.name }}</td><td>{{ r.connection_mode }}</td>
+        <td><strong>{{ r.name }}</strong><br>
+          <small class="muted">{{ r.description }}</small></td>
+        <td>{{ r.connection_mode }}</td>
         <td>{{ r.os_arch }}</td><td>{{ r.max_slots }}</td>
         <td><span class="badge {{ 'danger' if r.health in ('unhealthy','down') else ('warn' if r.health in ('unknown','stale') else 'ok') }}">{{ r.health }}</span></td>
         <td>{{ r.heartbeat_at or "—" }}</td>
         <td>
           {% if r.agent_token_hash %}issued{% else %}none{% endif %}
           {{ "· v" + r.agent_version if r.agent_version else "" }}
+          <span class="row-actions">
           <form method="post" action="{{ url_for('system.issue_token', runner_id=r.id) }}" class="inline">
             {{ runner_form.csrf_token }}
-            <button type="submit" class="button secondary">Issue token</button>
-          </form>
+            <button type="submit" class="button secondary sm" title="Issue a runner agent token for remote dispatch">Issue token</button>
+          </form></span>
         </td>
         <td>
           <form method="post" action="{{ url_for('system.drain_runner', runner_id=r.id) }}" class="inline">
             {{ runner_form.csrf_token }}
-            <button type="submit" class="button secondary">
+            <button type="submit" class="button secondary"
+              title="Drain stops new work being assigned; running work finishes">
               {{ "Resume accepting jobs" if r.draining else "Drain runner" }}</button>
           </form>
           <small class="muted">{{ "draining — no new work assigned" if r.draining else "" }}</small>
