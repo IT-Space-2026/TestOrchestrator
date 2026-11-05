@@ -6,6 +6,47 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+### Added — release dates, charts, schedule multi-targets (cont.)
+
+- **Release dates** — nullable `start_date`/`end_date` ("Start
+  date"/"Target end date") on create/edit; `end>=start` validation;
+  overdue badge for unreleased/non-archived past end; `released_at`
+  remains the separate actual timestamp. Dates exported in the
+  release manifest + `sync_dirty` on change. `today` UTC jinja
+  global for comparisons.
+- **Release timeline** — Releases tab: start→end bars, status
+  colors, today marker, detail links; empty state for undated
+  releases. Per-release progress (latest result per scoped target,
+  not all history — config-keyed, unexecuted/unavailable counted).
+- **Dashboard release overview** — active (draft/in_progress)
+  releases as timeline bars, undated list, overdue label, counts,
+  "View all releases" — labelled current state, not date-filtered.
+- **Schedule multi-targets** — `targets_json` on Schedule
+  (`h8a9b0c1d2e3`): repository suites/collections referenced
+  (`{kind, path, source_item_id, binding_id}`), never copied.
+  Two-panel selector on create + edit (prefilled); labelled
+  `name (kind) · binding · path`; App suites labelled "app-side".
+- **Plan removed from scheduling** — `target_type` "plan" gone from
+  create; new plan-targeted schedules rejected; existing Plan-backed
+  rows show "Unsupported legacy Test Plan target"; dispatch still
+  resolves preserved history.
+- **Schedule dispatch** — per-target `create_execution(source_item)`
+  with the schedule's profile/runner/runtime; project check on
+  dispatch; unavailable targets audited (`schedule.target_unavailable`)
+  not silently skipped; legacy single-target schedules still work.
+- **Selector** — `{v, l}` labelled options (visible label vs
+  submitted `repo:<id>` value); `esc` helper; try/catch per build;
+  `js_v` cache-buster; legacy `target_id` select hidden.
+- **UI** — outcome badge colors (passed/failed/running/none/
+  incomplete); status-badge colors (draft/in_progress/released/
+  archived); CSP-safe timeline geometry (`data-left`/`data-width`
+  via JS CSSOM — inline `style=` is blocked); dashboard executions
+  table outcome badges; forward-migration test stub fix.
+
+### Migrations
+- h7a8b9c0d1e2 (release start/end dates)
+- h8a9b0c1d2e3 (schedule targets_json)
+
 ### Added — repository-native authoring, releases, dashboard
 
 - **Project Dashboard** (first/default tab): stat cards (total/

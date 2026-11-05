@@ -834,3 +834,4 @@ html[data-theme="dark"] {
 .badge.outcome-incomplete{background:#ffedd5;color:#9a3412}
 [data-theme="dark"] .badge.outcome-incomplete{background:#7c2d12;color:#fdba74}
 .timeline-track{overflow:hidden}
+.hidden-field{display:none!important}

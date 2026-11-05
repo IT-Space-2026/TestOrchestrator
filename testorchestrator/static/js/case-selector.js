@@ -3,6 +3,11 @@
    inputs, so it works without JS as a plain multi-select fallback. */
 (function () {
   "use strict";
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => (
+      {"&": "&amp;", "<": "&lt;", ">": "&gt;",
+       '"': "&quot;", "'": "&#39;"}[c]));
+  }
 
   function build(root) {
     let data = JSON.parse(root.dataset.cases || "[]");

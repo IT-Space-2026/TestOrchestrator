@@ -63,6 +63,9 @@ def create_app(config_object=Config) -> Flask:
     _css = Path(BASE_DIR) / "testorchestrator/static/css/app.css"
     app.jinja_env.globals["app_v"] = (
         str(int(_css.stat().st_mtime)) if _css.exists() else "0")
+    _js = Path(BASE_DIR) / "testorchestrator/static/js/case-selector.js"
+    app.jinja_env.globals["js_v"] = (
+        str(int(_js.stat().st_mtime)) if _js.exists() else "0")
 
     app.wsgi_app = TrustedProxyFix(
         app.wsgi_app, app.config["TRUSTED_PROXY_IPS"]

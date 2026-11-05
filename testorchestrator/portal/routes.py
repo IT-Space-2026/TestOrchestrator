@@ -276,7 +276,7 @@ def project_detail(project_id):
         "portal/project_detail.html", project=project,
         rel_progress=progress,
         repo_targets=repo_targets,
-        sched_targets=repo_targets,
+        sched_targets=[],
         active_releases=active, dated_active=dated_active,
         undated_active=undated_active,
         overdue_active=overdue_active,

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ project.name }} · TestOrchestrator<script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ app_v }}" defer></script>
+{% block title %}{{ project.name }} · TestOrchestrator<script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>
 {% endblock %}
 {% block content %}
 <h1>{{ project.name }}</h1>
@@ -273,7 +273,7 @@
           <div data-hidden></div></div>
         <small class="muted">Repository suites/collections — each
           runs through the configured profile/runner/runtime.</small></div>
-      <div class="field" style="display:none">{{ schedule_form.target_id() }}</div>
+      <div class="hidden-field">{{ schedule_form.target_id() }}</div>
       <div class="field">{{ schedule_form.kind.label }} {{ schedule_form.kind() }}</div>
       <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}</div>
       <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes() }}</div>
@@ -528,5 +528,5 @@
 </section>
 
 </div>
-<script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ app_v }}" defer></script>
+<script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>
 {% endblock %}

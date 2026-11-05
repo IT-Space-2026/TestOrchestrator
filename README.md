@@ -250,6 +250,24 @@ into the same draft flow.
 
 ## Releases (Unreleased)
 
+Releases carry optional Start date / Target end date (validated
+`end >= start`, shown on list/detail/edit, exported in the sync
+manifest). The Releases tab has a start→end timeline and a
+per-release testing-progress chart (latest result per scoped
+target, not all history). The Dashboard shows a compact active-
+release overview with overdue/undated counts.
+
+## Schedules (Unreleased)
+
+Schedules target multiple repository suites/collections via a
+two-panel selector (`name (kind) · binding · path` labels); each
+runs through the configured profile/runner/runtime. App suites are
+a labelled fallback. Legacy Test Plan targets are preserved as
+history but shown as unsupported — they can't be newly created.
+Unavailable targets are audited on dispatch, not silently dropped.
+
+## Releases (Unreleased)
+
 A release carries a testing scope of repository suite/collection
 references, linked executions (profile/runner/runtime), a config-
 scoped latest-result summary, lifecycle status (draft/in_progress/
