@@ -753,3 +753,11 @@ html[data-theme="dark"] {
   display: inline-block; }
 .repo-actions .block-details[open] { padding: .5rem;
   border: 1px solid var(--border); border-radius: var(--radius); }
+.card-head{display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:.75rem}
+.card-head h2{margin:0}
+.empty-state{padding:1.25rem;border:1px dashed var(--border);border-radius:6px;
+  background:var(--bg-subtle);text-align:center;color:var(--text-muted)}
+.scope-add{display:flex;gap:.75rem;align-items:flex-end;margin-top:1rem}
+.scope-add .field{flex:1}
+.scope-add select{max-width:100%}
