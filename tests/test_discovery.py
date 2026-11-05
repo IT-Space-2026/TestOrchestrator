@@ -216,6 +216,11 @@ def test_upgrade_forward_path(tmp_path):
                 " discovery_error TEXT, project_root TEXT,"
                 " last_synced_sha TEXT, status TEXT, last_error TEXT)"))
             conn.execute(sa.text(
+                "CREATE TABLE releases (id TEXT PRIMARY KEY,"
+                " project_id TEXT, name TEXT, description TEXT,"
+                " owner TEXT, status TEXT, plan_id TEXT,"
+                " created_at TEXT, released_at TEXT)"))
+            conn.execute(sa.text(
                 "CREATE TABLE alembic_version (version_num TEXT)"))
             conn.execute(sa.text(
                 "INSERT INTO alembic_version VALUES ('f8a9b0c1d2e3')"))
