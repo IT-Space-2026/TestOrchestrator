@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Runners & runtimes · TestOrchestrator{% endblock %}
 {% block content %}
-<h1>System &rarr; Runners &amp; runtime connections</h1>
+<h1>System &rarr; Runners &amp; KRE installations</h1>
+<p class="muted">A <strong>runner</strong> is the worker that executes your
+tests. A <strong>KRE installation</strong> is an existing Katalon Runtime
+Engine installation available to that runner. This page registers
+installations; it does not install or license KRE.</p>
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% for category, message in messages %}
   <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
@@ -34,9 +38,9 @@
           <form method="post" action="{{ url_for('system.drain_runner', runner_id=r.id) }}" class="inline">
             {{ runner_form.csrf_token }}
             <button type="submit" class="button secondary">
-              {{ "Resume" if r.draining else "Drain" }}</button>
+              {{ "Resume accepting jobs" if r.draining else "Drain runner" }}</button>
           </form>
-          {{ "draining" if r.draining else "" }}
+          <small class="muted">{{ "draining — no new work assigned" if r.draining else "" }}</small>
           <details class="inline-details">
             <summary class="button secondary">Edit</summary>
             <form method="post" action="{{ url_for('system.edit_runner', runner_id=r.id) }}" class="edit-form">
@@ -86,13 +90,13 @@
       <small>Optional. Restrict this runner to listed projects;
       empty = all projects may dispatch here.</small></div>
     <div class="form-actions">
-      <button type="submit" class="button">Register runner</button>
+      <button type="submit" class="button">Add runner</button>
     </div>
   </form>
 </section>
 
 <section class="card">
-  <h2>KRE runtime connections (existing installations only)</h2>
+  <h2>KRE installations</h2>
   <p class="muted">Register runtimes that are already installed and licensed
      by the operator. TestOrchestrator never installs, upgrades, or licenses
      KRE; executable presence is not licence proof.</p>
@@ -110,17 +114,17 @@
         <td><span class="badge {{ 'ok' if rt.enabled else '' }}">{{ "enabled" if rt.enabled else "disabled" }}</span></td>
         <td>{% if not rt.last_diagnostic %}<span class="badge">Not checked</span>
           {% elif "fail" in rt.last_diagnostic|lower or "error" in rt.last_diagnostic|lower %}
-          <span class="badge danger">Probe failed</span>
+          <span class="badge danger">Check failed</span>
           {% elif "re-check" in rt.last_diagnostic|lower %}
           <span class="badge">Re-check required</span>
-          {% else %}<span class="badge ok">Probe passed</span>{% endif %}
-          <small class="muted">Executable/version only — license and
-          test execution not verified.</small>
+          {% else %}<span class="badge ok">Check passed</span>{% endif %}
+          <small class="muted">Executable &amp; version only —
+          license and test execution not verified.</small>
           {{ rt.last_diagnostic[:60] }}</td>
         <td>
           <form method="post" action="{{ url_for('system.probe_runtime', runtime_id=rt.id) }}" class="inline">
             {{ runtime_form.csrf_token }}
-            <button type="submit" class="button secondary">Test connection</button>
+            <button type="submit" class="button secondary">Check executable &amp; version</button>
           </form>
           <form method="post" action="{{ url_for('system.toggle_runtime', runtime_id=rt.id) }}" class="inline">
             {{ runtime_form.csrf_token }}
@@ -163,15 +167,15 @@
       executable lives — dispatch only uses runtimes on dispatch-eligible
       runners.</small>
     </div>
-    <div class="field">{{ runtime_form.executable_path.label }} {{ runtime_form.executable_path() }}
+    <div class="field"><label>KRE executable location</label> {{ runtime_form.executable_path() }}
       <small><strong>Required.</strong> Path on the <em>runner's</em>
       filesystem (for local runners: this host) to the KRE CLI binary.
       Example: <code>/opt/kre/bin/kre-console.sh</code>. Presence is
       verified by <em>Test connection</em>, not assumed.</small></div>
-    <div class="field">{{ runtime_form.workspace_root.label }} {{ runtime_form.workspace_root() }}
+    <div class="field"><label>Working directory</label> {{ runtime_form.workspace_root() }}
       <small>Optional. Overrides the runner's workspace root for this
       runtime only — path on the runner's filesystem.</small></div>
-    <div class="field">{{ runtime_form.credential_ref.label }} {{ runtime_form.credential_ref() }}
+    <div class="field"><label>Credential reference</label> {{ runtime_form.credential_ref() }}
       <small>Optional. <em>Name</em> of a credential stored under
       System → Credentials — never the value itself. Needed only when
       the runtime requires an auth token.</small></div>
@@ -179,7 +183,7 @@
       <small><strong>Required.</strong> Max parallel sessions for this
       runtime; integer ≥ 1, capped by the runner's free slots.</small></div>
     <div class="form-actions">
-      <button type="submit" class="button">Register runtime</button>
+      <button type="submit" class="button">Register existing KRE installation</button>
     </div>
   </form>
 </section>
