@@ -1001,6 +1001,7 @@ def _release_sync_sig(release, items, binding, path):
 @portal_bp.route("/releases/<release_id>/sync-preview")
 @role_required(*EDIT_ROLES)
 def release_sync_preview(release_id):
+    from .. import git_backend
     release = db.session.get(Release, release_id)
     if release is None:
         abort(404)
@@ -1023,11 +1024,19 @@ def release_sync_preview(release_id):
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", release.name)
     path = (release.sync_path or
             f"TestOrchestration/release/{slug}.json")
+    base = ""
+    if binding and binding.worktree_path:
+        try:
+            base = git_backend.run(
+                "resolve", Path(binding.worktree_path), "HEAD") or ""
+        except Exception:
+            pass
     sig = (_release_sync_sig(release, items, binding, path)
            if binding else "")
     return render_template(
         "portal/release_sync.html", release=release, export=export,
-        path=path, binding=binding, sig=sig, plain_form=PlainForm())
+        path=path, binding=binding, sig=sig, base=base,
+        plain_form=PlainForm())
 
 
 @portal_bp.route("/releases/<release_id>/sync", methods=["POST"])

@@ -12,6 +12,7 @@
   {{ plain_form.csrf_token }}
   <input type="hidden" name="binding_id" value="{{ binding.id }}">
   <input type="hidden" name="sig" value="{{ sig }}">
+  <input type="hidden" name="base" value="{{ base }}">
   <button type="submit" class="button">Publish to {{ binding.name }}</button>
 </form>
 {% endif %}
