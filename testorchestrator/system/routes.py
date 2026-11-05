@@ -633,6 +633,7 @@ def edit_runner(runner_id):
     runner.name = request.form.get("name", runner.name).strip()
     runner.description = request.form.get(
         "description", runner.description)
+    old_arch, old_ws = runner.os_arch, runner.workspace_root
     runner.os_arch = request.form.get("os_arch", runner.os_arch)
     ws = request.form.get("workspace_root")
     if ws is not None and ws != runner.workspace_root:
@@ -640,6 +641,14 @@ def edit_runner(runner_id):
     ms = request.form.get("max_slots")
     if ms:
         runner.max_slots = int(ms)
+    if (runner.os_arch != old_arch or
+            runner.workspace_root != old_ws):
+        from ..execution import RuntimeConnection
+        for rt in RuntimeConnection.query.filter_by(
+                runner_id=runner.id):
+            rt.detected_version = ""
+            rt.last_diagnostic = (
+                "re-check required — runner config changed")
     db.session.commit()
     record_audit(current_user.username, "runner.edited", runner.name)
     return redirect(url_for("system.infrastructure"))

@@ -37,6 +37,18 @@
               {{ "Resume" if r.draining else "Drain" }}</button>
           </form>
           {{ "draining" if r.draining else "" }}
+          <details class="inline-details">
+            <summary class="button secondary">Edit</summary>
+            <form method="post" action="{{ url_for('system.edit_runner', runner_id=r.id) }}" class="edit-form">
+              {{ runner_form.csrf_token }}
+              <div class="field"><label>Name</label><input name="name" value="{{ r.name }}"></div>
+              <div class="field"><label>Description</label><input name="description" value="{{ r.description }}"></div>
+              <div class="field"><label>OS/arch</label><input name="os_arch" value="{{ r.os_arch }}"></div>
+              <div class="field"><label>Workspace root</label><input name="workspace_root" value="{{ r.workspace_root }}"></div>
+              <div class="field"><label>Max slots</label><input name="max_slots" value="{{ r.max_slots }}"></div>
+              <button type="submit" class="button">Apply</button>
+              <button type="button" class="button danger" data-cancel-details>Cancel</button>
+            </form></details>
         </td>
       </tr>
       {% endfor %}
@@ -114,6 +126,21 @@
             {{ runtime_form.csrf_token }}
             <button type="submit" class="button secondary">{{ "Disable" if rt.enabled else "Enable" }}</button>
           </form>
+          <details class="inline-details">
+            <summary class="button secondary">Edit</summary>
+            <form method="post" action="{{ url_for('system.edit_runtime', runtime_id=rt.id) }}" class="edit-form">
+              {{ runtime_form.csrf_token }}
+              <div class="field"><label>Name</label><input name="name" value="{{ rt.name }}"></div>
+              <div class="field"><label>Description</label><input name="description" value="{{ rt.description }}"></div>
+              <div class="field"><label>Executable path</label><input name="executable_path" value="{{ rt.executable_path }}">
+                <small class="muted">Changing this marks the probe Re-check required.</small></div>
+              <div class="field"><label>Workspace root</label><input name="workspace_root" value="{{ rt.workspace_root }}"></div>
+              <div class="field"><label>Credential reference</label><input name="credential_ref" value="{{ rt.credential_ref }}">
+                <small class="muted">Name only — never the secret value.</small></div>
+              <div class="field"><label>Concurrency</label><input name="concurrency" value="{{ rt.concurrency }}"></div>
+              <button type="submit" class="button">Apply</button>
+              <button type="button" class="button danger" data-cancel-details>Cancel</button>
+            </form></details>
         </td>
       </tr>
       {% endfor %}
