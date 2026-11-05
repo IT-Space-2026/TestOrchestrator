@@ -61,7 +61,7 @@ class ScheduleForm(FlaskForm):
         default=3600)
     runner_id = SelectField("Runner", validators=[Optional()],
                             choices=[])
-    runtime_id = SelectField("Runtime", validators=[Optional()],
+    runtime_id = SelectField("KRE installation", validators=[Optional()],
                              choices=[])
     overlap_policy = SelectField(
         "Overlap", choices=[("allow", "Allow overlap"),

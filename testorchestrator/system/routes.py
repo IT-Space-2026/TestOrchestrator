@@ -594,10 +594,14 @@ def probe_runtime(runtime_id):
     try:
         version = probe_version(rt.executable_path)
         rt.detected_version = version
+        from ..execution import utcnow
+        rt.last_check_at = utcnow()
         rt.last_diagnostic = f"probe ok: version {version}"
         flash(f"Probe OK — detected version {version}. Licence readiness is "
               "not implied by executable presence.", "info")
     except KreError as exc:
+        from ..execution import utcnow
+        rt.last_check_at = utcnow()
         rt.last_diagnostic = str(exc)
         flash(f"Probe failed: {exc}", "error")
     db.session.commit()
@@ -656,7 +660,9 @@ def edit_runner(runner_id):
         for rt in RuntimeConnection.query.filter_by(
                 runner_id=runner.id):
             rt.detected_version = ""
-            rt.last_diagnostic = (
+            from ..execution import utcnow
+        rt.last_check_at = utcnow()
+        rt.last_diagnostic = (
                 "re-check required — runner config changed")
     db.session.commit()
     record_audit(current_user.username, "runner.edited", runner.name)
@@ -693,6 +699,8 @@ def edit_runtime(runtime_id):
         rt.concurrency = int(conc)
     if probe_changed:
         rt.detected_version = ""
+        from ..execution import utcnow
+        rt.last_check_at = utcnow()
         rt.last_diagnostic = (
             "re-check required — probe-relevant config changed")
     db.session.commit()

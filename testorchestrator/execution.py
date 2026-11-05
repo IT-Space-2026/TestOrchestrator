@@ -259,6 +259,7 @@ class RuntimeConnection(db.Model):
     concurrency = db.Column(db.Integer, nullable=False, default=1)
     enabled = db.Column(db.Boolean, nullable=False, default=True)
     last_diagnostic = db.Column(db.Text, nullable=False, default="")
+    last_check_at = db.Column(db.DateTime(timezone=True), nullable=True)
     runner = db.relationship("Runner", backref="runtimes")
 
 
