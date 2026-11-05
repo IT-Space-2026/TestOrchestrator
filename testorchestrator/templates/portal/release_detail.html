@@ -10,22 +10,30 @@
 {% endwith %}
 
 <div class="stat-cards">
-  <div class="stat-card"><b>{{ runs|length }}</b><span>executions</span></div>
-  <div class="stat-card"><b>{{ done }}</b><span>finished</span></div>
-  <div class="stat-card"><b>{{ passed }}</b><span>passed</span></div>
+  <div class="stat-card"><b>{{ runs|length }}</b><span>executions (history)</span></div>
+  <div class="stat-card"><b>{{ items|length }}</b><span>in scope</span></div>
+  <div class="stat-card"><b>{{ unexecuted }}</b><span>not yet executed</span></div>
+  <div class="stat-card"><b>{{ unavailable }}</b><span>unavailable</span></div>
 </div>
 
 <section class="card"><h2>Testing scope</h2>
-{% if items %}
-<ul class="notice-list">
-  {% for i in items %}
-  <li><span class="badge">{{ i.kind }}</span> <code>{{ i.path }}</code>
-    <form method="post" class="inline" action="{{ url_for('portal.release_scope_remove', release_id=release.id, item_id=i.id) }}">
+{% if scope_rows %}
+<table class="data-table"><thead><tr><th>Type</th><th>Path</th>
+  <th>Latest</th><th></th></tr></thead><tbody>
+  {% for s in scope_rows %}
+  <tr><td><span class="badge">{{ s.item.kind }}</span></td>
+    <td><code>{{ s.item.path }}</code></td>
+    <td>{% if s.missing %}
+        <span class="badge danger">unavailable</span>
+        <span class="muted">removed from repo — cannot run</span>
+      {% elif s.latest %}
+        <span class="badge outcome-{{ s.latest.outcome.value }}">{{ s.latest.outcome.value }}</span>
+      {% else %}<span class="muted">not yet executed</span>{% endif %}</td>
+    <td><form method="post" class="inline" action="{{ url_for('portal.release_scope_remove', release_id=release.id, item_id=s.item.id) }}">
       {{ plain_form.csrf_token }}
-      <button type="submit" class="button danger sm">Remove</button>
-    </form></li>
-  {% endfor %}
-</ul>
+      <button type="submit" class="button danger sm">Remove</button></form></td></tr>
+  {% endfor %}</tbody></table>
+<p class="muted">{{ items|length }} in scope · {{ unexecuted }} not yet executed · {{ unavailable }} unavailable · {{ runs|length }} total executions (history)</p>
 {% else %}<p class="muted">No scope yet — add repository suites/collections.</p>{% endif %}
 <form method="post" action="{{ url_for('portal.release_scope_add', release_id=release.id) }}" class="add-form">
   {{ plain_form.csrf_token }}

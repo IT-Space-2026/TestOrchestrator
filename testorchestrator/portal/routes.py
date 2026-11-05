@@ -925,8 +925,31 @@ def release_detail(release_id):
     items = ReleaseItem.query.filter_by(release_id=release.id).all()
     runs = Execution.query.filter_by(release_id=release.id).order_by(
         Execution.created_at.desc()).all()
-    done = [e for e in runs if e.finished_at]
-    latest = sum(1 for e in done if e.outcome.value == "passed")
+    # scope summary vs historical totals — separate counts.
+    latest_by_path = {}
+    for e in runs:
+        tgt = e.snapshot().get("source_target", {}).get("path", "")
+        if tgt and tgt not in latest_by_path:
+            latest_by_path[tgt] = e
+    scope_rows = []
+    unexecuted = 0
+    unavailable = 0
+    for it in items:
+        src = (db.session.get(DiscoveredItem, it.source_item_id)
+               if it.source_item_id else None)
+        missing = src is None and it.source_item_id
+        latest = latest_by_path.get(it.path)
+        if missing:
+            unavailable += 1
+            state = "unavailable — definition removed from repository"
+        elif latest is None:
+            unexecuted += 1
+            state = "not yet executed"
+        else:
+            state = latest.outcome.value
+        scope_rows.append({"item": it, "state": state,
+                           "missing": bool(missing),
+                           "latest": latest})
     avail = DiscoveredItem.query.filter_by(
         binding_id=GitBinding.query.filter_by(
             project_id=release.project_id).first().id if
@@ -934,8 +957,9 @@ def release_detail(release_id):
         else "").all()
     return render_template(
         "portal/release_detail.html", release=release, items=items,
-        runs=runs, done=len(done), passed=latest, avail=avail,
-        plain_form=PlainForm())
+        runs=runs, scope_rows=scope_rows,
+        unexecuted=unexecuted, unavailable=unavailable,
+        avail=avail, plain_form=PlainForm())
 
 
 @portal_bp.route("/releases/<release_id>/scope", methods=["POST"])
