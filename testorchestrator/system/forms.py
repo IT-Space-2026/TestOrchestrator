@@ -143,4 +143,5 @@ class RuntimeForm(FlaskForm):
     )
     workspace_root = StringField("Workspace root", validators=[Optional()])
     credential_ref = StringField("Credential reference", validators=[Optional()])
+    worker_label = StringField("Dagu worker label", validators=[Optional()])
     concurrency = IntegerField("Concurrency", default=1)

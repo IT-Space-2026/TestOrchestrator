@@ -199,12 +199,18 @@ or license KRE.</p>
       <small><strong>Local:</strong> TestOrchestrator starts this
         executable locally — it and the working directory must exist
         on the TestOrchestrator execution host.<br>
-        <strong>Remote:</strong> a worker component on the KRE machine
-        connects to TestOrchestrator — a path is not a connection.
-        Remote execution requires the worker component (not yet
-        packaged) — registering a remote path does not establish a
-        connection.</small>
+        <strong>Remote:</strong> a <strong>Dagu worker</strong> service
+        on the KRE machine connects to TestOrchestrator's Dagu
+        coordinator — a path is not a connection. The executable path
+        is verified on <em>that</em> computer, never run here.</small>
     </fieldset>
+    <div class="field" id="worker-label-field"><label>Dagu worker label</label>
+      {{ runtime_form.worker_label() }}
+      <small><strong>Required for Remote.</strong> Unique label this
+        installation is bound to — must match the worker's
+        <code>--worker.labels kre=&lt;label&gt;</code> argument on the
+        KRE machine. Dispatch refuses ambiguous or missing matches;
+        a remote executable is never run on this host.</small></div>
     <div class="field"><label>KRE executable location</label> {{ runtime_form.executable_path() }}
       <small><strong>Required.</strong> Path on the <em>runner's</em>
       filesystem (for local runners: this host) to the KRE CLI binary.
@@ -225,6 +231,57 @@ or license KRE.</p>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </div>
   </form></details>
+</section>
+
+<section class="card" id="dagu-worker-downloads">
+  <h2>Download Dagu worker</h2>
+  <p class="muted">Remote execution uses a pinned <strong>Dagu
+    worker</strong> — install it on the computer that contains the
+    remote KRE, then connect it to TestOrchestrator's Dagu
+    coordinator. Sequence: install KRE on the test computer → install
+    the Dagu worker → connect securely to the coordinator → register
+    the KRE installation here with the worker's label → verify →
+    execute.</p>
+  {% if dagu_assets %}
+  <table class="audit-table">
+    <thead><tr><th>Version</th><th>Platform</th><th>Size</th>
+      <th>SHA-256</th><th></th></tr></thead>
+    <tbody>
+      {% for a in dagu_assets %}
+      <tr>
+        <td>{{ a.version }}</td>
+        <td>{{ a.os }}/{{ a.arch }}</td>
+        <td>{{ "%.1f"|format(a.size / 1048576) }} MB</td>
+        <td><code class="checksum">{{ a.sha256 }}</code></td>
+        <td><a class="button secondary sm"
+          href="{{ url_for('system.dagu_worker_download', filename=a.file) }}">Download</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <details class="block-details"><summary class="button secondary">Worker setup instructions</summary>
+    <p class="muted">On the computer containing the remote KRE:</p>
+    <pre class="code-block"># 1. Download + verify (sha256 must match the value above)
+tar xzf dagu_{{ dagu_assets[0].version }}_&lt;os&gt;_amd64.tar.gz
+
+# 2. Start the worker, labeled uniquely for this installation.
+#    The coordinator address must be reachable FROM the worker —
+#    use this portal's configured Dagu coordinator address, never
+#    "localhost" for a different computer. Example:
+./dagu worker --worker.coordinators=&lt;portal-host&gt;:50055 \
+  --worker.labels kre=&lt;unique-label&gt; --worker.id &lt;worker-name&gt;
+
+# 3. Register the KRE installation above as "On another machine"
+#    with the same kre=&lt;label&gt;.</pre>
+    <p class="muted">The worker polls outbound to the coordinator — no
+      inbound port is needed on the KRE machine. Keep the coordinator's
+      authentication enabled on real deployments; worker credentials
+      are configured per-worker, never embedded in this download.</p>
+  </details>
+  {% else %}
+  <p class="muted">No Dagu worker archives bundled — run
+    <code>scripts/fetch_dagu.sh</code> during packaging.</p>
+  {% endif %}
 </section>
 
 {% endblock %}

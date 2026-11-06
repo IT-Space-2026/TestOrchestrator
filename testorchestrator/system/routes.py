@@ -505,6 +505,53 @@ def delete_secret(name):
 
 # ---------- runners & runtime connections (§5–§6) ----------
 
+def _dagu_worker_assets() -> list:
+    """Bundled, pinned Dagu worker archives with manifest checksums —
+    served from the installed package, not an external link."""
+    import re
+    from pathlib import Path
+    d = Path(current_app.root_path).parent / "3rdparty" / "dagu"
+    assets = []
+    manifest = {}
+    sums = d / "dagu.sha256"
+    if sums.exists():
+        for line in sums.read_text().splitlines():
+            parts = line.split()
+            if len(parts) == 2:
+                manifest[parts[1]] = parts[0]
+    for path in sorted(d.glob("dagu_*_amd64.tar.gz")):
+        m = re.match(r"dagu_(\d+\.\d+\.\d+)_(\w+)_amd64\.tar\.gz",
+                     path.name)
+        assets.append({
+            "file": path.name,
+            "version": m.group(1) if m else "?",
+            "os": (m.group(2) if m else "?"),
+            "arch": "amd64",
+            "sha256": manifest.get(path.name, ""),
+            "size": path.stat().st_size,
+        })
+    return assets
+
+
+@system_bp.route("/infrastructure/dagu-worker/<filename>")
+@role_required(Role.ADMIN)
+def dagu_worker_download(filename):
+    """Serve a bundled Dagu worker archive — pinned version, checksum
+    published alongside on the page. No credentials in the URL."""
+    import re
+    from pathlib import Path
+    if not re.fullmatch(
+            r"dagu_\d+\.\d+\.\d+_(linux|windows)_amd64\.tar\.gz",
+            filename):
+        abort(404)
+    path = (Path(current_app.root_path).parent
+            / "3rdparty" / "dagu" / filename)
+    if not path.exists():
+        abort(404)
+    return send_file(path, as_attachment=True,
+                     download_name=filename)
+
+
 @system_bp.route("/infrastructure")
 @role_required(Role.ADMIN)
 def infrastructure():
@@ -545,6 +592,7 @@ def infrastructure():
         fixture_runners=fixture_runners,
         runner_form=runner_form, runtime_form=runtime_form,
         runner_choices=[(r.id, r.name) for r in Runner.query.all()],
+        dagu_assets=_dagu_worker_assets(),
     )
 
 
@@ -575,31 +623,47 @@ def create_runner():
 @system_bp.route("/infrastructure/runtimes", methods=["POST"])
 @role_required(Role.ADMIN)
 def create_runtime():
-    # Simplified: one default local runner auto-created/associated.
-    # Remote is explicitly NOT supported by a bare registration — a
-    # path is not a connection.
-    if request.form.get("exec_location") == "remote":
-        flash("Remote execution requires a worker component on the "
-              "KRE machine — it is not yet packaged. A remote path "
-              "alone does not establish a connection.", "error")
-        return redirect(url_for("system.infrastructure"))
-    from ..execution import Runner
-    _runner = Runner.query.filter_by(
-        connection_mode="local").first()
-    if _runner is None:
-        _runner = Runner(name="local", connection_mode="local",
-                         os_arch="local", max_slots=4)
-        db.session.add(_runner); db.session.flush()
-    from ..execution import RuntimeConnection
+    from ..execution import Runner, RuntimeConnection
     form = RuntimeForm()
+    is_remote = request.form.get("exec_location") == "remote"
+    worker_label = (form.worker_label.data or "").strip()
+    if is_remote:
+        # A remote installation is bound to exactly one Dagu worker —
+        # the label must match the worker's --worker.labels kre=<tag>
+        # and must be unique across installations (dispatch refuses
+        # ambiguous matches).
+        if not worker_label:
+            flash("Remote registration requires the Dagu worker label "
+                  "— the value passed to the worker via "
+                  "--worker.labels kre=<label>.", "error")
+            return redirect(url_for("system.infrastructure"))
+        clash = RuntimeConnection.query.filter_by(
+            worker_label=worker_label, enabled=True).first()
+        if clash:
+            flash(f"Worker label {worker_label!r} is already bound to "
+                  f"installation {clash.name!r} — labels must be "
+                  "unique per installation.", "error")
+            return redirect(url_for("system.infrastructure"))
+    _runner = Runner.query.filter_by(
+        connection_mode=("remote" if is_remote else "local")).first()
+    if _runner is None:
+        _runner = Runner(
+            name=(f"dagu-worker:{worker_label}" if is_remote
+                  else "local"),
+            connection_mode=("remote" if is_remote else "local"),
+            os_arch=("dagu-worker" if is_remote else "local"),
+            max_slots=4)
+        db.session.add(_runner); db.session.flush()
     if form.validate_on_submit():
         db.session.add(RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
             runner_id=_runner.id,
+            transport=("dagu-worker" if is_remote else "local"),
             executable_path=form.executable_path.data.strip(),
             workspace_root=form.workspace_root.data or "",
-            credential_ref=form.credential_ref.data.strip(),
+            credential_ref=(form.credential_ref.data or "").strip(),
+            worker_label=(worker_label if is_remote else ""),
             concurrency=form.concurrency.data or 1,
         ))
         db.session.commit()

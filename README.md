@@ -24,8 +24,12 @@ Two roles:
 
 - **Central server** (this package): web UI, outbox/dispatch, results,
   reporting, Dagu, Caddy, bundled git — runs on one Linux host.
-- **Worker/execution host**: runs `toctl worker`-equivalent agent on the
-  machine where KRE is installed; reports back over the agent transport.
+- **Remote KRE host** (Dagu worker): a pinned **Dagu worker** service
+  runs on the machine where KRE is installed, connects outbound to the
+  portal's Dagu coordinator (no inbound port needed), and executes the
+  registered KRE there. Installations bound to a unique
+  `--worker.labels kre=<label>`; remote executable paths are never
+  invoked on the portal host.
   The Windows worker installer (`packaging/windows/`) targets this role —
   **scaffold only; not yet built or host-validated**.
 
@@ -93,6 +97,56 @@ KRE is a **CLI engine** launched and supervised by the worker — there is
 no remote KRE API. Dispatch, cancellation (process-tree kill), and
 reconciliation belong to this application. KRE stays operator-installed
 and licensed; a version probe is never claimed as a licensed run.
+
+## Remote execution (Dagu worker)
+
+A remote KRE installation runs through the bundled, pinned **Dagu
+2.25.8** coordinator/worker pair — never through a portal-host
+invocation and never through a custom agent.
+
+Setup sequence:
+
+1. Install KRE on the test computer (operator-installed + licensed —
+   KRE is not redistributed).
+2. Download the Dagu worker archive for that computer's platform from
+   **System → KRE installations → Download Dagu worker** (bundled,
+   checksum-verified Linux amd64 + Windows amd64 assets; SHA-256 is
+   published next to each download).
+3. On the KRE computer, start the worker pointing at the portal's
+   coordinator address — **not** `localhost` for a different machine:
+
+   ```bash
+   ./dagu worker --worker.coordinators=<portal-host>:50055 \
+     --worker.labels kre=<unique-label> --worker.id <worker-name>
+   ```
+
+   The worker polls outbound over coordinator gRPC; no inbound port is
+   required on the KRE machine.
+4. Register the installation in the portal as **On another machine**
+   with the same `kre=<label>`; labels must be unique per installation
+   (dispatch rejects ambiguous or unmatched labels).
+5. Verify and execute.
+
+Delivery + lifecycle: each execution is submitted as an ad-hoc workflow
+spec with `dagRunId` pinned to the execution id (idempotent, singleton),
+routed by `workerSelector` to the labelled worker, which
+`git.checkout`s the recorded source revision into a per-execution
+workspace and runs the registered executable with reports written to
+the run's artifact store. The portal downloads artifacts and runs the
+same collect/normalize pipeline as local execution. Cancellation uses
+HTTP stop; a worker loss/shutdown abort is recorded as infrastructure
+failure with cause marked undetermined — never as user cancellation.
+Workspaces are cleaned via a bounded portal-driven cleanup run, not
+the workflow's exit handler (which does not run on abort).
+
+Security boundaries: HTTPS git credentials are **not** embedded in
+stored workflow specs — remote dispatch accepts unauthenticated
+remotes and worker-side `ssh_key_path` only. `ssh_passphrase` is a
+literal value field — do not pass real passphrases through the spec;
+prefer worker-local keys + ssh-agent with operator-managed host-key
+verification. The worker account needs only: read access to the
+checkout destination, execute on the KRE binary, write under the
+workspace root, and outbound gRPC to the coordinator.
 
 - Multiple workers register per-project with probe/drain/lease handling.
 - **Slots vs licences are separate limits**: `Runner.max_slots` is
@@ -214,10 +268,17 @@ installs use `TO_ADMIN_PASSWORD` (≥12 chars).
 
 ## Acceptance gates (open, honestly not yet demonstrated)
 
-Clean-host install + reboot health · real licensed-KRE suite · remote
-worker on a second host · Windows Server 2025 installer build/acceptance
-· Azure DevOps repo interoperability · root/systemd service-account
-install path (blocked on this build host: no sudo).
+Demonstrated on the loopback fixture (Dagu 2.25.8, isolated portal):
+worker dispatch → git.checkout → fixture KRE → artifact return →
+normalize → execution detail; failed-test evidence; explicit cancel
+(process tree killed); graceful worker shutdown → honest aborted
+classification (infrastructure, not user cancel); worker reconnect.
+
+Still open: clean-host install + reboot health · real licensed-KRE
+suite · hard worker crash / network partition behavior · Windows
+Server 2025 installer build/acceptance · Azure DevOps repo
+interoperability · root/systemd service-account install path (blocked
+on this build host: no sudo).
 
 ## Configuration (Unreleased fine-tuning)
 

@@ -16,6 +16,7 @@ is not yet delivered — each is started manually per the sections below:
 | Durable worker | `flask worker` | §2 |
 | Authenticated Dagu with the workflow installed | `dagu start-all` / provision script | §3 |
 | Agent — local mode: spawned per run by the Dagu step; remote mode: a daemon you start | `python -m testorchestrator.agent` | §6 |
+| Dagu worker — **remote** mode only: the worker service on the KRE machine, bundled via System → KRE installations → Download Dagu worker | `dagu worker --worker.coordinators=<portal-host>:50055 --worker.labels kre=<label>` | README §Remote execution |
 | KRE + browsers/drivers | **you** — installed, licensed, maintained outside this product | §5 |
 
 ## Prerequisites checklist for real-KRE A01
