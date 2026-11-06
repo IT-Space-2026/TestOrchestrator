@@ -139,18 +139,25 @@ done
 [ -e "/proc/$OLD_PID" ] && fail "old process still alive" \
   || note "old=$OLD_PID dead, new=$NEW_PID active"
 
-# health poll resolves pending marker -> done
+# health poll resolves pending marker -> done WITH helper evidence
 marker="$ROOT/home/restart-request.json"
 result=""
-deadline=$((SECONDS + 30))
+deadline=$((SECONDS + 45))
 while [ $SECONDS -lt $deadline ]; do
   curl -sf -b "$CJ" -o /dev/null "http://127.0.0.1:$PORT/system/health" \
     && result=$(python3 -c "import json;print(json.load(open('$marker'))['result'])" 2>/dev/null)
-  [ "$result" = "done" ] && break; sleep 1
+  [ "$result" = "done" ] || [ "$result" = "failed" ] && break; sleep 1
 done
 cp "$marker" "$EVID/" 2>/dev/null
-[ "$result" = "done" ] && note "writeback resolved: $result" \
-  || fail "marker result=$result (expected done)"
+# done must be helper_confirmed with a NEW invocation, not liveness
+basis=$(python3 -c "import json;print(json.load(open('$marker')).get('basis',''))" 2>/dev/null)
+ev=$(python3 -c "import json;e=json.load(open('$marker')).get('evidence',{}).get('$WEB',{});print(e.get('new',''))" 2>/dev/null)
+[ "$result" = "done" ] || fail "marker result=$result (expected done)"
+[ "$basis" = "helper_confirmed" ] \
+  || fail "basis=$basis — no helper evidence of new invocation"
+[ -n "$ev" ] && [ "$ev" != "$OLD_PID" ] \
+  || fail "evidence new-pid '$ev' not a new invocation"
+note "writeback: $result via $basis, new-pid=$ev"
 
 # health page asserts content after restart
 body=$(curl -sf -b "$CJ" "http://127.0.0.1:$PORT/system/health")
