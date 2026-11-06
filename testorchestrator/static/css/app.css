@@ -875,3 +875,5 @@ td .row-actions{min-width:9rem}
 .runner-rts td:last-child{vertical-align:top;min-width:16rem}
 .block-details > *:not(summary){margin-top:.8rem}
 .block-details form > .field{margin-bottom:.6rem}
+/* Plotly chart containers */
+[data-plotly-fig] { min-height: 260px; width: 100%; }
