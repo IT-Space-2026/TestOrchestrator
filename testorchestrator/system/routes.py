@@ -850,8 +850,12 @@ def restart_services():
                    "ok=all(v['restarted'] for v in ev.values())\n")
     helper = (
         "import json,subprocess,sys,time\n"
-        f"m={str(marker)!r}\n"
-        "time.sleep(2)\n"
+        "from pathlib import Path\n"
+        f"m=Path({str(marker)!r})\n"
+        # Allow the dispatching request to finish before we restart the
+        # portal serving it — killing it mid-response yields curl 000
+        # and can truncate the marker's helper_unit write.
+        "time.sleep(8)\n"
         f"units={units!r}\n"
         f"pre={pre_inv!r}\n"
         "ev={}\n"
@@ -874,6 +878,9 @@ def restart_services():
     rec = _j.loads(marker.read_text())
     rec["helper_unit"] = launched
     marker.write_text(_j.dumps(rec))
+    flash(f"Restart dispatched via {launched} — watch System health "
+          "for the writeback result.", "info")
+    return redirect(url_for("system.system_health"))
 
 
 def _launch_restart_helper(helper_path, scope: str) -> "bool | str":
@@ -892,10 +899,10 @@ def _launch_restart_helper(helper_path, scope: str) -> "bool | str":
         if scope == "user":
             cmd.append("--user")
         # Transient SERVICE (not --scope): asynchronous, own cgroup,
-        # survives the portal's KillMode=control-group kill.
-        cmd += ["--unit=" + unit, "--collect", "--same-dir",
-                "--property=Type=oneshot",
-                "--property=RemainAfterExit=no", "--",
+        # survives the portal's KillMode=control-group kill. Do NOT set
+        # Type=oneshot — StartUnit then blocks until the helper exits,
+        # synchronizing the request with the helper's full runtime.
+        cmd += ["--unit=" + unit, "--collect", "--same-dir", "--",
                 py, str(helper_path)]
         r = subprocess.run(cmd, capture_output=True, text=True,
                            timeout=15)

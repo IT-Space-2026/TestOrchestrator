@@ -61,6 +61,15 @@ export TO_SERVICE_UNITS="$WEB,$STUB"
 export TO_SERVICE_SCOPE="user"
 export FLASK_APP="$REPO/wsgi.py"
 ( cd "$REPO" && .venv/bin/flask db upgrade ) || { echo "schema failed"; exit 1; }
+# create the bootstrap Admin (normally done on first request), then
+# replace its credential headlessly — set-admin-password needs it to
+# exist first.
+( cd "$REPO" && .venv/bin/python -c "
+from testorchestrator import create_app
+from testorchestrator.bootstrap import ensure_bootstrap_admin
+a = create_app()
+with a.app_context():
+    ensure_bootstrap_admin()" ) || { echo "bootstrap admin failed"; exit 1; }
 ( cd "$REPO" && .venv/bin/flask set-admin-password "$ADMIN_PASS" ) \
   || { echo "admin failed"; exit 1; }
 
@@ -69,6 +78,7 @@ cat > "$UNITDIR/$WEB" <<UNIT
 [Service]
 Environment=TO_INSTANCE_DIR=$ROOT/home
 Environment=TO_DATABASE_URI=sqlite:///$ROOT/home/m.db
+Environment=TO_SECRET_KEY=restart-test-fixed-key-0123456789
 Environment=TO_SECURE_COOKIES=0
 Environment=TO_SERVICE_UNITS=$WEB,$STUB
 Environment=TO_SERVICE_SCOPE=user
@@ -101,15 +111,20 @@ TOK=$(curl -sf -c "$CJ" "http://127.0.0.1:$PORT/login" \
   | grep -oP 'name="csrf_token"[^>]*value="\K[^"]+' | head -1)
 [ -n "$TOK" ] || { echo "no csrf token"; exit 1; }
 curl -sf -b "$CJ" -c "$CJ" -X POST "http://127.0.0.1:$PORT/login" \
-  -d "csrf_token=$TOK&username=admin&password=$ADMIN_PASS" -o /dev/null \
+  -d "csrf_token=$TOK&username=Admin&password=$ADMIN_PASS" -o /dev/null \
   || { echo "login failed"; exit 1; }
+# login must actually authenticate — health must not redirect to login
+code=$(curl -s -o /dev/null -w "%{http_code}" -b "$CJ" \
+  "http://127.0.0.1:$PORT/system/health")
+[ "$code" = 200 ] || { echo "admin session not authenticated ($code)"; exit 1; }
 
 # --- guard checks (cheap HTTP assertions) --------------------------------
 code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
   "http://127.0.0.1:$PORT/system/services/restart")
-[ "$code" = 302 ] || [ "$code" = 403 ] \
-  && note "unauthenticated restart rejected ($code)" \
-  || fail "unauthenticated restart got $code"
+case "$code" in
+  302|400|403) note "unauthenticated restart rejected ($code)";;
+  *) fail "unauthenticated restart got $code";;
+esac
 code=$(curl -s -o /dev/null -w "%{http_code}" -b "$CJ" -X POST \
   "http://127.0.0.1:$PORT/system/services/restart" \
   -d "csrf_token=wrong")
@@ -187,11 +202,11 @@ grep -q "System health\|Managed services\|$WEB" "$EVID/health.html" \
 # audit verification (mandatory — actual sqlite audit table)
 audit=$(python3 -c "import sqlite3
 print(sqlite3.connect('$ROOT/home/m.db').execute(
-  \"SELECT count(*) FROM audit_event WHERE action LIKE 'services.restart%'\"
+  \"SELECT count(*) FROM audit_events WHERE event LIKE 'services.restart%'\"
 ).fetchone()[0])" 2>/dev/null || echo 0)
 python3 -c "import sqlite3
 for r in sqlite3.connect('$ROOT/home/m.db').execute(
-  \"SELECT username,action,created_at FROM audit_event WHERE action LIKE 'services.restart%'\"
+  \"SELECT username,event,occurred_at FROM audit_events WHERE event LIKE 'services.restart%'\"
 ): print(*r)" > "$EVID/audit.txt" 2>/dev/null
 [ "${audit:-0}" -ge 1 ] && note "audit rows: $audit" \
   || fail "no audit row for restart"
