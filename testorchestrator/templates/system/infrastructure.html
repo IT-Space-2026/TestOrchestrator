@@ -115,32 +115,10 @@ or license KRE.</p>
       <span class="badge">{{ r.connection_mode }}</span>
       <span class="badge {{ 'warn' if r.health in ('unknown','stale') else 'ok' }}">{{ r.health }}</span>
       {% if r.draining %}<span class="badge">draining</span>{% endif %}
-      <span class="muted">Last heartbeat {{ r.heartbeat_at or "never" }}</span>
-      <details class="inline-details connect-panel">
-        <summary class="button secondary sm">Connect this runner</summary>
-        <div class="edit-form">
-          <p><strong>Remote worker model.</strong> The runner polls
-            TestOrchestrator — the portal never connects to the worker.</p>
-          <ol>
-            <li>Runner identity: <code>{{ r.name }}</code>
-              ({{ r.id[:8] }})</li>
-            <li>Portal: <code>{{ request.host_url.rstrip('/') }}</code></li>
-            <li>Issue a token (one per runner — shown once, only its
-              digest is stored)</li>
-            <li>On the worker: write
-              <code>/etc/testorchestrator/agent.toml</code> (mode 0600):
-              <code>portal="{{ request.host_url.rstrip('/') }}"</code>
-              <code>token="toa_…"</code></li>
-            <li>Start: <code>python -m testorchestrator.agent
-              --config /etc/testorchestrator/agent.toml</code> —
-              polls tasks, heartbeats, returns results</li>
-          </ol>
-          <p class="muted">{% if r.heartbeat_at %}Connected — last
-            heartbeat {{ r.heartbeat_at }}{% else %}Waiting for first
-            heartbeat{% endif %}. The KRE executable path below is
-            resolved on <em>that</em> worker, not this host.</p>
-        </div>
-      </details>
+      <span class="muted">Last seen
+        {{ r.heartbeat_at or "never" }}
+        {% if r.fresh %}(live){% elif r.heartbeat_at %}(stale){% endif %}</span>
+      
     </div>
     {% set its = per_runner.get(r.id, []) %}
     {% if its %}
@@ -200,6 +178,13 @@ or license KRE.</p>
     <strong>Unassigned</strong></div>
     <p class="muted">{{ unbound|length }} installation(s) not
     associated with a runner.</p></div>
+  {% endif %}
+  {% if fixture_runners %}
+  <details class="muted"><summary>Fixture/test runners
+    ({{ fixture_runners|length }})</summary>
+    <ul>{% for x in fixture_runners %}<li>{{ x.name }} —
+      last seen {{ x.heartbeat_at or "never" }}</li>{% endfor %}</ul>
+  </details>
   {% endif %}
   <details class="block-details"><summary class="button">Register existing KRE installation</summary>
   <form method="post" action="{{ url_for('system.create_runtime') }}">

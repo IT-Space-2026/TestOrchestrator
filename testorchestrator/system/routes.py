@@ -516,8 +516,19 @@ def infrastructure():
     runner_form.allowed_projects.choices = [
         (p.id, p.name) for p in Project.query.all()]
     runtime_form.runner_id = ""
-    runners = Runner.query.all()
-    runtimes = RuntimeConnection.query.all()
+    runners = [x for x in Runner.query.all()
+               if not x.name.startswith("fx-")]
+    fixture_runners = [x for x in Runner.query.all()
+                       if x.name.startswith("fx-")]
+    runtimes = [x for x in RuntimeConnection.query.all()
+                if not (x.runner and x.runner.name.startswith("fx-"))]
+    from ..execution import utcnow
+    from datetime import timedelta
+    _now = utcnow()
+    for x in Runner.query.all():
+        # freshness: heartbeat within 120s => live; older => last seen
+        x.fresh = (x.heartbeat_at is not None and
+                   (_now - x.heartbeat_at) < timedelta(seconds=120))
     per_runner = {}
     unbound = []
     for rt in runtimes:
@@ -529,6 +540,7 @@ def infrastructure():
         "system/infrastructure.html",
         runners=runners, runtimes=runtimes,
         per_runner=per_runner, unbound=unbound,
+        fixture_runners=fixture_runners,
         runner_form=runner_form, runtime_form=runtime_form,
         runner_choices=[(r.id, r.name) for r in Runner.query.all()],
     )
