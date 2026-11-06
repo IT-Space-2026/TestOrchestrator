@@ -45,7 +45,8 @@ def _load_fernet(app) -> Fernet:
     return Fernet(path.read_bytes().strip())
 
 
-def store_secret(app, name: str, kind: str, value: str, meta: dict = None) -> None:
+def store_secret(app, name: str, kind: str, value: str,
+                 meta: dict = None, internal: bool = False) -> None:
     """Create or rotate a named credential. The plaintext is accepted,
     encrypted, and never persisted anywhere else."""
     fernet = _load_fernet(app)
@@ -54,6 +55,13 @@ def store_secret(app, name: str, kind: str, value: str, meta: dict = None) -> No
         row = SecretRef(name=name, kind=kind)
         db.session.add(row)
     else:
+        if row.kind in ("dagu", "runner") and not internal:
+            raise SecretError(
+                f"credential {name!r} is system-managed — it can only "
+                "be rotated by its provisioning flow")
+        if kind != row.kind and not internal:
+            raise SecretError(
+                f"credential {name!r} kind cannot change")
         from .execution import utcnow
         row.rotated_at = utcnow()
     row.kind = kind

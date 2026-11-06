@@ -106,16 +106,21 @@ class SecretForm(FlaskForm):
                        validators=[DataRequired(), Length(max=64)])
     kind = RadioField(
         "Kind",
-        choices=[("git", "Git — repository authentication"),
-                 ("runtime", "KRE license / invocation secret")],
+        choices=[("git", "Git — HTTPS repository authentication"),
+                 ("runtime", "KRE invocation secret")],
         default="git",
     )
     value = PasswordField("Credential value",
                           validators=[DataRequired()],
-                          description="Git: HTTPS access token "
-                          "(e.g. ghp_…) or SSH private key. KRE: the "
-                          "license/invocation value supplied with your "
-                          "Katalon licence.")
+                          description="Git (HTTPS only): "
+                          "user:token — e.g. git:ghp_… — split at the "
+                          "first colon; a bare token is used as the "
+                          "username (PAT convention). SSH remotes use "
+                          "the host ssh agent or the worker-side "
+                          "key path — never a stored key. KRE: a "
+                          "sensitive value used by the invocation "
+                          "(license key or project token) that must "
+                          "be redacted from logs/artifacts.")
     description = StringField("Description", validators=[Optional()])
 
 

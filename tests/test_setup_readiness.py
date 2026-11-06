@@ -134,3 +134,72 @@ def test_secret_rotation_invalidates_evidence(app):
         c = next(x for x in readiness.components()
                  if x["key"] == "publishing")
         assert c["status"] == "configured"
+
+
+def test_credential_value_decodes_for_https_auth(app):
+    """A credential created through the form is consumed by the real
+    binding-auth path — user:token splits; bare token = PAT username."""
+    with app.app_context():
+        from testorchestrator.secrets_store import store_secret, read_secret
+        from flask import current_app
+        store_secret(current_app._get_current_object(),
+                     "g1", "git", "alice:ghp_token123")
+        store_secret(current_app._get_current_object(),
+                     "g2", "git", "baretoken")
+        from testorchestrator.gitsync import _binding_auth
+        from testorchestrator.execution import GitBinding
+        b = GitBinding(project_id="p", url="https://x/r.git",
+                       credential_ref="g1")
+        assert _binding_auth(b) == ("alice", "ghp_token123")
+        b.credential_ref = "g2"
+        assert _binding_auth(b) == ("baretoken", "")
+        b.url = "ssh://git@x/r.git"          # ssh: no stored-secret auth
+        assert _binding_auth(b) is None
+
+
+def test_system_managed_secret_protected(app):
+    """Delete AND update paths both refuse system-managed kinds."""
+    with app.app_context():
+        from testorchestrator.secrets_store import (store_secret,
+                                                    SecretError)
+        from flask import current_app
+        store_secret(current_app._get_current_object(),
+                     "sys1", "dagu", "tok", internal=True)
+        login_as_admin = None
+        with pytest.raises(SecretError):
+            store_secret(current_app._get_current_object(),
+                         "sys1", "dagu", "rotated")
+        with pytest.raises(SecretError):
+            store_secret(current_app._get_current_object(),
+                         "sys1", "git", "x")       # kind change too
+
+
+def test_worker_enrollment_token_digest_flow(app):
+    """Worker credentials are provisioned through enrollment
+    (issue_agent_token), stored only as a digest, and consumed by the
+    agent API — never through the manual secret form."""
+    import hashlib
+    with app.app_context():
+        from testorchestrator.agent_api import issue_agent_token
+        from testorchestrator.execution import Runner
+        r = Runner(name="prov-w", os_arch="linux/amd64")
+        db.session.add(r); db.session.commit()
+        token = issue_agent_token(r)
+        db.session.refresh(r)
+        # only the digest persists — never the plaintext token
+        assert r.agent_token_hash == hashlib.sha256(
+            token.encode()).hexdigest()
+        assert token != r.agent_token_hash
+        # no SecretRef row is created for worker enrollment
+        from testorchestrator.execution import SecretRef
+        assert SecretRef.query.filter_by(kind="runner").count() == 0
+
+
+def test_dagu_credential_is_file_provisioned_not_stored():
+    """The provisioning script writes a 0600 credential file outside
+    the DB — nothing for the manual form to manage."""
+    import inspect
+    from scripts import provision_dagu
+    src = inspect.getsource(provision_dagu)
+    assert "credentials" in src and "0o600" in src
+    assert "username=" in src and "password=" in src
