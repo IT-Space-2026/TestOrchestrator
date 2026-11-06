@@ -117,7 +117,6 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -b "$CJ" -X POST \
   || fail "bad csrf got $code (expected 400)"
 
 # --- the real restart ----------------------------------------------------
-# --- the real restart ----------------------------------------------------
 HTOK=$(curl -sf -b "$CJ" "http://127.0.0.1:$PORT/system/health" \
   | grep -oP 'name="csrf_token"[^>]*value="\K[^"]+' | head -1)
 [ -n "$HTOK" ] || { echo "no health-page csrf token"; exit 1; }
