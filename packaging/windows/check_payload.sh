@@ -18,8 +18,12 @@ missing=$(for p in $(cut -d= -f1 requirements.txt | grep -v '^#'); do
     ls site-packages/ 2>/dev/null | grep -qi "^${norm}" || echo "  $p"
 done)
 [ -n "$missing" ] && { echo "MISSING packages:$missing"; fail=1; }
-# reporting + scm tools
-need allure/allure-2.46.1/bin/allure.bat; need git-setup.7z.exe
+# reporting tool (Windows launcher) — required
+need allure/allure-2.46.1/bin/allure.bat
+# git: NOT staged by default — the Dulwich backend needs no git
+# executable. Only the opt-in TO_GIT_BACKEND=cli path wants it; if a
+# git-setup.7z.exe was staged, it is installed alongside. Portal-side
+# ssh:// remotes additionally need a host ssh client either way.
 # licences/notices
 need dagu/LICENSE
 [ $fail -eq 0 ] && echo "payload COMPLETE ($(du -sh . | cut -f1))" || exit 1

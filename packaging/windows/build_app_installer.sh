@@ -43,11 +43,9 @@ mkdir -p app-payload/allure
 tar xzf "$REPO/3rdparty/allure/"*.tar.gz -C app-payload/allure \
     --strip-components=1 2>/dev/null || cp -r "$REPO/3rdparty/allure/"* \
     app-payload/allure/
-# portable git for windows (7z self-extracting exe — extracted at install)
-fetch "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/PortableGit-2.56.0.4-64-bit.7z.exe" \
-    "/tmp/PortableGit-2.56.0.4-64-bit.7z.exe" \
-    "b1f3e52216e2ed6882d1bebfd4d3fdf319bec40d2edbbf9fd26ec4fd3fce7ed1"
-cp /tmp/pg.7z.exe app-payload/git-setup.7z.exe
+# git: not staged — default backend is Dulwich (pure python, no git
+# executable). TO_GIT_BACKEND=cli needs operator-installed Git; that is
+# a declared prerequisite, not a bundled dep.
 echo "payload staged: $(du -sh app-payload | cut -f1)"
 command -v makensis >/dev/null || { echo "makensis missing" >&2; exit 1; }
 bash check_payload.sh

@@ -4,7 +4,7 @@
 ; redistributed; the installer registers the user's installation.
 ; UNSIGNED build — labelled clearly.
 !define PRODUCT "TestOrchestrator"
-!define VERSION "1.0.0-pre.1"
+!define VERSION "1.0.0-pre.2"
 !define PAYLOAD_DIR "app-payload"
 
 Name "${PRODUCT} ${VERSION} (unsigned)"
@@ -59,9 +59,8 @@ Section "Install TestOrchestrator" SecMain
     FileSeek $1 0 END
     FileWrite $1 "site-packages$\r$\n"
     FileClose $1
-    ; extract portable git at install (7z self-extractor, silent)
-    nsExec::ExecToLog '"$INSTDIR\git-setup.7z.exe" -y -gm2 -InstallPath="$INSTDIR\git"'
-    Pop $0
+    ; git is not bundled: default backend is Dulwich (no executable);
+    ; TO_GIT_BACKEND=cli needs a separately installed Git.
     nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\testorchestrator\__main__.py" --bootstrap-check'
     Pop $0
 

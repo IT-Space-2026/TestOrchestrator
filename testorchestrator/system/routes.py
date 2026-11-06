@@ -572,47 +572,65 @@ _DEFAULT_UNITS = ("testorchestrator-web.service",
                   "testorchestrator-worker.service",
                   "testorchestrator-dagu.service",
                   "testorchestrator-caddy.service")
-_UNIT_RE = re.compile(r"^[a-zA-Z0-9@._-]+\.service$")
+_UNIT_RE = re.compile(r"^[a-zA-Z0-9@._ -]+\.service$")
+_TASK_RE = re.compile(r"^[a-zA-Z0-9@._ -]+$")
 _RESTART_FLAG = "restart-request.json"
 
 
 def _managed_config() -> dict:
     """The service set the restart controls act on — from server-side
     configuration only (env for isolated/managed installs, packaged
-    default otherwise). Never from request input. Scope is "system"
-    (packaged install) or "user" (isolated test installs)."""
+    default otherwise). Never from request input. Scope: "system" or
+    "user" systemd, or "schtasks" for the Windows scheduled-task model
+    the full Windows installer registers."""
     raw = os.environ.get("TO_SERVICE_UNITS", "")
-    units = [u.strip() for u in raw.split(",") if u.strip()] or \
-        list(_DEFAULT_UNITS)
-    scope = os.environ.get("TO_SERVICE_SCOPE", "system")
-    valid = all(_UNIT_RE.match(u) for u in units) and \
-        scope in ("system", "user")
+    scope = os.environ.get("TO_SERVICE_SCOPE",
+                           "schtasks" if os.name == "nt" else "system")
+    default = ("TestOrchestratorWeb", "TestOrchestratorWorker",
+               "TestOrchestratorDagu") if scope == "schtasks" \
+        else list(_DEFAULT_UNITS)
+    units = [u.strip() for u in raw.split(",") if u.strip()] or default
+    name_re = _TASK_RE if scope == "schtasks" else _UNIT_RE
+    valid = all(name_re.match(u) for u in units) and \
+        scope in ("system", "user", "schtasks")
     return {"units": units, "scope": scope, "valid": valid}
 
 
-def _systemctl_cmd() -> list:
-    return ["systemctl", "--user"] if _managed_config()["scope"] == "user" \
-        else ["systemctl"]
-
-
 def _service_status() -> dict:
-    """Status of application-managed services — systemd units when the
-    platform package installed them; otherwise an honest unmanaged
-    report (isolated/dev installs have no service manager)."""
+    """Status of application-managed services — systemd units (system or
+    user scope), Windows scheduled tasks, or an honest unmanaged report
+    where no service manager is installed."""
     import shutil, subprocess
     cfg = _managed_config()
-    out = {"managed": shutil.which("systemctl") is not None,
-           "scope": cfg["scope"], "config_valid": cfg["valid"],
-           "services": []}
+    scope = cfg["scope"]
+    tool = {"system": "systemctl", "user": "systemctl",
+            "schtasks": "schtasks"}[scope]
+    out = {"managed": shutil.which(tool) is not None,
+           "scope": scope, "config_valid": cfg["valid"], "services": []}
     for u in cfg["units"]:
         if not out["managed"]:
             out["services"].append({"unit": u, "state": "unmanaged"})
             continue
-        r = subprocess.run([*_systemctl_cmd(), "is-active", u],
-                           capture_output=True, text=True)
-        state = (r.stdout.strip() or "unknown") if r.returncode == 0 \
-            else (r.stdout.strip() or "inactive")
-        out["services"].append({"unit": u, "state": state})
+        if scope == "schtasks":
+            r = subprocess.run(
+                ["schtasks", "/Query", "/TN", u, "/FO", "LIST"],
+                capture_output=True, text=True)
+            st = "unknown"
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if "Status:" in line or ":" in line:
+                        st = "active" if "Running" in line or \
+                            "" in line else "inactive"
+            else:
+                st = "inactive"
+        else:
+            cmd = ["systemctl", "--user"] if scope == "user" \
+                else ["systemctl"]
+            r = subprocess.run([*cmd, "is-active", u],
+                               capture_output=True, text=True)
+            st = (r.stdout.strip() or "unknown") if r.returncode == 0 \
+                else (r.stdout.strip() or "inactive")
+        out["services"].append({"unit": u, "state": st})
     return out
 
 
@@ -680,25 +698,37 @@ def restart_services():
               "request. Check System health for its result.", "error")
         return redirect(url_for("system.system_health"))
     units = [s["unit"] for s in status["services"]]
-    ctl = _systemctl_cmd()
+    scope = _managed_config()["scope"]
+    ctl = ["schtasks"] if scope == "schtasks" else \
+        (["systemctl", "--user"] if scope == "user" else ["systemctl"])
     marker.write_text(_j.dumps({
         "requested_by": current_user.username,
         "requested_at": datetime.now(timezone.utc).isoformat(),
-        "units": units, "scope": _managed_config()["scope"],
-        "result": "pending"}))
+        "units": units, "scope": scope, "result": "pending"}))
     record_audit(current_user.username, "services.restart_requested",
                  ", ".join(units))
-    # Independent completion: systemd performs the restart; the helper
-    # only reports the outcome into the marker afterwards.
+    # Independent completion: the service manager performs the restart;
+    # the helper only reports the outcome into the marker afterwards.
+    if scope == "schtasks":
+        actions = ("for u in units:\n"
+                   "    subprocess.run(['schtasks','/End','/TN',u])\n"
+                   "time.sleep(2)\n"
+                   "ok=all(subprocess.run(['schtasks','/Run','/TN',u])"
+                   ".returncode==0 for u in units)\n"
+                   "for u in units:\n"
+                   "    subprocess.run(['schtasks','/Query','/TN',u])\n")
+    else:
+        actions = (f"ctl={ctl!r}\nunits={units!r}\n"
+                   "r=subprocess.run([*ctl,'restart',*units])\n"
+                   "ok=r.returncode==0\n"
+                   "for u in units:\n"
+                   "    subprocess.run([*ctl,'is-active','--quiet',u])\n")
     helper = (
         "import json,subprocess,sys,time\n"
         f"m={str(marker)!r}\n"
         "time.sleep(2)\n"
-        f"ctl={ctl!r}\nunits={units!r}\n"
-        "r=subprocess.run([*ctl,'restart',*units])\n"
-        "ok=r.returncode==0\n"
-        "for u in units:\n"
-        "    subprocess.run([*ctl,'is-active','--quiet',u])\n"
+        f"units={units!r}\n"
+        + actions +
         "d=json.loads(m.read_text())\n"  # noqa: E501
         "d['result']='done' if ok else 'failed'\n"
         "m.write_text(json.dumps(d))\n"

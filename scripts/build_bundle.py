@@ -83,6 +83,17 @@ def _excluded(rel: Path) -> bool:
     # The JRE itself is never packaged — keep its manifests/licences.
     if "java-runtime" in parts and ({"rootfs", "debs"} & parts):
         return True
+    # Product-identity allowlist: the full Windows application
+    # installer must never ride inside the Linux package. The
+    # supplementary dagu-worker installer IS an intended download
+    # asset. Nested package archives and staging dirs are excluded.
+    name = rel.name
+    if name.endswith(".exe") and "-setup" in name \
+            and "dagu-worker" not in name:
+        return True
+    if name.endswith((".tar.gz", ".7z.exe")) and \
+            "dagu_" not in name and "python" not in parts:
+        return True
     return False
 
 
