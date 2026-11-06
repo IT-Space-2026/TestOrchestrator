@@ -871,47 +871,51 @@ def restart_services():
         return redirect(url_for("system.system_health"))
 
 
-def _launch_restart_helper(helper_path, scope: str) -> bool:
-    """Dispatch the restart helper through the SERVICE MANAGER, not a
-    bare process — a Popen child dies with the portal's cgroup when the
-    service restarts (KillMode=control-group default). systemd-run gives
-    the helper its own scope unit; schtasks a transient one-shot task.
-    A bare detached Popen remains as last-resort fallback — writeback
-    still completes via the health-page pending-resolution path."""
-    import shutil, subprocess
+def _launch_restart_helper(helper_path, scope: str) -> "bool | str":
+    """Dispatch the restart helper as an INDEPENDENT async unit:
+    a uniquely-named transient systemd service (scope would run
+    SYNCHRONOUSLY — not fire-and-forget), or a unique one-shot
+    schtasks task. No silent Popen: if no service-manager launch is
+    available the caller fails the request explicitly. Returns a
+    truthy launch label or False."""
+    import shutil, subprocess, uuid
     py = sys.executable or "python3"
-    run = [py, str(helper_path)]
+    uid = uuid.uuid4().hex[:8]
     if scope in ("user", "system") and shutil.which("systemd-run"):
+        unit = f"to-restart-helper-{uid}.service"
         cmd = ["systemd-run"]
         if scope == "user":
             cmd.append("--user")
-        cmd += ["--scope", "--quiet", "--collect",
-                "--unit=to-restart-helper", "--", *run]
-        try:
-            return subprocess.run(cmd).returncode == 0
-        except Exception:
-            pass
-    if scope == "schtasks" and shutil.which("schtasks"):
-        # One-shot transient task — runs the helper independently of the
-        # portal task's own termination behavior.
-        task = "TestOrchestrator-RestartHelper"
-        try:
-            subprocess.run(["schtasks", "/Create", "/TN", task,
-                            "/SC", "ONCE", "/ST", "00:00",
-                            "/F", "/TR", " ".join(run)],
-                           capture_output=True)
-            r = subprocess.run(["schtasks", "/Run", "/TN", task],
-                               capture_output=True)
-            return r.returncode == 0
-        except Exception:
-            pass
-    try:
-        subprocess.Popen(run, start_new_session=True,
-                         stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL)
-        return True
-    except Exception:
+        # Transient SERVICE (not --scope): asynchronous, own cgroup,
+        # survives the portal's KillMode=control-group kill.
+        cmd += ["--unit=" + unit, "--collect", "--same-dir",
+                "--property=Type=oneshot",
+                "--property=RemainAfterExit=no", "--",
+                py, str(helper_path)]
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=15)
+        if r.returncode == 0:
+            return unit
         return False
+    if scope == "schtasks" and shutil.which("schtasks"):
+        task = f"TestOrchestrator-RestartHelper-{uid}"
+        # Unique name per request — no shared-name overwrite; /Create
+        # checked BEFORE /Run so a stale task is never relaunched.
+        tr = f'"{py}" "{helper_path}"'
+        c = subprocess.run(["schtasks", "/Create", "/TN", task,
+                            "/SC", "ONCE", "/ST", "00:00", "/RU",
+                            "SYSTEM", "/TR", tr],
+                           capture_output=True, text=True, timeout=15)
+        if c.returncode != 0:
+            return False                     # creation failed — report
+        r = subprocess.run(["schtasks", "/Run", "/TN", task],
+                           capture_output=True, text=True, timeout=15)
+        if r.returncode != 0:
+            subprocess.run(["schtasks", "/Delete", "/TN", task, "/F"],
+                           capture_output=True)
+            return False
+        return task
+    return False
     flash("Restart requested — services will be restarted by systemd. "
           "The browser will disconnect briefly; reconnect and check "
           "System health for the result.", "info")
