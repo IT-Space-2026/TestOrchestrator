@@ -130,13 +130,21 @@ def test_git_fallback_is_declared():
         assert exe == "git"          # declared prerequisite, documented
 
 
+def test_default_bundle_excludes_vendored_git():
+    """Packaging contract: the default build list must NOT include a
+    bundled git — Dulwich is the backend; cli backend is opt-in only."""
+    from scripts.build_bundle import FILES
+    assert not any(src == "3rdparty/git" for src, _ in FILES)
+
+
 def test_extracted_layout_paths():
-    """The extracted rootfs must carry git's binaries, exec path, and
-    shared libraries — layout asserted, not merely extracted blindly."""
+    """Conditional layout check: only runs when an operator explicitly
+    re-staged a cli-backend fallback via acquire_git.py (manifest
+    present). Not part of the default packaging contract."""
     m = Path("3rdparty/git/ubuntu-resolute-amd64/"
              "acquisition-manifest.json")
     if not m.exists():
-        pytest.skip("no acquired manifest on this host")
+        pytest.skip("cli-backend fallback not staged (default build)")
     manifest = json.loads(m.read_text())
     if not manifest.get("acquired"):
         pytest.skip("acquisition not performed here")
