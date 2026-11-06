@@ -26,7 +26,7 @@ note() { echo "== $*"; }
 # --- isolation: env hygiene + collision aborts -------------------------
 umask 077                          # db + cookies hold auth material
 for v in $(env | grep -oE '^TO_[A-Z_]+' | grep -vE 'TO_SERVICE|TO_INSTANCE|TO_DATABASE|TO_SECURE'); do unset "$v"; done
-for tool in systemctl curl sqlite3 python3 ss journalctl systemd-run; do
+for tool in systemctl curl python3 ss journalctl systemd-run; do
   command -v "$tool" >/dev/null || { echo "missing tool: $tool"; exit 1; }
 done
 systemctl --user is-system-running >/dev/null 2>&1 || systemctl --user status >/dev/null 2>&1 \
@@ -185,12 +185,14 @@ grep -q "System health\|Managed services\|$WEB" "$EVID/health.html" \
   || fail "health page missing expected content"
 
 # audit verification (mandatory — actual sqlite audit table)
-audit=$(sqlite3 "$ROOT/home/m.db" \
-  "SELECT count(*) FROM audit_event WHERE action LIKE 'services.restart%'" \
-  2>/dev/null || echo 0)
-sqlite3 "$ROOT/home/m.db" \
-  "SELECT username,action,created_at FROM audit_event WHERE action LIKE 'services.restart%'" \
-  > "$EVID/audit.txt" 2>/dev/null
+audit=$(python3 -c "import sqlite3
+print(sqlite3.connect('$ROOT/home/m.db').execute(
+  \"SELECT count(*) FROM audit_event WHERE action LIKE 'services.restart%'\"
+).fetchone()[0])" 2>/dev/null || echo 0)
+python3 -c "import sqlite3
+for r in sqlite3.connect('$ROOT/home/m.db').execute(
+  \"SELECT username,action,created_at FROM audit_event WHERE action LIKE 'services.restart%'\"
+): print(*r)" > "$EVID/audit.txt" 2>/dev/null
 [ "${audit:-0}" -ge 1 ] && note "audit rows: $audit" \
   || fail "no audit row for restart"
 
