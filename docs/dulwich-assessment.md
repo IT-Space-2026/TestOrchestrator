@@ -2,6 +2,29 @@
 
 ## Verdict: viable — replacement already implemented and default.
 
+**Dependency lock:** `dulwich==1.2.20` (requirements.txt); resolved
+wheel `dulwich-1.2.20-cp312-cp312-manylinux_2_28_x86_64.whl`,
+sha256 `2ffd41bca7ac53b8a719311209f29641c26dfcbd466bd73adc6e465221f3ed17`
+(from PyPI via the pinned-wheel acquisition); installed version
+confirmed `(1,2,20)` from the build venv — not requirements text alone.
+
+**Evidence classes (kept distinct):**
+- *Inspection*: all production git calls route through git_backend —
+  no external git invocation in app code.
+- *Execution without git*: full suite 378 passed with `git` absent
+  from PATH (sandboxed PATH, tests themselves converted to the
+  backend — no git CLI fixture remains).
+- *Real Dagu checkout*: verified on the loopback Linux fixture —
+  `git.checkout` ran where only the pinned dagu binary was
+  provisioned on the **Linux** host; Windows runtime remains
+  unverified (no Windows target used). Binary inspection
+  (go-git/5 linked, pure-Go ssh) is supporting evidence for the
+  mechanism, not proof of the Windows path.
+- *Portal-side ssh:* ssh:// remotes still use host ssh (dulwich
+  subprocess) — a remaining executable prerequisite, documented;
+  on Windows that means an OpenSSH client or equivalent is needed
+  only for ssh:// bindings (https bindings need nothing external).
+
 ## 1. Runtime Git operation inventory
 All application git traffic goes through `git_backend.run(op)`:
 - **Portal (authoring.py):** clone, update, resolve(HEAD/branch/tag/~N),
