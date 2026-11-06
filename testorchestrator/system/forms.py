@@ -108,7 +108,7 @@ class SecretForm(FlaskForm):
         "Kind",
         choices=[("git", "Git"), ("dagu", "Dagu - Orchestrator"),
                  ("runner", "Worker"),
-                 ("runtime", "Runtime invocation")],
+                 ("runtime", "KRE invocation")],
         default="git",
     )
     value = PasswordField("Secret value",
