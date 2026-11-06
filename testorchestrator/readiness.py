@@ -191,8 +191,7 @@ def components() -> list:
         {"key": "source", "label": "Source binding",
          "status": "verified" if resolved else
                   "configured" if bindings else "missing",
-         "detail": f"{len(resolved)} resolved" if resolved else
-                  "not resolved through the dispatch path",
+         "detail": _source_detail(resolved, bindings),
          "link": "portal.projects"},
         {"key": "publishing", "label": "Report publishing repository",
          "status": "verified" if pub_ok else
@@ -213,6 +212,28 @@ def components() -> list:
                    else "configured",
          "detail": "", "link": "system.network"},
     ]
+
+
+def _source_detail(resolved, bindings) -> str:
+    """Distinguish portal-side resolution from remote-execution
+    capability: ssh://+worker key path is remote-capable; https+portal
+    secret resolves portal-side only (the HTTPS secret can't travel)."""
+    if not resolved:
+        return ("not resolved through the dispatch path"
+                if bindings else "none registered")
+    remote_ok, portal_only = 0, 0
+    for b in resolved:
+        url = (b.url or "").lower()
+        if url.startswith(("ssh://", "git@")):
+            remote_ok += 1
+        else:
+            portal_only += 1
+    parts = [f"{len(resolved)} resolved (portal-side)"]
+    if remote_ok:
+        parts.append(f"{remote_ok} ssh — remote-execution capable")
+    if portal_only:
+        parts.append(f"{portal_only} https — portal-side only")
+    return "; ".join(parts)
 
 
 def ready() -> bool:
