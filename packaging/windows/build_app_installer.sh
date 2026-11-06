@@ -50,4 +50,5 @@ fetch "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.
 cp /tmp/pg.7z.exe app-payload/git-setup.7z.exe
 echo "payload staged: $(du -sh app-payload | cut -f1)"
 command -v makensis >/dev/null || { echo "makensis missing" >&2; exit 1; }
+bash check_payload.sh
 makensis -V2 app-installer.nsi
