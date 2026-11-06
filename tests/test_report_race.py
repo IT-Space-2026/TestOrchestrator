@@ -33,11 +33,9 @@ def test_deletion_wait_blocks_late_publish(app, tmp_path):
         # either 'unknown execution' (row finalized) or a deletion
         # block — both prove no re-creation, no silent success.
         assert r.get("error")
-        import subprocess
-        out = subprocess.run(
-            ["git", "-C", str(repo), "ls-tree", "master",
-             "TestOrchestrator/Reports"],
-            capture_output=True, text=True)
+        from tests import git_helpers as gh
+        out = gh.cli("-C", str(repo), "ls-tree", "master",
+                     "TestOrchestrator/Reports")
         assert ex.id not in out.stdout
 
 
@@ -97,26 +95,19 @@ def test_nff_retry_preserves_both(app, tmp_path):
         # repo's own working tree is stale (non-bare push target), so
         # committing there would drop pushed files (test artifact,
         # not a service bug).
-        import subprocess
+        from tests import git_helpers as gh
         other = tmp_path / "other-clone"
-        subprocess.run(["git", "clone", "-q", str(repo), str(other)],
-                       check=True)
-        subprocess.run(["git", "-C", str(other), "config",
-                        "user.email", "t@t"], check=True)
-        subprocess.run(["git", "-C", str(other), "config",
-                        "user.name", "t"], check=True)
-        subprocess.run(["git", "-C", str(other), "commit", "-q",
-                        "--allow-empty", "-m", "other"], check=True)
-        subprocess.run(["git", "-C", str(other), "push", "-q",
-                        "origin", "master"], check=True)
+        gh.cli("clone", "-q", str(repo), str(other), check=True)
+        gh.cli("-C", str(other), "commit", "-q",
+               "--allow-empty", "-m", "other", check=True)
+        gh.cli("-C", str(other), "push", "-q", "origin", "master",
+               check=True)
         gitsync.publish_report(e2.id)   # update+push — survives NFF
         db.session.refresh(e2)
         assert e2.report_pub_status == "published"
         for eid in (e1.id, e2.id):
-            out = subprocess.run(
-                ["git", "-C", str(repo), "ls-tree", "master",
-                 f"TestOrchestrator/Reports/{eid}"],
-                capture_output=True, text=True)
+            out = gh.cli("-C", str(repo), "ls-tree", "master",
+                         f"TestOrchestrator/Reports/{eid}")
             assert eid in out.stdout
 
 
@@ -178,10 +169,9 @@ def test_push_succeeded_local_unrecorded_recovers(app, tmp_path):
         assert r.get("published")
         db.session.refresh(ex)
         assert ex.report_pub_status == "published"
-        import subprocess
-        out = subprocess.run(
-            ["git", "-C", str(repo), "ls-tree", "master",
-             ex.report_pub_dir], capture_output=True, text=True)
+        from tests import git_helpers as gh
+        out = gh.cli("-C", str(repo), "ls-tree", "master",
+                     ex.report_pub_dir)
         assert ex.report_pub_dir in out.stdout   # report present
 
 

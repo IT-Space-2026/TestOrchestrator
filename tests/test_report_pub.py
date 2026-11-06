@@ -14,23 +14,11 @@ from testorchestrator.execution import (Execution, ExecutionState,
 
 def _repo(tmp_path):
     """A BARE remote — accepts pushes like a real hosting target;
-    seed it via a temp clone."""
+    seeded via the app backend (dulwich), no git CLI."""
+    from tests import git_helpers as gh
     src = tmp_path / "repo.git"
-    work = tmp_path / "seed"
-    import subprocess
-    subprocess.run(["git", "init", "--bare", "-q", str(src)],
-                   check=True)
-    subprocess.run(["git", "clone", "-q", str(src), str(work)],
-                   check=True)
-    for k, v in (("user.email", "t@t"), ("user.name", "t")):
-        subprocess.run(["git", "-C", str(work), "config", k, v],
-                       check=True)
-    (work / "f.txt").write_text("x")
-    subprocess.run(["git", "-C", str(work), "add", "-A"], check=True)
-    subprocess.run(["git", "-C", str(work), "commit", "-q", "-m",
-                    "init"], check=True)
-    subprocess.run(["git", "-C", str(work), "push", "-q", "origin",
-                    "master"], check=True)
+    gh.bare_repo(src)
+    gh.seed_repo(str(src), tmp_path / "seed", {"f.txt": "x"}, "init")
     return src
 
 
@@ -66,18 +54,14 @@ def test_publish_to_repo_root(app, tmp_path):
         assert ex.report_pub_dir == f"TestOrchestrator/Reports/{ex.id}"
         # pushed content lives on the REMOTE ref — check via git show,
         # not the working tree (a non-bare repo isn't checkout-updated).
-        import subprocess
-        out = subprocess.run(
-            ["git", "-C", str(repo), "show",
-             f"master:{ex.report_pub_dir}/manifest.json"],
-            capture_output=True, text=True)
+        from tests import git_helpers as gh
+        out = gh.cli("-C", str(repo), "show",
+             f"master:{ex.report_pub_dir}/manifest.json")
         assert out.returncode == 0, out.stderr
         d = json.loads(out.stdout)
         assert d["execution_id"] == ex.id and d["version"] == 1
-        out2 = subprocess.run(
-            ["git", "-C", str(repo), "show",
-             f"master:{ex.report_pub_dir}/report/j.xml"],
-            capture_output=True, text=True)
+        out2 = gh.cli("-C", str(repo), "show",
+             f"master:{ex.report_pub_dir}/report/j.xml")
         assert out2.returncode == 0
 
 
@@ -125,22 +109,19 @@ def test_delete_removes_only_its_report(app, tmp_path):
         ex.state = ExecutionState.COMPLETED
         db.session.commit()
         gitsync.publish_report(ex.id)
-        import subprocess
-        out = subprocess.run(["git", "-C", str(repo), "ls-tree",
-                              "master", ex.report_pub_dir],
-                             capture_output=True, text=True)
+        from tests import git_helpers as gh
+        out = gh.cli("-C", str(repo), "ls-tree",
+                              "master", ex.report_pub_dir)
         assert ex.report_pub_dir in out.stdout
         r = gitsync.delete_report(ex.id)
         assert r.get("removed")
-        import subprocess
-        out = subprocess.run(["git", "-C", str(repo), "ls-tree",
-                              "master", ex.report_pub_dir],
-                             capture_output=True, text=True)
+        from tests import git_helpers as gh
+        out = gh.cli("-C", str(repo), "ls-tree",
+                              "master", ex.report_pub_dir)
         assert out.stdout.strip() == ""   # dir removed
         # app record finalized (deleted) after remote removal
-        out2 = subprocess.run(["git", "-C", str(repo), "ls-tree",
-                               "master", "f.txt"],
-                              capture_output=True, text=True)
+        out2 = gh.cli("-C", str(repo), "ls-tree",
+                               "master", "f.txt")
         assert "f.txt" in out2.stdout   # unrelated preserved
         assert db.session.get(Execution, ex.id) is None
 
@@ -212,12 +193,10 @@ def test_concurrent_publish_different_executions(app, tmp_path):
         r1 = gitsync.publish_report(e1.id)
         r2 = gitsync.publish_report(e2.id)
         assert r1.get("published") and r2.get("published")
-        import subprocess
+        from tests import git_helpers as gh
         for eid in (e1.id, e2.id):
-            out = subprocess.run(
-                ["git", "-C", str(repo), "ls-tree", "master",
-                 f"TestOrchestrator/Reports/{eid}"],
-                capture_output=True, text=True)
+            out = gh.cli("-C", str(repo), "ls-tree", "master",
+                 f"TestOrchestrator/Reports/{eid}")
             assert f"Reports/{eid}" in out.stdout
 
 
@@ -235,11 +214,9 @@ def test_delete_uses_recorded_url_not_new_binding(app, tmp_path):
         b.url = str(repo2); db.session.commit()
         r = gitsync.delete_report(ex.id)
         assert r.get("removed")
-        import subprocess
-        out = subprocess.run(
-            ["git", "-C", str(repo), "ls-tree", "master",
-             ex.report_pub_dir or "TestOrchestrator"],
-            capture_output=True, text=True)
+        from tests import git_helpers as gh
+        out = gh.cli("-C", str(repo), "ls-tree", "master",
+             ex.report_pub_dir or "TestOrchestrator")
         assert ex.id not in out.stdout
 
 

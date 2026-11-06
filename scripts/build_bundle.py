@@ -47,7 +47,10 @@ INCLUDE = [
     ("3rdparty/python-runtime", "python-runtime"),
     ("3rdparty/python-wheels", "python-deps"),
     # --frozen candidate swaps the two entries above for the onedir.
-    ("3rdparty/git", "git"),   # cli-backend fallback (standard build only)
+    # Bundled git removed: all workflows run on the Dulwich backend
+    # (dulwich==1.2.20); TO_GIT_BACKEND=cli falls back to host git as a
+    # declared prerequisite. Remote worker checkouts use go-git inside
+    # the dagu binary.
     ("3rdparty/caddy", "caddy"),
     ("3rdparty/dagu", "dagu"),
     ("3rdparty/allure", "allure"),
@@ -171,10 +174,11 @@ DEPENDENCIES = {
     },
     "git": {
         "required_for": "none — workflows run on the Dulwich backend "
-                        "(pure python); vendored git in the standard "
-                        "build only backs the opt-in "
-                        "TO_GIT_BACKEND=cli path, else host git is a "
-                        "declared prerequisite",
+                        "(pure python, dulwich==1.2.20); remote worker "
+                        "checkouts use go-git inside the dagu binary. "
+                        "Only the opt-in TO_GIT_BACKEND=cli path needs "
+                        "host git, and ssh:// portal remotes need host "
+                        "ssh — declared prerequisites, not bundled",
     },
 }
 

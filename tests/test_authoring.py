@@ -139,20 +139,18 @@ def test_fixture_publish_then_rediscover(app, tmp_path):
     with app.app_context():
         p, b, item, repo = _env(app, tmp_path)
         # seed the source file in the REMOTE via a proper clone+push
-        import subprocess
+        from tests import git_helpers as gh
         wc = tmp_path / "seed2"
-        subprocess.run(["git", "clone", "-q", str(repo), str(wc)],
-                       check=True)
+        gh.cli("clone", "-q", str(repo), str(wc), check=True)
         for k, v in (("user.email", "t@t"), ("user.name", "t")):
-            subprocess.run(["git", "-C", str(wc), "config", k, v],
-                           check=True)
+            gh.cli("-C", str(wc), "config", k, v, check=True)
         (wc / "Test Suites").mkdir(exist_ok=True)
         (wc / "Test Suites/S1.ts").write_text(SUITE_XML)
-        subprocess.run(["git", "-C", str(wc), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(wc), "commit", "-q",
-                        "-m", "seed"], check=True)
-        subprocess.run(["git", "-C", str(wc), "push", "-q",
-                        "origin", "master"], check=True)
+        gh.cli("-C", str(wc), "add", "-A", check=True)
+        gh.cli("-C", str(wc), "commit", "-q",
+                        "-m", "seed", check=True)
+        gh.cli("-C", str(wc), "push", "-q",
+                        "origin", "master", check=True)
         # draft + edit
         d = authoring.open_draft("alice", item)
         d.members_json = '["Test Cases/API/tc3","Test Cases/API/tc1"]'
@@ -161,10 +159,8 @@ def test_fixture_publish_then_rediscover(app, tmp_path):
         r = authoring.publish_draft(d)
         assert r.get("published"), r
         # the remote file now has the new members
-        out = subprocess.run(
-            ["git", "-C", str(repo), "show",
-             "master:Test Suites/S1.ts"],
-            capture_output=True, text=True)
+        out = gh.cli("-C", str(repo), "show",
+             "master:Test Suites/S1.ts")
         assert out.returncode == 0
         assert "tc3" in out.stdout and "tc1" in out.stdout
         assert "tc2" not in out.stdout
@@ -177,35 +173,31 @@ def test_upstream_commit_after_draft_blocks_publish(app, tmp_path):
     fetched state, not stale local HEAD."""
     with app.app_context():
         p, b, item, repo = _env(app, tmp_path)
-        import subprocess
+        from tests import git_helpers as gh
         wc = tmp_path / "upstream"
-        subprocess.run(["git", "clone", "-q", str(repo), str(wc)],
-                       check=True)
+        gh.cli("clone", "-q", str(repo), str(wc), check=True)
         for k, v in (("user.email", "t@t"), ("user.name", "t")):
-            subprocess.run(["git", "-C", str(wc), "config", k, v],
-                           check=True)
+            gh.cli("-C", str(wc), "config", k, v, check=True)
         (wc / "Test Suites").mkdir(exist_ok=True)
         (wc / "Test Suites/S1.ts").write_text(SUITE_XML)
-        subprocess.run(["git", "-C", str(wc), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(wc), "commit", "-q", "-m", "s"],
-                       check=True)
-        subprocess.run(["git", "-C", str(wc), "push", "-q",
-                        "origin", "master"], check=True)
+        gh.cli("-C", str(wc), "add", "-A", check=True)
+        gh.cli("-C", str(wc), "commit", "-q", "-m", "s", check=True)
+        gh.cli("-C", str(wc), "push", "-q",
+                        "origin", "master", check=True)
         # draft bases on the remote tip (base empty -> will be set by
         # publish's clone; simulate by setting after clone)
         d = authoring.open_draft("alice", item)
         authoring._clone_for_authoring(b)
-        tip = subprocess.run(["git", "-C", str(repo), "rev-parse",
-                              "master"], capture_output=True,
-                             text=True).stdout.strip()
+        tip = gh.cli("-C", str(repo), "rev-parse",
+                              "master").stdout.strip()
         d.base_sha = tip; db.session.commit()
         # upstream advances
         (wc / "upstream.txt").write_text("x")
-        subprocess.run(["git", "-C", str(wc), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(wc), "commit", "-q",
-                        "-m", "upstream"], check=True)
-        subprocess.run(["git", "-C", str(wc), "push", "-q",
-                        "origin", "master"], check=True)
+        gh.cli("-C", str(wc), "add", "-A", check=True)
+        gh.cli("-C", str(wc), "commit", "-q",
+                        "-m", "upstream", check=True)
+        gh.cli("-C", str(wc), "push", "-q",
+                        "origin", "master", check=True)
         r = authoring.publish_draft(d)
         assert "upstream advanced" in r["error"], r
 
@@ -215,24 +207,21 @@ def test_rediscovery_after_publish_updates_inventory(app, tmp_path):
     list; old snapshots unchanged; no duplicates."""
     with app.app_context():
         p, b, item, repo = _env(app, tmp_path)
-        import subprocess
+        from tests import git_helpers as gh
         wc = tmp_path / "sd"
-        subprocess.run(["git", "clone", "-q", str(repo), str(wc)],
-                       check=True)
+        gh.cli("clone", "-q", str(repo), str(wc), check=True)
         for k, v in (("user.email", "t@t"), ("user.name", "t")):
-            subprocess.run(["git", "-C", str(wc), "config", k, v],
-                           check=True)
+            gh.cli("-C", str(wc), "config", k, v, check=True)
         (wc / "P.prj").write_text("<ProjectEntity/>")
         (wc / "Test Cases/API").mkdir(parents=True)
         (wc / "Test Cases/API/tc3.tc").write_text(
             "<TestCaseEntity/>")
         (wc / "Test Suites").mkdir(exist_ok=True)
         (wc / "Test Suites/S1.ts").write_text(SUITE_XML)
-        subprocess.run(["git", "-C", str(wc), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(wc), "commit", "-q", "-m", "s"],
-                       check=True)
-        subprocess.run(["git", "-C", str(wc), "push", "-q",
-                        "origin", "master"], check=True)
+        gh.cli("-C", str(wc), "add", "-A", check=True)
+        gh.cli("-C", str(wc), "commit", "-q", "-m", "s", check=True)
+        gh.cli("-C", str(wc), "push", "-q",
+                        "origin", "master", check=True)
         item_path = item.path
         d = authoring.open_draft("alice", item)
         d.members_json = '["Test Cases/API/tc3.tc"]'
@@ -242,8 +231,7 @@ def test_rediscovery_after_publish_updates_inventory(app, tmp_path):
         assert r.get("published"), r
         # app rediscovery from the updated repo — pull the published
         # change into the synced checkout first
-        subprocess.run(["git", "-C", str(wc), "pull", "-q"],
-                       check=True)
+        gh.cli("-C", str(wc), "pull", "-q", check=True)
         b.worktree_path = str(wc)   # the synced checkout
         b.last_synced_sha = "sha2"; db.session.commit()
         from testorchestrator import gitsync
@@ -422,7 +410,7 @@ def test_draft_init_when_authoring_clone_empty(app, tmp_path):
     with app.app_context():
         p, b, item, repo = _env(app, tmp_path)
         # fetched worktree has the real file; authoring clone is absent
-        import subprocess
+        from tests import git_helpers as gh
         wc = tmp_path / "fetched"
         (wc / "Test Suites").mkdir(parents=True)
         (wc / "Test Suites/S1.ts").write_text(SUITE_XML.replace(
@@ -441,17 +429,15 @@ def test_non_commit_discovery_marker_resolves_real_head(app, tmp_path):
     false-positives as an upstream conflict."""
     with app.app_context():
         p, b, item, repo = _env(app, tmp_path)
-        import subprocess
+        from tests import git_helpers as gh
         wc = tmp_path / "fwt"
         (wc / "Test Suites").mkdir(parents=True)
         (wc / "Test Suites/S1.ts").write_text(SUITE_XML)
         for k, v in (("user.email", "t@t"), ("user.name", "t")):
-            subprocess.run(["git", "-C", str(wc.parent), "init", "-q"],
-                           check=False)
+            gh.cli("init", "-q", str(wc.parent), check=False)
         # use the real repo's head — worktree_path = a clone
         wc2 = tmp_path / "fwt2"
-        subprocess.run(["git", "clone", "-q", str(repo), str(wc2)],
-                       check=True)
+        gh.cli("clone", "-q", str(repo), str(wc2), check=True)
         b.worktree_path = str(wc2); db.session.commit()
         item.sha = "discovery-marker-not-a-sha"
         db.session.commit()
