@@ -1,27 +1,29 @@
-; TestOrchestrator Worker installer — Windows Server 2025 (worker/execution role)
-; Build: makensis worker-installer.nsi  (see build_worker_installer.sh)
-; Tool choice: NSIS — produces a real .exe (not a renamed archive), is
-; scriptable/UAC-aware, runs unattended (/S), and can be built on Linux.
+; TestOrchestrator Dagu Worker installer — Windows amd64 (KRE host role)
+; Build: build_worker_installer.sh stages worker-payload/ then makensis.
 ;
-; This installer covers the WORKER role only. It does NOT contain the
-; central Orchestrator server stack — a Windows central-server role is
-; out of scope until scoped and validated separately.
+; The worker payload is the pinned, checksum-verified Dagu 2.25.8
+; Windows binary — self-contained, no Python or other runtime required
+; on the KRE machine. This installer lays it down, writes a worker
+; config, and registers a boot-time scheduled task running
+;   dagu.exe worker --worker.coordinators=<portal>:50055
+;                 --worker.labels kre=<label> --worker.id <name>
+; KRE itself is installed/licensed separately — never redistributed.
 ;
 ; UNSIGNED BUILD — labelled clearly; do not sign until an approved
-; signing identity exists, and never ask users to disable Windows
-; security controls.
+; signing identity exists.
 
-!define PRODUCT "TestOrchestrator Worker"
-!define VERSION "1.9.0"
-!define PAYLOAD_DIR "worker-payload"   ; staged by build_worker_installer.sh
+!define PRODUCT "TestOrchestrator Dagu Worker"
+!define VERSION "2.25.8"
+!define PAYLOAD_DIR "worker-payload"
 
 Name "${PRODUCT} ${VERSION} (unsigned)"
-OutFile "testorchestrator-worker-${VERSION}-setup-UNSIGNED.exe"
-InstallDir "$PROGRAMFILES64\TestOrchestrator\worker"
-RequestExecutionLevel admin          ; service registration needs it
+OutFile "testorchestrator-dagu-worker-${VERSION}-setup-UNSIGNED.exe"
+InstallDir "$PROGRAMFILES64\TestOrchestrator\dagu-worker"
+RequestExecutionLevel admin
 ShowInstDetails show
-Var /GLOBAL ORCH_URL
-Var /GLOBAL AGENT_TOKEN
+Var /GLOBAL COORD_ADDR
+Var /GLOBAL WORKER_LABEL
+Var /GLOBAL WORKER_ID
 Var /GLOBAL DATA_DIR
 
 !include "MUI2.nsh"
@@ -32,93 +34,72 @@ Var /GLOBAL DATA_DIR
 !insertmacro MUI_LANGUAGE "English"
 
 ; ---- unattended options ---------------------------------------------
-; /S silent · /D=C:\path · /ORCH_URL= · /ENROLL_FILE=path
-; SECURITY: a reusable agent token is NEVER taken on the command line
-; (visible in process lists/logs and would end up inside the task
-; definition). Enrollment uses a short-lived, single-use enrollment
-; credential supplied via /ENROLL_FILE=<path> (read once, deleted) or,
-; interactively, via a password-style input page — never echoed.
+; /S silent · /D=C:\path · /COORD=<host:port> · /LABEL=kre-<tag> ·
+; /WORKER_ID=<name>.  No credentials on the command line — worker
+; peer-TLS/auth material is provisioned separately per deployment.
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
-Var /GLOBAL ENROLL_FILE
 
-Section "Install worker payload" SecMain
+Section "Install Dagu worker payload" SecMain
     SetOutPath "$INSTDIR"
     File /r "${PAYLOAD_DIR}\*.*"
-    ; Persistent data OUTSIDE the replaceable payload — preserved by
-    ; uninstall by default.
-    StrCpy $DATA_DIR "$PROGRAMDATA\TestOrchestrator"
-    CreateDirectory "$DATA_DIR"
-    CreateDirectory "$DATA_DIR\logs"
-    CreateDirectory "$DATA_DIR\work"
 
-    ${GetOptions} $CMDLINE "/ORCH_URL=" $ORCH_URL
-    ${GetOptions} $CMDLINE "/ENROLL_FILE=" $ENROLL_FILE
-    ${If} $ORCH_URL == ""
-        StrCpy $ORCH_URL "https://localhost"
+    ReadEnvStr $DATA_DIR "ProgramData"
+    StrCpy $DATA_DIR "$DATA_DIR\TestOrchestrator\dagu-worker"
+    CreateDirectory "$DATA_DIR"
+    CreateDirectory "$DATA_DIR\home"
+
+    ${GetOptions} $CMDLINE "/COORD=" $COORD_ADDR
+    ${GetOptions} $CMDLINE "/LABEL=" $WORKER_LABEL
+    ${GetOptions} $CMDLINE "/WORKER_ID=" $WORKER_ID
+    ${If} $COORD_ADDR == ""
+        StrCpy $COORD_ADDR "<portal-host>:50055"
+    ${EndIf}
+    ${If} $WORKER_LABEL == ""
+        StrCpy $WORKER_LABEL "unset"
+    ${EndIf}
+    ${If} $WORKER_ID == ""
+        ReadEnvStr $WORKER_ID "COMPUTERNAME"
+        StrCpy $WORKER_ID "worker-$WORKER_ID"
     ${EndIf}
 
-    ; Enrollment credential is read once by the registration script and
-    ; exchanged for a stored worker credential — the file is deleted by
-    ; register_agent.py after a successful handshake. When absent and
-    ; /S is NOT used, the UI can collect it interactively (password
-    ; field, never echoed, never written to install.log).
-
-    ; worker.conf — connectivity config (token NOT persisted here;
-    ; registration is exchanged for a stored credential post-install).
+    ; worker.conf — connectivity config; credentials are NOT stored
+    ; here (peer TLS / auth provisioning is a separate, documented step).
     FileOpen $0 "$DATA_DIR\worker.conf" w
-    FileWrite $0 "orchestrator_url=$ORCH_URL$\r$\n"
-    FileWrite $0 "data_dir=$DATA_DIR$\r$\n"
-    FileWrite $0 "install_dir=$INSTDIR$\r$\n"
+    FileWrite $0 "coordinators=$COORD_ADDR$\r$\n"
+    FileWrite $0 "labels=kre=$WORKER_LABEL$\r$\n"
+    FileWrite $0 "worker_id=$WORKER_ID$\r$\n"
+    FileWrite $0 "dagu_home=$DATA_DIR\home$\r$\n"
     FileClose $0
 
-    ; Register execution mechanism: scheduled task at boot running the
-    ; bundled agent (no third-party service wrapper dependency).
-    ; register_agent.py performs the one-time enrollment: reads the
-    ; enrollment credential from /ENROLL_FILE (or secure interactive
-    ; input), exchanges it for a stored worker credential (DPAPI-
-    ; protected file under $DATA_DIR, ACL'd to the task account), and
-    ; deletes the enrollment file. The reusable agent token never
-    ; appears on this command line.
-    ${If} $ENROLL_FILE != ""
-        nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\register_agent.py" --url "$ORCH_URL" --enroll-file "$ENROLL_FILE" --credential-store "$DATA_DIR"'
-    ${Else}
-        nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\register_agent.py" --url "$ORCH_URL" --interactive --credential-store "$DATA_DIR"'
-    ${EndIf}
+    ; Boot-time task: least-privilege is the design target — SYSTEM is
+    ; used only if KRE licensing/execution proves to require it, and
+    ; that requirement must be evidenced, not assumed.
+    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorDaguWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\dagu.exe\" worker --worker.coordinators=$COORD_ADDR --worker.labels kre=$WORKER_LABEL --worker.id $WORKER_ID"'
     Pop $0
     ${If} $0 != "0"
-        MessageBox MB_ICONEXCLAMATION "Agent enrollment failed — see $DATA_DIR\logs\install.log (worker not registered)"
+        MessageBox MB_ICONEXCLAMATION "Scheduled-task registration failed"
     ${EndIf}
-    ; Task account: a dedicated least-privilege account is the design
-    ; target (see docs/windows-worker-installer.md) — SYSTEM is used
-    ; only if KRE licensing/execution proves to require it, and that
-    ; requirement must be evidenced, not assumed.
-    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python\python.exe\" \"$INSTDIR\agent_service.py\" --config \"$DATA_DIR\worker.conf\""'
-    Pop $0
-    ${If} $0 != "0"
-        MessageBox MB_ICONEXCLAMATION "Scheduled-task registration failed — see $DATA_DIR\logs\install.log"
+    ${If} $WORKER_LABEL != "unset"
+        nsExec::ExecToLog 'schtasks /Run /TN "TestOrchestratorDaguWorker"'
     ${EndIf}
-    nsExec::ExecToLog 'schtasks /Run /TN "TestOrchestratorWorker"'
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorWorker" "DisplayName" "${PRODUCT} ${VERSION}"
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorWorker" "UninstallString" "$INSTDIR\uninstall.exe"
-    WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorWorker" "NoModify" 1
-    WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorWorker" "NoRepair" 1
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorDaguWorker" "DisplayName" "${PRODUCT} ${VERSION}"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorDaguWorker" "UninstallString" "$INSTDIR\uninstall.exe"
+    WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorDaguWorker" "NoModify" 1
+    WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorDaguWorker" "NoRepair" 1
 SectionEnd
 
 Section "Uninstall"
-    nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorWorker"'
-    nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorWorker" /F'
-    ; User data under $PROGRAMDATA\TestOrchestrator is PRESERVED by
-    ; default; deletion requires /PURGEDATA=1 explicitly.
-    ${GetOptions} $CMDLINE "/PURGEDATA=" $0
-    ${If} $0 == "1"
-        MessageBox MB_YESNO "Delete ALL worker data under $PROGRAMDATA\TestOrchestrator?" IDYES +2
-        Goto keep_data
-        RMDir /r "$PROGRAMDATA\TestOrchestrator"
-    ${EndIf}
-    keep_data:
+    ; Stop + remove the worker task; remove the program payload.
+    ; $PROGRAMDATA\TestOrchestrator (config, logs, workspaces) is
+    ; preserved — deleting it requires the operator's explicit choice.
+    nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorDaguWorker"'
+    nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorDaguWorker" /F'
     RMDir /r "$INSTDIR"
-    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorWorker"
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorDaguWorker"
+    MessageBox MB_YESNO "Also delete configuration and workspaces in $DATA_DIR?" /SD IDNO IDNO keepData
+        RMDir /r "$DATA_DIR"
+    keepData:
 SectionEnd

@@ -7,3 +7,5 @@ dist/
 *.egg-info/
 build/
 3rdparty/dagu/*.tar.gz
+packaging/windows/worker-payload/
+packaging/windows/*.exe

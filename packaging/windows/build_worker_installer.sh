@@ -1,27 +1,34 @@
 #!/bin/sh
-# Assemble the Windows worker payload + build worker-installer.exe.
+# Stage the Windows Dagu-worker payload from the PINNED archive and
+# build worker-installer.exe via NSIS.
 #
-# Tool: NSIS (makensis). Chosen over WiX/Inno because it produces a real
-# Windows .exe from a plain script, runs unattended (/S + /KEY=value
-# via ${GetOptions}), builds on Linux for CI, and supports UAC
-# elevation only where required (service/task registration).
+# The payload is the checksum-verified dagu_2.25.8_windows_amd64
+# archive's dagu.exe — self-contained, no embedded Python or runtime.
+# The Dagu worker is the remote-execution component: it runs on the
+# Windows machine containing KRE and connects outbound to the portal's
+# coordinator — no inbound port needed.
 #
-# Stages worker-payload/ with:
-#   python/      — Windows embeddable CPython (acquired separately;
-#                  NOT a Linux runtime renamed — see docs)
-#   agent code   — testorchestrator agent/worker sources
-#   agent_service.py, register_agent.py — execution + registration
-#
-# UNSIGNED build — the .exe name carries -UNSIGNED until an approved
-# signing identity exists. No paid cert or signing is assumed.
+# Missing resource for full verification: a Windows amd64 host (or VM)
+# to run the produced .exe, confirm the task registers, the worker
+# reaches a coordinator, and uninstall cleans up. makensis builds the
+# .exe on Linux but cannot execute it.
 set -eu
 cd "$(dirname "$0")"
+REPO="$(cd ../.. && pwd)"
+ARCHIVE="$REPO/3rdparty/dagu/dagu_2.25.8_windows_amd64.tar.gz"
 command -v makensis >/dev/null || {
-    echo "makensis not found — install NSIS (apt install nsis on" >&2
-    echo "build hosts) or run this on a Windows build agent." >&2
+    echo "makensis not found — install NSIS (apt install nsis) or run" >&2
+    echo "on a Windows build agent." >&2; exit 1; }
+[ -f "$ARCHIVE" ] || {
+    echo "pinned windows archive missing — run scripts/fetch_dagu.sh" >&2
     exit 1; }
-[ -d worker-payload/python ] || {
-    echo "worker-payload/python missing — stage the Windows embeddable" >&2
-    echo "runtime first (docs/windows-worker-installer.md)." >&2; exit 1; }
+# Checksum-verify the payload source before staging.
+expected=$(grep "dagu_2.25.8_windows_amd64.tar.gz" \
+    "$REPO/3rdparty/dagu/dagu.sha256" | awk '{print $1}')
+actual=$(sha256sum "$ARCHIVE" | awk '{print $1}')
+[ "$actual" = "$expected" ] || {
+    echo "archive checksum mismatch" >&2; exit 1; }
+rm -rf worker-payload && mkdir -p worker-payload
+tar xzf "$ARCHIVE" -C worker-payload dagu.exe LICENSE README.md
 makensis -V2 worker-installer.nsi
-echo "built testorchestrator-worker-*-setup-UNSIGNED.exe"
+echo "built testorchestrator-dagu-worker-*-setup-UNSIGNED.exe"
