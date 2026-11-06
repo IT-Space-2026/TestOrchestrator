@@ -27,7 +27,7 @@
   <h2>Start execution</h2>
   <p class="muted">An immutable snapshot of the entries below (v{{ suite.version }},
      pinned source above) is dispatched through Dagu to an eligible
-     registered runner/runtime.</p>
+     registered worker/runtime.</p>
   <form method="post" action="{{ url_for('portal.launch_execution', suite_id=suite.id) }}">
     {{ plain_form.csrf_token }}
     <div class="field"><label for="source_item">Source definition</label>
@@ -46,22 +46,22 @@
       <datalist id="disc_profiles">
         {% for p in profiles %}<option value="{{ p }}">{% endfor %}
       </datalist></div>
-    <div class="field"><label for="runner_id">Runner</label>
+    <div class="field"><label for="runner_id">Worker</label>
       <select name="runner_id" id="runner_id">
-        <option value="">Auto — pick any eligible runner</option>
+        <option value="">Auto — pick any eligible worker</option>
         {% for r in runners %}<option value="{{ r.id }}">{{ r.name }}
           ({{ r.os_arch or 'unknown os' }}, {{ r.health or 'ok' }})</option>{% endfor %}
       </select>
       <small>Auto picks the first eligible (enabled, not draining,
-      capacity free). An explicit runner that becomes unavailable
+      capacity free). An explicit worker that becomes unavailable
       REJECTS the run — never falls back.</small></div>
     <div class="field"><label for="runtime_id">Runtime</label>
       <select name="runtime_id" id="runtime_id">
-        <option value="">Auto — compatible runtime on the runner</option>
+        <option value="">Auto — compatible runtime on the worker</option>
         {% for rt in runtimes %}<option value="{{ rt.id }}">{{ rt.name }}
           — {{ rt.runner.name if rt.runner }} ({{ rt.detected_version or 'version unknown' }})</option>{% endfor %}
       </select>
-      <small>Must belong to the selected runner — an incompatible
+      <small>Must belong to the selected worker — an incompatible
       pairing rejects the run. Auto picks the first compatible.</small></div>
     <div class="field"><label for="timeout_seconds">Timeout (seconds)</label>
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" max="86400"

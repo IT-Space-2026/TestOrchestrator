@@ -10,7 +10,7 @@
   {% endfor %}
 {% endwith %}
 <dl class="about-facts">
-  <dt>Parallelism</dt><dd>{{ plan.parallelism }} (bounded by runner capacity)</dd>
+  <dt>Parallelism</dt><dd>{{ plan.parallelism }} (bounded by worker capacity)</dd>
   <dt>Latest outcome</dt><dd><strong>{{ summary }}</strong></dd>
 </dl>
 {% if can_run %}

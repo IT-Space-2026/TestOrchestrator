@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Runners & runtimes · TestOrchestrator{% endblock %}
+{% block title %}Workers & runtimes · TestOrchestrator{% endblock %}
 {% block content %}
 <h1>System &rarr; KRE installations</h1>
 <p class="muted">Register an existing Katalon Runtime Engine (KRE)
@@ -12,12 +12,12 @@ or license KRE.</p>
   {% endfor %}
 {% endwith %}
 
-<details class="card"><summary class="muted">Advanced — runners
+<details class="card"><summary class="muted">Advanced — workers
   (infrastructure detail)</summary>
-  <h2>Runners</h2>
-  <p class="muted">A <strong>runner</strong> is the execution worker or
+  <h2>Workers</h2>
+  <p class="muted">A <strong>worker</strong> is the execution process or
     destination — the machine that runs tests. Runtime connections
-    (below) are the KRE installations used on a runner.</p>
+    (below) are the KRE installations used on a worker.</p>
   <table class="audit-table">
     <thead><tr><th>Name</th><th>Mode</th><th>OS/arch</th><th>Slots</th><th>Health</th><th>Heartbeat</th><th>Agent</th><th>Drain</th></tr></thead>
     <tbody>
@@ -35,7 +35,7 @@ or license KRE.</p>
           <span class="row-actions">
           <form method="post" action="{{ url_for('system.issue_token', runner_id=r.id) }}" class="inline">
             {{ runner_form.csrf_token }}
-            <button type="submit" class="button secondary sm" title="Issue a runner agent token for remote dispatch">Issue token</button>
+            <button type="submit" class="button secondary sm" title="Issue a worker agent token for remote dispatch">Issue token</button>
           </form></span>
         </td>
         <td>
@@ -43,7 +43,7 @@ or license KRE.</p>
             {{ runner_form.csrf_token }}
             <button type="submit" class="button secondary"
               title="Drain stops new work being assigned; running work finishes">
-              {{ "Resume accepting jobs" if r.draining else "Drain runner" }}</button>
+              {{ "Resume accepting jobs" if r.draining else "Drain worker" }}</button>
           </form>
           <small class="muted">{{ "draining — no new work assigned" if r.draining else "" }}</small>
           <details class="inline-details">
@@ -63,7 +63,7 @@ or license KRE.</p>
       {% endfor %}
     </tbody>
   </table>
-  <details class="block-details"><summary class="button">Add runner</summary>
+  <details class="block-details"><summary class="button">Add worker</summary>
   <form method="post" action="{{ url_for('system.create_runner') }}">
     {{ runner_form.csrf_token }}
     <div class="field">{{ runner_form.name.label }} {{ runner_form.name() }}
@@ -80,7 +80,7 @@ or license KRE.</p>
       <em>remote</em> needs the agent + a heartbeat to dispatch.</small>
     </fieldset>
     <div class="field">{{ runner_form.workspace_root.label }} {{ runner_form.workspace_root() }}
-      <small>Optional. Path on <em>the runner's filesystem</em> where
+      <small>Optional. Path on <em>the worker's filesystem</em> where
       workspaces are created (local runner = this host). Default:
       <code>instance/workspaces</code>. Example:
       <code>/srv/to/workspaces</code>.</small></div>
@@ -96,7 +96,7 @@ or license KRE.</p>
       <small>Optional. Restrict this runner to listed projects;
       empty = all projects may dispatch here.</small></div>
     <div class="form-actions">
-      <button type="submit" class="button">Add runner</button>
+      <button type="submit" class="button">Add worker</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </div>
   </form></details>
@@ -218,7 +218,7 @@ or license KRE.</p>
       verified by <em>Test connection</em>, not assumed.</small></div>
     <div class="field"><label>Working directory</label> {{ runtime_form.workspace_root() }}
       <small>Optional. Overrides the runner's workspace root for this
-      runtime only — path on the runner's filesystem.</small></div>
+      runtime only — path on the worker's filesystem.</small></div>
     <div class="field"><label>Credential reference</label> {{ runtime_form.credential_ref() }}
       <small>Optional. <em>Name</em> of a credential stored under
       System → Credentials — never the value itself. Needed only when

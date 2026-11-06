@@ -1287,7 +1287,7 @@ def release_status(release_id):
 @role_required(*RUN_ROLES)
 def run_release(release_id):
     """Queue executions for every in-scope definition, linked to the
-    release — same profile/runner/runtime flow as a direct run."""
+    release — same profile/worker/runtime flow as a direct run."""
     release = db.session.get(Release, release_id)
     if release is None:
         abort(404)

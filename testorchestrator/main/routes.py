@@ -119,7 +119,52 @@ def changelog():
         changelog_text = changelog_path.read_text(encoding="utf-8")
     except OSError:
         changelog_text = ""
-    return render_template("system/changelog.html", changelog_text=changelog_text)
+    return render_template("system/changelog.html",
+                           changelog_html=_md_to_html(changelog_text))
+
+
+def _md_to_html(text: str) -> str:
+    """Minimal escape-then-convert renderer for the bundled CHANGELOG:
+    headings, bullets, code spans, bold, links, horizontal rules.
+    Content is escaped FIRST so raw HTML in the file can't inject."""
+    import re
+    from markupsafe import escape
+    if not text:
+        return ""
+    out, in_list = [], False
+    def _inline(line: str) -> str:
+        line = re.sub(r"`([^`]+)`", r"<code>\1</code>", line)
+        line = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", line)
+        line = re.sub(
+            r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+            r'<a href="\2" rel="noopener noreferrer">\1</a>', line)
+        return line
+    for raw in text.splitlines():
+        line = escape(raw)
+        m = re.match(r"^(#{1,3})\s+(.*)", line)
+        if m:
+            if in_list:
+                out.append("</ul>"); in_list = False
+            lvl = len(m.group(1)) + 1
+            out.append(f"<h{lvl}>{_inline(m.group(2))}</h{lvl}>")
+        elif re.match(r"^---+\s*$", line):
+            if in_list:
+                out.append("</ul>"); in_list = False
+            out.append("<hr>")
+        elif re.match(r"^\s*[-*]\s+(.*)", line):
+            if not in_list:
+                out.append("<ul>"); in_list = True
+            out.append(f"<li>{_inline(re.match(r'^\s*[-*]\s+(.*)', line).group(1))}</li>")
+        elif not line.strip():
+            if in_list:
+                out.append("</ul>"); in_list = False
+        else:
+            if in_list:
+                out.append("</ul>"); in_list = False
+            out.append(f"<p>{_inline(line)}</p>")
+    if in_list:
+        out.append("</ul>")
+    return "".join(out)
 
 
 AUDIT_PAGE_SIZE = 50

@@ -47,7 +47,7 @@
       <select name="release_id" id="release_id"><option value="">—</option>
         {% for r in releases %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
       </select></div>
-    <div class="field"><label for="runner_id">Runner</label>
+    <div class="field"><label for="runner_id">Worker</label>
       <select name="runner_id" id="runner_id">
         <option value="">Auto</option>
         {% for r in runners %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}

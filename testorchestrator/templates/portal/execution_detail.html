@@ -47,7 +47,7 @@
       — retry of <a href="{{ url_for('portal.execution_detail', execution_id=ex.snapshot()['retry_of']) }}"><code>{{ ex.snapshot()['retry_of'][:8] }}</code></a>
     {% endif %}</dd>
   {% endif %}
-  <dt>Runner</dt><dd>{{ ex.runner.name if ex.runner else "—" }}</dd>
+  <dt>Worker</dt><dd>{{ ex.runner.name if ex.runner else "—" }}</dd>
   <dt>Runtime</dt><dd>{{ ex.runtime.name if ex.runtime else "—" }}</dd>
   {% set rc = ex.snapshot().get('run_config') or {} %}
   <dt>Browser</dt><dd>
@@ -87,7 +87,7 @@
            placeholder="how the original process was confirmed stopped"></div>
   <button type="submit" class="button secondary">Resolve UNKNOWN
     (administrative — does NOT stop a process)</button>
-  <small class="muted">UNKNOWN holds the runner's slot. Confirm on the
+  <small class="muted">UNKNOWN holds the worker's slot. Confirm on the
     execution host that the original process and its children have
     stopped before resolving — this records an administrative
     resolution, not proof the run completed or failed normally.</small>
