@@ -231,10 +231,22 @@ grep -qa "wr-$RUN" "$ROOT/worker/worker.log" \
   && grep -qa "$EXID\|checkout\|katalonc" "$ROOT/worker/worker.log" \
   && note "worker wr-$RUN executed the job (log evidence)" \
   || fail "no worker-side evidence of $EXID in worker log"
-[ -f "$ROOT/ws/$SHA" ] || [ -d "$ROOT/ws" ] \
-  && ls "$ROOT/ws" | tee -a "$EVID/workspace.txt" >/dev/null \
-  && note "workspace populated (see workspace.txt)" \
-  || fail "execution workspace missing after checkout"
+# checkout evidence: .git HEAD == fixture SHA, else fixture content
+# must exist (go-git checkouts may omit .git metadata)
+WSGIT=$(find "$ROOT/ws" -name "HEAD" -path "*.git" | head -1)
+WS_SHA=""
+if [ -n "$WSGIT" ]; then
+  WS_SHA=$(cd "${WSGIT%/.git/HEAD}" && \
+    python3 -c "import dulwich.repo as R; print(R.Repo('.').head().decode())" 2>/dev/null \
+    || grep -oE '[0-9a-f]{40}' "$WSGIT" | head -1)
+fi
+if [ "$WS_SHA" = "$SHA" ]; then
+  note "checkout resolved to expected fixture SHA $SHA"
+elif find "$ROOT/ws" -name "fixture.ts" | head -1 | xargs -r grep -q "fixture"; then
+  note "checkout content verified (fixture.ts present; .git metadata absent)"
+else
+  fail "workspace lacks expected SHA ($SHA) AND fixture content"
+fi
 
 # --- bounded terminal-state poll -----------------------------------------
 S=""
@@ -249,23 +261,29 @@ with a.app_context():
   case "$S" in completed*|failed*|canceled*) break;; esac; sleep 3
 done
 echo "[exec] final: $S" | tee -a "$EVID/execution.txt"
-# assert SUCCESS not merely terminal
-case "$S" in
-  completed*ready*|*"completed passed ready"*)
-    note "completed + report ready";;
-  *) fail "expected completed+ready, got '$S'";;
-esac
-# two passed test cases from THIS run (run marker in names)
+# exact terminal evidence — not a wildcard match
+[ "$S" = "completed passed ready" ] \
+  && note "exact state/outcome/report: $S" \
+  || fail "expected 'completed passed ready', got '$S'"
+# exactly two TOTAL parsed cases, both passed, run-specific names
 CASES=$(cd "$REPO" && TO_INSTANCE_DIR="$ROOT/portal" TO_DATABASE_URI="sqlite:///$ROOT/portal/p.db" .venv/bin/python -c "
 from testorchestrator import create_app
 from testorchestrator.execution import TestResult
 a=create_app()
 with a.app_context():
-    n=TestResult.query.filter_by(execution_id='$EXID',
-                                 status='passed').count()
-    print(n)")
-[ "$CASES" = "2" ] && note "2 passed test cases (run-specific)" \
-  || fail "expected 2 passed cases, got $CASES"
+    tot=TestResult.query.filter_by(execution_id='$EXID').count()
+    ok=TestResult.query.filter_by(execution_id='$EXID',
+                                  status='passed').count()
+    names=' '.join(sorted(r.case_name for r in
+        TestResult.query.filter_by(execution_id='$EXID')))
+    print(tot, ok, names)")
+read -r TOT OK NAMES <<< "$CASES"
+[ "$TOT" = "2" ] && [ "$OK" = "2" ] \
+  && note "exactly 2 cases, both passed" \
+  || fail "expected 2 total/2 passed, got $TOT/$OK"
+[ "$NAMES" = "tc-a-$RUN tc-b-$RUN" ] \
+  && note "run-specific case names verified" \
+  || fail "case names mismatch: $NAMES"
 
 # --- routes: assert 200 + run-specific content ---------------------------
 for ep in "report" "report.zip" "artifacts.zip"; do
