@@ -869,6 +869,11 @@ def restart_services():
         flash("Restart could not be dispatched through the service "
               "manager.", "error")
         return redirect(url_for("system.system_health"))
+    # Bind this request to the exact helper unit/task it dispatched —
+    # evidence collection and cleanup must not depend on globbing.
+    rec = _j.loads(marker.read_text())
+    rec["helper_unit"] = launched
+    marker.write_text(_j.dumps(rec))
 
 
 def _launch_restart_helper(helper_path, scope: str) -> "bool | str":

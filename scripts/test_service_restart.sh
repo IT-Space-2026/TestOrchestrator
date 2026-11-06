@@ -24,8 +24,11 @@ fail() { echo "FAIL: $*"; FAILED=1; }
 note() { echo "== $*"; }
 
 # --- isolation: env hygiene + collision aborts -------------------------
+umask 077                          # db + cookies hold auth material
 for v in $(env | grep -oE '^TO_[A-Z_]+' | grep -vE 'TO_SERVICE|TO_INSTANCE|TO_DATABASE|TO_SECURE'); do unset "$v"; done
-command -v systemctl >/dev/null || { echo "no systemd"; exit 1; }
+for tool in systemctl curl sqlite3 python3 ss journalctl systemd-run; do
+  command -v "$tool" >/dev/null || { echo "missing tool: $tool"; exit 1; }
+done
 systemctl --user is-system-running >/dev/null 2>&1 || systemctl --user status >/dev/null 2>&1 \
   || { echo "no user systemd manager"; exit 1; }
 for u in "$WEB" "$STUB"; do
@@ -40,10 +43,14 @@ ss -tln | grep -q ":$PORT " && { echo "COLLISION: port $PORT"; exit 1; }
 
 cleanup() {
   set +e
+  # stop only this run's recorded resources — never wildcarded
+  [ -n "${HELPER_UNIT:-}" ] && \
+    systemctl --user stop "$HELPER_UNIT" 2>/dev/null
   systemctl --user stop "$WEB" "$STUB" 2>/dev/null
   rm -f "$UNITDIR/$WEB" "$UNITDIR/$STUB"
   systemctl --user daemon-reload 2>/dev/null
-  echo "[cleanup] units removed; evidence kept in $EVID"
+  chmod -R go-rwx "$ROOT" 2>/dev/null   # evidence may hold auth data
+  echo "[cleanup] units removed; evidence kept private in $EVID"
 }
 trap cleanup EXIT
 
@@ -57,6 +64,7 @@ export FLASK_APP="$REPO/wsgi.py"
 ( cd "$REPO" && .venv/bin/flask set-admin-password "$ADMIN_PASS" ) \
   || { echo "admin failed"; exit 1; }
 
+mkdir -p "$UNITDIR"
 cat > "$UNITDIR/$WEB" <<UNIT
 [Service]
 Environment=TO_INSTANCE_DIR=$ROOT/home
@@ -109,22 +117,30 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -b "$CJ" -X POST \
   || fail "bad csrf got $code (expected 400)"
 
 # --- the real restart ----------------------------------------------------
+# --- the real restart ----------------------------------------------------
 HTOK=$(curl -sf -b "$CJ" "http://127.0.0.1:$PORT/system/health" \
   | grep -oP 'name="csrf_token"[^>]*value="\K[^"]+' | head -1)
-curl -sf -b "$CJ" -X POST "http://127.0.0.1:$PORT/system/services/restart" \
-  -d "csrf_token=$HTOK" -o /dev/null \
-  || fail "restart POST failed"
-# dedup: a second request while pending must not dispatch twice
-code=$(curl -s -o /dev/null -w "%{http_code}" -b "$CJ" -X POST \
+[ -n "$HTOK" ] || { echo "no health-page csrf token"; exit 1; }
+# Route contract: 302 redirect on accepted dispatch (CSRF-only form).
+rcode=$(curl -s -o /dev/null -w "%{http_code}" -b "$CJ" -X POST \
   "http://127.0.0.1:$PORT/system/services/restart" -d "csrf_token=$HTOK")
-[ "$code" = 302 ] && note "duplicate restart deduped (redirect)" \
-  || note "duplicate restart: $code"
+[ "$rcode" = 302 ] && note "restart accepted ($rcode)" \
+  || fail "restart POST got $rcode (expected 302)"
+# Deduplication is deliberately NOT exercised here — a second POST
+# after completion would dispatch another restart and break the run.
+# Dedup is covered by contract tests instead.
 
-# helper unit evidence (launched via systemd-run by the route)
+# record THIS request's helper unit from the marker (not a glob)
+marker="$ROOT/home/restart-request.json"
 sleep 1
-systemctl --user list-units --all --no-legend 'to-restart-helper-*' \
-  | grep -q . && note "helper ran as its own transient unit" \
-  || note "helper unit not visible (finished already)"
+HELPER_UNIT=$(python3 -c \
+  "import json;print(json.load(open('$marker')).get('helper_unit',''))" \
+  2>/dev/null || echo "")
+[ -n "$HELPER_UNIT" ] \
+  && note "helper launched as $HELPER_UNIT" \
+  || fail "marker has no helper_unit — launch binding missing"
+[ -n "$HELPER_UNIT" ] && journalctl --user -u "$HELPER_UNIT" \
+  --no-pager -n 30 > "$EVID/helper-journal.txt" 2>/dev/null
 
 # --- verify old died, new lives ------------------------------------------
 deadline=$((SECONDS + 30))
@@ -134,13 +150,14 @@ while [ $SECONDS -lt $deadline ]; do
   [ -n "$NEW_PID" ] && [ "$NEW_PID" -gt 0 ] && [ "$NEW_PID" != "$OLD_PID" ] && break
   sleep 1
 done
-[ "$NEW_PID" != "$OLD_PID" ] && [ -n "$NEW_PID" ] \
+[ -n "$NEW_PID" ] && [ "$NEW_PID" -gt 0 ] && [ "$NEW_PID" != "$OLD_PID" ] \
   || fail "no new PID (old=$OLD_PID new=$NEW_PID)"
+active=$(systemctl --user is-active "$WEB" 2>/dev/null || echo "")
+[ "$active" = "active" ] || fail "unit not active after restart ($active)"
 [ -e "/proc/$OLD_PID" ] && fail "old process still alive" \
   || note "old=$OLD_PID dead, new=$NEW_PID active"
 
 # health poll resolves pending marker -> done WITH helper evidence
-marker="$ROOT/home/restart-request.json"
 result=""
 deadline=$((SECONDS + 45))
 while [ $SECONDS -lt $deadline ]; do
@@ -155,15 +172,18 @@ ev=$(python3 -c "import json;e=json.load(open('$marker')).get('evidence',{}).get
 [ "$result" = "done" ] || fail "marker result=$result (expected done)"
 [ "$basis" = "helper_confirmed" ] \
   || fail "basis=$basis — no helper evidence of new invocation"
-[ -n "$ev" ] && [ "$ev" != "$OLD_PID" ] \
-  || fail "evidence new-pid '$ev' not a new invocation"
+# the recorded new invocation must equal the observed replacement PID
+[ "$ev" = "$NEW_PID" ] \
+  || fail "evidence new-pid '$ev' != observed new PID $NEW_PID"
 note "writeback: $result via $basis, new-pid=$ev"
 
-# health page asserts content after restart
-body=$(curl -sf -b "$CJ" "http://127.0.0.1:$PORT/system/health")
-echo "$body" | grep -q "healthy\|active" \
-  && note "health page reports healthy" \
-  || fail "health page not healthy"
+# health page: authenticated 200 + specific expected content
+code=$(curl -s -o "$EVID/health.html" -w "%{http_code}" -b "$CJ" \
+  "http://127.0.0.1:$PORT/system/health")
+[ "$code" = 200 ] || fail "health page $code (expected 200)"
+grep -q "System health\|Managed services\|$WEB" "$EVID/health.html" \
+  && note "health page renders managed-service status" \
+  || fail "health page missing expected content"
 
 # audit verification (mandatory — actual sqlite audit table)
 audit=$(sqlite3 "$ROOT/home/m.db" \
