@@ -212,6 +212,19 @@ def test_source_detail_distinguishes_remote_capability(app):
     from testorchestrator.readiness import (record_verified,
                                             _binding_fp)
     with app.app_context():
+        from datetime import datetime, timezone
+        from testorchestrator.execution import (Runner,
+                                                RuntimeConnection)
+        # remote-capable needs ssh + eligible worker + verified engine
+        w = Runner(name="rc-w", os_arch="linux/amd64",
+                   heartbeat_at=datetime.now(timezone.utc))
+        db.session.add(w); db.session.flush()
+        rt = RuntimeConnection(name="rc-kre", runner_id=w.id,
+                               executable_path="/opt/kre/katalonc",
+                               detected_version="9.0.0")
+        db.session.add(rt); db.session.flush()
+        readiness.record_verified(f"engine_{rt.id}",
+                                  readiness._engine_fp(rt))
         b1 = GitBinding(project_id="p", name="b1", url="ssh://git@h/r.git",
                         ref="main")
         b2 = GitBinding(project_id="p", name="b2", url="https://h/r.git",
