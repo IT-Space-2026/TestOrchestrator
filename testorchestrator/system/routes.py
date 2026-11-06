@@ -522,13 +522,15 @@ def infrastructure():
                        if x.name.startswith("fx-")]
     runtimes = [x for x in RuntimeConnection.query.all()
                 if not (x.runner and x.runner.name.startswith("fx-"))]
-    from ..execution import utcnow
-    from datetime import timedelta
-    _now = utcnow()
+    from datetime import datetime, timedelta, timezone
+    _now = datetime.now(timezone.utc)
     for x in Runner.query.all():
         # freshness: heartbeat within 120s => live; older => last seen
-        x.fresh = (x.heartbeat_at is not None and
-                   (_now - x.heartbeat_at) < timedelta(seconds=120))
+        hb = x.heartbeat_at
+        if hb is not None and hb.tzinfo is None:
+            hb = hb.replace(tzinfo=timezone.utc)
+        x.fresh = (hb is not None and
+                   (_now - hb) < timedelta(seconds=120))
     per_runner = {}
     unbound = []
     for rt in runtimes:
