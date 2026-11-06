@@ -12,7 +12,8 @@ _BASE = dict(font=dict(family="system-ui,sans-serif", size=12),
              margin=dict(l=46, r=16, t=10, b=46),
              paper_bgcolor="rgba(0,0,0,0)",
              plot_bgcolor="rgba(0,0,0,0)", showlegend=True,
-             legend=dict(orientation="h", y=-0.22))
+             legend=dict(orientation="h", y=-0.28),
+             xaxis=dict(tickangle=-45))
 
 
 def _fig(traces, layout=None):
