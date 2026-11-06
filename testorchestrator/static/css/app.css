@@ -600,6 +600,16 @@ pre.example {
 .card h2 { margin-top: 0; font-size: 1.15rem; }
 .card h2 small { font-weight: 400; font-size: var(--fs-sm); }
 
+/* Settings hub link-cards */
+a.link-card {
+  display: block; text-decoration: none; color: inherit;
+  transition: border-color .15s, box-shadow .15s;
+}
+a.link-card:hover { border-color: var(--accent);
+  box-shadow: var(--shadow-md); }
+a.link-card h2 { color: var(--accent); }
+a.link-card h2::after { content: " →"; }
+
 /* --- dialogs --- */
 .dialog-panel { border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md); }
