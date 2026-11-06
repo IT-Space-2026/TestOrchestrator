@@ -20,6 +20,23 @@ def _fp(*parts) -> str:
         "|".join(str(p) for p in parts).encode()).hexdigest()[:16]
 
 
+def _cred_fp(ref: str) -> str:
+    """A credential named `ref` contributes its ROTATION marker, not
+    just its name — replacing a secret under the same name must
+    invalidate the evidence that used it."""
+    if not ref:
+        return ""
+    from .execution import SecretRef
+    sec = SecretRef.query.filter_by(name=ref).first()
+    if sec is None:
+        return f"missing:{ref}"
+    from datetime import timezone
+    stamp = sec.rotated_at or sec.created_at
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return f"{ref}@{stamp.isoformat()}"
+
+
 def _verified_fp(key: str, current_fp: str) -> bool:
     """True only when recorded verification matches CURRENT config."""
     return _get(f"verified_fp_{key}", "") == current_fp
@@ -38,7 +55,7 @@ def _admin_set() -> bool:
 
 def _coord_fp() -> str:
     return _fp(_get("dagu_coordinator_url", ""),
-               _get("dagu_credential_ref", ""))
+               _cred_fp(_get("dagu_credential_ref", "")))
 
 
 def _coordinator_ok() -> bool:
@@ -64,7 +81,7 @@ def _eligible_workers() -> list:
 
 def _engine_fp(rt) -> str:
     return _fp(rt.executable_path, rt.runner_id,
-               getattr(rt, "credential_ref", ""),
+               _cred_fp(getattr(rt, "credential_ref", "")),
                getattr(rt, "transport", ""))
 
 
@@ -82,11 +99,18 @@ def _runtimes() -> list:
 
 def _binding_fp(b) -> str:
     return _fp(b.url, b.ref, getattr(b, "subdirectory", ""),
-               getattr(b, "credential_ref", ""))
+               _cred_fp(getattr(b, "credential_ref", "")))
 
 
 def _binding_resolved(b) -> bool:
-    return _verified_fp(f"binding_{b.id}", _binding_fp(b))
+    """Resolved against the CURRENT eligible worker/engine combination
+    — the fp includes that association's identity, so a worker or
+    engine change invalidates it."""
+    combo = _fp(sorted(w.id for w in _eligible_workers()),
+                  sorted(r.id for r in _runtimes()
+                         if _engine_verified(r)))
+    return _verified_fp(f"binding_{b.id}",
+                        _fp(_binding_fp(b), combo))
 
 
 def _bindings() -> list:
@@ -96,7 +120,7 @@ def _bindings() -> list:
 
 def _pub_fp() -> str:
     return _fp(_get("publish_repo_url", ""),
-               _get("publish_repo_credential_ref", ""))
+               _cred_fp(_get("publish_repo_credential_ref", "")))
 
 
 def _reporting_state() -> str:

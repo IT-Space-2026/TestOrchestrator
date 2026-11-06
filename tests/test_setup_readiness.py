@@ -111,3 +111,26 @@ def test_stale_heartbeat_is_not_available(app):
         old.heartbeat_at = datetime.now(timezone.utc)
         db.session.commit()
         assert len(readiness._eligible_workers()) == 1
+
+
+def test_secret_rotation_invalidates_evidence(app):
+    """Replacing a secret under the SAME name must drop verified
+    evidence that referenced it."""
+    from testorchestrator.execution import SecretRef
+    from testorchestrator.readiness import (record_verified, _pub_fp)
+    with app.app_context():
+        sec = SecretRef(name="pub-cred", kind="git", encrypted=b"x")
+        db.session.add(sec)
+        db.session.flush()
+        _s("publish_repo_url", "https://a/repo.git")
+        _s("publish_repo_credential_ref", "pub-cred")
+        record_verified("publishing", _pub_fp())
+        c = next(x for x in readiness.components()
+                 if x["key"] == "publishing")
+        assert c["status"] == "verified"
+        from testorchestrator.execution import utcnow
+        sec.rotated_at = utcnow()          # replacement, same name
+        db.session.commit()
+        c = next(x for x in readiness.components()
+                 if x["key"] == "publishing")
+        assert c["status"] == "configured"
