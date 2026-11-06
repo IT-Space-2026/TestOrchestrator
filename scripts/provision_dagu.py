@@ -15,7 +15,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     home, cfg = Path(a.home), Path(a.config)
     user = "testorchestrator"
-    # auth.mode: basic (verified vs bundled 2.25.2 — builtin's token.secret
+    # auth.mode: basic (verified vs bundled 2.25.8 — builtin's token.secret
     # is a JWT signing secret, not a static bearer credential).
     token = "to-dagu-" + secrets.token_urlsafe(32)
     steps = [

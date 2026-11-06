@@ -17,7 +17,7 @@ PORT = 29978
 
 
 def _dagu_bin(tmp_path):
-    tar = REPO / "3rdparty" / "dagu" / "dagu_2.25.2_linux_amd64.tar.gz"
+    tar = REPO / "3rdparty" / "dagu" / "dagu_2.25.8_linux_amd64.tar.gz"
     if not tar.exists():
         pytest.skip("bundled dagu tarball missing")
     import tarfile
@@ -72,7 +72,7 @@ def test_provision_and_basic_auth_roundtrip(tmp_path):
         health = requests.get(f"{base}/health",
                               auth=(creds["username"], creds["password"]),
                               timeout=5).json()
-        assert health["version"].startswith("2.25.2")
+        assert health["version"].startswith("2.25.8")
         dags = requests.get(f"{base}/dags",
                             auth=(creds["username"], creds["password"]),
                             timeout=5).json()

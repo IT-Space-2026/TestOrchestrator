@@ -10,17 +10,17 @@ been exercised against a live service — see `implementation-status.md`.
   definitions and authorization (§7).
 - Client: HTTP REST under `{dagu_endpoint}/api/v1/`. Auth: HTTP Basic
   (`dagu_username` + `dagu_credential_ref` SecretRef holding the password)
-  **verified against bundled 2.25.2** (`auth.mode: basic`); alternatively a
+  **verified against bundled 2.25.8** (`auth.mode: basic`); alternatively a
   builtin-mode Bearer API key via the same SecretRef. Timeout 30s.
 - Operations: `GET /health` (status+version), `GET /dags` (workflow
   presence), `POST /dags/testorchestrator-execution/start`,
   `GET .../dag-runs/{id}`, `GET .../log`; cancel via verified CLI
-  `dagu stop <dag> --run-id <id>` (HTTP cancel path unresolved on 2.25.2).
+  `dagu stop <dag> --run-id <id>` (HTTP cancel path unresolved on 2.25.8).
 - Contract: submission returns external run identity persisted in
   `executions.dispatch_id` BEFORE any side effect; ambiguous timeout →
   reconcile, never blind re-submit. Dispatch state is durable
   (`outbox_events`), survives restart.
-- Pin: **2.25.2 bundled**; submit/status/cancel + basic-auth health
+- Pin: **2.25.8 bundled**; submit/status/cancel + basic-auth health
   verified live (`docs/dagu-verified-api.md`, contract test).
 
 ## KRE (execution) — `testorchestrator/adapters/kre.py`

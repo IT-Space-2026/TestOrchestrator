@@ -26,7 +26,7 @@ the outbox submits to Dagu first and persists the workflow-run id before
 the worker executes under that correlation; with Dagu unreachable and
 mandatory mode on, dispatch fails honestly — no self-orchestration, no
 blind resubmission. The Dagu client is still unverified against the
-pinned v2.25.2 API — marked so, not claimed integrated.
+pinned v2.25.8 API — marked so, not claimed integrated.
 
 ## Status table
 
@@ -37,7 +37,7 @@ pinned v2.25.2 API — marked so, not claimed integrated.
 | Execution pipeline: snapshot, outbox, state machine, local runner, cancel, reconcile | complete | test_pipeline.py (6 tests incl. cancel-tree kill, lease→UNKNOWN) | none — local only | none |
 | Remote runner transport | complete | test_agent.py (5 tests: auth, tasks, heartbeat, artifact, cancel, reconcile) | unverified vs. a real remote host | none |
 | KRE adapter | complete for invocation mechanics | test_pipeline.py via fixture executable | **unverified vs. real KRE** | operator KRE binary + licence |
-| Dagu orchestrator (OWNER-APPROVED Option B, mandatory) | dispatch submits to Dagu first, dispatch_id persisted, fail-closed when unreachable; `--monitor` step tracks remote runs to terminal/unknown; reconcile wired into worker | contract + wiring tests (submit/auth/reconcile/monitor scoping) | **verified vs bundled 2.25.2** — basic auth, remote/local fixture runs incl. disconnect→UNKNOWN (docs/dagu-integration-evidence.md) | none at fixture level |
+| Dagu orchestrator (OWNER-APPROVED Option B, mandatory) | dispatch submits to Dagu first, dispatch_id persisted, fail-closed when unreachable; `--monitor` step tracks remote runs to terminal/unknown; reconcile wired into worker | contract + wiring tests (submit/auth/reconcile/monitor scoping) | **verified vs bundled 2.25.8** — basic auth, remote/local fixture runs incl. disconnect→UNKNOWN (docs/dagu-integration-evidence.md) | none at fixture level |
 | ReportPortal adapter | client + resume-safe ID persistence | unit shape only | **unverified vs. real RP** | live RP instance |
 | Git persistence | export + push + conflict + restore | test_infra.py (local repos); push/conflict code paths | unverified vs. remote remote | real remote repo + credentials |
 | Credential store | complete | test_infra.py (4 tests) | n/a | none |

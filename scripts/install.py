@@ -113,7 +113,7 @@ def main() -> None:
         # Tested Dagu provisioning path (scripts/provision_dagu.py):
         # binary, basic-auth server.yaml, 0600 credentials, workflow,
         # systemd unit — into the persistent config/data areas.
-        dagu_bin = REPO / "3rdparty" / "dagu" / "dagu_2.25.2_linux_amd64.tar.gz"
+        dagu_bin = REPO / "3rdparty" / "dagu" / "dagu_2.25.8_linux_amd64.tar.gz"
         if dagu_bin.exists():
             import tarfile, tempfile
             with tempfile.TemporaryDirectory() as td:

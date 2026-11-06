@@ -19,7 +19,7 @@ this milestone. Regression tests below are retained and must keep passing.
    shown once; the runtime invocation credential reaches argv as
    `-apiKey=…` but is redacted from `kre-invocation.log` and scrubbed
    from captured stdout/stderr before evidence collection.
-5. Dagu auth: `auth.mode: basic` (verified vs bundled 2.25.2) or a
+5. Dagu auth: `auth.mode: basic` (verified vs bundled 2.25.8) or a
    builtin-mode Bearer API key.
 6. A failed test assertion produces `state=completed` +
    `outcome=failed` with full evidence — never an infra failure, never a
@@ -31,7 +31,7 @@ this milestone. Regression tests below are retained and must keep passing.
   token issuance, state-endpoint scoping, reconcile wiring, secret scrub
   across logs/evidence/UI/audit/Git, runbook fixture path e2e.
 - `tests/contract/test_dagu_provisioning.py` — provision → boot bundled
-  Dagu 2.25.2 → auth enforcement → workflow presence (no mocks).
+  Dagu 2.25.8 → auth enforcement → workflow presence (no mocks).
 - `tests/contract/test_dagu_contract.py` — submit/status/CLI-stop.
 - `tests/test_pipeline.py`, `tests/test_agent.py`,
   `tests/test_dagu_reconcile.py` — pipeline, agent transport, UNKNOWN

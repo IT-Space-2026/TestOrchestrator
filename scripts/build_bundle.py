@@ -228,7 +228,7 @@ def main():
         bundled["git"] = "vendored ubuntu-resolute-amd64 rootfs (cli-backend fallback)"
     bundled |= {
         "caddy": "pinned binary + licence + sha256",
-        "dagu": "pinned 2.25.2 release tarball",
+        "dagu": "pinned 2.25.8 release tarball",
         "allure": "pinned allure-commandline generator",
     }
     if args.frozen:

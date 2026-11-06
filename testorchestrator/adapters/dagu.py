@@ -47,7 +47,7 @@ class DaguAdapter:
         if ref:
             secret = read_secret(current_app._get_current_object(), ref)
         if username:
-            # auth.mode: basic — verified against bundled Dagu 2.25.2.
+            # auth.mode: basic — verified against bundled Dagu 2.25.8.
             return cls(endpoint, username=username, password=secret)
         # auth.mode: builtin — Bearer API key/JWT issued by Dagu.
         return cls(endpoint, token=secret)
@@ -67,7 +67,7 @@ class DaguAdapter:
     def health(self) -> dict:
         """Health probe — verifies reachability, authentication, version,
         AND that the orchestration workflow is installed (verified paths
-        on bundled Dagu 2.25.2)."""
+        on bundled Dagu 2.25.8)."""
         resp = requests.get(
             self._url("/health"), headers=self._headers(),
             auth=self._auth(), timeout=self.timeout,
@@ -124,7 +124,7 @@ class DaguAdapter:
 
     def cancel(self, dispatch_id: str) -> bool:
         """Verified mechanism: `dagu stop <dag> --run-id <id>` via the
-        bundled binary (HTTP cancel path unresolved on 2.25.2)."""
+        bundled binary (HTTP cancel path unresolved on 2.25.8)."""
         import os
         import shutil
         import subprocess
@@ -147,32 +147,36 @@ class DaguAdapter:
                         report_dir: str, timeout_s: int = 3600) -> dict:
         """A remote-KRE execution DAG — dispatched to the worker whose
         labels include the installation's unique tag (precise routing,
-        never a broad label that could reach a different host).
+        never a broad label that could reach a different host). The
+        label matches the worker's ``--worker.labels kre=<tag>``.
 
-        Steps: deliver the project into an isolated remote workspace
-        via DAG file dependencies, run the registered KRE executable,
-        and return the Reports/ dir + logs as artifacts for portal-side
-        _collect/_normalize. Cancellation/timeout is the DAG-run
-        deadline — process-tree termination is the worker's job
-        (verified in 2.25.2 docs, not yet exercised)."""
+        Steps: create an isolated remote workspace, run the registered
+        KRE executable in it, and return the Reports/ dir listing for
+        portal-side _collect/_normalize. Cancellation/timeout is the
+        DAG-run deadline — process-tree termination is the worker's job
+        (verified in 2.25.8 docs, not yet exercised).
+
+        Schema verified via `dagu validate` on bundled 2.25.8: there is
+        NO DAG-level file-dependency field — `depends` is step-level
+        only. ``project_files`` therefore stays a caller contract for
+        the pending wire-up: the worker must reach the project through
+        its own mechanism (checkout/shared mount), decided when remote
+        dispatch is implemented."""
         return {
             "worker_selector": {"kre": worker_label},
             "timeout_sec": timeout_s,
-            "depends": project_files,
             "steps": [
                 {"id": "workspace",
-                 "action": "exec",
-                 "with": {"command": "mkdir -p "
-                          + remote_workspace}},
+                 "run": "mkdir -p " + remote_workspace},
                 {"id": "run",
                  "action": "exec",
                  "depends": ["workspace"],
+                 "working_dir": remote_workspace,
                  "with": {
                      "command": executable,
-                     "args": args,
-                     "dir": remote_workspace}},
+                     "args": args}},
                 {"id": "collect",
-                 "action": "artifact.list",
+                 "action": "file.list",
                  "depends": ["run"],
-                 "with": {"dir": report_dir}},
+                 "with": {"path": report_dir}},
             ]}

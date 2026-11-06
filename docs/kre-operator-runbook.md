@@ -82,14 +82,14 @@ strong password change (headless alternative: `flask set-admin-password`
 
 ## 3. Start authenticated Dagu and install the workflow
 
-Dagu 2.25.2 is bundled at `3rdparty/dagu/dagu_2.25.2_linux_amd64.tar.gz`.
+Dagu 2.25.8 is bundled at `3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz`.
 Either run `python3 scripts/provision_dagu.py` (writes binary, `server.yaml`
 with `auth.mode: basic`, a 0600 `credentials` file, the workflow, and a
 systemd unit you then enable), or do it by hand:
 
 ```bash
 mkdir -p /tmp/dagu/{bin,home/dags}
-tar xzf 3rdparty/dagu/dagu_2.25.2_linux_amd64.tar.gz -C /tmp/dagu/bin
+tar xzf 3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz -C /tmp/dagu/bin
 cat > /tmp/dagu/home/server.yaml <<'EOF'
 auth:
   mode: basic
@@ -135,7 +135,7 @@ DAGU_HOME=/tmp/dagu/home DAGU_COORDINATOR_ENABLED=false \
     --username testorchestrator \
     --credential-ref dagu-api \
     --check
-# expected: health: healthy, version 2.25.2, workflow_installed=True
+# expected: health: healthy, version 2.25.8, workflow_installed=True
 ```
 
 (Omit `--username` when the Dagu credential is a builtin-mode Bearer API

@@ -4,10 +4,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent / "3rdparty" / "dagu"
 EXPECTED = {
-    "dagu_2.25.2_linux_amd64.tar.gz":
-        "1708a12b0d88bdc2a895b2c1e59667498faace887fe45ba8fe91d5178f16f4e9",
-    "dagu_2.25.2_windows_amd64.tar.gz":
-        "d5954c509df6639901fb1fb707287d64610294d31c557f250dc9a6f2931a69da",
+    "dagu_2.25.8_linux_amd64.tar.gz":
+        "f5ab106c186c698fb203191c0b041e3fac9e1e491bf2e5047e521fada7dc4593",
+    "dagu_2.25.8_windows_amd64.tar.gz":
+        "aa6ce7d1b4190bd3289f15d3b7a8bf2fe2fa0554a62b722fe505220f3cd083ea",
 }
 
 

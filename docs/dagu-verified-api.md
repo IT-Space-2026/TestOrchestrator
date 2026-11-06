@@ -1,4 +1,11 @@
-# Dagu 2.25.2 API — verified against the bundled binary (2026-11-03)
+# Dagu 2.25.8 API — verified against the bundled binary
+
+Originally verified 2026-11-03 vs bundled 2.25.2; re-verified
+2026-11-06 vs bundled 2.25.8 — `/api/v1/health` reports
+`{"status":"healthy","version":"2.25.8"}`, `/api/v1/version` still 404,
+and the contract tests (submit → dagRunId → status → CLI stop →
+aborted, plus provision→basic-auth roundtrip) pass against the new
+archive unchanged.
 
 Server: `dagu start-all --port 29999 --config server.yaml --dags <dir>`
 (auth.mode: none used for dev probing only).
@@ -13,8 +20,8 @@ Server: `dagu start-all --port 29999 --config server.yaml --dags <dir>`
   a static Bearer against it returns 401; builtin requires an issued API
   key/JWT (adapter supports Bearer for that case).
 - Health/version endpoint is `GET /api/v1/health`
-  (`{"status":"healthy","version":"2.25.2",...}`); `/api/v1/version`
-  does NOT exist on 2.25.2 (404).
+  (`{"status":"healthy","version":"2.25.8",...}`); `/api/v1/version`
+  does NOT exist on 2.25.8 (404 — re-verified 2026-11-06).
 
 ## Verified live
 - `POST /api/v1/dags/{name}/start` → `{"dagRunId":"034r5YZLmYSiJgWtO63bLI"}`

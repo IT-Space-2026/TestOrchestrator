@@ -15,7 +15,7 @@ requirements, and installation instructions.
 | Caddy 2.9.1 + LICENSE + sha256 | yes | binary verified | per-OS config test |
 | Runner connector (`testorchestrator/agent.py` + API) | yes (source) | in-process tests | live remote-host run |
 | Git runtime (ubuntu-resolute-amd64) | yes | rootfs acquired + verified (`acquire_git.py`, manifest in 3rdparty/git) | Windows/SLES target |
-| Dagu 2.25.2 | yes | contract test + fixture chain green | — |
+| Dagu 2.25.8 | yes | contract test + fixture chain green | — |
 | Allure generator (allure-commandline 2.46.1) | yes | real generation verified vs host Java | — |
 | Java runtime | **no — operator prerequisite** | validated by actual report-generation probe at install (`--java-home` / detection / `--no-allure`), re-checkable in Admin → Reporting | — |
 | ReportPortal stack/images/config | **no** | — | container backend + pinned images |

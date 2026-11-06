@@ -21,7 +21,7 @@ PORT = 29977
 def _binary(tmp_path):
     if DAGU and Path(DAGU).exists():
         return DAGU
-    tar = REPO / "3rdparty" / "dagu" / "dagu_2.25.2_linux_amd64.tar.gz"
+    tar = REPO / "3rdparty" / "dagu" / "dagu_2.25.8_linux_amd64.tar.gz"
     if not tar.exists():
         pytest.skip("bundled dagu tarball missing")
     import tarfile

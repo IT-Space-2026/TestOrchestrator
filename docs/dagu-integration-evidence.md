@@ -1,5 +1,9 @@
 # Integrated fixture run — live evidence (2026-11-03)
 
+> Bundled pin updated to 2.25.8 (2026-11-06): contract tests re-run
+> green against the new archive (submit/auth/stop paths unchanged);
+> dated records below remain as demonstrated on 2.25.2.
+
 **Label: live Dagu/agent FIXTURE execution.** The chain below ran for real
 against bundled Dagu 2.25.2, but the executable was a bash fixture — KRE
 CLI compatibility and the A01 real-KRE gate remain **unverified**.
@@ -61,7 +65,7 @@ full restore-path test).
 - Reconcile tests: 4 pass (UNKNOWN never re-dispatches; RUNNING and
   CANCEL_REQUESTED expired-lease -> UNKNOWN; terminal-result guard).
 - Contract test tests/contract/test_dagu_contract.py PASSES vs bundled
-  2.25.2 (self-starts, submit->dagRunId->status->CLI stop->aborted);
+  2.25.8 (self-starts, submit->dagRunId->status->CLI stop->aborted);
   DAGU_COORDINATOR_ENABLED=false documented for multi-instance.
 - Token audit: no token material in dagu run data/logs; delivery only
   via 0600 agent.toml.
@@ -104,7 +108,7 @@ host, full-stack target-OS install.
 ### Regression coverage added
 
 - `tests/contract/test_dagu_provisioning.py`: provision → boot bundled
-  2.25.2 → 401 without/with wrong creds → basic-auth health + dags +
+  2.25.8 → 401 without/with wrong creds → basic-auth health + dags +
   workflow presence — no mocks.
 - `tests/test_runbook_wiring.py`: probe-only smoke, explicit `kre-exec`
   suite, `dagu-config`, token issuance, state-endpoint scoping,

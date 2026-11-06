@@ -14,7 +14,7 @@ exists inside an Allure report or a ReportPortal instance.
 | Git sync (clone/push/export/restore/conflict) | DONE | `gitsync.py`, `git_runtime.py` (vendored git, child-scoped env) | test_gitsync_remote: roundtrip, conflict no-force-push, secret exclusion | Remote-provider behaviour = GATE |
 | Suite/profile selection & execution config | DONE | Portal → Suites/Plans (`Suite`, `SuiteEntry`, `Plan`, run profiles) | suite CRUD, immutable snapshots, entry add bumps version | Rich builder UI (ordering UX, hooks) PARTIAL |
 | Immediate execution | DONE | Execution dispatch (`dispatch.py`, adapters/kre.py) | test_pipeline, fixture-KRE chain proven | **Real KRE = GATE** (connect-only adapter is fixture-verified) |
-| Recurring schedules & schedule mgmt | PARTIAL | Dagu orchestration supports scheduling; no dedicated schedule CRUD UI | dagu contract test vs bundled 2.25.2 | Schedule create/pause/edit UI + evidence needed |
+| Recurring schedules & schedule mgmt | PARTIAL | Dagu orchestration supports scheduling; no dedicated schedule CRUD UI | dagu contract test vs bundled 2.25.8 | Schedule create/pause/edit UI + evidence needed |
 | Worker registration/readiness/dispatch | DONE | Admin → Infrastructure: Runner, RuntimeConnection, probe, drain, agent token issue (`system/routes.py`, `agent_api.py`) | token sha256-persisted, probe, drain tests | Remote agent on a real second host = GATE (API is in-process tested) |
 | Cancellation | DONE | POST `/executions/<id>/cancel` → process-tree kill → CANCELED | test_pipeline cancel tests | — |
 | Reconnect/restart recovery | PARTIAL | lease expiry → UNKNOWN, never re-dispatch; reconcile loop | dagu reconcile tests | Live disconnect/reconnect on real hosts = GATE |

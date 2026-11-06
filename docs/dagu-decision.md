@@ -19,7 +19,7 @@ existing KRE -> collect -> local results + ReportPortal -> Git.
   an actionable error; ambiguous submission is never blindly resubmitted.
 
 ## Still required before live acceptance
-- Verify dagu v2.25.2 API/workflow schema (bundled binary pinned;
+- Verify dagu v2.25.8 API/workflow schema (bundled binary pinned;
   `3rdparty/dagu/README_SCHEMA.md`) — client calls unverified.
 - Status-sync, logs, cancellation, restart-reconciliation calls exist as
   adapter methods but have no live evidence.
