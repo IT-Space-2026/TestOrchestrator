@@ -31,6 +31,8 @@ def outcome_trend(rows) -> str:
             out.append({"type": "bar", "name": k.capitalize(),
                         "x": days, "y": [r.get(k, 0) for r in rows],
                         "marker": {"color": _PALETTE[k]}})
+    if not out:                      # all-zero period — no trace spam
+        return "null"
     return _fig(out, {"barmode": "stack",
                       "yaxis": {"title": "Test cases"}})
 

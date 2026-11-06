@@ -90,9 +90,10 @@
 
 <section class="card">
   <h2>Outcomes per day · {{ data.period_days }}d</h2>
+  {% if outcome_fig != 'null' %}
   <div id="chart-outcomes" data-plotly-fig="{{ outcome_fig }}"></div>
-  {% if not data.chart_outcomes %}
-  <p class="muted">No outcome data for this period.</p>
+  {% else %}
+  <p class="muted">No test-case outcomes in this period — run an execution to populate the trend.</p>
   {% endif %}
   <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
   <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
