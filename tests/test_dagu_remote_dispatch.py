@@ -256,17 +256,96 @@ def test_failed_run_without_artifacts_fails_honestly(app, monkeypatch):
         assert "no result data" in ex.error_text
 
 
-def test_aborted_run_marks_canceled(app, monkeypatch):
+def test_unrequested_abort_is_infrastructure_not_cancel(app, monkeypatch):
+    """Worker loss/shutdown aborts WITHOUT a cancel request must not be
+    misclassified as user cancellation — cause stays honest+uncertain."""
     stub = _StubDagu()
     with app.app_context():
         rid, rtid, bid, diid = _env(app, monkeypatch, stub,
-                            run_status="aborted")
+                                    run_status="aborted")
         ex = _create(diid, rtid)
         d._submit_remote(db.session.get(Execution, ex.id))
         d._poll_remote_run(stub, db.session.get(Execution, ex.id))
         ex = db.session.get(Execution, ex.id)
+        assert ex.state == ExecutionState.FAILED
+        assert ex.error_kind == "infrastructure"
+        assert "undetermined" in ex.error_text
+        assert ex.outcome == Outcome.INCOMPLETE
+
+
+def test_requested_cancel_maps_to_canceled(app, monkeypatch):
+    stub = _StubDagu()
+    with app.app_context():
+        rid, rtid, bid, diid = _env(app, monkeypatch, stub,
+                                    run_status="aborted")
+        ex = _create(diid, rtid)
+        d._submit_remote(db.session.get(Execution, ex.id))
+        d.request_cancel(ex.id, "u", "stop requested")
+        d._poll_remote_run(stub, db.session.get(Execution, ex.id))
+        ex = db.session.get(Execution, ex.id)
         assert ex.state == ExecutionState.CANCELED
         assert ex.outcome == Outcome.INCOMPLETE
+        assert ex.cancel_reason == "stop requested"
+
+
+def test_ws_cleanup_enqueued_for_terminal_run(app, monkeypatch, tmp_path):
+    """Collected terminal run -> bounded cleanup enqueue restricted to
+    <workspace_root>/<exec-id>; marker prevents resubmission."""
+    stub = _StubDagu()
+    with app.app_context():
+        rid, rtid, bid, diid = _env(app, monkeypatch, stub)
+        rt = db.session.get(RuntimeConnection, rtid)
+        rt.workspace_root = str(tmp_path / "ws-root")
+        db.session.commit()
+        ex = _create(diid, rtid)
+        d._submit_remote(db.session.get(Execution, ex.id))
+        enq_before = len(stub.enqueued if isinstance(
+            stub.enqueued, list) else [stub.enqueued])
+        d._poll_remote_run(stub, db.session.get(Execution, ex.id))
+        enqueued = stub.enqueued
+        assert d.WS_CLEANUP_DAG == enqueued["name"]
+        spec = json.loads(enqueued["spec"])
+        cmd = spec["steps"][0]["run"]
+        ws_root = str(tmp_path / "ws-root")
+        assert f"{ws_root}/{ex.id}" in cmd
+        assert "rm -rf --" in cmd and "test -d" in cmd
+        assert enqueued["worker_selector"] == {"kre": "kre-1"}
+        # marker exists -> second request is a no-op
+        stub.enqueued = None
+        rt = db.session.get(RuntimeConnection, rtid)
+        d._request_ws_cleanup(stub, db.session.get(Execution, ex.id), rt)
+        assert stub.enqueued is None
+
+
+def test_ws_cleanup_failure_is_surfaced(app, monkeypatch, tmp_path):
+    stub = _StubDagu()
+    with app.app_context():
+        rid, rtid, bid, diid = _env(app, monkeypatch, stub)
+        rt = db.session.get(RuntimeConnection, rtid)
+        rt.workspace_root = str(tmp_path / "ws-root")
+        db.session.commit()
+        ex = _create(diid, rtid)
+        d._submit_remote(db.session.get(Execution, ex.id))
+        d._poll_remote_run(stub, db.session.get(Execution, ex.id))
+        marker = d._ws_cleanup_marker(db.session.get(Execution, ex.id))
+        assert marker.read_text().strip() == "pending"
+        stub.run_status = "failed"
+        n = d._sweep_ws_cleanup(stub)
+        assert n == 1
+        ex = db.session.get(Execution, ex.id)
+        assert marker.read_text().strip() == "failed"
+        assert "workspace cleanup failed" in ex.error_text
+
+
+def test_ws_cleanup_never_touches_active(app, monkeypatch, tmp_path):
+    stub = _StubDagu()
+    with app.app_context():
+        rid, rtid, bid, diid = _env(app, monkeypatch, stub)
+        ex = _create(diid, rtid)
+        d._submit_remote(db.session.get(Execution, ex.id))
+        stub.enqueued = None
+        n = d._sweep_ws_cleanup(stub)   # ex is DISPATCHED — not terminal
+        assert n == 0 and stub.enqueued is None
 
 
 def test_running_run_extends_lease(app, monkeypatch):

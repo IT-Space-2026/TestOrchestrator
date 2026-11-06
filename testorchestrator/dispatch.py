@@ -1356,9 +1356,28 @@ def _collect_remote(adapter: DaguAdapter, ex: Execution,
     has_results = bool(TestResult.query.filter_by(
         execution_id=ex.id).first())
     if label in ("aborted", "canceled"):
-        ex.state = ExecutionState.CANCELED
-        ex.outcome = Outcome.INCOMPLETE
+        if ex.state == ExecutionState.CANCEL_REQUESTED \
+                or ex.cancel_reason:
+            # User-requested termination: CANCELED is the true cause.
+            ex.state = ExecutionState.CANCELED
+            ex.outcome = Outcome.INCOMPLETE
+        else:
+            # An abort we did not request is NOT a user cancellation —
+            # worker shutdown/loss or an external stop are all possible
+            # and Dagu's status cannot distinguish them. Preserve the
+            # uncertainty honestly instead of misclassifying cause.
+            ex.state = ExecutionState.FAILED
+            ex.error_kind = "infrastructure"
+            ex.error_text = (
+                f"remote run {ex.dispatch_id} ended '{label}' without "
+                "a recorded cancellation request — cause undetermined "
+                "(worker shutdown/loss or external stop); any late "
+                "evidence was collected")
+            ex.outcome = Outcome.INCOMPLETE
+            record_audit("system", "execution.remote_aborted_unrequested",
+                         ex.id)
     elif label == "succeeded" or has_results:
+
         # A 'failed' dagu run with real junit is failed TESTS — the
         # normalized outcome carries the verdict, not the step status.
         ex.state = ExecutionState.COMPLETED
@@ -1368,6 +1387,107 @@ def _collect_remote(adapter: DaguAdapter, ex: Execution,
         ex.error_text = (f"remote run {ex.dispatch_id} ended "
                          f"'{label}' with no result data")
     db.session.commit()
+    # Workspace retention: evidence is now materialized portal-side —
+    # request bounded worker-side cleanup for this execution's dir.
+    rt = db.session.get(RuntimeConnection, ex.runtime_id)
+    if rt is not None and rt.worker_label:
+        _request_ws_cleanup(adapter, ex, rt)
+
+
+WS_CLEANUP_DAG = "to-ws-cleanup"
+
+
+def _ws_cleanup_marker(ex: Execution) -> Path:
+    return (Path(current_app.instance_path) / "remote-runs" / ex.id
+            / ".ws-cleanup")
+
+
+def _request_ws_cleanup(adapter: DaguAdapter, ex: Execution,
+                        rt: RuntimeConnection) -> None:
+    """Enqueue a bounded cleanup run for ONE execution workspace —
+    deletion is restricted to <workspace_root>/<exec-id>, a path this
+    process generated, never an arbitrary worker directory. The marker
+    file makes retries idempotent; a queued run that outlives the
+    worker's wait timeout fails and is surfaced by the sweep."""
+    marker = _ws_cleanup_marker(ex)
+    if marker.exists():
+        return
+    root = (rt.workspace_root or "").rstrip("/")
+    if not root or root == "/" or not ex.id.isalnum():
+        return  # never compose a deletion out of unsafe parts
+    ws = f"{root}/{ex.id}"
+    spec = {"worker_selector": {"kre": rt.worker_label},
+            "timeout_sec": 300,
+            "steps": [{"id": "rm",
+                       "run": f"test -d {ws} && rm -rf -- {ws}"}]}
+    try:
+        adapter.enqueue(spec_yaml=json.dumps(spec),
+                        name=WS_CLEANUP_DAG,
+                        dag_run_id=f"cleanup-{ex.id}",
+                        worker_selector={"kre": rt.worker_label},
+                        singleton=True)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("pending")
+        record_audit("system", "execution.remote_ws_cleanup_requested",
+                     ex.id)
+    except Exception as exc:
+        ex.error_text = (ex.error_text +
+                         f" | remote workspace cleanup request "
+                         f"failed: {str(exc)[:200]}")[:2000]
+        db.session.commit()
+
+
+def _sweep_ws_cleanup(adapter: DaguAdapter,
+                      retention_hours: int = 24) -> int:
+    """Follow up on enqueued cleanup runs and request cleanup for
+    eligible terminal executions. Bounded: only terminal-state remote
+    executions, only their own <root>/<id> dir, only after portal-side
+    evidence exists or the retention deadline passed. Cleanup failures
+    are recorded, not ignored."""
+    n = 0
+    for ex in Execution.query.filter(Execution.state.in_([
+            ExecutionState.COMPLETED, ExecutionState.FAILED,
+            ExecutionState.CANCELED, ExecutionState.UNKNOWN])).all():
+        if ex.snapshot().get("dispatch_transport") != "dagu-worker":
+            continue
+        marker = _ws_cleanup_marker(ex)
+        if marker.exists():
+            if marker.read_text().strip() != "pending":
+                continue
+            try:
+                remote = adapter.dag_run(WS_CLEANUP_DAG,
+                                         f"cleanup-{ex.id}")
+            except Exception:
+                continue
+            d2 = remote.get("dagRunDetails") or remote.get("dagRun") or {}
+            lbl = d2.get("statusLabel") or ""
+            if lbl == "succeeded":
+                marker.write_text("cleaned")
+            elif lbl in ("failed", "aborted", "error", "canceled"):
+                marker.write_text("failed")
+                ex.error_text = (
+                    ex.error_text +
+                    f" | remote workspace cleanup failed ({lbl}) — "
+                    "manual removal may be needed")[:2000]
+                db.session.commit()
+                record_audit("system",
+                             "execution.remote_ws_cleanup_failed", ex.id)
+                n += 1
+            continue
+        has_evidence = bool(Artifact.query.filter_by(
+            execution_id=ex.id).first()) \
+            or ex.state == ExecutionState.COMPLETED
+        stale = (ex.finished_at is not None
+                 and ex.finished_at < utcnow()
+                 - timedelta(hours=retention_hours))
+        if not (has_evidence or stale):
+            continue
+        rt = db.session.get(RuntimeConnection, ex.runtime_id)
+        if rt is None or not rt.worker_label:
+            continue
+        _request_ws_cleanup(adapter, ex, rt)
+        n += 1
+    return n
 
 
 def _poll_remote_run(adapter: DaguAdapter, ex: Execution) -> int:
@@ -1420,5 +1540,10 @@ def reconcile_dagu_runs() -> int:
         # the monitor step keeps the dagu run alive while the remote
         # agent may be dead. Agent heartbeats own lease renewal; expiry
         # still reconciles to UNKNOWN via reconcile_stale.
+    if adapter is not None:
+        try:
+            _sweep_ws_cleanup(adapter)
+        except Exception:
+            pass  # cleanup sweep must not break reconciliation
     db.session.commit()
     return fixed
