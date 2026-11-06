@@ -200,6 +200,16 @@ def main():
         stale = check_frozen_fresh()
         if stale:
             raise SystemExit(f"bundle build FAILED — {stale}")
+    # Dagu archives are fetched, not tracked: materialize the pinned
+    # pair via checksum-verified download when absent.
+    dagu_dir = REPO / "3rdparty" / "dagu"
+    if not list(dagu_dir.glob("dagu_*_amd64.tar.gz")):
+        r = subprocess.run(["bash", str(REPO / "scripts" / "fetch_dagu.sh")],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit("bundle build FAILED — dagu archives "
+                             "missing and fetch_dagu.sh failed:\n"
+                             + r.stderr + r.stdout)
     files, missing = collect(frozen=args.frozen)
     if missing:
         raise SystemExit(f"bundle build FAILED — required files missing: "

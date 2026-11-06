@@ -6,3 +6,4 @@ dist/
 .pytest_cache/
 *.egg-info/
 build/
+3rdparty/dagu/*.tar.gz
