@@ -1,18 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Runners & runtimes · TestOrchestrator{% endblock %}
 {% block content %}
-<h1>System &rarr; Runners &amp; KRE installations</h1>
-<p class="muted">A <strong>runner</strong> is the worker that executes your
-tests. A <strong>KRE installation</strong> is an existing Katalon Runtime
-Engine installation available to that runner. This page registers
-installations; it does not install or license KRE.</p>
+<h1>System &rarr; KRE installations</h1>
+<p class="muted">Register an existing Katalon Runtime Engine (KRE)
+installation for executing tests. Select it in a launch to run
+against it. This page registers installations; it does not install
+or license KRE.</p>
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% for category, message in messages %}
   <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
   {% endfor %}
 {% endwith %}
 
-<section class="card">
+<details class="card"><summary class="muted">Advanced — runners
+  (infrastructure detail)</summary>
   <h2>Runners</h2>
   <p class="muted">A <strong>runner</strong> is the execution worker or
     destination — the machine that runs tests. Runtime connections
@@ -99,7 +100,7 @@ installations; it does not install or license KRE.</p>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </div>
   </form></details>
-</section>
+</details>
 
 <section class="card">
   <h2>KRE installations</h2>
@@ -208,16 +209,7 @@ installations; it does not install or license KRE.</p>
       e.g. <code>kre-9.2-ci01</code>.</small></div>
     <div class="field">{{ runtime_form.description.label }} {{ runtime_form.description() }}
       <small>Optional note.</small></div>
-    <div class="field"><label for="runner_id">Runner</label>
-      <select name="runner_id" id="runner_id" required>
-        {% for value, label in runner_choices %}
-        <option value="{{ value }}">{{ label }}</option>
-        {% endfor %}
-      </select>
-      <small><strong>Required.</strong> The runner host where this KRE
-      executable lives — dispatch only uses runtimes on dispatch-eligible
-      runners.</small>
-    </div>
+    <input type="hidden" name="runner_id" value="auto">
     <div class="field"><label>KRE executable location</label> {{ runtime_form.executable_path() }}
       <small><strong>Required.</strong> Path on the <em>runner's</em>
       filesystem (for local runners: this host) to the KRE CLI binary.

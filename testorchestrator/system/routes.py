@@ -561,13 +561,22 @@ def create_runner():
 @system_bp.route("/infrastructure/runtimes", methods=["POST"])
 @role_required(Role.ADMIN)
 def create_runtime():
+    # Simplified: one default local runner auto-created/associated —
+    # no separate Runner record required.
+    from ..execution import Runner
+    _runner = Runner.query.filter_by(
+        connection_mode="local").first()
+    if _runner is None:
+        _runner = Runner(name="local", connection_mode="local",
+                         os_arch="local", max_slots=4)
+        db.session.add(_runner); db.session.flush()
     from ..execution import RuntimeConnection
     form = RuntimeForm()
     if form.validate_on_submit():
         db.session.add(RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
-            runner_id=form.runner_id.data,
+            runner_id=_runner.id,
             executable_path=form.executable_path.data.strip(),
             workspace_root=form.workspace_root.data or "",
             credential_ref=form.credential_ref.data.strip(),
