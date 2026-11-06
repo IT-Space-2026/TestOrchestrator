@@ -542,6 +542,7 @@ def _worker_installer_asset() -> dict | None:
     """The bundled NSIS worker installer inside the full package —
     served as a clearly-distinguished supplementary download."""
     import hashlib
+    from pathlib import Path
     d = (Path(current_app.root_path).parent / "packaging" / "windows")
     for p in sorted(d.glob("testorchestrator-dagu-worker-*-setup-"
                            "UNSIGNED.exe")):
