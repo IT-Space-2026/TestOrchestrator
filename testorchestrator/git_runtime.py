@@ -8,10 +8,12 @@ its own library path and exec path, scoped to each git subprocess. No
 global LD_LIBRARY_PATH, nothing required of the user, and unrelated
 processes keep their normal environment.
 
-If the bundle for this platform is absent, the host's declared Git
-prerequisite is used — the fallback is recorded, never silent. The
-frozen candidate ships no bundled git: workflows are Dulwich-only there,
-and selecting the cli backend without a host git fails honestly.
+The vendored rootfs is NOT tracked in the repository — operators who
+want the cli backend re-stage it with scripts/acquire_git.py or rely on
+the host's declared Git prerequisite; the fallback is recorded, never
+silent. The frozen candidate ships no bundled git: workflows are
+Dulwich-only there, and selecting the cli backend without a host git
+fails honestly.
 """
 
 import os

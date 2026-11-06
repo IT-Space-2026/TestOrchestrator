@@ -5,7 +5,7 @@
 |---|---|---|---|
 | Python runtime | 3.12 (ubuntu-resolute-amd64 rootfs) | 3rdparty/python-runtime, acquire-debs.py | PSF |
 | Vendored wheels | per 3rdparty/python-wheels | pinned downloads | per wheel |
-| Git (cli backend) | ubuntu-resolute-amd64 | 3rdparty/git, acquire_git.py | GPL-2.0 |
+| Git (cli backend, opt-in) | host / acquire_git.py re-stage | not vendored — rootfs removed from repo | GPL-2.0 |
 | Caddy | 2.9.1 | 3rdparty/caddy, fetch_caddy.sh | Apache-2.0 |
 | Dagu (linux+win amd64) | 2.25.8 | 3rdparty/dagu, fetch_dagu.sh, upstream checksums | GPL-3.0-or-later? (see 3rdparty/dagu/LICENSE) |
 | Allure commandline | 2.46.1 | 3rdparty/allure | Apache-2.0 |
