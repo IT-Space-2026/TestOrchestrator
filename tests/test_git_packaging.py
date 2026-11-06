@@ -133,8 +133,8 @@ def test_git_fallback_is_declared():
 def test_default_bundle_excludes_vendored_git():
     """Packaging contract: the default build list must NOT include a
     bundled git — Dulwich is the backend; cli backend is opt-in only."""
-    from scripts.build_bundle import FILES
-    assert not any(src == "3rdparty/git" for src, _ in FILES)
+    from scripts.build_bundle import INCLUDE
+    assert not any(src == "3rdparty/git" for src, _ in INCLUDE)
 
 
 def test_extracted_layout_paths():
