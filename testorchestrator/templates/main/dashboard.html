@@ -88,16 +88,17 @@
 
   <section class="card">
     <h2>Outcomes per day · {{ data.period_days }}d</h2>
-    <div class="bar-chart" id="chart-outcomes" role="img"
-         aria-label="Daily execution outcomes">
-      {% for d in data.chart_outcomes %}
-      <div class="bar-col" title="{{ d.day }}: {{ d.passed }} passed, {{ d.failed }} failed">
-        <div class="bar pass h{{ [d.passed, 30]|min }}"></div>
-        <div class="bar fail h{{ [d.failed, 30]|min }}"></div>
-        <span class="bar-day">{{ d.day[8:] }}</span>
-      </div>
-      {% endfor %}
-    </div>
+    <div id="chart-outcomes"></div>
+    {% if not data.chart_outcomes %}
+    <p class="muted">No outcome data for this period.</p>
+    {% endif %}
+    <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}"></script>
+    <script>
+      Plotly.newPlot('chart-outcomes',
+        {{ outcome_fig | safe }}.data,
+        {{ outcome_fig | safe }}.layout,
+        {responsive: true, displaylogo: false});
+    </script>
     <p class="muted"><small>
       <span class="badge outcome-passed">passed</span>
       <span class="badge outcome-failed">failed</span>

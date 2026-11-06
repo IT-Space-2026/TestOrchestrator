@@ -55,10 +55,14 @@ def dashboard():
     # Approved navigation links are visible to every role; internal bind
     # details (Waitress host/port) are not exposed here (v1.8 §6).
     from .. import dashboard as dash
+    from ..charts import outcome_trend
+    data = dash.snapshot(current_user)
+    fig = outcome_trend(data.get("chart_outcomes", []))
     return render_template(
         "main/dashboard.html",
         links=access_links(settings_mod.all_settings()),
-        data=dash.snapshot(current_user),
+        data=data,
+        outcome_fig=fig,
     )
 
 
