@@ -625,9 +625,9 @@ def _managed_config() -> dict:
     raw = os.environ.get("TO_SERVICE_UNITS", "")
     scope = os.environ.get("TO_SERVICE_SCOPE",
                            "schtasks" if os.name == "nt" else "system")
-    default = ("TestOrchestratorWeb", "TestOrchestratorWorker",
-               "TestOrchestratorDagu") if scope == "schtasks" \
-        else list(_DEFAULT_UNITS)
+    default = (["TestOrchestratorWeb", "TestOrchestratorWorker",
+                "TestOrchestratorDagu"] if scope == "schtasks"
+        else list(_DEFAULT_UNITS))
     units = [u.strip() for u in raw.split(",") if u.strip()] or default
     name_re = _TASK_RE if scope == "schtasks" else _UNIT_RE
     valid = all(name_re.match(u) for u in units) and \
