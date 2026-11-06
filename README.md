@@ -7,7 +7,7 @@ server-rendered UI, Waitress WSGI, Dagu workflow orchestration, Katalon
 Runtime Engine (KRE) execution via workers, and Allure reporting behind
 an externally supplied Java runtime.
 
-**Status: prerelease (v1.9.0).** Implementation is ahead of acceptance —
+**Status: prerelease (v1.0.0-pre).** Implementation is ahead of acceptance —
 see [Acceptance gates](#acceptance-gates). Release assets ship as a GitHub
 prerelease, never as committed archives.
 
@@ -66,7 +66,7 @@ Options: `--payload --data --config --https-port --service-user
 are safe — payload is overwritten, `web.env` keys are replaced, data is
 never deleted.
 
-> Applies to source commit ≥ `94730a8` / prerelease `v1.9.0` assets.
+> Applies to source commit ≥ `94730a8` / prerelease `v1.0.0-pre` assets.
 > Earlier assets use the venv installer path only.
 
 ## Application commands (`toctl`)
@@ -243,7 +243,7 @@ uses the last good backup.
 
 ## Release assets & checksums
 
-GitHub prerelease `v1.9.0`: `tar.gz` + `.sha256` + `.manifest.json` +
+GitHub prerelease `v1.0.0-pre`: `tar.gz` + `.sha256` + `.manifest.json` +
 `.inventory.json` (release notes in the release body). `dist/` is never
 tracked. Standard build ≈179 MB; frozen candidate ≈144 MB (GitPython
 and the bundled git rootfs removed — Dulwich-only). Revision-tagged
