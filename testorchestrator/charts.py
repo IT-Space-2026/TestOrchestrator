@@ -13,7 +13,7 @@ _BASE = dict(font=dict(family="system-ui,sans-serif", size=12),
              paper_bgcolor="rgba(0,0,0,0)",
              plot_bgcolor="rgba(0,0,0,0)", showlegend=True,
              legend=dict(orientation="h", y=-0.28),
-             xaxis=dict(tickangle=-45))
+             xaxis=dict(tickangle=0))
 
 
 def _fig(traces, layout=None):
