@@ -270,6 +270,10 @@ class RuntimeConnection(db.Model):
     # remote: the unique Dagu worker.labels tag the installation is
     # bound to — empty => local (portal-host) execution.
     worker_label = db.Column(db.String(128), nullable=False, default="")
+    # Worker-side SSH deploy-key path for ssh:// bindings — a path on
+    # the worker host; key material never enters the portal.
+    git_ssh_key_path = db.Column(db.String(512), nullable=False,
+                                 default="")
     runner = db.relationship("Runner", backref="runtimes")
 
 

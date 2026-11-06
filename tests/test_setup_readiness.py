@@ -242,3 +242,60 @@ def test_source_detail_distinguishes_remote_capability(app):
         det = readiness._source_detail([b1, b2], [b1, b2])
         assert "ssh" in det and "remote-capable" in det
         assert "portal-side only" in det
+
+
+# --- guided-form behavior (inline per-step save) -----------------------
+
+def test_setup_admin_form_replaces_bootstrap(app, client, login_as):
+    login_as("admin")
+    r = client.post("/system/setup/save/admin",
+                    data={"password": "NewSetupPass-123"})
+    assert r.status_code == 302
+    with app.app_context():
+        from testorchestrator.settings import get
+        assert get("admin_bootstrap_replaced", "") == "yes"
+
+
+def test_setup_form_validation_error_persists_state(app, client,
+                                                    login_as):
+    login_as("admin")
+    r = client.post("/system/setup/save/admin",
+                    data={"password": "short"})
+    assert r.status_code == 302
+    with app.app_context():
+        import json
+        from testorchestrator.settings import get
+        st = json.loads(get("setup_state", "{}"))
+        assert st["admin"]["status"] == "failed"
+        assert "12" in st["admin"]["detail"]
+
+
+def test_setup_publishing_save_uses_same_settings(app, client,
+                                                  login_as):
+    login_as("admin")
+    client.post("/system/setup/save/publishing",
+                data={"publish_repo_url": "https://r/x.git",
+                      "publish_cred": "g1"})
+    with app.app_context():
+        from testorchestrator.settings import get
+        assert get("publish_repo_url") == "https://r/x.git"
+        assert get("publish_repo_credential_ref") == "g1"
+        c = next(x for x in readiness.components()
+                 if x["key"] == "publishing")
+        assert c["status"] == "configured"   # saved, not verified
+
+
+def test_setup_requires_admin(app, client, login_as):
+    login_as("tester")
+    assert client.get("/system/setup/").status_code == 403
+    assert client.post("/system/setup/save/publishing",
+                       data={"publish_repo_url": "x"}).status_code == 403
+
+
+def test_setup_step_navigation_resumable(app, client, login_as):
+    login_as("admin")
+    r = client.get("/system/setup/step/publishing")
+    assert b"Publishing repository URL" in r.data
+    assert b"Back" in r.data and b"Next" in r.data
+    r2 = client.get("/system/setup/")
+    assert b"Report publishing repository" in r2.data

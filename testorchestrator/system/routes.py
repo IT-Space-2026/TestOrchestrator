@@ -1058,6 +1058,7 @@ def create_runtime():
             transport=("dagu-worker" if is_remote else "local"),
             executable_path=form.executable_path.data.strip(),
             workspace_root=form.workspace_root.data or "",
+            git_ssh_key_path=form.git_ssh_key_path.data or "",
             credential_ref=(form.credential_ref.data or "").strip(),
             worker_label=(worker_label if is_remote else ""),
             concurrency=form.concurrency.data or 1,

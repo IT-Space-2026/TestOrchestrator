@@ -194,10 +194,13 @@ def _save_step(key: str) -> None:
         pw = f.get("password", "")
         if len(pw) < 12:
             raise ValueError("password must be at least 12 characters")
+        from ..bootstrap import BOOTSTRAP_USERNAME
         from ..models import User
-        admin = User.query.filter_by(username="Admin").first()
+        # bootstrap account when present, else the admin doing setup
+        admin = (User.query.filter_by(username=BOOTSTRAP_USERNAME)
+                 .first() or db.session.get(User, current_user.id))
         if admin is None:
-            raise ValueError("no bootstrap Admin exists")
+            raise ValueError("no admin account to update")
         admin.set_password(pw)
         admin.must_change_password = False
         admin.session_version += 1

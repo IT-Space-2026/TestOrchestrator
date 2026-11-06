@@ -1243,6 +1243,11 @@ def _submit_remote(ex: Execution) -> None:
         # key material never crosses the wire. Empty auth lets the
         # worker's own ssh-agent answer (documented scope: the worker
         # account's ssh keys + host-key policy are operator-managed).
+        # The runtime's saved key path applies unless run_config
+        # overrides it — configured once, not re-entered per launch.
+        if not rc.get("git_ssh_key_path") and getattr(
+                runtime, "git_ssh_key_path", ""):
+            rc["git_ssh_key_path"] = runtime.git_ssh_key_path
         if rc.get("git_ssh_key_path"):
             git_auth["ssh_key_path"] = rc["git_ssh_key_path"]
         if rc.get("git_ssh_passphrase"):

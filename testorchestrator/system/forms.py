@@ -146,8 +146,14 @@ class RuntimeForm(FlaskForm):
     description = TextAreaField("Description", validators=[Optional()])
     runner_id = StringField("Worker", validators=[DataRequired()])
     executable_path = StringField(
-        "KRE executable path (absolute, existing installation)",
+        "KRE path on the selected worker",
         validators=[DataRequired(), Length(max=512)],
+    )
+    git_ssh_key_path = StringField(
+        "Worker-side SSH key path (for ssh:// bindings)",
+        validators=[Optional(), Length(max=512)],
+        description="Path on the worker's filesystem to its deploy "
+                    "key — the key material never enters the portal.",
     )
     workspace_root = StringField("Workspace root", validators=[Optional()])
     credential_ref = StringField("Credential reference", validators=[Optional()])
