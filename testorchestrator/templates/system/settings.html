@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Settings · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<p class="muted">Task-oriented configuration. Bundled components (Dagu,
+  Java, dispatch internals) are configured and verified by
+  TestOrchestrator itself — no separate component setup is required.
+  Low-level component overrides live under each area's own page and
+  under Integrations.</p>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+<div class="card-grid">
+  <a class="card link-card" href="{{ url_for('system.network') }}">
+    <h2>Server &amp; security</h2>
+    <p class="muted">Reachable address, HTTPS certificate, and ports —
+    validated before apply.</p></a>
+  <a class="card link-card" href="{{ url_for('system.infrastructure') }}">
+    <h2>KRE installations &amp; execution machines</h2>
+    <p class="muted">Register local and remote KRE installations,
+    download the Dagu worker for remote machines, check status.</p></a>
+  <a class="card link-card" href="{{ url_for('system.secrets') }}">
+    <h2>Source control &amp; credentials</h2>
+    <p class="muted">Named secrets referenced by bindings and runtimes —
+    values never shown.</p></a>
+  <a class="card link-card" href="{{ url_for('system.reporting_page') }}">
+    <h2>Reports, storage &amp; retention</h2>
+    <p class="muted">Report generation (bundled JRE auto-detected),
+    publication, storage, retention.</p></a>
+  <a class="card link-card" href="{{ url_for('system.users') }}">
+    <h2>Users &amp; access</h2>
+    <p class="muted">Accounts, roles, activation.</p></a>
+  <a class="card link-card" href="{{ url_for('system.system_health') }}">
+    <h2>System health &amp; services</h2>
+    <p class="muted">Status of application services, guarded restart,
+    recovery guidance.</p></a>
+</div>
+<details class="card"><summary class="muted">Advanced / diagnostics —
+  component-level overrides</summary>
+  <ul>
+    <li><a href="{{ url_for('system.integrations_page') }}">Integrations
+      (Dagu endpoint, git export)</a> — generated settings are managed
+      here; defaults are derived automatically.</li>
+    <li><a href="{{ url_for('main.audit') }}">Audit</a>,
+        <a href="{{ url_for('main.changelog') }}">Changelog</a>,
+        <a href="{{ url_for('main.notices') }}">Notices &amp; licences</a></li>
+  </ul>
+</details>
+{% endblock %}

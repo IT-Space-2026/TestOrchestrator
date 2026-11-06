@@ -9,3 +9,4 @@ build/
 3rdparty/dagu/*.tar.gz
 packaging/windows/worker-payload/
 packaging/windows/*.exe
+3rdparty/java-runtime/*/jre/

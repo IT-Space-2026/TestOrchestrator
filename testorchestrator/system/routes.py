@@ -555,6 +555,15 @@ def dagu_worker_download(filename):
                      download_name=filename)
 
 
+@system_bp.route("/settings")
+@role_required(Role.ADMIN)
+def settings_home():
+    """Centralized task-oriented settings hub — the single entry point
+    for normal configuration; component-level overrides stay under
+    Advanced/diagnostics."""
+    return render_template("system/settings.html")
+
+
 # ---------- system health & application-managed services ----------
 
 MANAGED_UNITS = ("testorchestrator-web", "testorchestrator-worker",

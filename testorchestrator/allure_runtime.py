@@ -107,6 +107,20 @@ def java_version(home: Path, timeout: int = 15) -> tuple[str, str]:
     return (m.group(1) if m else "unknown"), ""
 
 
+def _bundled_java_home() -> Path | None:
+    """The app's own pinned JRE: 3rdparty/java-runtime/<platform>/jre
+    relative to the package root — application-local, never a system
+    installation."""
+    base = Path(__file__).resolve().parent.parent / "3rdparty" \
+        / "java-runtime"
+    if not base.is_dir():
+        return None
+    for jre in sorted(base.glob("*/jre")):
+        if (jre / "bin" / JAVA_EXE).exists():
+            return jre
+    return None
+
+
 def detect_java_homes() -> list[Path]:
     """Candidate JAVA_HOMEs in discovery order — de-duplicated.
 
@@ -121,6 +135,9 @@ def detect_java_homes() -> list[Path]:
             seen.add(str(home))
             cands.append(home)
 
+    # Application-local bundled JRE first — the package ships a pinned
+    # Temurin runtime so no system Java or JAVA_HOME is required.
+    add(_bundled_java_home())
     add(os.environ.get("JAVA_HOME"))
     add(shutil.which(JAVA_EXE))
     for p in _platform_java_homes():
