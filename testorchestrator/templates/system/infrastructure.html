@@ -257,8 +257,24 @@ or license KRE.</p>
           href="{{ url_for('system.dagu_worker_download', filename=a.file) }}">Download</a></td>
       </tr>
       {% endfor %}
+      {% if worker_installer %}
+      <tr>
+        <td>{{ worker_installer.version }}</td>
+        <td>windows/amd64 — guided installer</td>
+        <td>{{ "%.1f"|format(worker_installer.size / 1048576) }} MB</td>
+        <td><code class="checksum">{{ worker_installer.sha256 }}</code></td>
+        <td><a class="button secondary sm"
+          href="{{ url_for('system.dagu_worker_installer_download', filename=worker_installer.file) }}">Download</a></td>
+      </tr>
+      {% endif %}
     </tbody>
   </table>
+  {% if worker_installer %}
+  <p class="muted">The guided installer is a supplementary option for
+    Windows workers — <strong>unsigned</strong>, not host-verified;
+    the plain archive + manual setup above remains the verified path.
+    It installs only the Dagu worker, never the full application.</p>
+  {% endif %}
   <details class="block-details"><summary class="button secondary">Worker setup instructions</summary>
     <p class="muted">On the computer containing the remote KRE:</p>
     <pre class="code-block"># 1. Download + verify (sha256 must match the value above)

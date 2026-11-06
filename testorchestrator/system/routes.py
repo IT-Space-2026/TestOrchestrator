@@ -538,6 +538,24 @@ def _dagu_worker_assets() -> list:
     return assets
 
 
+def _worker_installer_asset() -> dict | None:
+    """The bundled NSIS worker installer inside the full package —
+    served as a clearly-distinguished supplementary download."""
+    import hashlib
+    d = (Path(current_app.root_path).parent / "packaging" / "windows")
+    for p in sorted(d.glob("testorchestrator-dagu-worker-*-setup-"
+                           "UNSIGNED.exe")):
+        h = hashlib.sha256()
+        with p.open("rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        ver = re.search(r"dagu-worker-(\d+\.\d+\.\d+)", p.name)
+        return {"file": p.name, "size": p.stat().st_size,
+                "version": ver.group(1) if ver else "?",
+                "sha256": h.hexdigest()}
+    return None
+
+
 @system_bp.route("/infrastructure/dagu-worker/<filename>")
 @role_required(Role.ADMIN)
 def dagu_worker_download(filename):
@@ -551,6 +569,27 @@ def dagu_worker_download(filename):
         abort(404)
     path = (Path(current_app.root_path).parent
             / "3rdparty" / "dagu" / filename)
+    if not path.exists():
+        abort(404)
+    return send_file(path, as_attachment=True,
+                     download_name=filename)
+
+
+@system_bp.route("/infrastructure/dagu-worker-installer/<filename>")
+@role_required(Role.ADMIN)
+def dagu_worker_installer_download(filename):
+    """Serve the bundled Dagu-worker NSIS installer (Windows) — a
+    supplementary worker asset inside the full package, clearly
+    separate from the plain worker archives. No credentials in the
+    URL; unsigned build — disclosed on the page."""
+    import re
+    from pathlib import Path
+    if not re.fullmatch(
+            r"testorchestrator-dagu-worker-\d+\.\d+\.\d+"
+            r"-setup-UNSIGNED\.exe", filename):
+        abort(404)
+    path = (Path(current_app.root_path).parent
+            / "packaging" / "windows" / filename)
     if not path.exists():
         abort(404)
     return send_file(path, as_attachment=True,
@@ -647,11 +686,49 @@ def _active_work_count() -> int:
         ExecutionState.NORMALIZING])).count()
 
 
+def _resolve_pending_restart(status: dict, marker) -> None:
+    """Resolve a pending restart marker by checking actual unit states.
+    This runs on health-page load AND on portal startup-adjacent polls —
+    writeback never depends on the restart helper surviving the portal's
+    own termination (its cgroup dies with the service)."""
+    import json as _j, subprocess
+    if not marker.exists():
+        return
+    try:
+        rec = _j.loads(marker.read_text())
+    except Exception:
+        return
+    if rec.get("result") != "pending":
+        return
+    scope = _managed_config()["scope"]
+    states = {s["unit"]: s["state"] for s in status["services"]}
+    all_active = all(st == "active" for st in states.values())
+    age = 0.0
+    try:
+        req = datetime.fromisoformat(rec["requested_at"])
+        age = (datetime.now(timezone.utc) - req).total_seconds()
+    except Exception:
+        pass
+    if all_active:
+        rec["result"] = "done"
+    elif age > 60:
+        rec["result"] = "failed"
+        rec["failed_states"] = states
+    else:
+        return                                   # still settling
+    rec["resolved_at"] = datetime.now(timezone.utc).isoformat()
+    marker.write_text(_j.dumps(rec))
+    record_audit(rec.get("requested_by", "?"),
+                 "services.restart_result",
+                 f"{rec['result']} — {states}")
+
+
 @system_bp.route("/health")
 @role_required(Role.ADMIN)
 def system_health():
     status = _service_status()
     marker = _restart_marker()
+    _resolve_pending_restart(status, marker)
     last_restart = None
     if marker.exists():
         import json as _j
@@ -733,15 +810,57 @@ def restart_services():
         "d['result']='done' if ok else 'failed'\n"
         "m.write_text(json.dumps(d))\n"
         "sys.exit(0 if ok else 1)\n")
-    try:
-        subprocess.Popen(
-            [sys.executable or "python3", "-c", helper],
-            start_new_session=True,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception as exc:
+    helper_path = marker.parent / "restart-helper.py"
+    helper_path.write_text(helper)
+    launched = _launch_restart_helper(helper_path, scope)
+    if not launched:
         marker.unlink(missing_ok=True)
-        flash(f"Restart could not be detached: {exc}", "error")
+        flash("Restart could not be dispatched through the service "
+              "manager.", "error")
         return redirect(url_for("system.system_health"))
+
+
+def _launch_restart_helper(helper_path, scope: str) -> bool:
+    """Dispatch the restart helper through the SERVICE MANAGER, not a
+    bare process — a Popen child dies with the portal's cgroup when the
+    service restarts (KillMode=control-group default). systemd-run gives
+    the helper its own scope unit; schtasks a transient one-shot task.
+    A bare detached Popen remains as last-resort fallback — writeback
+    still completes via the health-page pending-resolution path."""
+    import shutil, subprocess
+    py = sys.executable or "python3"
+    run = [py, str(helper_path)]
+    if scope in ("user", "system") and shutil.which("systemd-run"):
+        cmd = ["systemd-run"]
+        if scope == "user":
+            cmd.append("--user")
+        cmd += ["--scope", "--quiet", "--collect",
+                "--unit=to-restart-helper", "--", *run]
+        try:
+            return subprocess.run(cmd).returncode == 0
+        except Exception:
+            pass
+    if scope == "schtasks" and shutil.which("schtasks"):
+        # One-shot transient task — runs the helper independently of the
+        # portal task's own termination behavior.
+        task = "TestOrchestrator-RestartHelper"
+        try:
+            subprocess.run(["schtasks", "/Create", "/TN", task,
+                            "/SC", "ONCE", "/ST", "00:00",
+                            "/F", "/TR", " ".join(run)],
+                           capture_output=True)
+            r = subprocess.run(["schtasks", "/Run", "/TN", task],
+                               capture_output=True)
+            return r.returncode == 0
+        except Exception:
+            pass
+    try:
+        subprocess.Popen(run, start_new_session=True,
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
     flash("Restart requested — services will be restarted by systemd. "
           "The browser will disconnect briefly; reconnect and check "
           "System health for the result.", "info")
@@ -789,6 +908,7 @@ def infrastructure():
         runner_form=runner_form, runtime_form=runtime_form,
         runner_choices=[(r.id, r.name) for r in Runner.query.all()],
         dagu_assets=_dagu_worker_assets(),
+        worker_installer=_worker_installer_asset(),
     )
 
 
