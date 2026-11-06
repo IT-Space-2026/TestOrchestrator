@@ -97,3 +97,24 @@ def login_as(client):
         return login(client, role_value)
 
     return _login
+
+
+@pytest.fixture()
+def ready_ops(app):
+    """Satisfy launch-time operational prerequisites: an eligible
+    worker, a verified engine on it, and a verified publishing repo.
+    Tests asserting the *gate itself* must NOT use this fixture."""
+    with app.app_context():
+        from testorchestrator.execution import (Runner,
+                                                RuntimeConnection)
+        from testorchestrator.settings import set as _s
+        from testorchestrator.extensions import db as _db
+        r = Runner(name="ops-worker", os_arch="linux/amd64")
+        _db.session.add(r)
+        _db.session.flush()
+        rt = RuntimeConnection(name="ops-kre", runner_id=r.id,
+                               executable_path="/opt/kre/katalonc",
+                               detected_version="9.0.0")
+        _db.session.add(rt)
+        _s("publish_repo_verified", "ok")
+        _db.session.commit()

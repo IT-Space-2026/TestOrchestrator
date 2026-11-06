@@ -89,7 +89,8 @@ def test_symlink_escape_excluded(app, tmp_path):
             DiscoveredItem.path.contains("escape")).count()
 
 
-def test_cross_project_selector_rejected(app, client, login_as):
+def test_cross_project_selector_rejected(app, client, login_as,
+                                           ready_ops):
     """A discovered item from ANOTHER project can't be submitted as
     this project's source_item — server-side project check."""
     with app.app_context():
