@@ -202,3 +202,97 @@ def test_no_launcher_returns_false_not_popen():
     with patch("shutil.which", lambda x: None):
         assert routes._launch_restart_helper("/tmp/h.py",
                                              "system") is False
+
+
+# --- route-level regression for the live-test bugs ---------------------
+
+def _managed_status(units):
+    return {"managed": True, "scope": "user", "config_valid": True,
+            "services": [{"unit": u, "state": "active"} for u in units]}
+
+
+def test_restart_dispatch_returns_redirect(app, client, login_as,
+                                           monkeypatch, tmp_path):
+    """Regression: the success path must return a redirect — the
+    live test caught the view falling off the end (500/None)."""
+    from testorchestrator.system import routes as r
+    monkeypatch.setattr(r, "_service_status",
+                        lambda: _managed_status(["u1.service"]))
+    monkeypatch.setattr(r, "_active_work_count", lambda: 0)
+    monkeypatch.setattr(r, "_managed_config",
+                        lambda: {"units": ["u1.service"],
+                                 "scope": "user", "valid": True})
+    monkeypatch.setattr(r, "_unit_invocations",
+                        lambda units, scope: {u: "1" for u in units})
+    monkeypatch.setattr(r, "_restart_marker",
+                        lambda: tmp_path / "rr.json")
+    monkeypatch.setattr(r, "_launch_restart_helper",
+                        lambda hp, scope: "to-restart-helper-t1.service")
+    login_as("admin")
+    resp = client.post("/system/services/restart",
+                       follow_redirects=False)
+    assert resp.status_code in (301, 302)
+    assert "health" in (resp.headers.get("Location") or "")
+
+
+def test_restart_records_exact_helper_unit(app, client, login_as,
+                                           monkeypatch, tmp_path):
+    """Regression: the marker binds THIS request's helper unit — not a
+    glob — so evidence/cleanup are request-specific."""
+    import json
+    from testorchestrator.system import routes as r
+    monkeypatch.setattr(r, "_service_status",
+                        lambda: _managed_status(["u1.service"]))
+    monkeypatch.setattr(r, "_active_work_count", lambda: 0)
+    monkeypatch.setattr(r, "_managed_config",
+                        lambda: {"units": ["u1.service"],
+                                 "scope": "user", "valid": True})
+    monkeypatch.setattr(r, "_unit_invocations",
+                        lambda units, scope: {u: "1" for u in units})
+    monkeypatch.setattr(r, "_restart_marker",
+                        lambda: tmp_path / "rr.json")
+    monkeypatch.setattr(r, "_launch_restart_helper",
+                        lambda hp, scope: "to-restart-helper-u9.service")
+    login_as("admin")
+    client.post("/system/services/restart")
+    marker = tmp_path / "rr.json"
+    rec = json.loads(marker.read_text())
+    assert rec["helper_unit"] == "to-restart-helper-u9.service"
+    assert rec["result"] == "pending"
+    assert rec["pre_invocations"]["u1.service"] == "1"
+
+
+def test_generated_helper_uses_path_for_marker(app, client, login_as,
+                                               monkeypatch, tmp_path):
+    """Regression: the helper crashed on m.read_text() with a string
+    path — the generated file must wrap the marker in Path."""
+    import pathlib
+    from testorchestrator.system import routes as r
+    monkeypatch.setattr(r, "_service_status",
+                        lambda: _managed_status(["u1.service"]))
+    monkeypatch.setattr(r, "_active_work_count", lambda: 0)
+    monkeypatch.setattr(r, "_managed_config",
+                        lambda: {"units": ["u1.service"],
+                                 "scope": "user", "valid": True})
+    monkeypatch.setattr(r, "_unit_invocations",
+                        lambda units, scope: {u: "1" for u in units})
+    monkeypatch.setattr(r, "_restart_marker",
+                        lambda: tmp_path / "rr.json")
+    monkeypatch.setattr(r, "_launch_restart_helper",
+                        lambda hp, scope: "h.service")
+    login_as("admin")
+    client.post("/system/services/restart")
+    helper = (pathlib.Path(app.instance_path) / "restart-helper.py")
+    src = helper.read_text()
+    assert "from pathlib import Path" in src
+    assert "m=Path(" in src
+    assert "m.read_text()" in src
+    compile(src, str(helper), "exec")          # valid python
+
+
+def test_restart_rejects_non_admin(app, client, login_as):
+    """Authorization is checked separately from CSRF: an authenticated
+    non-admin must be rejected (403), not merely an unauthenticated
+    request."""
+    login_as("tester")
+    assert client.post("/system/services/restart").status_code == 403
