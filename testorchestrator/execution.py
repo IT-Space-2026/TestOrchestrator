@@ -195,6 +195,10 @@ class Schedule(db.Model):
     last_run_at = db.Column(db.DateTime(timezone=True), nullable=True)
     enabled = db.Column(db.Boolean, nullable=False, default=True)
     run_config_json = db.Column(db.Text, nullable=False, default="{}")
+    # Repository-discovered targets selected in the schedule UI —
+    # [{"kind","path","source_item_id","binding_id"}, ...]; empty list
+    # falls back to the legacy suite/plan fields.
+    targets_json = db.Column(db.Text, nullable=False, default="[]")
     created_by = db.Column(db.String(64), nullable=False, default="")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     project = db.relationship("Project", backref=db.backref(
@@ -204,6 +208,9 @@ class Schedule(db.Model):
 
     def run_config(self) -> dict:
         return json.loads(self.run_config_json or "{}")
+
+    def targets(self) -> list:
+        return json.loads(self.targets_json or "[]")
 
 
 class Runner(db.Model):

@@ -194,36 +194,12 @@ def test_upgrade_forward_path(tmp_path):
     MIGR = str(P(__file__).resolve().parent.parent / "migrations")
     with app.app_context():
         import sqlalchemy as sa
+        from flask_migrate import upgrade as _up
+        # Build the TRUE old schema with the real migrations instead of
+        # a hand-faked subset — the forward chain also touches
+        # schedules, runtime_connections, authoring_drafts, releases.
+        _up(directory=MIGR, revision='f8a9b0c1d2e3')
         eng = sa.create_engine(f"sqlite:///{tmp_path/'fwd.db'}")
-        with eng.begin() as conn:
-            # simulate a DB already stamped at f8a9b0c1d2e3 BEFORE
-            # members_json existed — create the old-schema table
-            conn.execute(sa.text(
-                "CREATE TABLE discovered_items (id TEXT PRIMARY KEY,"
-                " binding_id TEXT, project_id TEXT, sha TEXT,"
-                " kind TEXT, path TEXT, name TEXT, parent TEXT,"
-                " order_idx INTEGER, dynamic INTEGER, warnings TEXT,"
-                " created_at TEXT)"))
-            conn.execute(sa.text(
-                "CREATE TABLE executions (id TEXT PRIMARY KEY,"
-                " suite_id TEXT NOT NULL, snapshot_json TEXT)"))
-            conn.execute(sa.text(
-                "CREATE TABLE git_bindings (id TEXT PRIMARY KEY,"
-                " project_id TEXT, name TEXT, url TEXT, ref TEXT,"
-                " subdirectory TEXT, prj_path TEXT, credential_ref TEXT,"
-                " worktree_path TEXT, discovered_sha TEXT,"
-                " discovery_status TEXT, discovery_at TEXT,"
-                " discovery_error TEXT, project_root TEXT,"
-                " last_synced_sha TEXT, status TEXT, last_error TEXT)"))
-            conn.execute(sa.text(
-                "CREATE TABLE releases (id TEXT PRIMARY KEY,"
-                " project_id TEXT, name TEXT, description TEXT,"
-                " owner TEXT, status TEXT, plan_id TEXT,"
-                " created_at TEXT, released_at TEXT)"))
-            conn.execute(sa.text(
-                "CREATE TABLE alembic_version (version_num TEXT)"))
-            conn.execute(sa.text(
-                "INSERT INTO alembic_version VALUES ('f8a9b0c1d2e3')"))
         from flask_migrate import upgrade
         upgrade(directory=MIGR)   # g9a0b1c2d3e4 -> adds members_json
         with eng.begin() as conn:
