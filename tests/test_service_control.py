@@ -130,3 +130,75 @@ def test_same_pid_evidence_not_a_restart(tmp_path, app):
         d = json.loads(marker.read_text())
         assert d["result"] == "failed"
         assert d["basis"] == "partial_or_no_new_invocation"
+
+
+def test_schtasks_create_failure_returns_false():
+    """If /Create fails (permissions etc.), /Run must NOT be attempted —
+    a stale task under a fixed name could have been relaunched."""
+    from unittest.mock import call
+    with patch("subprocess.run") as m, \
+         patch("shutil.which", lambda x: "/usr/bin/schtasks"):
+        m.side_effect = [
+            MagicMock(returncode=1, stderr="access denied"),  # /Create
+        ]
+        ok = routes._launch_restart_helper("/tmp/h.py", "schtasks")
+    assert ok is False
+    assert m.call_count == 1                     # /Run never attempted
+
+
+def test_schtasks_run_failure_deletes_own_task():
+    """/Run failure cleans up only THIS request's task."""
+    with patch("subprocess.run") as m, \
+         patch("shutil.which", lambda x: "/usr/bin/schtasks"):
+        m.side_effect = [
+            MagicMock(returncode=0),             # /Create
+            MagicMock(returncode=1),             # /Run fails
+            MagicMock(returncode=0),             # /Delete
+        ]
+        ok = routes._launch_restart_helper("/tmp/h.py", "schtasks")
+    assert ok is False
+    delete = m.call_args_list[2].args[0]
+    assert "/Delete" in delete and "TestOrchestrator-RestartHelper-" \
+        in delete[3]
+    # unique name: the TN value carries a uuid suffix
+    assert delete[3] != "TestOrchestrator-RestartHelper"
+
+
+def test_schtasks_spaces_in_paths_quoted():
+    """Executable + script paths containing spaces must be quoted in
+    /TR — bare join splits them into separate args."""
+    with patch("subprocess.run") as m, \
+         patch("shutil.which", lambda x: "/usr/bin/schtasks"):
+        m.side_effect = [MagicMock(returncode=0),
+                         MagicMock(returncode=0)]
+        ok = routes._launch_restart_helper(
+            "/tmp/dir with space/helper file.py", "schtasks")
+    tr_arg = m.call_args_list[0].args[0]
+    idx = tr_arg.index("/TR")
+    tr = tr_arg[idx + 1]
+    assert tr.startswith('"') and tr.endswith('"')
+    # the space-containing script path appears fully inside one
+    # quoted segment, never split by the join
+    assert '"/tmp/dir with space/helper file.py"' in tr
+
+
+def test_systemd_launch_is_async_transient_service():
+    """systemd-run must NOT use --scope (synchronous); it names a
+    unique transient unit and returns on dispatch."""
+    with patch("subprocess.run") as m, \
+         patch("shutil.which", lambda x: "/usr/bin/systemd-run"):
+        m.return_value = MagicMock(returncode=0, stderr="")
+        unit = routes._launch_restart_helper("/tmp/h.py", "user")
+    cmd = m.call_args.args[0]
+    assert "--scope" not in cmd
+    assert any(a.startswith("--unit=to-restart-helper-")
+               for a in cmd)
+    assert unit.startswith("to-restart-helper-")
+
+
+def test_no_launcher_returns_false_not_popen():
+    """With neither systemd-run nor schtasks, there is NO silent Popen
+    fallback — the launch reports failure explicitly."""
+    with patch("shutil.which", lambda x: None):
+        assert routes._launch_restart_helper("/tmp/h.py",
+                                             "system") is False
