@@ -53,14 +53,17 @@ Setup renders the SAME forms/validators as Settings (network,
 infrastructure/workers, secrets, reporting) — no parallel system.
 Settings → "Setup & diagnostics" re-opens the flow anytime.
 
-## Conflicts flagged
-- Existing backend allows publish_disabled → new requirement makes
-  publishing REQUIRED: publish repo config+write check becomes a
-  blocking step unless explicitly local-only mode is chosen AND
-  accepted as a supported deployment (decision needed: is a
-  local-artifact-only deployment a valid full system, or must
-  publishing always have a repo? Currently designed as blocking
-  conditional on mode — flag for your call).
-- Licensed KRE execution cannot be verified without a license —
-  setup verifies presence/version only; a licensed smoke test is a
-  separately-approved operational check, not part of setup.
+## Resolutions (approved)
+- **Publishing is MANDATORY.** Local-artifact-only ≠ ready. Setup
+  requires a publishing repository + an explicit narrowly-scoped
+  write probe. Probe spec: creates ONE marker ref
+  `refs/testorchestrator/probe-<uuid>` (or probe file in a configured
+  test scope), verifies it reads back, then deletes it — never
+  touches existing refs/history/evidence. Local artifacts remain for
+  storage/recovery only.
+- **KRE verification limits.** Presence+version on an eligible worker
+  satisfies the engine-detection step. Licensed execution stays
+  "Not tested" until an authorized smoke test succeeds — readiness
+  summary shows three separate lines: config checks complete /
+  licensed execution not validated / end-to-end flow not validated.
+  No unqualified "fully verified".
