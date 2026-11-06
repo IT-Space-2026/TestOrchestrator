@@ -502,7 +502,14 @@ def create_secret():
 @role_required(Role.ADMIN)
 def delete_secret(name):
     from ..secrets_store import delete_secret
+    from ..execution import SecretRef
     ApplyForm().validate_on_submit()
+    sec = SecretRef.query.filter_by(name=name).first()
+    if sec is not None and sec.kind in ("dagu", "runner"):
+        flash("System-managed credentials cannot be deleted here — "
+              "they are provisioned by orchestration/worker "
+              "enrollment.", "error")
+        return redirect(url_for("system.secrets"))
     if delete_secret(name):
         record_audit(current_user.username, "secret.deleted", name)
     return redirect(url_for("system.secrets"))
