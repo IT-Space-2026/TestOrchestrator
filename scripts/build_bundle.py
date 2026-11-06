@@ -67,7 +67,7 @@ REQUIRED = [
 ]
 
 EXCLUDE_DIRS = {"__pycache__", ".pytest_cache", "instance", "dist",
-                ".venv", "debs"}
+                ".venv", "debs", "app-payload", "worker-payload"}
 
 
 def _excluded(rel: Path) -> bool:
