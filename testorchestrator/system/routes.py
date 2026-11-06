@@ -4,6 +4,8 @@ All mutations are Admin-only, validated, staged through the Caddy renderer,
 audited without secrets, and recoverable via previous_good_config.
 """
 
+import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -566,9 +568,31 @@ def settings_home():
 
 # ---------- system health & application-managed services ----------
 
-MANAGED_UNITS = ("testorchestrator-web", "testorchestrator-worker",
-                 "testorchestrator-dagu", "testorchestrator-caddy")
+_DEFAULT_UNITS = ("testorchestrator-web.service",
+                  "testorchestrator-worker.service",
+                  "testorchestrator-dagu.service",
+                  "testorchestrator-caddy.service")
+_UNIT_RE = re.compile(r"^[a-zA-Z0-9@._-]+\.service$")
 _RESTART_FLAG = "restart-request.json"
+
+
+def _managed_config() -> dict:
+    """The service set the restart controls act on — from server-side
+    configuration only (env for isolated/managed installs, packaged
+    default otherwise). Never from request input. Scope is "system"
+    (packaged install) or "user" (isolated test installs)."""
+    raw = os.environ.get("TO_SERVICE_UNITS", "")
+    units = [u.strip() for u in raw.split(",") if u.strip()] or \
+        list(_DEFAULT_UNITS)
+    scope = os.environ.get("TO_SERVICE_SCOPE", "system")
+    valid = all(_UNIT_RE.match(u) for u in units) and \
+        scope in ("system", "user")
+    return {"units": units, "scope": scope, "valid": valid}
+
+
+def _systemctl_cmd() -> list:
+    return ["systemctl", "--user"] if _managed_config()["scope"] == "user" \
+        else ["systemctl"]
 
 
 def _service_status() -> dict:
@@ -576,13 +600,15 @@ def _service_status() -> dict:
     platform package installed them; otherwise an honest unmanaged
     report (isolated/dev installs have no service manager)."""
     import shutil, subprocess
+    cfg = _managed_config()
     out = {"managed": shutil.which("systemctl") is not None,
+           "scope": cfg["scope"], "config_valid": cfg["valid"],
            "services": []}
-    for u in MANAGED_UNITS:
+    for u in cfg["units"]:
         if not out["managed"]:
             out["services"].append({"unit": u, "state": "unmanaged"})
             continue
-        r = subprocess.run(["systemctl", "is-active", u + ".service"],
+        r = subprocess.run([*_systemctl_cmd(), "is-active", u],
                            capture_output=True, text=True)
         state = (r.stdout.strip() or "unknown") if r.returncode == 0 \
             else (r.stdout.strip() or "inactive")
@@ -637,6 +663,10 @@ def restart_services():
               "systemd units (isolated/dev mode). Nothing to restart.",
               "error")
         return redirect(url_for("system.system_health"))
+    if not status["config_valid"]:
+        flash("Service configuration invalid — refusing to restart "
+              "unrecognized unit names.", "error")
+        return redirect(url_for("system.system_health"))
     active = _active_work_count()
     if active:
         flash(f"Restart deferred — {active} execution(s) still active. "
@@ -649,11 +679,13 @@ def restart_services():
         flash("A restart was already requested — refusing a duplicate "
               "request. Check System health for its result.", "error")
         return redirect(url_for("system.system_health"))
-    units = [s["unit"] + ".service" for s in status["services"]]
+    units = [s["unit"] for s in status["services"]]
+    ctl = _systemctl_cmd()
     marker.write_text(_j.dumps({
         "requested_by": current_user.username,
         "requested_at": datetime.now(timezone.utc).isoformat(),
-        "units": units, "result": "pending"}))
+        "units": units, "scope": _managed_config()["scope"],
+        "result": "pending"}))
     record_audit(current_user.username, "services.restart_requested",
                  ", ".join(units))
     # Independent completion: systemd performs the restart; the helper
@@ -662,11 +694,11 @@ def restart_services():
         "import json,subprocess,sys,time\n"
         f"m={str(marker)!r}\n"
         "time.sleep(2)\n"
-        f"units={units!r}\n"
-        "r=subprocess.run(['systemctl','restart',*units])\n"
+        f"ctl={ctl!r}\nunits={units!r}\n"
+        "r=subprocess.run([*ctl,'restart',*units])\n"
         "ok=r.returncode==0\n"
         "for u in units:\n"
-        "    subprocess.run(['systemctl','is-active','--quiet',u])\n"
+        "    subprocess.run([*ctl,'is-active','--quiet',u])\n"
         "d=json.loads(m.read_text())\n"  # noqa: E501
         "d['result']='done' if ok else 'failed'\n"
         "m.write_text(json.dumps(d))\n"
