@@ -132,15 +132,21 @@ def create_execution(username: str, suite: Suite = None,
         if _rt is None or not _rt.enabled:
             raise DispatchError(
                 "runtime connection unavailable or disabled")
-        # remote installation -> never fall back to a local
-        # invocation. Remote dispatch via the Dagu worker is not
-        # wired yet — reject with a clear error instead of running
-        # the KRE path on the portal host.
+        # Remote installation -> the Dagu-worker transport only, never a
+        # portal-host invocation. Incomplete bindings (no coordinator
+        # endpoint, no executable path) reject here rather than
+        # mid-flight — there is no silent local fallback.
         if _rt.worker_label:
-            raise DispatchError(
-                "remote execution is not configured/available — this "
-                "installation is bound to a Dagu worker but remote "
-                "dispatch is not implemented")
+            if not _rt.executable_path:
+                raise DispatchError(
+                    "remote execution is not configured/available — "
+                    "worker-bound installation has no executable path")
+            if not _dagu_configured():
+                raise DispatchError(
+                    "remote execution is not configured/available — "
+                    "this installation is bound to a Dagu worker but "
+                    "no Dagu coordinator endpoint is configured")
+            snapshot["dispatch_transport"] = "dagu-worker"
     snapshot.update(extra_snapshot or {})
     execution = Execution(
         project_id=(suite.project_id if suite
@@ -242,7 +248,12 @@ def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
         return False
     if ex.dispatch_id:
         try:
-            DaguAdapter.from_settings().cancel(ex.dispatch_id)
+            if (ex.snapshot().get("dispatch_transport")
+                    == "dagu-worker"):
+                DaguAdapter.from_settings().stop(
+                    DaguAdapter.REMOTE_DAG_NAME, ex.dispatch_id)
+            else:
+                DaguAdapter.from_settings().cancel(ex.dispatch_id)
         except Exception:
             pass  # flag + lease expiry still bound the run
     ex.state = ExecutionState.CANCEL_REQUESTED
@@ -415,6 +426,14 @@ def run_execution(execution_id: str) -> None:
     recorded; test failures do not stop collection (§7)."""
     ex = db.session.get(Execution, execution_id)
     if ex is None:
+        return
+    if (ex.snapshot().get("dispatch_transport") == "dagu-worker"
+            and ex.state == ExecutionState.QUEUED):
+        # Hard guarantee: a remote-dispatched execution must never enter
+        # the local KRE path, whatever route it took here.
+        _fail(ex, "infrastructure",
+              "remote-dispatched execution reached the local execution "
+              "path — refusing portal-host invocation")
         return
     # Dispatch boundary: only still-pending work may enter the machine —
     # an execution cancelled while its outbox event waited (user cancel
@@ -842,6 +861,11 @@ def _handle_event(event: OutboxEvent) -> None:
             # self-orchestration, no blind resubmission on ambiguity.
             ex = db.session.get(Execution, payload["execution_id"])
             try:
+                if (ex is not None
+                        and ex.snapshot().get("dispatch_transport")
+                        == "dagu-worker"):
+                    _submit_remote(ex)
+                    return
                 dispatch_id = DaguAdapter.from_settings().submit(payload)
                 if ex:
                     ex.dispatch_id = dispatch_id
@@ -1139,6 +1163,234 @@ def worker_loop(interval: float = 2.0) -> None:
         time.sleep(interval)
 
 
+# ---------- Dagu-worker remote dispatch ----------
+
+def _submit_remote(ex: Execution) -> None:
+    """Dagu-worker remote dispatch: an ad-hoc spec enqueued with the
+    execution-pinned dagRunId and the installation's unique worker
+    label. The worker checks out the recorded source revision itself,
+    runs the registered executable, and reports status/logs/artifacts
+    to the coordinator — nothing KRE-side runs on the portal host."""
+    snap = ex.snapshot()
+    rc = snap.get("run_config") or {}
+    rt = db.session.get(RuntimeConnection,
+                        rc.get("requested_runtime") or ex.runtime_id)
+    if (rt is None or not rt.enabled or not rt.worker_label
+            or not rt.executable_path):
+        _fail(ex, "infrastructure",
+              "worker-bound runtime is unavailable, unlabeled, or has "
+              "no executable path — no local fallback")
+        return
+    binding = (db.session.get(GitBinding, ex.binding_id)
+               if ex.binding_id else None)
+    if binding is None or not binding.url:
+        _fail(ex, "config",
+              "remote dispatch requires a git-bound source — the "
+              "worker checks the revision out itself")
+        return
+    try:
+        adapter = DaguAdapter.from_settings()
+        workers = adapter.remote_worker_names("kre", rt.worker_label)
+    except Exception as exc:
+        _fail(ex, "infrastructure",
+              f"Dagu coordinator unreachable/not configured — "
+              f"reconcile before retry: {str(exc)[:300]}")
+        return
+    if len(workers) != 1:
+        _fail(ex, "infrastructure",
+              (f"no connected Dagu worker carries kre="
+               f"{rt.worker_label} (bounded precheck — nothing was "
+               "dispatched)" if not workers else
+               f"ambiguous match: {len(workers)} workers carry kre="
+               f"{rt.worker_label} — installation labels must be "
+               "unique"))
+        return
+
+    workspace = (rt.workspace_root or "/var/lib/to-worker").rstrip("/") \
+        + "/" + ex.id
+    flags, dropped = kre_adapter.gated_flags(
+        rt.detected_version, rc.get("kre_options") or {})
+    if dropped and not rc.get("kre_options_allow_drop"):
+        _fail(ex, "infrastructure",
+              f"version-gated options rejected for detected version "
+              f"{rt.detected_version or 'unknown'}: "
+              + ", ".join(dropped))
+        return
+    ok_b, browser_val = kre_adapter.validate_browser(
+        rc.get("browser", ""), "linux")
+    if not ok_b:
+        _fail(ex, "config", browser_val)
+        return
+    # -apiKey is intentionally NOT sent: remote KRE uses the licence
+    # installed on the worker host — an activation credential must not
+    # be embedded in a spec stored by the coordinator.
+    kre_args = kre_adapter.build_args(
+        executable=rt.executable_path,
+        project_path=workspace + "/proj",
+        suite_path=_snapshot_suite_path(ex),
+        report_dir="${context.paths.artifacts_dir}/Reports",
+        profile=rc.get("profile", "default"),
+        browser=browser_val or "Chrome (headless)",
+        remote_webdriver_url=rc.get("remote_webdriver_url", ""),
+        remote_webdriver_type=rc.get("remote_webdriver_type", ""),
+        collection=bool(rc.get("collection")),
+        extra=flags,
+    )
+    git_auth = {}
+    if binding.credential_ref:
+        try:
+            from .secrets_store import read_secret
+            secret = read_secret(current_app._get_current_object(),
+                                 binding.credential_ref)
+            if ":" in secret:
+                u, p = secret.split(":", 1)
+                git_auth = {"username": u, "password": p}
+            elif secret:
+                git_auth = {"token": secret}
+        except Exception as exc:
+            _fail(ex, "infrastructure",
+                  f"binding credential unusable: {exc}")
+            return
+    if str(binding.url).startswith(("ssh://", "git@")):
+        # Worker-side ssh: the key path names a file on the WORKER —
+        # key material never crosses the wire. Empty auth lets the
+        # worker's own ssh-agent answer.
+        git_auth = {}
+        if rc.get("git_ssh_key_path"):
+            git_auth["ssh_key_path"] = rc["git_ssh_key_path"]
+        if rc.get("git_ssh_passphrase"):
+            git_auth["ssh_passphrase"] = rc["git_ssh_passphrase"]
+
+    spec = adapter.remote_kre_spec(
+        worker_label=rt.worker_label,
+        repository=binding.url,
+        ref=ex.source_sha or binding.ref or "main",
+        git_auth=git_auth,
+        remote_workspace=workspace,
+        executable=rt.executable_path,
+        args=kre_args[1:],
+        timeout_s=int(rc.get("timeout_seconds") or 3600))
+    import json as _json
+    try:
+        dag_run_id = adapter.enqueue(
+            spec_yaml=_json.dumps(spec),
+            name=DaguAdapter.REMOTE_DAG_NAME,
+            dag_run_id=ex.id,
+            worker_selector={"kre": rt.worker_label},
+            params=f"execution_id={ex.id}",
+            singleton=True)
+    except Exception as exc:
+        # 409 = a run with this id already exists — adopt its identity;
+        # a retry of this outbox event can never duplicate the run.
+        resp = getattr(exc, "response", None)
+        if resp is not None and resp.status_code == 409:
+            dag_run_id = ex.id
+        else:
+            _fail(ex, "infrastructure",
+                  f"Dagu submission failed — reconcile before retry: "
+                  f"{str(exc)[:300]}")
+            return
+    ex.dispatch_id = dag_run_id
+    ex.runner_id = rt.runner_id
+    ex.runtime_id = rt.id
+    ex.state = ExecutionState.DISPATCHED
+    ex.lease_expires_at = utcnow() + timedelta(seconds=LEASE_SECONDS)
+    db.session.commit()
+    record_audit("system", "execution.remote_dispatched",
+                 f"{ex.id}: dagu worker kre={rt.worker_label} "
+                 f"run={dag_run_id}")
+
+
+def _artifact_files(items: list, prefix: str = "") -> list:
+    """Flatten the recursive artifact tree to file paths."""
+    out = []
+    for item in items or []:
+        path = item.get("path") or ""
+        if item.get("type") == "file":
+            out.append(path)
+        out.extend(_artifact_files(item.get("children") or []))
+    return out
+
+
+def _collect_remote(adapter: DaguAdapter, ex: Execution,
+                    label: str) -> None:
+    """Terminal dagu run -> materialize coordinator artifacts into the
+    portal collection dir and run the SAME collect/normalize/finalize
+    pipeline as a local execution — partial downloads are honest
+    evidence, never guessed."""
+    attempt_dir = (Path(current_app.instance_path)
+                   / "remote-runs" / ex.id)
+    report_dir = attempt_dir / "Reports"
+    log_dir = attempt_dir / "logs"
+    try:
+        report_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        for rel in _artifact_files(adapter.list_artifacts(
+                DaguAdapter.REMOTE_DAG_NAME, ex.dispatch_id)):
+            dest = attempt_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(adapter.download_artifact(
+                DaguAdapter.REMOTE_DAG_NAME, ex.dispatch_id, rel))
+    except Exception as exc:
+        _fail(ex, "infrastructure",
+              f"remote run {ex.dispatch_id} ended '{label}' but "
+              f"artifact retrieval failed: {exc}")
+        return
+    try:
+        (log_dir / "kre-remote-run.log").write_bytes(
+            adapter.run_log(DaguAdapter.REMOTE_DAG_NAME, ex.dispatch_id)
+            .encode("utf-8", "replace"))
+    except Exception:
+        pass  # run log is best-effort evidence
+    ex.workspace_path = str(attempt_dir)
+    ex.report_dir = str(report_dir)
+    ex.exit_status = 0 if label == "succeeded" else 1
+    ex.finished_at = utcnow()
+
+    _transition(ex, ExecutionState.COLLECTING)
+    _collect(ex, report_dir, log_dir)
+    _transition(ex, ExecutionState.NORMALIZING)
+    _normalize(ex)
+    _transition(ex, ExecutionState.FINALIZING)
+    _sync_git(ex)
+    has_results = bool(TestResult.query.filter_by(
+        execution_id=ex.id).first())
+    if label in ("aborted", "canceled"):
+        ex.state = ExecutionState.CANCELED
+        ex.outcome = Outcome.INCOMPLETE
+    elif label == "succeeded" or has_results:
+        # A 'failed' dagu run with real junit is failed TESTS — the
+        # normalized outcome carries the verdict, not the step status.
+        ex.state = ExecutionState.COMPLETED
+    else:
+        ex.state = ExecutionState.FAILED
+        ex.error_kind = "execution"
+        ex.error_text = (f"remote run {ex.dispatch_id} ended "
+                         f"'{label}' with no result data")
+    db.session.commit()
+
+
+def _poll_remote_run(adapter: DaguAdapter, ex: Execution) -> int:
+    """Remote-transport runs: the dagu run IS the execution. Alive runs
+    renew the lease (the coordinator is the aliveness source); terminal
+    runs trigger collection — 'queued' with no worker is bounded by the
+    coordinator's worker_wait_timeout."""
+    try:
+        remote = adapter.dag_run(DaguAdapter.REMOTE_DAG_NAME,
+                                 ex.dispatch_id)
+    except Exception:
+        return 0   # transient — lease expiry bounds the ambiguity
+    d = remote.get("dagRunDetails") or remote.get("dagRun") or {}
+    label = d.get("statusLabel") or ""
+    if label in ("succeeded", "failed", "aborted", "error", "canceled"):
+        _collect_remote(adapter, ex, label)
+        return 1
+    if label in ("queued", "running", "not_started", "created"):
+        ex.lease_expires_at = utcnow() + timedelta(seconds=LEASE_SECONDS)
+        db.session.commit()
+    return 0
+
+
 def reconcile_dagu_runs() -> int:
     """Poll DISPATCHED executions' dagu runs (§7 restart/reconciliation):
     finished-without-result -> UNKNOWN (never silently re-run); running
@@ -1150,6 +1402,9 @@ def reconcile_dagu_runs() -> int:
         if not ex.dispatch_id:
             continue
         adapter = adapter or DaguAdapter.from_settings()
+        if ex.snapshot().get("dispatch_transport") == "dagu-worker":
+            fixed += _poll_remote_run(adapter, ex)
+            continue
         remote = adapter.status(ex.dispatch_id)
         label = (remote.get("statusLabel") or remote.get("status"))
         if label in ("succeeded", "failed", "aborted", "error"):

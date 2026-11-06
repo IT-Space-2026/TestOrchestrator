@@ -104,6 +104,107 @@ class DaguAdapter:
         data = resp.json() if resp.content else {}
         return str(data.get("dagRunId") or data.get("requestId") or "submitted")
 
+    # ---------- remote-worker dispatch (verified vs bundled 2.25.8) ----------
+
+    def workers(self) -> list:
+        """Connected workers with their labels (coordinator service).
+        Raises requests.HTTPError 503 when the coordinator is not
+        configured — the caller treats that as remote-incomplete."""
+        resp = requests.get(
+            self._url("/workers"), headers=self._headers(),
+            auth=self._auth(), timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return (resp.json() or {}).get("workers") or []
+
+    def enqueue(self, *, spec_yaml: str, name: str, dag_run_id: str,
+                worker_selector: dict, params: str = "",
+                singleton: bool = True) -> str:
+        """Ad-hoc DAG submission: the spec travels with the run — no
+        pre-registered workflow needed on the coordinator. ``dag_run_id``
+        pins the run identity to our execution id (idempotent:
+        re-submitting the same id cannot duplicate work), ``singleton``
+        rejects a second concurrent run for the same DAG name (409),
+        and ``worker_selector`` routes to exactly the labeled worker."""
+        resp = requests.post(
+            self._url("/dag-runs/enqueue"),
+            json={
+                "spec": spec_yaml,
+                "name": name,
+                "dagRunId": dag_run_id,
+                "workerSelector": dict(worker_selector),
+                "params": params,
+                "singleton": singleton,
+            },
+            headers=self._headers(), auth=self._auth(),
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json() if resp.content else {}
+        return str(data.get("dagRunId") or dag_run_id)
+
+    def dag_run(self, name: str, dag_run_id: str) -> dict:
+        """Run details for an enqueue-submitted run (these live under
+        /dag-runs/{name}/{id}, not /dags/{fileName})."""
+        resp = requests.get(
+            self._url(f"/dag-runs/{name}/{dag_run_id}"),
+            headers=self._headers(), auth=self._auth(),
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return resp.json() or {}
+
+    def list_artifacts(self, name: str, dag_run_id: str) -> list:
+        """Recursive artifact tree for a run — workers upload run
+        artifacts to the coordinator (verified 2.25.8)."""
+        resp = requests.get(
+            self._url(f"/dag-runs/{name}/{dag_run_id}/artifacts"),
+            params={"recursive": "true"},
+            headers=self._headers(), auth=self._auth(),
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return (resp.json() or {}).get("items") or []
+
+    def download_artifact(self, name: str, dag_run_id: str,
+                          path: str) -> bytes:
+        resp = requests.get(
+            self._url(f"/dag-runs/{name}/{dag_run_id}/artifacts/download"),
+            params={"path": path},
+            headers=self._headers(), auth=self._auth(),
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return resp.content
+
+    def stop(self, name: str, dag_run_id: str) -> bool:
+        """HTTP stop for a submitted run (verified on 2.25.8 —
+        POST /dag-runs/{name}/{id}/stop). The coordinator signals the
+        worker; process-tree termination is the worker's job."""
+        try:
+            resp = requests.post(
+                self._url(f"/dag-runs/{name}/{dag_run_id}/stop"),
+                headers=self._headers(), auth=self._auth(),
+                timeout=self.timeout,
+            )
+            return resp.ok
+        except requests.RequestException:
+            return False
+
+    def remote_worker_names(self, label_key: str, label_value: str) -> list:
+        """Names/ids of workers whose labels include key=value — used for
+        unambiguous matching before a remote dispatch."""
+        matches = []
+        for w in self.workers():
+            labels = w.get("labels") or {}
+            if isinstance(labels, list):
+                labels = dict(
+                    (l.split("=", 1) if "=" in l else (l, ""))
+                    for l in labels)
+            if labels.get(label_key) == label_value:
+                matches.append(str(w.get("id") or w.get("name") or w))
+        return matches
+
     def status(self, dispatch_id: str) -> dict:
         resp = requests.get(
             self._url(f"/dags/testorchestrator-execution/dag-runs/{dispatch_id}"),
@@ -118,6 +219,15 @@ class DaguAdapter:
                 f"/dags/testorchestrator-execution/dag-runs/{dispatch_id}/log"
             ),
             headers=self._headers(), auth=self._auth(), timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return resp.text
+
+    def run_log(self, name: str, dag_run_id: str) -> str:
+        resp = requests.get(
+            self._url(f"/dag-runs/{name}/{dag_run_id}/log"),
+            headers=self._headers(), auth=self._auth(),
+            timeout=self.timeout,
         )
         resp.raise_for_status()
         return resp.text
@@ -141,42 +251,64 @@ class DaguAdapter:
             return False
 
 
-    def remote_kre_spec(self, *, worker_label: str,
-                        project_files: list, executable: str,
-                        args: list, remote_workspace: str,
-                        report_dir: str, timeout_s: int = 3600) -> dict:
+    # Name of the ad-hoc remote execution DAG — the run lives under
+    # /dag-runs/{name}/{id} since it is enqueued by spec, not from a file.
+    REMOTE_DAG_NAME = "to-remote-execution"
+
+    def remote_kre_spec(self, *, worker_label: str, repository: str,
+                        ref: str, git_auth: dict, remote_workspace: str,
+                        executable: str, args: list,
+                        timeout_s: int = 3600) -> dict:
         """A remote-KRE execution DAG — dispatched to the worker whose
         labels include the installation's unique tag (precise routing,
         never a broad label that could reach a different host). The
         label matches the worker's ``--worker.labels kre=<tag>``.
 
-        Steps: create an isolated remote workspace, run the registered
-        KRE executable in it, and return the Reports/ dir listing for
-        portal-side _collect/_normalize. Cancellation/timeout is the
-        DAG-run deadline — process-tree termination is the worker's job
-        (verified in 2.25.8 docs, not yet exercised).
+        Mechanism verified end-to-end against bundled 2.25.8 (local run,
+        fixture repo + fixture KRE, artifacts listed/downloaded via the
+        REST surface):
 
-        Schema verified via `dagu validate` on bundled 2.25.8: there is
-        NO DAG-level file-dependency field — `depends` is step-level
-        only. ``project_files`` therefore stays a caller contract for
-        the pending wire-up: the worker must reach the project through
-        its own mechanism (checkout/shared mount), decided when remote
-        dispatch is implemented."""
+        - ``git.checkout`` pulls ``repository`` at ``ref`` into the
+          per-execution workspace on the WORKER — source delivery needs
+          no portal-side file push and no custom agent. ``git_auth``
+          takes the action's own fields (username/password/token or
+          worker-side ssh_key_path/ssh_passphrase; an ssh key path never
+          leaves the worker host, https credentials are embedded in the
+          submitted spec — keep them off shared Dagu installs).
+        - ``exec`` runs the registered executable with portal-built KRE
+          argv; ``-reportFolder`` points into the run's artifact dir so
+          reports are uploaded to the coordinator even when the step
+          fails (verified: failed step → artifacts still downloadable).
+        - ``handler_on.exit`` removes the per-execution workspace —
+          artifacts survive on the coordinator, the checkout does not.
+        - ``timeout_sec`` bounds the whole run; cancellation/stop is the
+          coordinator signaling the worker's process tree."""
+        steps = [
+            {"id": "prepare",
+             "run": "mkdir -p ${context.paths.artifacts_dir}/Reports"},
+            {"id": "checkout",
+             "action": "git.checkout",
+             "depends": ["prepare"],
+             "with": {
+                 "repository": repository,
+                 "path": remote_workspace + "/proj",
+                 "ref": ref,
+                 **(git_auth or {})}},
+            {"id": "run_kre",
+             "action": "exec",
+             "depends": ["checkout"],
+             "working_dir": remote_workspace + "/proj",
+             "with": {
+                 "command": executable,
+                 "args": [
+                     *args,
+                     "-reportFolder=${context.paths.artifacts_dir}"
+                                  "/Reports"]}},
+        ]
         return {
             "worker_selector": {"kre": worker_label},
             "timeout_sec": timeout_s,
-            "steps": [
-                {"id": "workspace",
-                 "run": "mkdir -p " + remote_workspace},
-                {"id": "run",
-                 "action": "exec",
-                 "depends": ["workspace"],
-                 "working_dir": remote_workspace,
-                 "with": {
-                     "command": executable,
-                     "args": args}},
-                {"id": "collect",
-                 "action": "file.list",
-                 "depends": ["run"],
-                 "with": {"path": report_dir}},
-            ]}
+            "handler_on": {
+                "exit": {"run": "rm -rf " + remote_workspace}},
+            "steps": steps,
+        }
