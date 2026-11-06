@@ -14,7 +14,7 @@ ID="$(date +%s)-$$"
 ROOT="/tmp/to-mgd-$ID"
 UNITDIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 WEB="to-mgd-${ID}-web.service"; STUB="to-mgd-${ID}-stub.service"
-HELPER="to-restart-helper"
+HELPER="to-restart-helper-*"
 PORT=$((40000 + RANDOM % 1000))
 ADMIN_PASS='DevOnly-Restart!1'
 EVID="$ROOT/evidence"
@@ -122,9 +122,9 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -b "$CJ" -X POST \
 
 # helper unit evidence (launched via systemd-run by the route)
 sleep 1
-systemctl --user status "$HELPER.scope" >/dev/null 2>&1 \
-  && note "helper ran as its own scope unit" \
-  || note "helper scope not visible (may have finished already)"
+systemctl --user list-units --all --no-legend 'to-restart-helper-*' \
+  | grep -q . && note "helper ran as its own transient unit" \
+  || note "helper unit not visible (finished already)"
 
 # --- verify old died, new lives ------------------------------------------
 deadline=$((SECONDS + 30))
