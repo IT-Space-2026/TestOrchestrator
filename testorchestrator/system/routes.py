@@ -1083,6 +1083,8 @@ def probe_runtime(runtime_id):
     try:
         version = probe_version(rt.executable_path)
         rt.detected_version = version
+        from ..readiness import record_verified, _engine_fp
+        record_verified(f"engine_{rt.id}", _engine_fp(rt))
         from ..execution import utcnow
         rt.last_check_at = utcnow()
         rt.last_diagnostic = f"probe ok: version {version}"

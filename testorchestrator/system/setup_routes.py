@@ -43,6 +43,77 @@ def index():
                            state=state, first_open=first_open)
 
 
+STEP_DEFS = {
+ "admin": {"purpose": "Replace the bootstrap credential so the portal "
+           "is not left with a shipped default password.",
+           "inputs": ["new admin password (>= 12 chars)"],
+           "configure_label": "the Users page",
+           "verify_note": "Passes when the bootstrap password has been "
+           "replaced — existence alone never counts.",
+           "auto": ""},
+ "coordinator": {"purpose": "The bundled Dagu coordinator runs every "
+           "dispatch — required, not optional.",
+           "inputs": [],
+           "configure_label": "Infrastructure & components",
+           "verify_note": "Health-checks the coordinator endpoint "
+           "bound to the current endpoint+credential values.",
+           "auto": "endpoint, ports, worker token (written at install)"},
+ "worker": {"purpose": "At least one Worker must be connected for any "
+           "execution — remote machines get the Dagu worker download.",
+           "inputs": ["worker install + registration (remote) or local "
+                      "worker"],
+           "configure_label": "Workers",
+           "verify_note": "Passes only with a fresh heartbeat on a "
+           "non-draining worker — registration alone never counts.",
+           "auto": "worker download links + coordinator URL"},
+ "engine": {"purpose": "KRE is the execution engine used by a worker — "
+           "external and separately licensed.",
+           "inputs": ["KRE executable path on the target worker"],
+           "configure_label": "KRE installations",
+           "verify_note": "Presence+version probe ON an eligible "
+           "worker. License is never inferred — stays 'not tested'.",
+           "auto": ""},
+ "source": {"purpose": "At least one project source binding must "
+           "resolve through the real dispatch path.",
+           "inputs": ["repository URL", "ref", "credentials "
+                      "(per selected auth method)"],
+           "configure_label": "Projects",
+           "verify_note": "Clone + ref resolution via the backend a "
+           "worker uses — a saved URL is not verification.",
+           "auto": ""},
+ "publishing": {"purpose": "Report publishing repository — REQUIRED. A "
+           "local-artifact-only install is not a ready full system.",
+           "inputs": ["publishing repository address", "credentials"],
+           "configure_label": "Reporting settings",
+           "verify_note": "Explicit write probe: one marker ref "
+           "created, read back, deleted. Nothing else is touched.",
+           "auto": "local artifact store (storage/recovery only)"},
+ "security": {"purpose": "Listening address and TLS for the portal.",
+           "inputs": ["bind address", "TLS cert (external exposure "
+                      "only)"],
+           "configure_label": "Network & certificates",
+           "verify_note": "Handshake + reachability on the bound "
+           "address. Loopback development is allowed.",
+           "auto": "loopback default"},
+}
+
+
+@setup_bp.route("/step/<key>")
+@role_required(Role.ADMIN)
+def step(key):
+    order = [s for s in STEPS if s != "summary"]
+    if key not in order:
+        abort(404)
+    comp = next(c for c in readiness.components() if c["key"] == key)
+    i = order.index(key)
+    return render_template(
+        "system/setup_step.html",
+        step=dict(key=key, label=comp["label"], **STEP_DEFS[key]),
+        comp=comp, idx=i + 1,
+        prev_step=order[i - 1] if i else None,
+        next_step=order[i + 1] if i + 1 < len(order) else None)
+
+
 @setup_bp.route("/verify/<key>", methods=["POST"])
 @role_required(Role.ADMIN)
 def verify(key):

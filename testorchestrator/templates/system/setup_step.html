@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Setup · {{ step.label }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('setup.index') }}">&larr; Setup overview</a></p>
+<h1>Step {{ idx }} — {{ step.label }}</h1>
+<p class="muted">{{ step.purpose }}</p>
+<p><span class="badge {{ 'ok' if comp.status=='verified' else ('warn' if comp.status=='configured' else 'danger') }}">{{ comp.status }}</span>
+   <span class="muted">{{ comp.detail }}</span></p>
+
+{% if step.auto %}
+<div class="card"><p><strong>Installer-provided:</strong> {{ step.auto }}</p>
+<p class="muted">Nothing to enter — verify the component works.</p></div>
+{% endif %}
+{% if step.inputs %}
+<div class="card"><h2>Missing inputs</h2>
+<ul>{% for i in step.inputs %}<li>{{ i }}</li>{% endfor %}</ul>
+<p class="muted">Entered on {{ step.configure_label }} — the same form
+and validators used by normal Settings.</p>
+<a class="button" href="{{ url_for(comp.link) }}">{{ step.configure_label }}</a></div>
+{% endif %}
+
+<div class="card">
+  <h2>Verification</h2>
+  <p class="muted">{{ step.verify_note }}</p>
+  <form method="post" action="{{ url_for('setup.verify', key=step.key) }}">
+    <button type="submit" class="button">Run verification</button>
+  </form>
+</div>
+
+<p>
+  {% if prev_step %}<a class="button secondary"
+     href="{{ url_for('setup.step', key=prev_step) }}">&larr; Back</a>{% endif %}
+  <a class="button secondary" href="{{ url_for('setup.index') }}">Overview</a>
+  {% if next_step %}<a class="button"
+     href="{{ url_for('setup.step', key=next_step) }}">Next &rarr;</a>{% endif %}
+</p>
+{% endblock %}

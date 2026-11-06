@@ -360,7 +360,8 @@ def register_cli(app: Flask) -> None:
         admin.session_version += 1
         mark_setup_complete()
         from .settings import set as _set
-        _set("admin_bootstrap_replaced", "yes")
+        if password != "Admin":
+            _set("admin_bootstrap_replaced", "yes")
         db.session.commit()
         click.echo("Admin password set; setup marked complete.")
 

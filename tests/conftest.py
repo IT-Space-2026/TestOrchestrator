@@ -105,16 +105,24 @@ def ready_ops(app):
     worker, a verified engine on it, and a verified publishing repo.
     Tests asserting the *gate itself* must NOT use this fixture."""
     with app.app_context():
+        from datetime import datetime, timezone
         from testorchestrator.execution import (Runner,
                                                 RuntimeConnection)
         from testorchestrator.settings import set as _s
         from testorchestrator.extensions import db as _db
-        r = Runner(name="ops-worker", os_arch="linux/amd64")
+        from testorchestrator import readiness
+        r = Runner(name="ops-worker", os_arch="linux/amd64",
+                   heartbeat_at=datetime.now(timezone.utc))
         _db.session.add(r)
         _db.session.flush()
         rt = RuntimeConnection(name="ops-kre", runner_id=r.id,
                                executable_path="/opt/kre/katalonc",
                                detected_version="9.0.0")
         _db.session.add(rt)
-        _s("publish_repo_verified", "ok")
+        _db.session.flush()
+        readiness.record_verified(f"engine_{rt.id}",
+                                  readiness._engine_fp(rt))
+        _s("publish_repo_url", "https://ops.example/repo.git")
+        readiness.record_verified("publishing",
+                                  readiness._pub_fp())
         _db.session.commit()

@@ -322,11 +322,19 @@ def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
     # verified engine on the registered worker + verified publishing
     # repository (fixture marks — the real checks are setup's job)
     with app.app_context():
+        from datetime import datetime, timezone
         from testorchestrator.execution import RuntimeConnection
         from testorchestrator.settings import set as _s
+        from testorchestrator import readiness
         rt = RuntimeConnection.query.filter_by(name="kre-1").first()
         rt.detected_version = "9.0.0"
-        _s("publish_repo_verified", "ok")
+        readiness.record_verified(f"engine_{rt.id}",
+                                  readiness._engine_fp(rt))
+        r = Runner.query.filter_by(name="local-1").first()
+        r.heartbeat_at = datetime.now(timezone.utc)
+        _s("publish_repo_url", "https://ops.example/repo.git")
+        readiness.record_verified("publishing",
+                                  readiness._pub_fp())
         db.session.commit()
 
     # suite creation through the project page form (was unroutable/broken)
