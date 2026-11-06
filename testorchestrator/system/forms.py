@@ -107,7 +107,7 @@ class SecretForm(FlaskForm):
     kind = RadioField(
         "Kind",
         choices=[("git", "Git"), ("dagu", "Dagu"),
-                 ("runner", "Runner"),
+                 ("runner", "Worker"),
                  ("runtime", "Runtime invocation")],
         default="git",
     )
@@ -136,7 +136,7 @@ class RuntimeForm(FlaskForm):
     name = StringField("Connection name",
                        validators=[DataRequired(), Length(max=128)])
     description = TextAreaField("Description", validators=[Optional()])
-    runner_id = StringField("Runner", validators=[DataRequired()])
+    runner_id = StringField("Worker", validators=[DataRequired()])
     executable_path = StringField(
         "KRE executable path (absolute, existing installation)",
         validators=[DataRequired(), Length(max=512)],

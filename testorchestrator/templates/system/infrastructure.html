@@ -32,13 +32,13 @@ or license KRE.</p>
           {% if r.agent_token_hash %}issued{% else %}none{% endif %}
           {{ "· v" + r.agent_version if r.agent_version else "" }}
           <span class="row-actions">
-          <form method="post" action="{{ url_for('system.issue_token', worker_id=r.id) }}" class="inline">
+          <form method="post" action="{{ url_for('system.issue_token', runner_id=r.id) }}" class="inline">
             {{ runner_form.csrf_token }}
             <button type="submit" class="button secondary sm" title="Issue a worker agent token for remote dispatch">Issue token</button>
           </form></span>
         </td>
         <td>
-          <form method="post" action="{{ url_for('system.drain_runner', worker_id=r.id) }}" class="inline">
+          <form method="post" action="{{ url_for('system.drain_runner', runner_id=r.id) }}" class="inline">
             {{ runner_form.csrf_token }}
             <button type="submit" class="button secondary"
               title="Drain stops new work being assigned; running work finishes">
@@ -47,7 +47,7 @@ or license KRE.</p>
           <small class="muted">{{ "draining — no new work assigned" if r.draining else "" }}</small>
           <details class="inline-details">
             <summary class="button secondary">Edit</summary>
-            <form method="post" action="{{ url_for('system.edit_runner', worker_id=r.id) }}" class="edit-form">
+            <form method="post" action="{{ url_for('system.edit_runner', runner_id=r.id) }}" class="edit-form">
               {{ runner_form.csrf_token }}
               <div class="field"><label>Name</label><input name="name" value="{{ r.name }}"></div>
               <div class="field"><label>Description</label><input name="description" value="{{ r.description }}"></div>
@@ -211,7 +211,7 @@ or license KRE.</p>
         KRE machine. Dispatch refuses ambiguous or missing matches;
         a remote executable is never run on this host.</small></div>
     <div class="field"><label>KRE executable location</label> {{ runtime_form.executable_path() }}
-      <small><strong>Required.</strong> Path on the <em>runner's</em>
+      <small><strong>Required.</strong> Path on the <em>worker's</em>
       filesystem (for local workers: this host) to the KRE CLI binary.
       Example: <code>/opt/kre/bin/kre-console.sh</code>. Presence is
       verified by <em>Test connection</em>, not assumed.</small></div>
