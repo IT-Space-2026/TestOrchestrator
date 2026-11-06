@@ -260,6 +260,9 @@ class RuntimeConnection(db.Model):
     enabled = db.Column(db.Boolean, nullable=False, default=True)
     last_diagnostic = db.Column(db.Text, nullable=False, default="")
     last_check_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # remote: the unique Dagu worker.labels tag the installation is
+    # bound to — empty => local (portal-host) execution.
+    worker_label = db.Column(db.String(128), nullable=False, default="")
     runner = db.relationship("Runner", backref="runtimes")
 
 

@@ -123,12 +123,14 @@ or license KRE.</p>
     {% set its = per_runner.get(r.id, []) %}
     {% if its %}
     <table class="audit-table runner-rts">
-      <thead><tr><th>Name</th><th>Executable</th><th>Version</th>
-        <th>Enabled</th><th>Check</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Location</th><th>Executable</th>
+        <th>Version</th><th>Enabled</th><th>Check</th><th></th></tr></thead>
       <tbody>
         {% for rt in its %}
         <tr>
-          <td>{{ rt.name }}</td><td><code>{{ rt.executable_path }}</code></td>
+          <td>{{ rt.name }}</td>
+          <td><span class="badge {{ 'warn' if rt.worker_label else '' }}">{{ "Remote" if rt.worker_label else "Local" }}</span></td>
+          <td><code>{{ rt.executable_path }}</code></td>
           <td>{{ rt.detected_version or "unprobed" }}</td>
           <td><span class="badge {{ 'ok' if rt.enabled else '' }}">{{ "enabled" if rt.enabled else "disabled" }}</span></td>
           <td>{% if not rt.last_diagnostic %}<span class="badge">Not checked</span>

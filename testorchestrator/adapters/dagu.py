@@ -139,3 +139,40 @@ class DaguAdapter:
             return r.returncode == 0
         except Exception:
             return False
+
+
+    def remote_kre_spec(self, *, worker_label: str,
+                        project_files: list, executable: str,
+                        args: list, remote_workspace: str,
+                        report_dir: str, timeout_s: int = 3600) -> dict:
+        """A remote-KRE execution DAG — dispatched to the worker whose
+        labels include the installation's unique tag (precise routing,
+        never a broad label that could reach a different host).
+
+        Steps: deliver the project into an isolated remote workspace
+        via DAG file dependencies, run the registered KRE executable,
+        and return the Reports/ dir + logs as artifacts for portal-side
+        _collect/_normalize. Cancellation/timeout is the DAG-run
+        deadline — process-tree termination is the worker's job
+        (verified in 2.25.2 docs, not yet exercised)."""
+        return {
+            "worker_selector": {"kre": worker_label},
+            "timeout_sec": timeout_s,
+            "depends": project_files,
+            "steps": [
+                {"id": "workspace",
+                 "action": "exec",
+                 "with": {"command": "mkdir -p "
+                          + remote_workspace}},
+                {"id": "run",
+                 "action": "exec",
+                 "depends": ["workspace"],
+                 "with": {
+                     "command": executable,
+                     "args": args,
+                     "dir": remote_workspace}},
+                {"id": "collect",
+                 "action": "artifact.list",
+                 "depends": ["run"],
+                 "with": {"dir": report_dir}},
+            ]}
