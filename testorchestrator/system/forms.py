@@ -106,7 +106,7 @@ class SecretForm(FlaskForm):
                        validators=[DataRequired(), Length(max=64)])
     kind = RadioField(
         "Kind",
-        choices=[("git", "Git"), ("dagu", "Dagu"),
+        choices=[("git", "Git"), ("dagu", "Dagu - Orchestrator"),
                  ("runner", "Worker"),
                  ("runtime", "Runtime invocation")],
         default="git",
