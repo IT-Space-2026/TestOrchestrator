@@ -575,8 +575,14 @@ def create_runner():
 @system_bp.route("/infrastructure/runtimes", methods=["POST"])
 @role_required(Role.ADMIN)
 def create_runtime():
-    # Simplified: one default local runner auto-created/associated —
-    # no separate Runner record required.
+    # Simplified: one default local runner auto-created/associated.
+    # Remote is explicitly NOT supported by a bare registration — a
+    # path is not a connection.
+    if request.form.get("exec_location") == "remote":
+        flash("Remote execution requires a worker component on the "
+              "KRE machine — it is not yet packaged. A remote path "
+              "alone does not establish a connection.", "error")
+        return redirect(url_for("system.infrastructure"))
     from ..execution import Runner
     _runner = Runner.query.filter_by(
         connection_mode="local").first()

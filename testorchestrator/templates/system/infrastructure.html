@@ -179,13 +179,6 @@ or license KRE.</p>
     <p class="muted">{{ unbound|length }} installation(s) not
     associated with a runner.</p></div>
   {% endif %}
-  {% if fixture_runners %}
-  <details class="muted"><summary>Fixture/test runners
-    ({{ fixture_runners|length }})</summary>
-    <ul>{% for x in fixture_runners %}<li>{{ x.name }} —
-      last seen {{ x.heartbeat_at or "never" }}</li>{% endfor %}</ul>
-  </details>
-  {% endif %}
   <details class="block-details"><summary class="button">Register existing KRE installation</summary>
   <form method="post" action="{{ url_for('system.create_runtime') }}">
     {{ runtime_form.csrf_token }}
@@ -194,7 +187,22 @@ or license KRE.</p>
       e.g. <code>kre-9.2-ci01</code>.</small></div>
     <div class="field">{{ runtime_form.description.label }} {{ runtime_form.description() }}
       <small>Optional note.</small></div>
-    <input type="hidden" name="runner_id" value="auto">
+    <fieldset class="field"><legend>Execution location</legend>
+      <div class="checkbox"><input type="radio" name="exec_location"
+        id="loc-local" value="local" checked>
+        <label for="loc-local">On the TestOrchestrator machine</label></div>
+      <div class="checkbox"><input type="radio" name="exec_location"
+        id="loc-remote" value="remote">
+        <label for="loc-remote">On another machine</label></div>
+      <small><strong>Local:</strong> TestOrchestrator starts this
+        executable locally — it and the working directory must exist
+        on the TestOrchestrator execution host.<br>
+        <strong>Remote:</strong> a worker component on the KRE machine
+        connects to TestOrchestrator — a path is not a connection.
+        Remote execution requires the worker component (not yet
+        packaged) — registering a remote path does not establish a
+        connection.</small>
+    </fieldset>
     <div class="field"><label>KRE executable location</label> {{ runtime_form.executable_path() }}
       <small><strong>Required.</strong> Path on the <em>runner's</em>
       filesystem (for local runners: this host) to the KRE CLI binary.
