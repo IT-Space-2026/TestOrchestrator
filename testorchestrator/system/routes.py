@@ -666,10 +666,16 @@ def _service_status() -> dict:
         else:
             cmd = ["systemctl", "--user"] if scope == "user" \
                 else ["systemctl"]
-            r = subprocess.run([*cmd, "is-active", u],
-                               capture_output=True, text=True)
-            st = (r.stdout.strip() or "unknown") if r.returncode == 0 \
-                else (r.stdout.strip() or "inactive")
+            ld = subprocess.run(
+                [*cmd, "show", u, "-p", "LoadState", "--value"],
+                capture_output=True, text=True)
+            if ld.stdout.strip() == "not-found":
+                st = "not installed"
+            else:
+                r = subprocess.run([*cmd, "is-active", u],
+                                   capture_output=True, text=True)
+                st = (r.stdout.strip() or "unknown") \
+                    if r.returncode == 0 else (r.stdout.strip() or "inactive")
         out["services"].append({"unit": u, "state": st})
     return out
 
