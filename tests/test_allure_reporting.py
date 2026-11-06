@@ -458,12 +458,32 @@ def test_discovery_order_java_home_then_path_then_platform(
         monkeypatch, tmp_path):
     a, b, c = (_fake_jh(tmp_path / n) for n in ("d1", "d2", "d3"))
     monkeypatch.setenv("JAVA_HOME", str(a))
+    monkeypatch.setattr(allure_runtime, "_bundled_java_home",
+                        lambda: None)
     monkeypatch.setattr(allure_runtime.shutil, "which",
                         lambda _exe: str(b / "bin" / "java"))
     monkeypatch.setattr(allure_runtime, "_platform_java_homes",
                         lambda: [str(c)])
     homes = allure_runtime.detect_java_homes()
     assert homes == [a, b, c]          # order is contract
+
+
+def test_discovery_order_bundled_after_java_home(monkeypatch, tmp_path):
+    """The pinned bundled JRE is the deterministic default after an
+    explicit JAVA_HOME — it outranks PATH/platform but not the user's
+    explicit override."""
+    a, jre, b, c = (_fake_jh(tmp_path / n)
+                    for n in ("d1", "jre", "d2", "d3"))
+    monkeypatch.setenv("JAVA_HOME", str(a))
+    monkeypatch.setattr(allure_runtime, "_bundled_java_home",
+                        lambda: jre)
+    monkeypatch.setattr(allure_runtime.shutil, "which",
+                        lambda _exe: str(b / "bin" / "java"))
+    monkeypatch.setattr(allure_runtime, "_platform_java_homes",
+                        lambda: [str(c)])
+    assert allure_runtime.detect_java_homes() == [a, jre, b, c]
+    monkeypatch.delenv("JAVA_HOME")
+    assert allure_runtime.detect_java_homes()[0] == jre
 
 
 def test_version_check_blocks_generation_probe(app, monkeypatch,

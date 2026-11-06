@@ -135,10 +135,12 @@ def detect_java_homes() -> list[Path]:
             seen.add(str(home))
             cands.append(home)
 
-    # Application-local bundled JRE first — the package ships a pinned
-    # Temurin runtime so no system Java or JAVA_HOME is required.
-    add(_bundled_java_home())
+    # An explicit JAVA_HOME wins; the pinned bundled JRE is the
+    # deterministic default after it — the package ships a Temurin
+    # runtime so no system Java is required, while still honoring an
+    # operator's explicit override.
     add(os.environ.get("JAVA_HOME"))
+    add(_bundled_java_home())
     add(shutil.which(JAVA_EXE))
     for p in _platform_java_homes():
         add(p)
