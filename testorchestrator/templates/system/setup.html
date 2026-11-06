@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Setup · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>System &rarr; First-run setup</h1>
+<p class="muted">Every component below is <strong>required</strong> for
+a full-system installation. A component is only <em>verified</em> when
+its check actually passed — saving a value is not verification.</p>
+
+{% if ready %}
+<div class="card"><p><span class="badge ok">All configuration checks verified</span></p>
+<p class="muted">Licensed KRE execution: <strong>Not tested</strong> —
+requires an authorized smoke test.<br>
+End-to-end execution/report flow: <strong>Not yet validated</strong> —
+requires the loopback worker test.</p></div>
+{% endif %}
+
+{% for c in components %}
+<div class="card">
+  <div class="card-head">
+    <h2>{{ loop.index }}. {{ c.label }}</h2>
+    <span class="badge {{ 'ok' if c.status=='verified' else ('warn' if c.status=='configured' else 'danger') }}">{{ c.status }}</span>
+  </div>
+  {% if c.detail %}<p class="muted">{{ c.detail }}</p>{% endif %}
+  <form method="post" action="{{ url_for('setup.verify', key=c.key) }}"
+        style="display:inline">
+    <button type="submit" class="button secondary sm">Re-verify</button>
+  </form>
+  <a href="{{ url_for(c.link) }}" class="button sm">Configure</a>
+</div>
+{% endfor %}
+{% endblock %}

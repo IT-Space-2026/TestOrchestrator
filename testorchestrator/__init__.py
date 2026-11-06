@@ -84,6 +84,8 @@ def create_app(config_object=Config) -> Flask:
     app.register_blueprint(system_bp)
     app.register_blueprint(portal_bp)
     app.register_blueprint(agent_bp)
+    from .system.setup_routes import setup_bp
+    app.register_blueprint(setup_bp)
 
     @app.route("/healthz")
     def healthz():

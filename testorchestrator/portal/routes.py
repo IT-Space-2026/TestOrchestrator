@@ -1366,6 +1366,15 @@ def launch_execution(suite_id):
         abort(404)
     _project_or_404(suite.project_id)
     PlainForm().validate_on_submit()
+    # Submission revalidation: the required subsystem must be
+    # operational now — a verified setup does not imply the worker is
+    # still connected. Names the missing component (409 semantics are
+    # flash + redirect here, consistent with other form rejects).
+    from .. import readiness
+    missing = readiness.operational_check()
+    if missing:
+        flash(f"Setup incomplete: {missing}", "error")
+        return redirect(url_for("setup.index"))
     binding = GitBinding.query.filter_by(
         project_id=suite.project_id).first()
     sha = binding.last_synced_sha if binding else ""
