@@ -687,12 +687,42 @@ def _active_work_count() -> int:
         ExecutionState.NORMALIZING])).count()
 
 
+def _unit_invocations(units: list, scope: str) -> dict:
+    """Pre-request invocation identity per service — systemd MainPID,
+    schtasks last-run timestamp — so a restart is proven by a NEW
+    invocation, not merely by the service being active."""
+    import subprocess
+    out = {}
+    for u in units:
+        try:
+            if scope == "schtasks":
+                r = subprocess.run(
+                    ["schtasks", "/Query", "/TN", u, "/FO", "LIST", "/V"],
+                    capture_output=True, text=True, timeout=10)
+                ident = "missing"
+                for line in r.stdout.splitlines():
+                    if "Last Run Time" in line:
+                        ident = line.split(":", 1)[1].strip()
+                out[u] = ident
+            else:
+                cmd = ["systemctl", "--user"] if scope == "user" \
+                    else ["systemctl"]
+                r = subprocess.run([*cmd, "show", u, "-p", "MainPID",
+                                    "--value"], capture_output=True,
+                                   text=True, timeout=10)
+                out[u] = r.stdout.strip() or "0"
+        except Exception:
+            out[u] = "error"
+    return out
+
+
 def _resolve_pending_restart(status: dict, marker) -> None:
-    """Resolve a pending restart marker by checking actual unit states.
-    This runs on health-page load AND on portal startup-adjacent polls —
-    writeback never depends on the restart helper surviving the portal's
-    own termination (its cgroup dies with the service)."""
-    import json as _j, subprocess
+    """Resolve pending ONLY on helper-confirmed evidence of a NEW
+    invocation per service — never merely because units are active
+    (they may be the original processes if the helper never launched).
+    Helper evidence distinguishes verified restart from false-positive
+    liveness; missing evidence ages out to failed."""
+    import json as _j
     if not marker.exists():
         return
     try:
@@ -701,19 +731,28 @@ def _resolve_pending_restart(status: dict, marker) -> None:
         return
     if rec.get("result") != "pending":
         return
-    scope = _managed_config()["scope"]
     states = {s["unit"]: s["state"] for s in status["services"]}
-    all_active = all(st == "active" for st in states.values())
     age = 0.0
     try:
         req = datetime.fromisoformat(rec["requested_at"])
         age = (datetime.now(timezone.utc) - req).total_seconds()
     except Exception:
         pass
-    if all_active:
+    evidence = rec.get("evidence") or {}
+    pre = rec.get("pre_invocations") or {}
+    confirmed = bool(evidence) and all(
+        evidence.get(u, {}).get("restarted") is True
+        and evidence.get(u, {}).get("new") !=
+            evidence.get(u, {}).get("old")
+        and states.get(u) == "active"
+        for u in rec.get("units", []))
+    if confirmed:
         rec["result"] = "done"
+        rec["basis"] = "helper_confirmed"
     elif age > 60:
         rec["result"] = "failed"
+        rec["basis"] = ("no_helper_evidence" if not evidence
+                        else "partial_or_no_new_invocation")
         rec["failed_states"] = states
     else:
         return                                   # still settling
@@ -721,7 +760,7 @@ def _resolve_pending_restart(status: dict, marker) -> None:
     marker.write_text(_j.dumps(rec))
     record_audit(rec.get("requested_by", "?"),
                  "services.restart_result",
-                 f"{rec['result']} — {states}")
+                 f"{rec['result']} ({rec.get('basis')}) — {states}")
 
 
 @system_bp.route("/health")
@@ -777,38 +816,49 @@ def restart_services():
         return redirect(url_for("system.system_health"))
     units = [s["unit"] for s in status["services"]]
     scope = _managed_config()["scope"]
+    pre_inv = _unit_invocations(units, scope)
     ctl = ["schtasks"] if scope == "schtasks" else \
         (["systemctl", "--user"] if scope == "user" else ["systemctl"])
     marker.write_text(_j.dumps({
         "requested_by": current_user.username,
         "requested_at": datetime.now(timezone.utc).isoformat(),
-        "units": units, "scope": scope, "result": "pending"}))
+        "units": units, "scope": scope,
+        "pre_invocations": pre_inv, "result": "pending"}))
     record_audit(current_user.username, "services.restart_requested",
                  ", ".join(units))
     # Independent completion: the service manager performs the restart;
     # the helper only reports the outcome into the marker afterwards.
     if scope == "schtasks":
+        ident = ("subprocess.run(['schtasks','/Query','/TN',u,'/FO','LIST','/V'],capture_output=True,text=True).stdout")
         actions = ("for u in units:\n"
                    "    subprocess.run(['schtasks','/End','/TN',u])\n"
                    "time.sleep(2)\n"
-                   "ok=all(subprocess.run(['schtasks','/Run','/TN',u])"
-                   ".returncode==0 for u in units)\n"
+                   "ok=True\n"
                    "for u in units:\n"
-                   "    subprocess.run(['schtasks','/Query','/TN',u])\n")
+                   "    nr=subprocess.run(['schtasks','/Run','/TN',u]); ok = ok and nr.returncode==0\n"
+                   "    new_id=''\n"
+                   "    for ln in " + ident + ".splitlines():\n"
+                   "        if 'Last Run Time' in ln: new_id=ln.split(':',1)[1].strip()\n"
+                   "    ev[u]={'old':pre.get(u),'new':new_id,'restarted':nr.returncode==0}\n")
     else:
+        ident = ("subprocess.run([*ctl,'show',u,'-p','MainPID','--value'],capture_output=True,text=True).stdout.strip()")
         actions = (f"ctl={ctl!r}\nunits={units!r}\n"
-                   "r=subprocess.run([*ctl,'restart',*units])\n"
-                   "ok=r.returncode==0\n"
                    "for u in units:\n"
-                   "    subprocess.run([*ctl,'is-active','--quiet',u])\n")
+                   "    nr=subprocess.run([*ctl,'restart',u]); \n"
+                   "    new_id=" + ident + "\n"
+                   "    ev[u]={'old':pre.get(u),'new':new_id,'restarted':nr.returncode==0 and new_id not in ('0','',pre.get(u))}\n"
+                   "ok=all(v['restarted'] for v in ev.values())\n")
     helper = (
         "import json,subprocess,sys,time\n"
         f"m={str(marker)!r}\n"
         "time.sleep(2)\n"
         f"units={units!r}\n"
+        f"pre={pre_inv!r}\n"
+        "ev={}\n"
         + actions +
         "d=json.loads(m.read_text())\n"  # noqa: E501
-        "d['result']='done' if ok else 'failed'\n"
+        "d['evidence']=ev\n"
+        "d['helper_result']='done' if ok else 'failed'\n"
         "m.write_text(json.dumps(d))\n"
         "sys.exit(0 if ok else 1)\n")
     helper_path = marker.parent / "restart-helper.py"

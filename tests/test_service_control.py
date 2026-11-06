@@ -65,27 +65,68 @@ def test_service_status_unmanaged_without_manager():
 
 
 def test_pending_resolution_done_and_failed(tmp_path, app):
-    """Health-poll writeback: all-active -> done; aged+inactive ->
-    failed with failed_states."""
+    """Health-poll writeback requires HELPER EVIDENCE of a new
+    invocation — never mere unit liveness."""
     marker = tmp_path / "restart-request.json"
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)
+    # helper-confirmed: new PID != old -> done
     rec = {"requested_by": "admin", "requested_at": now.isoformat(),
            "units": ["a.service"], "scope": "system",
+           "pre_invocations": {"a.service": "100"},
+           "evidence": {"a.service": {"old": "100", "new": "200",
+                                      "restarted": True}},
            "result": "pending"}
     marker.write_text(json.dumps(rec))
     status_ok = {"services": [{"unit": "a.service", "state": "active"}]}
     with app.app_context():
-        with patch.object(routes, "_managed_config",
-                          return_value={"scope": "system"}):
-            routes._resolve_pending_restart(status_ok, marker)
-            assert json.loads(marker.read_text())["result"] == "done"
-        rec["result"] = "pending"
+        routes._resolve_pending_restart(status_ok, marker)
+        d = json.loads(marker.read_text())
+        assert d["result"] == "done" and d["basis"] == "helper_confirmed"
+        # aged + no evidence -> failed, never done
+        rec.update(result="pending", evidence={})
         rec["requested_at"] = (now - timedelta(seconds=90)).isoformat()
         marker.write_text(json.dumps(rec))
-        status_bad = {"services": [{"unit": "a.service",
-                                    "state": "failed"}]}
-        routes._resolve_pending_restart(status_bad, marker)
+        routes._resolve_pending_restart(status_ok, marker)
         d = json.loads(marker.read_text())
         assert d["result"] == "failed"
-        assert d["failed_states"]["a.service"] == "failed"
+        assert d["basis"] == "no_helper_evidence"
+
+
+def test_active_units_without_evidence_never_done(tmp_path, app):
+    """Regression: all units active + helper never launched (no
+    evidence) must NOT resolve to done — they may be the original
+    processes."""
+    marker = tmp_path / "restart-request.json"
+    from datetime import datetime, timezone
+    rec = {"requested_by": "admin",
+           "requested_at": datetime.now(timezone.utc).isoformat(),
+           "units": ["a.service"], "scope": "system",
+           "pre_invocations": {"a.service": "100"},
+           "result": "pending"}          # no evidence: helper never ran
+    marker.write_text(json.dumps(rec))
+    status = {"services": [{"unit": "a.service", "state": "active"}]}
+    with app.app_context():
+        routes._resolve_pending_restart(status, marker)
+        assert json.loads(marker.read_text())["result"] == "pending"
+
+
+def test_same_pid_evidence_not_a_restart(tmp_path, app):
+    """Helper ran but the unit kept the same PID -> not confirmed."""
+    marker = tmp_path / "restart-request.json"
+    from datetime import datetime, timezone, timedelta
+    rec = {"requested_by": "admin",
+           "requested_at": (datetime.now(timezone.utc)
+                            - timedelta(seconds=90)).isoformat(),
+           "units": ["a.service"], "scope": "system",
+           "pre_invocations": {"a.service": "100"},
+           "evidence": {"a.service": {"old": "100", "new": "100",
+                                      "restarted": True}},
+           "result": "pending"}
+    marker.write_text(json.dumps(rec))
+    status = {"services": [{"unit": "a.service", "state": "active"}]}
+    with app.app_context():
+        routes._resolve_pending_restart(status, marker)
+        d = json.loads(marker.read_text())
+        assert d["result"] == "failed"
+        assert d["basis"] == "partial_or_no_new_invocation"
