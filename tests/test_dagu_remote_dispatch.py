@@ -194,6 +194,21 @@ def test_submit_remote_ambiguous_workers_rejected(app, monkeypatch):
         assert stub.enqueued is None
 
 
+def test_https_binding_with_credential_ref_rejected(app, monkeypatch):
+    stub = _StubDagu()
+    with app.app_context():
+        rid, rtid, bid, diid = _env(app, monkeypatch, stub)
+        b = db.session.get(GitBinding, bid)
+        b.credential_ref = "git-main"
+        db.session.commit()
+        ex = _create(diid, rtid)
+        d._submit_remote(db.session.get(Execution, ex.id))
+        ex = db.session.get(Execution, ex.id)
+        assert ex.state == ExecutionState.FAILED
+        assert "cannot embed" in ex.error_text
+        assert stub.enqueued is None
+
+
 def test_remote_never_enters_local_path(app, monkeypatch):
     stub = _StubDagu()
     with app.app_context():

@@ -1237,29 +1237,29 @@ def _submit_remote(ex: Execution) -> None:
         extra=flags,
     )
     git_auth = {}
-    if binding.credential_ref:
-        try:
-            from .secrets_store import read_secret
-            secret = read_secret(current_app._get_current_object(),
-                                 binding.credential_ref)
-            if ":" in secret:
-                u, p = secret.split(":", 1)
-                git_auth = {"username": u, "password": p}
-            elif secret:
-                git_auth = {"token": secret}
-        except Exception as exc:
-            _fail(ex, "infrastructure",
-                  f"binding credential unusable: {exc}")
-            return
-    if str(binding.url).startswith(("ssh://", "git@")):
+    url = str(binding.url)
+    if url.startswith(("ssh://", "git@")):
         # Worker-side ssh: the key path names a file on the WORKER —
         # key material never crosses the wire. Empty auth lets the
-        # worker's own ssh-agent answer.
-        git_auth = {}
+        # worker's own ssh-agent answer (documented scope: the worker
+        # account's ssh keys + host-key policy are operator-managed).
         if rc.get("git_ssh_key_path"):
             git_auth["ssh_key_path"] = rc["git_ssh_key_path"]
         if rc.get("git_ssh_passphrase"):
             git_auth["ssh_passphrase"] = rc["git_ssh_passphrase"]
+    elif binding.credential_ref:
+        # Credential boundary: a submitted spec is stored by the
+        # coordinator and readable via its API/UI — embedding an HTTPS
+        # password/token would expose it. Restricted until Dagu
+        # server-side secrets are provisioned: remote dispatch accepts
+        # unauthenticated remotes (file://, public https) and
+        # worker-side ssh keys only.
+        _fail(ex, "infrastructure",
+              "remote dispatch cannot embed the binding's HTTPS "
+              "credential in a stored workflow spec — use an "
+              "unauthenticated remote or worker-side ssh_key_path "
+              "(see docs/integration-contracts.md)")
+        return
 
     spec = adapter.remote_kre_spec(
         worker_label=rt.worker_label,
@@ -1397,8 +1397,9 @@ def reconcile_dagu_runs() -> int:
     leases get extended only while the run is actually alive."""
     adapter = None
     fixed = 0
-    for ex in Execution.query.filter_by(
-            state=ExecutionState.DISPATCHED).all():
+    for ex in Execution.query.filter(
+            Execution.state.in_([ExecutionState.DISPATCHED,
+                                 ExecutionState.CANCEL_REQUESTED])).all():
         if not ex.dispatch_id:
             continue
         adapter = adapter or DaguAdapter.from_settings()
