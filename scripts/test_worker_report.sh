@@ -16,22 +16,20 @@ ROOT="$(mktemp -d /tmp/to-wr-XXXXXX)"
 HTTP_PORT=29987; GRPC_PORT=50055; WEB_PORT=39992
 ADMIN_PASS='DevOnly-Admin!1'
 EVID="$ROOT/evidence"; mkdir -p "$EVID"
+: > "$EVID/processes.txt"          # manifest exists BEFORE the trap
 FAILED=0
 fail() { echo "FAIL: $*" | tee -a "$EVID/assertions.txt"; FAILED=1; }
 note() { echo "== $*" | tee -a "$EVID/assertions.txt"; }
 
 # --- environment isolation ----------------------------------------------
 # No inherited app/dagu/git/credential config can redirect this run.
-for v in $(env | grep -oE '^(TO_|DAGU_|GIT_|SSH_)[A-Z_]*' \
-          | grep -vE 'TO_INSTANCE|TO_DATABASE|TO_SECURE|TO_SECRET|FLASK_APP'); do
+for v in $(env | grep -oE '^(TO_|DAGU_|GIT_|SSH_|FLASK_|XDG_)[A-Z_]*'); do
   unset "$v"; done
 export GIT_CONFIG_NOSYSTEM=1 HOME="$ROOT/home"
 mkdir -p "$ROOT"/{home,coord/{bin,home/dags},worker,ws,portal,proj,kre}
-git config --global user.email "fixture@localhost" \
-             --global user.name "fixture" 2>/dev/null || true
 
 # --- tool + dependency checks -------------------------------------------
-for t in tar curl ss unzip python3; do
+for t in tar curl ss unzip python3 setsid; do
   command -v "$t" >/dev/null || { echo "missing tool: $t"; exit 1; }
 done
 [ -x "$REPO/.venv/bin/waitress-serve" ] \
@@ -53,19 +51,30 @@ spawn() { # spawn NAME CMD...
 }
 cleanup() {
   set +e
-  while read -r pid name; do
-    [ -n "$pid" ] && [ -e "/proc/$pid/cmdline" ] && \
-      grep -qa "$RUN" "/proc/$pid/environ" 2>/dev/null && \
-      kill -- "-$pid" 2>/dev/null
-  done < "$EVID/processes.txt" 2>/dev/null
-  sleep 1
-  local survivors=0
-  while read -r pid name; do
-    [ -e "/proc/$pid/cmdline" ] 2>/dev/null && { survivors=1;
-      echo "survivor: $pid $name"; }
-  done < "$EVID/processes.txt" 2>/dev/null
-  [ "$survivors" = 0 ] && echo "[cleanup] all fixture processes stopped" \
-    || echo "[cleanup] WARNING survivors remain (above)"
+  # owned members of each fixture process group, even if leader exited
+  for pgid in $(awk '{print $1}' "$EVID/processes.txt" 2>/dev/null); do
+    for pid in $(pgrep -g "$pgid" 2>/dev/null); do
+      grep -qa "TO_RUN=$RUN" "/proc/$pid/environ" 2>/dev/null \
+        && kill "$pid" 2>/dev/null
+    done
+  done
+  for i in $(seq 1 10); do sleep 0.5
+    left=$(for pgid in $(awk '{print $1}' "$EVID/processes.txt"); do
+      pgrep -g "$pgid" 2>/dev/null; done | wc -l)
+    [ "$left" = 0 ] && break
+  done
+  if [ "$left" != 0 ]; then   # escalate inside owned groups only
+    for pgid in $(awk '{print $1}' "$EVID/processes.txt"); do
+      for pid in $(pgrep -g "$pgid" 2>/dev/null); do
+        grep -qa "TO_RUN=$RUN" "/proc/$pid/environ" 2>/dev/null \
+          && kill -9 "$pid" 2>/dev/null
+      done
+    done
+  fi
+  left=$(for pgid in $(awk '{print $1}' "$EVID/processes.txt"); do
+    pgrep -g "$pgid" 2>/dev/null; done | wc -l)
+  [ "$left" = 0 ] || { echo "CLEANUP-FAIL: $left fixture procs remain";
+    FAILED=1; }
   echo "[cleanup] evidence preserved in $EVID (0600)"
 }
 trap cleanup EXIT
@@ -176,7 +185,10 @@ code=$(curl -s --max-time 5 -b "$CJ" -c "$CJ" -o /dev/null \
   -d "csrf_token=$TOK&username=Admin&password=$ADMIN_PASS")
 [ "$code" = 302 ] || [ "$code" = 200 ] \
   || { echo "login failed ($code)"; exit 1; }
-note "admin login ok"
+code=$(curl -s --max-time 5 -b "$CJ" -o /dev/null -w "%{http_code}" \
+  "http://127.0.0.1:$WEB_PORT/executions")
+[ "$code" = 200 ] && note "authenticated access verified" \
+  || { echo "auth check failed ($code)"; exit 1; }
 
 # --- register binding+worker+runtime, create+dispatch execution ----------
 SHA=$(cd "$REPO" && .venv/bin/python - "$ROOT/proj" <<'PY'
@@ -208,10 +220,21 @@ with app.app_context():
     ex = create_execution(project_id=p.id, binding_id=b.id,
                           runtime_id=rt.id,
                           run_config={"worker_label": "$RUN"})
-    db.session.commit(); print(ex.id)
+    db.session.commit()
+    from testorchestrator.dispatch import run_execution
+    run_execution(ex.id)          # real dispatch + monitor path
+    print(ex.id)
 PY
 )
 note "execution $EXID dispatched (run marker $RUN)"
+grep -qa "wr-$RUN" "$ROOT/worker/worker.log" \
+  && grep -qa "$EXID\|checkout\|katalonc" "$ROOT/worker/worker.log" \
+  && note "worker wr-$RUN executed the job (log evidence)" \
+  || fail "no worker-side evidence of $EXID in worker log"
+[ -f "$ROOT/ws/$SHA" ] || [ -d "$ROOT/ws" ] \
+  && ls "$ROOT/ws" | tee -a "$EVID/workspace.txt" >/dev/null \
+  && note "workspace populated (see workspace.txt)" \
+  || fail "execution workspace missing after checkout"
 
 # --- bounded terminal-state poll -----------------------------------------
 S=""
