@@ -44,8 +44,8 @@ def security_headers(response):
     else:
         csp = (
             "default-src 'self'; "
-            "img-src 'self'; "
-            "style-src 'self'; "
+            "img-src 'self' data:; "
+            "style-src 'self' 'unsafe-inline'; "
             "script-src 'self'; "
             "connect-src 'self'; "
             "font-src 'self'; "
