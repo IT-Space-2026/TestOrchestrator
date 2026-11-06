@@ -49,7 +49,7 @@
     <div class="field"><label for="runner_id">Worker</label>
       <select name="runner_id" id="runner_id">
         <option value="">Auto — pick any eligible worker</option>
-        {% for r in runners %}<option value="{{ r.id }}">{{ r.name }}
+        {% for r in workers %}<option value="{{ r.id }}">{{ r.name }}
           ({{ r.os_arch or 'unknown os' }}, {{ r.health or 'ok' }})</option>{% endfor %}
       </select>
       <small>Auto picks the first eligible (enabled, not draining,

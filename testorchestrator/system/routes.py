@@ -1133,8 +1133,8 @@ def edit_runner(runner_id):
     if runner is None:
         abort(404)
     runner.name = request.form.get("name", runner.name).strip()
-    runner.description = request.form.get(
-        "description", runner.description)
+    worker.description = request.form.get(
+        "description", worker.description)
     old_arch, old_ws = runner.os_arch, runner.workspace_root
     runner.os_arch = request.form.get("os_arch", runner.os_arch)
     ws = request.form.get("workspace_root")

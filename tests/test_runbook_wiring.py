@@ -318,6 +318,17 @@ def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
         "credential_ref": "", "concurrency": 1})
     assert resp.status_code == 302
 
+    # satisfy the submission prerequisites the launch now revalidates:
+    # verified engine on the registered worker + verified publishing
+    # repository (fixture marks — the real checks are setup's job)
+    with app.app_context():
+        from testorchestrator.execution import RuntimeConnection
+        from testorchestrator.settings import set as _s
+        rt = RuntimeConnection.query.filter_by(name="kre-1").first()
+        rt.detected_version = "9.0.0"
+        _s("publish_repo_verified", "ok")
+        db.session.commit()
+
     # suite creation through the project page form (was unroutable/broken)
     resp = client.post(f"/projects/{pid}/suites", data={
         "name": "Smoke", "description": "", "binding_id": bid,

@@ -32,7 +32,7 @@
   <div class="field"><label for="runner_id">Worker</label>
     <select name="runner_id" id="runner_id">
       <option value="">All workers</option>
-      {% for r in runners %}
+      {% for r in workers %}
       <option value="{{ r.id }}" {% if filters.get('runner_id')==r.id %}selected{% endif %}>{{ r.name }}</option>
       {% endfor %}
     </select></div>

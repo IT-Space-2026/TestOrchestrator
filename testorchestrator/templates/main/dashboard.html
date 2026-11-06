@@ -15,7 +15,7 @@
     <div class="metric"><span class="metric-num" data-m="executions_queued">{{ data.metrics.executions_queued }}</span><span class="metric-label">Queued</span></div>
     <div class="metric"><span class="metric-num" data-m="passed_period">{{ data.metrics.passed_period }}</span><span class="metric-label">Passed attempts · {{ data.period_days }}d</span></div>
     <div class="metric"><span class="metric-num" data-m="failed_period">{{ data.metrics.failed_period }}</span><span class="metric-label">Failed attempts · {{ data.period_days }}d</span></div>
-    <div class="metric"><span class="metric-num" data-m="runners_available">{{ data.metrics.runners_available }}/{{ data.metrics.runners_total }}</span><span class="metric-label">Runners dispatch-eligible (<span data-m="runners_healthy">{{ data.metrics.runners_healthy }}</span> healthy)</span></div>
+    <div class="metric"><span class="metric-num" data-m="runners_available">{{ data.metrics.runners_available }}/{{ data.metrics.runners_total }}</span><span class="metric-label">Workers dispatch-eligible (<span data-m="runners_healthy">{{ data.metrics.runners_healthy }}</span> healthy)</span></div>
     <div class="metric"><span class="metric-num" data-m="schedules_upcoming">{{ data.metrics.schedules_upcoming }}</span><span class="metric-label">Upcoming scheduled runs</span></div>
   </div>
   <p class="muted"><small>Counts: each execution attempt counts once —

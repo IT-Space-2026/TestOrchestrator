@@ -10,8 +10,10 @@ from .settings import get as _get
 
 
 def _admin_set() -> bool:
-    from .auth import User
-    return bool(User.query.filter_by(username="Admin").first())
+    """Verified = the bootstrap password was actually replaced (the
+    set-admin-password command / change-password flow records this
+    flag). Account existence alone is only 'configured'."""
+    return _get("admin_bootstrap_replaced", "") == "yes"
 
 
 def _coordinator_ok() -> bool:
@@ -22,12 +24,19 @@ def _coordinator_ok() -> bool:
 
 def _workers() -> list:
     from .execution import Runner
-    return Runner.query.filter_by(is_active=True).all()
+    return Runner.query.all()
+
+
+def _eligible_workers() -> list:
+    """Workers that can accept work now (not draining)."""
+    from .execution import Runner
+    return [r for r in Runner.query.all()
+            if not getattr(r, "draining", False)]
 
 
 def _runtimes() -> list:
     from .execution import RuntimeConnection
-    return RuntimeConnection.query.filter_by(is_active=True).all()
+    return RuntimeConnection.query.filter_by(enabled=True).all()
 
 
 def _bindings() -> list:
@@ -40,14 +49,16 @@ def components() -> list:
     workers = _workers()
     runtimes = _runtimes()
     bindings = _bindings()
+    # a runtime is "verified" when a probe recorded a detected version
     verified_rt = [r for r in runtimes
-                   if getattr(r, "verify_state", "") == "verified"]
+                   if getattr(r, "detected_version", "")]
     resolved = [b for b in bindings
                 if getattr(b, "last_resolve_state", "") == "resolved"]
 
     # per-worker eligibility: a verified KRE must sit on a connected worker
     eligible = [r for r in verified_rt
-                if any(w.id == r.runner_id for w in workers)]
+                if any(w.id == r.runner_id for w in
+                       _eligible_workers())]
 
     pub_url = _get("publish_repo_url", "")
     pub_ok = _get("publish_repo_verified", "") == "ok"
@@ -89,6 +100,10 @@ def components() -> list:
                     "required: a local-artifact-only deployment is not "
                     "a ready full system"),
          "link": "system.reporting_page"},
+        {"key": "reporting", "label": "Reporting (Allure + JRE)",
+         "status": _reporting_state(),
+         "detail": "bundled JRE + report pipeline present",
+         "link": "system.reporting_page"},
         {"key": "storage", "label": "Storage",
          "status": _storage_state(),
          "detail": "instance dir + database",
@@ -101,9 +116,19 @@ def components() -> list:
 
 
 def _storage_state() -> str:
-    from .execution import Project  # noqa: proves DB is queryable
+    """DB queryable + instance/report/artifact dirs writable under the
+    runtime account — the directories the evidence pipeline writes."""
+    from flask import current_app
+    import os
     try:
+        from .execution import Project
         Project.query.first()
+        inst = current_app.instance_path
+        for d in (inst, os.path.join(inst, "reports"),
+                  os.path.join(inst, "artifacts")):
+            os.makedirs(d, exist_ok=True)
+            if not os.access(d, os.W_OK):
+                return "failed"
         return "verified"
     except Exception:
         return "failed"
@@ -119,17 +144,33 @@ def blockers() -> list:
             if c["key"] != "security" and c["status"] != "verified"]
 
 
+def _reporting_state() -> str:
+    """The report-generation runtime must be present — verified when a
+    bundled/toolchain probe recorded success, configured when the
+    assets are installed but unprobed."""
+    from . import allure_runtime
+    try:
+        homes = allure_runtime.detect_java_homes()
+        if homes and allure_runtime._allure() is not None:
+            return "verified"
+        if allure_runtime._allure() is not None:
+            return "configured"
+        return "missing"
+    except Exception:
+        return "missing"
+
+
 def operational_check() -> "str | None":
     """Submission-time revalidation — names the first missing blocking
     component, or None when the system can serve an execution now."""
-    if not _workers():
+    if not _eligible_workers():
         return "No workers connected — dispatch impossible"
-    workers = {w.id for w in _workers()}
-    if not any(getattr(r, "verify_state", "") == "verified"
+    workers = {w.id for w in _eligible_workers()}
+    if not any(getattr(r, "detected_version", "")
                and r.runner_id in workers for r in _runtimes()):
         return ("No verified KRE installation on a connected worker — "
                 "engine check must pass on the target worker")
-    if not _get("publish_repo_verified", ""):
+    if _get("publish_repo_verified", "") != "ok":
         return ("Publishing repository not verified — reports cannot "
                 "be published; complete the publishing setup step")
     return None
