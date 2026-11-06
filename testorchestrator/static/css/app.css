@@ -583,6 +583,12 @@ pre.example {
 }
 .audit-table tbody tr:hover { background: var(--bg); }
 .audit-table tbody tr.selected { background: rgba(26,86,219,.07); }
+.audit-table .checksum {
+  display: inline-block; max-width: 34ch; overflow-wrap: anywhere;
+  font-size: .8em; vertical-align: middle;
+}
+.audit-table { table-layout: auto; }
+.audit-table td:last-child { white-space: nowrap; }
 
 /* --- tabs polish --- */
 .tab-bar label {

@@ -53,7 +53,8 @@ DAGU_HOME="$ROOT/coord/home" "$ROOT/coord/bin/dagu" start-all \
   --port $HTTP_PORT --host 127.0.0.1 --config "$ROOT/coord/server.yaml" \
   --dags "$ROOT/coord/home/dags" >"$ROOT/coord/coord.log" 2>&1 &
 PIDS+=($!)
-sleep 3
+for i in $(seq 1 15); do sleep 1
+  ss -tln | grep -q ":$HTTP_PORT " && break; done
 ss -tln | grep -q ":$HTTP_PORT " && ss -tln | grep -q ":$GRPC_PORT " \
   || { echo "coordinator listeners missing"; exit 1; }
 curl -sf "http://127.0.0.1:$HTTP_PORT/api/v2/health" -o /dev/null \
@@ -95,7 +96,7 @@ sleep 3
 CJ="$ROOT/cookies"; rm -f "$CJ"
 TOK=$(curl -s -c "$CJ" "http://127.0.0.1:$WEB_PORT/login" | grep -o 'value="[^"]*"' | head -1 | sed 's/value="//;s/"//')
 curl -s -b "$CJ" -c "$CJ" -X POST "http://127.0.0.1:$WEB_PORT/login" \
-  -d "csrf_token=$TOK&username=admin&password=$ADMIN_PASS" -o /dev/null
+  -d "csrf_token=$TOK&username=Admin&password=$ADMIN_PASS" -o /dev/null
 SHA=$(cd "$ROOT/proj" && git rev-parse HEAD)
 EXID=$(cd "$REPO" && TO_INSTANCE_DIR="$ROOT/portal" TO_DATABASE_URI="sqlite:///$ROOT/portal/p.db" .venv/bin/python - <<PY
 from testorchestrator import create_app
@@ -119,20 +120,34 @@ with app.app_context():
 PY
 )
 echo "[exec] $EXID"
+S=""
 for i in $(seq 1 40); do
   S=$(cd "$REPO" && TO_INSTANCE_DIR="$ROOT/portal" TO_DATABASE_URI="sqlite:///$ROOT/portal/p.db" .venv/bin/python -c "
 from testorchestrator import create_app
 from testorchestrator.execution import Execution
 a=create_app()
 with a.app_context():
-    e=Execution.query.get('$EXID'); print(e.state.value, e.outcome.value)")
-  case "$S" in COMPLETED*|FAILED*|CANCELED*) break;; esac; sleep 3
+    e=Execution.query.get('$EXID')
+    print(e.state.value, e.outcome.value, e.report_status)")
+  case "$S" in completed*|failed*|canceled*) break;; esac; sleep 3
 done
 echo "[exec] final: $S"
-# --- verify report + artifact routes ------------------------------------
+# assert SUCCESS, not merely terminal: completed+passed, report ready
+case "$S" in
+  "completed passed ready"|"completed passed ready"*) echo "[exec] completed+passed+ready";;
+  *) echo "FAIL: expected 'completed passed ready', got '$S'"; exit 1;;
+esac
+# --- verify report + artifact routes: status AND expected content -------
+declare -A got
 for ep in "report" "report.zip" "artifacts.zip"; do
-  curl -s -b "$CJ" -o "/tmp/wr-$ep" -w "$ep: %{http_code} %{size_download}B\n" \
-    "http://127.0.0.1:$WEB_PORT/executions/$EXID/$ep"
+  got[$ep]=$(curl -s -b "$CJ" -o "/tmp/wr-$ep" -w "%{http_code}" \
+    "http://127.0.0.1:$WEB_PORT/executions/$EXID/$ep")
+  echo "$ep: ${got[$ep]} $(stat -c%s /tmp/wr-$ep)B"
 done
-grep -q "Fixture report" /tmp/wr-report 2>/dev/null || unzip -p /tmp/wr-report.zip 2>/dev/null | grep -q "Fixture report" \
-  && echo "[report] viewable content present" || echo "[report] check content manually"
+grep -q "Fixture report" "/tmp/wr-report" \
+  || { echo "FAIL: /report lacks expected fixture content"; exit 1; }
+unzip -l "/tmp/wr-report.zip" | grep -q "index.html" \
+  || { echo "FAIL: report.zip missing index.html"; exit 1; }
+unzip -l "/tmp/wr-artifacts.zip" | grep -q "junit.xml" \
+  || { echo "FAIL: artifacts.zip missing junit.xml"; exit 1; }
+echo "[report] all assertions passed"
