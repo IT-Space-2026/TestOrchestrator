@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}System health · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>System &rarr; Health &amp; services</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+<section class="card">
+  <h2>Overall status</h2>
+  <p><span class="badge {{ 'ok' if healthy else 'danger' }}">
+    {{ "healthy" if healthy else "degraded" }}</span>
+    {% if not status.managed %}
+    <span class="muted">(isolated/dev mode — no service manager)</span>
+    {% endif %}</p>
+  <table class="audit-table">
+    <thead><tr><th>Service</th><th>State</th></tr></thead>
+    <tbody>
+      {% for s in status.services %}
+      <tr><td>{{ s.unit }}</td>
+        <td><span class="badge {{ 'ok' if s.state == 'active' else ('' if s.state == 'unmanaged' else 'danger') }}">{{ s.state }}</span></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+<section class="card">
+  <h2>Restart services</h2>
+  {% if active_work %}
+  <p><span class="badge warn">{{ active_work }}</span> execution(s)
+    active — restart is blocked until they finish. Restarting mid-run
+    loses the portal-side collect/normalize step.</p>
+  {% else %}
+  <p class="muted">Restarts the application-managed services listed
+    above via the platform's service manager (systemd). The browser
+    disconnects briefly — reconnect and check this page for the result.
+    Remote workers and their KRE executions are not touched.</p>
+  <form method="post" action="{{ url_for('system.restart_services') }}"
+        onsubmit="return confirm('Restart TestOrchestrator services? The browser will disconnect briefly.');">
+    {{ restart_form.csrf_token }}
+    <button class="button" type="submit"
+      {{ "disabled" if not status.managed }}>Restart services</button>
+  </form>
+  {% endif %}
+  {% if last_restart %}
+  <p class="muted">Last request: {{ last_restart.requested_by }} at
+    {{ last_restart.requested_at }} — result:
+    <strong>{{ last_restart.result }}</strong></p>
+  {% endif %}
+</section>
+<section class="card">
+  <h2>Recovery</h2>
+  <p class="muted">If the UI is unavailable after a restart:
+    <code>systemctl status testorchestrator-web testorchestrator-worker</code>;
+    logs via <code>journalctl -u testorchestrator-web -n 50</code>.
+    Remote workers continue running independently and report when the
+    coordinator returns.</p>
+</section>
+{% endblock %}

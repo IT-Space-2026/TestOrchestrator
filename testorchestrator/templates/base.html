@@ -27,6 +27,7 @@
           <details class="nav-sub" open>
             <summary>Admin</summary>
             <ul class="nav-sub-list">
+              <li><a href="{{ url_for('system.system_health') }}">Health &amp; services</a></li>
               <li><a href="{{ url_for('system.network') }}">Network &amp; certificates</a></li>
               <li><a href="{{ url_for('system.users') }}">Users</a></li>
               <li><a href="{{ url_for('system.infrastructure') }}">Runners &amp; runtimes</a></li>

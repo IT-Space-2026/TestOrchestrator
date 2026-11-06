@@ -4,6 +4,9 @@ All mutations are Admin-only, validated, staged through the Caddy renderer,
 audited without secrets, and recoverable via previous_good_config.
 """
 
+import sys
+from datetime import datetime, timezone
+
 from flask import (abort, current_app, flash, redirect, render_template,
                    request, send_file, url_for)
 from flask_login import current_user
@@ -550,6 +553,128 @@ def dagu_worker_download(filename):
         abort(404)
     return send_file(path, as_attachment=True,
                      download_name=filename)
+
+
+# ---------- system health & application-managed services ----------
+
+MANAGED_UNITS = ("testorchestrator-web", "testorchestrator-worker",
+                 "testorchestrator-dagu", "testorchestrator-caddy")
+_RESTART_FLAG = "restart-request.json"
+
+
+def _service_status() -> dict:
+    """Status of application-managed services — systemd units when the
+    platform package installed them; otherwise an honest unmanaged
+    report (isolated/dev installs have no service manager)."""
+    import shutil, subprocess
+    out = {"managed": shutil.which("systemctl") is not None,
+           "services": []}
+    for u in MANAGED_UNITS:
+        if not out["managed"]:
+            out["services"].append({"unit": u, "state": "unmanaged"})
+            continue
+        r = subprocess.run(["systemctl", "is-active", u + ".service"],
+                           capture_output=True, text=True)
+        state = (r.stdout.strip() or "unknown") if r.returncode == 0 \
+            else (r.stdout.strip() or "inactive")
+        out["services"].append({"unit": u, "state": state})
+    return out
+
+
+def _restart_marker() -> "Path":
+    from pathlib import Path
+    return Path(current_app.instance_path) / _RESTART_FLAG
+
+
+def _active_work_count() -> int:
+    from ..execution import Execution, ExecutionState
+    return Execution.query.filter(Execution.state.in_([
+        ExecutionState.DISPATCHED, ExecutionState.PREPARING,
+        ExecutionState.RUNNING, ExecutionState.COLLECTING,
+        ExecutionState.NORMALIZING])).count()
+
+
+@system_bp.route("/health")
+@role_required(Role.ADMIN)
+def system_health():
+    status = _service_status()
+    marker = _restart_marker()
+    last_restart = None
+    if marker.exists():
+        import json as _j
+        try:
+            last_restart = _j.loads(marker.read_text())
+        except Exception:
+            pass
+    healthy = (not status["managed"]) or all(
+        s["state"] == "active" for s in status["services"])
+    return render_template(
+        "system/health.html", status=status, healthy=healthy,
+        active_work=_active_work_count(), last_restart=last_restart,
+        restart_form=ApplyForm())
+
+
+@system_bp.route("/services/restart", methods=["POST"])
+@role_required(Role.ADMIN)
+def restart_services():
+    """Restart the platform-managed services through systemd — the
+    mechanism the package itself installed. Detached via a new session
+    so completion does not depend on this web request surviving its own
+    restart. Never touches remote workers or their KRE processes."""
+    import json as _j, subprocess
+    status = _service_status()
+    if not status["managed"]:
+        flash("No managed services — this installation runs without "
+              "systemd units (isolated/dev mode). Nothing to restart.",
+              "error")
+        return redirect(url_for("system.system_health"))
+    active = _active_work_count()
+    if active:
+        flash(f"Restart deferred — {active} execution(s) still active. "
+              "Wait for them to finish or cancel them first; restarting "
+              "mid-run loses the portal-side collect/normalize step.",
+              "error")
+        return redirect(url_for("system.system_health"))
+    marker = _restart_marker()
+    if marker.exists():
+        flash("A restart was already requested — refusing a duplicate "
+              "request. Check System health for its result.", "error")
+        return redirect(url_for("system.system_health"))
+    units = [s["unit"] + ".service" for s in status["services"]]
+    marker.write_text(_j.dumps({
+        "requested_by": current_user.username,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "units": units, "result": "pending"}))
+    record_audit(current_user.username, "services.restart_requested",
+                 ", ".join(units))
+    # Independent completion: systemd performs the restart; the helper
+    # only reports the outcome into the marker afterwards.
+    helper = (
+        "import json,subprocess,sys,time\n"
+        f"m={str(marker)!r}\n"
+        "time.sleep(2)\n"
+        f"units={units!r}\n"
+        "r=subprocess.run(['systemctl','restart',*units])\n"
+        "ok=r.returncode==0\n"
+        "for u in units:\n"
+        "    subprocess.run(['systemctl','is-active','--quiet',u])\n"
+        "d=json.loads(m.read_text())\n"  # noqa: E501
+        "d['result']='done' if ok else 'failed'\n"
+        "m.write_text(json.dumps(d))\n"
+        "sys.exit(0 if ok else 1)\n")
+    try:
+        subprocess.Popen(
+            [sys.executable or "python3", "-c", helper],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as exc:
+        marker.unlink(missing_ok=True)
+        flash(f"Restart could not be detached: {exc}", "error")
+        return redirect(url_for("system.system_health"))
+    flash("Restart requested — services will be restarted by systemd. "
+          "The browser will disconnect briefly; reconnect and check "
+          "System health for the result.", "info")
+    return redirect(url_for("system.system_health"))
 
 
 @system_bp.route("/infrastructure")
