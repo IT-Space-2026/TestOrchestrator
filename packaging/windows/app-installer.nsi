@@ -54,8 +54,14 @@ Section "Install TestOrchestrator" SecMain
     FileWrite $0 "TO_PORT=$ORCH_PORT$\r$\n"
     FileClose $0
 
-    ; python embeddable needs the app on its path + pip bootstrap
-    ; (runtime provisioning happens on first service start).
+    ; wire vendored site-packages into the embeddable runtime
+    FileOpen $1 "$INSTDIR\python\python312._pth" a
+    FileSeek $1 0 END
+    FileWrite $1 "site-packages$\r$\n"
+    FileClose $1
+    ; extract portable git at install (7z self-extractor, silent)
+    nsExec::ExecToLog '"$INSTDIR\git-setup.7z.exe" -y -gm2 -InstallPath="$INSTDIR\git"'
+    Pop $0
     nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\testorchestrator\__main__.py" --bootstrap-check'
     Pop $0
 

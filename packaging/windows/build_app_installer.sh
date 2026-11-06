@@ -31,6 +31,23 @@ fetch "https://github.com/caddyserver/caddy/releases/download/v2.9.1/caddy_2.9.1
 unzip -q -o /tmp/caddy-win.zip -d app-payload/caddy
 cp -r "$REPO/testorchestrator" "$REPO/migrations" "$REPO/wsgi.py" \
       "$REPO/requirements.txt" "$REPO/release" "$REPO/deploy" app-payload/
+# python packages for win_amd64 — vendored, NOT a bootstrap download:
+# install-time wheels land in site-packages wired via python312._pth.
+"$REPO/.venv/bin/pip" download --platform win_amd64 --only-binary=:all: \
+    --python-version 3.12 -r "$REPO/requirements.txt" \
+    -d app-payload/wheels
+mkdir -p app-payload/site-packages
+for w in app-payload/wheels/*.whl; do unzip -q -o "$w" -d app-payload/site-packages; done
+# allure commandline (ships allure.bat — works on the Windows JRE)
+mkdir -p app-payload/allure
+tar xzf "$REPO/3rdparty/allure/"*.tar.gz -C app-payload/allure \
+    --strip-components=1 2>/dev/null || cp -r "$REPO/3rdparty/allure/"* \
+    app-payload/allure/
+# portable git for windows (7z self-extracting exe — extracted at install)
+fetch "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/PortableGit-2.56.0.4-64-bit.7z.exe" \
+    "/tmp/PortableGit-2.56.0.4-64-bit.7z.exe" \
+    "b1f3e52216e2ed6882d1bebfd4d3fdf319bec40d2edbbf9fd26ec4fd3fce7ed1"
+cp /tmp/pg.7z.exe app-payload/git-setup.7z.exe
 echo "payload staged: $(du -sh app-payload | cut -f1)"
 command -v makensis >/dev/null || { echo "makensis missing" >&2; exit 1; }
 makensis -V2 app-installer.nsi
