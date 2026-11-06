@@ -11,12 +11,30 @@
 <div class="card"><p><strong>Installer-provided:</strong> {{ step.auto }}</p>
 <p class="muted">Nothing to enter — verify the component works.</p></div>
 {% endif %}
-{% if step.inputs %}
-<div class="card"><h2>Missing inputs</h2>
-<ul>{% for i in step.inputs %}<li>{{ i }}</li>{% endfor %}</ul>
-<p class="muted">Entered on {{ step.configure_label }} — the same form
-and validators used by normal Settings.</p>
-<a class="button" href="{{ url_for(comp.link) }}">{{ step.configure_label }}</a></div>
+{% if step.fields %}
+<div class="card"><h2>Configure</h2>
+  <form method="post" action="{{ url_for('setup.save', key=step.key) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% for fld in step.fields %}
+    <div class="field">
+      <label>{{ fld.label }}
+      {% if fld.type == "worker_select" %}
+        <select name="{{ fld.name }}">
+          <option value="">— select worker —</option>
+          {% for w in workers %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}
+        </select>
+      {% else %}
+        <input type="{{ fld.type }}" name="{{ fld.name }}">
+      {% endif %}
+      </label>
+      {% if fld.help %}<small class="muted">{{ fld.help }}</small>{% endif %}
+    </div>
+    {% endfor %}
+    <button type="submit" class="button">Save</button>
+  </form>
+  <p class="muted">Advanced options on
+  <a href="{{ url_for(comp.link) }}">{{ step.configure_label }}</a>.</p>
+</div>
 {% endif %}
 
 <div class="card">

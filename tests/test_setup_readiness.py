@@ -227,5 +227,5 @@ def test_source_detail_distinguishes_remote_capability(app):
             _s(f"verified_fp_binding_{b.id}", _fp(_binding_fp(b), combo))
         db.session.commit()
         det = readiness._source_detail([b1, b2], [b1, b2])
-        assert "ssh" in det and "remote-execution capable" in det
+        assert "ssh" in det and "remote-capable" in det
         assert "portal-side only" in det

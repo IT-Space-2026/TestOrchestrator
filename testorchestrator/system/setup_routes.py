@@ -50,14 +50,18 @@ STEP_DEFS = {
            "configure_label": "the Users page",
            "verify_note": "Passes when the bootstrap password has been "
            "replaced — existence alone never counts.",
-           "auto": ""},
+           "auto": "",
+           "fields": [{"name": "password", "type": "password",
+                       "label": "New admin password",
+                       "help": "12+ characters"}]},
  "coordinator": {"purpose": "The bundled Dagu coordinator runs every "
            "dispatch — required, not optional.",
            "inputs": [],
            "configure_label": "Infrastructure & components",
            "verify_note": "Health-checks the coordinator endpoint "
            "bound to the current endpoint+credential values.",
-           "auto": "endpoint, ports, worker token (written at install)"},
+           "auto": "endpoint, ports, worker token (written at install)",
+           "fields": []},
  "worker": {"purpose": "At least one Worker must be connected for any "
            "execution — remote machines get the Dagu worker download.",
            "inputs": ["worker install + registration (remote) or local "
@@ -65,14 +69,27 @@ STEP_DEFS = {
            "configure_label": "Workers",
            "verify_note": "Passes only with a fresh heartbeat on a "
            "non-draining worker — registration alone never counts.",
-           "auto": "worker download links + coordinator URL"},
+           "auto": "worker download links + coordinator URL",
+           "fields": [{"name": "worker_name", "type": "text",
+                       "label": "Register local worker (optional)",
+                       "help": "name for an in-process worker on this "
+                               "portal host — remote workers register "
+                               "from the worker itself"}]},
  "engine": {"purpose": "KRE is the execution engine used by a worker — "
            "external and separately licensed.",
            "inputs": ["KRE executable path on the target worker"],
            "configure_label": "KRE installations",
            "verify_note": "Presence+version probe ON an eligible "
            "worker. License is never inferred — stays 'not tested'.",
-           "auto": ""},
+           "auto": "",
+           "fields": [{"name": "kre_path", "type": "text",
+                       "label": "KRE executable path",
+                       "help": "e.g. /opt/kre/katalonc (must exist on "
+                               "the target worker)"},
+                      {"name": "worker_id", "type": "worker_select",
+                       "label": "On worker",
+                       "help": "the registered worker that hosts this "
+                               "KRE"}]},
  "source": {"purpose": "At least one project source binding must "
            "resolve through the real dispatch path.",
            "inputs": ["repository URL", "ref", "credentials "
@@ -80,21 +97,43 @@ STEP_DEFS = {
            "configure_label": "Projects",
            "verify_note": "Clone + ref resolution via the backend a "
            "worker uses — a saved URL is not verification.",
-           "auto": ""},
+           "auto": "",
+           "fields": [{"name": "repo_url", "type": "text",
+                       "label": "Repository URL",
+                       "help": "ssh:// for remote worker execution; "
+                               "https:// works portal-side only"},
+                      {"name": "repo_ref", "type": "text",
+                       "label": "Ref", "help": "branch, tag, or SHA"},
+                      {"name": "cred_ref", "type": "text",
+                       "label": "Credential name (optional)",
+                       "help": "stored credential for HTTPS; ssh uses "
+                               "the worker's key path"}]},
  "publishing": {"purpose": "Report publishing repository — REQUIRED. A "
            "local-artifact-only install is not a ready full system.",
            "inputs": ["publishing repository address", "credentials"],
            "configure_label": "Reporting settings",
            "verify_note": "Explicit write probe: one marker ref "
            "created, read back, deleted. Nothing else is touched.",
-           "auto": "local artifact store (storage/recovery only)"},
+           "auto": "local artifact store (storage/recovery only)",
+           "fields": [{"name": "publish_repo_url", "type": "text",
+                       "label": "Publishing repository URL",
+                       "help": "where evidence/reports are published "
+                               "— required"},
+                      {"name": "publish_cred", "type": "text",
+                       "label": "Publish credential name",
+                       "help": "a stored Git credential with push "
+                               "rights"}]},
  "security": {"purpose": "Listening address and TLS for the portal.",
            "inputs": ["bind address", "TLS cert (external exposure "
                       "only)"],
            "configure_label": "Network & certificates",
            "verify_note": "Handshake + reachability on the bound "
            "address. Loopback development is allowed.",
-           "auto": "loopback default"},
+           "auto": "loopback default",
+           "fields": [{"name": "bind_addr", "type": "text",
+                       "label": "Listen address",
+                       "help": "127.0.0.1 for local-only or the "
+                               "deployment address"}]},
 }
 
 
@@ -110,6 +149,7 @@ def step(key):
         "system/setup_step.html",
         step=dict(key=key, label=comp["label"], **STEP_DEFS[key]),
         comp=comp, idx=i + 1,
+        workers=readiness._workers(),
         prev_step=order[i - 1] if i else None,
         next_step=order[i + 1] if i + 1 < len(order) else None)
 
@@ -126,6 +166,96 @@ def verify(key):
     flash(f"{key}: {result['status']} — {result['detail']}",
           "success" if result["status"] == "verified" else "error")
     return redirect(url_for("setup.index"))
+
+
+@setup_bp.route("/save/<key>", methods=["POST"])
+@role_required(Role.ADMIN)
+def save(key):
+    """Inline per-step save — writes the same settings/models as the
+    Settings forms (no parallel backend). Validation errors return to
+    the step with an actionable message; progress persists."""
+    state = _progress()
+    try:
+        _save_step(key)
+        state[key] = {"status": "configured",
+                      "detail": "saved — run verification"}
+        _save_progress(state)
+        flash(f"{key}: saved", "success")
+    except (ValueError, Exception) as exc:  # noqa: B902 - surfaces to admin
+        state[key] = {"status": "failed", "detail": str(exc)}
+        _save_progress(state)
+        flash(f"{key}: {exc}", "error")
+    return redirect(url_for("setup.step", key=key))
+
+
+def _save_step(key: str) -> None:
+    f = request.form
+    if key == "admin":
+        pw = f.get("password", "")
+        if len(pw) < 12:
+            raise ValueError("password must be at least 12 characters")
+        from ..models import User
+        admin = User.query.filter_by(username="Admin").first()
+        if admin is None:
+            raise ValueError("no bootstrap Admin exists")
+        admin.set_password(pw)
+        admin.must_change_password = False
+        admin.session_version += 1
+        if pw != "Admin":
+            _set("admin_bootstrap_replaced", "yes")
+        db.session.commit()
+    elif key == "worker":
+        name = (f.get("worker_name") or "").strip()
+        if not name:
+            return  # remote workers register themselves
+        from ..execution import Runner
+        if Runner.query.filter_by(name=name).first():
+            raise ValueError(f"worker {name!r} already exists")
+        db.session.add(Runner(name=name,
+                              connection_mode="local",
+                              os_arch="linux/amd64", enabled=True))
+        db.session.commit()
+    elif key == "engine":
+        path = f.get("kre_path", "").strip()
+        wid = f.get("worker_id", "").strip()
+        if not path or not wid:
+            raise ValueError("KRE path and target worker are required")
+        from ..execution import RuntimeConnection, Runner
+        if Runner.query.get(wid) is None:
+            raise ValueError("unknown worker")
+        rt = RuntimeConnection(name=f"kre-{wid[:6]}",
+                               runner_id=wid, executable_path=path,
+                               enabled=True)
+        db.session.add(rt)
+        db.session.commit()
+    elif key == "source":
+        url = f.get("repo_url", "").strip()
+        ref = f.get("repo_ref", "").strip() or "main"
+        cred = f.get("cred_ref", "").strip()
+        if not url:
+            raise ValueError("repository URL is required")
+        from ..execution import GitBinding, Project
+        p = Project.query.first() or Project(name="default")
+        db.session.add(p); db.session.flush()
+        db.session.add(GitBinding(project_id=p.id,
+                                  name=url.rsplit("/", 1)[-1],
+                                  url=url, ref=ref,
+                                  credential_ref=cred))
+        db.session.commit()
+    elif key == "publishing":
+        url = f.get("publish_repo_url", "").strip()
+        cred = f.get("publish_cred", "").strip()
+        if not url:
+            raise ValueError("publishing repository URL is required")
+        _set("publish_repo_url", url)
+        _set("publish_repo_credential_ref", cred)
+        db.session.commit()
+    elif key == "security":
+        addr = f.get("bind_addr", "").strip() or "127.0.0.1"
+        _set("bind_addr", addr)
+        db.session.commit()
+    else:
+        raise ValueError(f"no inline form for {key}")
 
 
 def _run_check(key: str) -> dict:

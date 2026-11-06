@@ -221,16 +221,30 @@ def _source_detail(resolved, bindings) -> str:
     if not resolved:
         return ("not resolved through the dispatch path"
                 if bindings else "none registered")
-    remote_ok, portal_only = 0, 0
+    remote_ok, remote_cfg, portal_only = 0, 0, 0
+    wids = {w.id for w in _eligible_workers()}
+    infra_ok = any(r.runner_id in wids and _engine_verified(r)
+                   for r in _runtimes())
     for b in resolved:
         url = (b.url or "").lower()
         if url.startswith(("ssh://", "git@")):
-            remote_ok += 1
+            # ssh syntax + eligible worker/engine = CAPABLE; actual
+            # key access on the worker is launch-time config + a
+            # worker-side fact the portal can't prove alone
+            if infra_ok:
+                remote_ok += 1
+            else:
+                remote_cfg += 1
         else:
             portal_only += 1
     parts = [f"{len(resolved)} resolved (portal-side)"]
     if remote_ok:
-        parts.append(f"{remote_ok} ssh — remote-execution capable")
+        parts.append(f"{remote_ok} ssh — remote-capable "
+                     "(worker key path + deploy-key authorization "
+                     "are worker-side prerequisites)")
+    if remote_cfg:
+        parts.append(f"{remote_cfg} ssh — no verified engine on an "
+                     "eligible worker")
     if portal_only:
         parts.append(f"{portal_only} https — portal-side only")
     return "; ".join(parts)
