@@ -28,3 +28,36 @@ def test_sha256_manifest_covers_both():
     manifest = (ROOT / "dagu.sha256").read_text()
     for name in EXPECTED:
         assert name in manifest, f"{name} not in dagu.sha256"
+
+
+def test_remote_installation_never_local():
+    """A worker_label-bound installation must NOT run locally —
+    selecting it raises, not silently falls back to the portal host."""
+    from tests.conftest import make_app
+    import tempfile
+    from pathlib import Path
+    app = make_app(Path(tempfile.mkdtemp()), "remote.db")
+    with app.app_context():
+        from testorchestrator.execution import (Runner,
+                                                RuntimeConnection,
+                                                DiscoveredItem,
+                                                Project)
+        from testorchestrator.extensions import db
+        from testorchestrator import dispatch as d
+        r = Runner(name="local", connection_mode="local",
+                   os_arch="linux", max_slots=2)
+        db.session.add(r); db.session.flush()
+        rt = RuntimeConnection(name="remote-kre", runner_id=r.id,
+                               executable_path="/opt/kre",
+                               worker_label="kre-remote-1",
+                               enabled=True)
+        db.session.add(rt); db.session.flush()
+        p = Project(name="p"); db.session.add(p); db.session.flush()
+        di = DiscoveredItem(project_id=p.id, binding_id="b",
+                            kind="suite", path="T/x.ts", name="x")
+        db.session.add(di); db.session.commit()
+        import pytest
+        with pytest.raises(d.DispatchError,
+                           match="not configured/available"):
+            d.create_execution("u", None,
+                run_config={"runtime_id": rt.id}, source_item=di)

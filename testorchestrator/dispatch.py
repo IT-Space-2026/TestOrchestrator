@@ -132,6 +132,15 @@ def create_execution(username: str, suite: Suite = None,
         if _rt is None or not _rt.enabled:
             raise DispatchError(
                 "runtime connection unavailable or disabled")
+        # remote installation -> never fall back to a local
+        # invocation. Remote dispatch via the Dagu worker is not
+        # wired yet — reject with a clear error instead of running
+        # the KRE path on the portal host.
+        if _rt.worker_label:
+            raise DispatchError(
+                "remote execution is not configured/available — this "
+                "installation is bound to a Dagu worker but remote "
+                "dispatch is not implemented")
     snapshot.update(extra_snapshot or {})
     execution = Execution(
         project_id=(suite.project_id if suite
