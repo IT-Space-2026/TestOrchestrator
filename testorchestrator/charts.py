@@ -44,6 +44,8 @@ def pass_rate_trend(rows) -> str:
             "y": (100 * r["passed"] /
                   max(1, r["passed"] + r["failed"] + r["error"]))}
            for r in rows if r.get("passed") is not None]
+    if not pts:
+        return "null"
     tr = [{"type": "scatter", "mode": "lines+markers",
            "name": "Pass rate %",
            "x": [p["x"] for p in pts], "y": [p["y"] for p in pts],
@@ -54,6 +56,8 @@ def pass_rate_trend(rows) -> str:
 
 def duration_trend(rows) -> str:
     """rows: [{day, seconds}] completed executions only."""
+    if not rows:
+        return "null"
     tr = [{"type": "scatter", "mode": "lines+markers",
            "name": "Duration (s)",
            "x": [r["day"] for r in rows],
@@ -64,6 +68,8 @@ def duration_trend(rows) -> str:
 
 def failure_breakdown(rows) -> str:
     """rows: [{case, count}]"""
+    if not rows:
+        return "null"
     tr = [{"type": "bar", "orientation": "h",
            "name": "Failures",
            "x": [r["count"] for r in rows],
