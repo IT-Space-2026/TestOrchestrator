@@ -311,7 +311,7 @@ def project_dashboard(project_id):
                           duration_trend, failure_breakdown)
     from ..project_dashboard import summary
     project = _project_or_404(project_id)
-    days = request.args.get("period", "30", type=int) or 30
+    days = request.args.get("period", 30, type=int) or 30
     suite = request.args.get("suite", "")
     state = request.args.get("state", "")
     data = summary(project.id, days=days, suite=suite, state=state)
