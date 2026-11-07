@@ -30,16 +30,24 @@
 </div>
 
 <div class="dash-2col">
-  <section class="card"><h2>Outcome trend</h2>
+  <section class="card"><h2>Outcome trend — executions/day</h2>
+    <p class="muted"><small>Units: execution attempts (each attempt
+    counts once; reruns are separate attempts).</small></p>
     {% if fig_outcomes != 'null' %}<div data-plotly-fig="{{ fig_outcomes }}"></div>
     {% else %}<p class="muted">No outcome data.</p>{% endif %}</section>
-  <section class="card"><h2>Pass rate %</h2>
+  <section class="card"><h2>Pass rate % — test cases/day</h2>
+    <p class="muted"><small>Units: parsed test-case results.
+    Passed / (passed + failed + error); skipped cases are excluded
+    from the denominator and shown separately.</small></p>
     {% if fig_passrate != 'null' %}<div data-plotly-fig="{{ fig_passrate }}"></div>
     {% else %}<p class="muted">No parsed results.</p>{% endif %}</section>
-  <section class="card"><h2>Duration (s)</h2>
+  <section class="card"><h2>Duration (s) — completed executions</h2>
+    <p class="muted"><small>Terminal executions only.</small></p>
     {% if fig_duration != 'null' %}<div data-plotly-fig="{{ fig_duration }}"></div>
     {% else %}<p class="muted">No duration data.</p>{% endif %}</section>
-  <section class="card"><h2>Top failing cases</h2>
+  <section class="card"><h2>Top failing cases — across runs</h2>
+    <p class="muted"><small>Distinct test-case identities; failures
+    accumulate across executions in the period.</small></p>
     {% if fig_failures != 'null' %}<div data-plotly-fig="{{ fig_failures }}"></div>
     {% else %}<p class="muted">No failures.</p>{% endif %}</section>
 </div>

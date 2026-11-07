@@ -40,10 +40,12 @@ def outcome_trend(rows) -> str:
 def pass_rate_trend(rows) -> str:
     """rows: [{day, passed, failed, error}] — denominator
     passed+failed+error, skips excluded."""
-    pts = [{"x": r["day"],
-            "y": (100 * r["passed"] /
-                  max(1, r["passed"] + r["failed"] + r["error"]))}
-           for r in rows if r.get("passed") is not None]
+    pts = []
+    for r in rows:
+        denom = r["passed"] + r["failed"] + r["error"]
+        if denom == 0:
+            continue        # skips-only day: no executed results
+        pts.append({"x": r["day"], "y": 100 * r["passed"] / denom})
     if not pts:
         return "null"
     tr = [{"type": "scatter", "mode": "lines+markers",

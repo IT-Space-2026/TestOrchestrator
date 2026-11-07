@@ -43,9 +43,10 @@ def summary(project_id: str, days: int = 30, suite: str = "",
     for e in exes:
         d = _aw(e.finished_at).date().isoformat()
         pr = pr_by_day.setdefault(d, {"day": d, "passed": 0,
-                                      "failed": 0, "error": 0})
+                                      "failed": 0, "error": 0,
+                                      "skipped": 0})
         for r in e.results:
-            if r.status in ("passed", "failed", "error"):
+            if r.status in ("passed", "failed", "error", "skipped"):
                 pr[r.status] += 1
         if e.started_at and e.finished_at:
             durations.append({
