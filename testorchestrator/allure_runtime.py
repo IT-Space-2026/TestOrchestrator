@@ -47,15 +47,48 @@ ENV_RECORD = "TO_ALLURE_JAVA_RECORD"   # installer-written probe record path
 PROBE_TIMEOUT = 300
 
 
+def _node() -> Path | None:
+    """Bundled Node.js runtime — no system/global node required."""
+    for pat in ("node/bin/node", "node/node.exe",
+                "node-*/bin/node", "node-*/node.exe"):
+        dirs = sorted(BUNDLE_ROOT.glob(f"nodejs/{pat}"))
+        if dirs:
+            return dirs[-1]
+    return None
+
+
 def _allure() -> Path | None:
-    dirs = sorted((BUNDLE_ROOT / "allure").glob("allure-*/bin/allure"))
-    return dirs[-1] if dirs else None
+    """Bundled Allure 3 (npm `allure` package) entry — a .js/.mjs CLI
+    run under the bundled Node, never npx or a global install."""
+    for pat in ("allure-3*/bin/allure.js",
+                "allure-3*/bin/allure.mjs",
+                "node_modules/allure/bin/allure.js",
+                "allure/bin/allure.js"):
+        dirs = sorted(BUNDLE_ROOT.glob(f"allure3/{pat}"))
+        if dirs:
+            return dirs[-1]
+    return None
+
+
+def _allure_cmd() -> list | None:
+    """[node, allure.js] — explicit bundled paths, offline."""
+    node, allure = _node(), _allure()
+    if node is None or allure is None:
+        return None
+    return [str(node), str(allure)]
 
 
 def version() -> str:
     """Pinned bundled generator version, or '' when not installed."""
     a = _allure()
-    return a.parent.parent.name.split("-", 1)[1] if a else ""
+    if a is None or _allure_cmd() is None:
+        return ""
+    try:
+        res = subprocess.run(_allure_cmd() + ["--version"],
+                             capture_output=True, text=True, timeout=30)
+        return res.stdout.strip() if res.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
 
 
 def normalize_java_home(path: str | Path) -> Path | None:
@@ -292,46 +325,30 @@ def _fixture_results(dest: Path) -> None:
         "status": "passed", "stage": "finished", "labels": []}))
 
 
-def probe(java_home=None, timeout: int = PROBE_TIMEOUT) -> dict:
-    """Validate a Java runtime by ACTUALLY generating a report with the
-    pinned bundled Allure. Returns a persistable record — truthful about
-    failures (missing binary, non-zero exit, no report produced)."""
-    if java_home:
-        home = normalize_java_home(java_home)
-        if home is None:
-            # An explicit selection that is not a usable JAVA_HOME fails
-            # on its own — never silently probe a different runtime.
-            return {"ok": False, "java_home": str(java_home),
-                    "java_version": "",
-                    "error": "not a usable Java home — no bin/java found",
-                    "checked_at": _now()}
-    else:
-        home, _src = selected_java()
-        if home is None:
-            return {"ok": False, "java_home": "", "java_version": "",
-                    "error": "no Java runtime found — install a JRE/JDK "
-                             "or select its location",
-                    "checked_at": _now()}
-    version_str, verr = java_version(home)
-    record = {"java_home": str(home), "java_version": version_str,
-              "checked_at": _now()}
-    if verr:
+def probe(timeout: int = PROBE_TIMEOUT) -> dict:
+    """Validate the bundled Allure 3 + Node.js by ACTUALLY generating a
+    report from a fixture result — truthful about failures. No Java,
+    no PATH, no npx, no global node_modules."""
+    cmd = _allure_cmd()
+    record = {"checked_at": _now()}
+    if cmd is None:
         return {**record, "ok": False,
-                "error": f"version check failed — {verr}; select a "
-                         "working JRE/JDK and recheck"}
-    generator = _allure()
-    if generator is None:
-        return {**record, "ok": False,
-                "error": "bundled allure-commandline not installed"}
+                "error": "bundled Allure 3 / Node.js not installed"}
+    try:
+        ver = subprocess.run(cmd + ["--version"], capture_output=True,
+                             text=True, timeout=30)
+        record["allure_version"] = ver.stdout.strip()
+        record["node_version"] = ""
+    except (OSError, subprocess.TimeoutExpired):
+        pass
     try:
         with tempfile.TemporaryDirectory(prefix="allure-probe-") as td:
             results_dir, out_dir = Path(td) / "results", Path(td) / "out"
             _fixture_results(results_dir)
             res = subprocess.run(
-                [str(generator), "generate", str(results_dir),
-                 "-o", str(out_dir), "--single-file"],
-                env=_child_env(home), capture_output=True, text=True,
-                timeout=timeout)
+                cmd + ["generate", str(results_dir),
+                       "-o", str(out_dir), "--single-file"],
+                capture_output=True, text=True, timeout=timeout)
             entry = out_dir / "index.html"
             ok = res.returncode == 0 and entry.is_file() \
                 and entry.stat().st_size > 0
@@ -346,6 +363,14 @@ def probe(java_home=None, timeout: int = PROBE_TIMEOUT) -> dict:
         record["ok"] = False
         record["error"] = f"probe timed out or failed to start: " \
                           f"{_sanitized(str(exc), 300)}"
+    return record
+
+
+def select_and_validate(timeout: int = PROBE_TIMEOUT) -> dict:
+    """Admin action: probe the bundled runtime and persist the result
+    honestly — a saved record is never readiness evidence by itself."""
+    record = probe(timeout=timeout)
+    _set_setting("allure_probe", record)
     return record
 
 
@@ -365,61 +390,34 @@ def _installer_record() -> dict | None:
         return None
 
 
-def select_and_validate(java_home: str, timeout: int = PROBE_TIMEOUT) -> dict:
-    """Admin action: probe the given path and persist the result. On
-    success the selected home is stored; on failure the previous
-    selection is kept and the failed probe is still recorded honestly."""
-    record = probe(java_home, timeout=timeout)
-    if record["ok"]:
-        _set_setting("allure_java_home", record["java_home"])
-    _set_setting("allure_java_probe", record)
-    return record
-
-
 def available() -> bool:
     """A generation attempt is possible: generator bundled AND some
     Java runtime selectable. 'available' is not 'validated' — see
     status()/probe() for the validated-readiness signal."""
-    home, _src = selected_java()
-    return _allure() is not None and home is not None
+    return _allure_cmd() is not None
 
 
 def status() -> dict:
-    """Readiness detail for Admin -> Reporting — truthful and checkable.
-    'ready' requires a successful generation probe against the CURRENTLY
-    selected Java (persisted by the UI check or written by installer)."""
-    generator = _allure()
-    home, source = selected_java()
-    record = _setting("allure_java_probe") or _installer_record() or {}
-    probed_home = record.get("java_home", "")
-    probe_ok = bool(record.get("ok")) and probed_home == (str(home) if home
-                                                        else "")
+    """Readiness for Admin -> Reporting. 'ready' requires a successful
+    generation probe with the CURRENT bundled node+allure."""
+    cmd = _allure_cmd()
+    record = _setting("allure_probe") or {}
     st = {
-        "generator_present": generator is not None,
+        "generator_present": _allure() is not None,
+        "node_present": _node() is not None,
         "version": version(),
-        "java_home": str(home) if home else "",
-        "java_source": source,
-        "java_version": java_version(home)[0] if home else "",
         "probe": record,
-        "probe_current": probe_ok,
-        "detected": [str(h) for h in detect_java_homes()],
+        "probe_current": bool(record.get("ok")),
         "enabled": bool(_setting("allure_enabled", False)),
     }
-    if generator is None:
+    if cmd is None:
         st.update(ready=False,
-                  reason="bundled allure-commandline not installed")
-    elif home is None:
+                  reason="bundled Allure 3 / Node.js runtime not "
+                         "installed — report generation unavailable")
+    elif not record.get("ok"):
         st.update(ready=False,
-                  reason="no Java runtime found — install a JRE/JDK or "
-                         "enter its location, then run Check")
-    elif not record:
-        st.update(ready=False,
-                  reason="Java not yet validated — run Check to verify "
-                         "report generation works")
-    elif not probe_ok:
-        st.update(ready=False,
-                  reason=record.get("error") or
-                         "Java changed since last validation — recheck")
+                  reason="report generation not yet validated — run "
+                         "Check to verify the bundled runtime works")
     else:
         st.update(ready=True, reason="")
     return st
@@ -429,21 +427,18 @@ def generate(results_dir: Path, out_dir: Path,
              single_file: bool = True, timeout: int = 300) -> dict:
     """Run the bundled generator on an allure-results dir using the
     selected Java. Offline: no network — CLI + plugins are vendored."""
-    home, _src = selected_java()
-    if _allure() is None:
+    cmd_base = _allure_cmd()
+    if cmd_base is None:
         return {"ok": False,
-                "error": "bundled allure-commandline not installed"}
-    if home is None:
-        return {"ok": False,
-                "error": "no Java runtime configured or detected — "
-                         "Allure generation unavailable"}
+                "error": "bundled Allure 3 / Node.js runtime not "
+                         "installed — reporting unavailable"}
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [str(_allure()), "generate", str(results_dir),
-           "-o", str(out_dir)]
+    cmd = cmd_base + ["generate", str(results_dir),
+                      "-o", str(out_dir)]
     if single_file:
         cmd.append("--single-file")
-    res = subprocess.run(cmd, env=_child_env(home), capture_output=True,
-                         text=True, timeout=timeout)
+    res = subprocess.run(cmd, capture_output=True, text=True,
+                         timeout=timeout)
     entry = out_dir / "index.html"
     return {"ok": res.returncode == 0 and entry.exists(),
             "error": _sanitized(res.stderr or res.stdout)

@@ -379,14 +379,11 @@ def reporting_check():
     The Java check is a REAL generation probe with the pinned bundled
     Allure, run as the service account would run it."""
     from .. import allure_runtime
-    home, _src = allure_runtime.selected_java()
-    rec = allure_runtime.select_and_validate(
-        str(home) if home else "")
+    rec = allure_runtime.select_and_validate()
     a = allure_runtime.status()
     if a["ready"]:
-        flash(f"Allure: ready — generator {a['version']}, Java "
-              f"{rec.get('java_version', '?')} at {a['java_home']} "
-              f"(probe {rec.get('checked_at', '')})", "info")
+        flash(f"Allure: ready — Allure {a['version']} on bundled "
+              f"Node.js (probe {rec.get('checked_at', '')})", "info")
     else:
         flash(f"Allure: NOT ready — {a['reason']}", "error")
     return redirect(url_for("system.reporting_page"))

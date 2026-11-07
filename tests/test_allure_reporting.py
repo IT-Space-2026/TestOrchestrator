@@ -277,56 +277,58 @@ def test_selected_java_precedence(app, tmp_path, monkeypatch):
         assert (home, src) == (c, "detected")
 
 
-def test_missing_java_status_and_generate(app, monkeypatch, tmp_path):
-    """No candidates anywhere -> honest not-ready + actionable error;
+def test_missing_allure3_status_and_generate(app, monkeypatch,
+                                                tmp_path):
+    """No bundled node/allure -> honest not-ready + actionable error;
     generation reports failure instead of pretending."""
-    monkeypatch.delenv("TO_ALLURE_JAVA_HOME", raising=False)
-    monkeypatch.delenv("JAVA_HOME", raising=False)
-    monkeypatch.setattr(allure_runtime, "detect_java_homes",
-                        lambda: [])
+    monkeypatch.setattr(allure_runtime, "_node", lambda: None)
+    monkeypatch.setattr(allure_runtime, "_allure", lambda: None)
     with app.app_context():
         st = allure_runtime.status()
         assert st["ready"] is False
-        assert "Java" in st["reason"]
-        assert st["java_home"] == ""
+        assert "Allure 3" in st["reason"] or "Node" in st["reason"]
         res = allure_runtime.generate(tmp_path / "r", tmp_path / "o")
-        assert res["ok"] is False and "Java" in res["error"]
+        assert res["ok"] is False
+        assert "Allure 3" in res["error"] or "Node" in res["error"]
 
 
 def test_missing_java_adapter_marks_failed_not_outcome(
         app, tmp_path, monkeypatch):
     """Execution rows stay honest: allure fails, outcome untouched."""
-    monkeypatch.delenv("TO_ALLURE_JAVA_HOME", raising=False)
-    monkeypatch.delenv("JAVA_HOME", raising=False)
-    monkeypatch.setattr(allure_runtime, "detect_java_homes",
-                        lambda: [])
+    monkeypatch.setattr(allure_runtime, "_allure_cmd",
+                        lambda: None)
     ex_id = _mk(app, tmp_path, results=[(("C", "bad"), "failed")])
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
         res = allure_adapter.generate_for(ex)
-        assert res["status"] == "failed" and "Java" in res["error"]
+        assert res["status"] == "failed"
+        assert ("Allure 3" in res["error"] or "Node" in res["error"]
+                or "allure" in res["error"])
         assert ex.outcome == Outcome.FAILED      # never clobbered
         assert ex.state == ExecutionState.COMPLETED
 
 
-def test_explicit_bad_path_never_falls_back(app, tmp_path, monkeypatch):
-    """An explicit wrong selection must not probe some OTHER runtime —
-    the record names the attempted path and fails."""
-    real = _fake_jh(tmp_path)
-    monkeypatch.setenv("TO_ALLURE_JAVA_HOME", str(real))
+def test_bundled_paths_not_global(app, monkeypatch):
+    """Resolution uses bundled node+allure only — never PATH, npx, or
+    a global node_modules fallback."""
     with app.app_context():
-        rec = allure_runtime.probe(str(tmp_path / "nope"))
-        assert rec["ok"] is False
-        assert "bin/java" in rec["error"]
-        assert rec["java_home"] != str(real)
+        node = allure_runtime._node()
+        allure = allure_runtime._allure()
+        # when present, both must live under the bundle root
+        for p in (node, allure):
+            if p is not None:
+                assert str(allure_runtime.BUNDLE_ROOT) in str(p)
+        if node is None and allure is None:
+            assert allure_runtime._allure_cmd() is None
 
 
-def test_generate_scopes_java_env_to_child(app, tmp_path, monkeypatch):
-    """JAVA_HOME is set ONLY in the Allure child env — os.environ and
-    every other process (incl. KRE) are untouched."""
-    home = _fake_jh(tmp_path)
-    monkeypatch.setenv("TO_ALLURE_JAVA_HOME", str(home))
-    monkeypatch.delenv("JAVA_HOME", raising=False)
+def test_generate_uses_bundled_argv_no_java(app, tmp_path, monkeypatch):
+    """Generation runs bundled [node, allure.js] as an argv list — no
+    JAVA_HOME env, no shell string, no PATH/npx resolution."""
+    monkeypatch.setattr(allure_runtime, "_node",
+                        lambda: Path("/b/node"))
+    monkeypatch.setattr(allure_runtime, "_allure",
+                        lambda: Path("/b/allure.js"))
     captured = {}
 
     class Fake:
@@ -334,51 +336,50 @@ def test_generate_scopes_java_env_to_child(app, tmp_path, monkeypatch):
         stderr = "boom"
         stdout = ""
 
-    def fake_run(cmd, env=None, **kw):
-        captured["env"] = env
+    def fake_run(cmd, **kw):
+        captured["cmd"] = cmd
         return Fake()
 
     monkeypatch.setattr(allure_runtime.subprocess, "run", fake_run)
     with app.app_context():
         res = allure_runtime.generate(tmp_path / "r", tmp_path / "o")
     assert res["ok"] is False
-    assert captured["env"]["JAVA_HOME"] == str(home)
-    assert os.environ.get("JAVA_HOME") is None      # global untouched
+    assert captured["cmd"][0] == "/b/node"      # bundled node argv
+    assert captured["cmd"][1] == "/b/allure.js"
+    assert "generate" in captured["cmd"]
 
 
 def test_check_readiness_persists_probe_and_shows_ready(
         client, login_as, app, tmp_path, monkeypatch):
     """Admin -> Reporting -> Check: real-probe record persisted; the
-    page then reports the validated Java + version."""
-    home = _fake_jh(tmp_path)
-    monkeypatch.setenv("TO_ALLURE_JAVA_HOME", str(home))
-    fake = {"ok": True, "java_home": str(home), "java_version": "21.0.1",
-            "error": "", "checked_at": "2026-11-03T00:00:00+00:00"}
+    page then reports the validated bundled runtime."""
+    fake = {"ok": True, "allure_version": "3.33.0",
+            "node_version": "22.18.0", "error": "",
+            "checked_at": "2026-11-03T00:00:00+00:00"}
     monkeypatch.setattr(allure_runtime, "probe",
                         lambda *a, **k: dict(fake))
+    from pathlib import Path
+    monkeypatch.setattr(allure_runtime, "_node",
+                        lambda: Path("/b/node"))
+    monkeypatch.setattr(allure_runtime, "_allure",
+                        lambda: Path("/b/allure.js"))
     login_as("admin")
     resp = client.post("/system/reporting/check", follow_redirects=True)
     assert resp.status_code == 200
     assert b"ready" in resp.data
     with app.app_context():
-        assert S.get("allure_java_home") == str(home)
-        assert S.get("allure_java_probe")["java_version"] == "21.0.1"
+        assert S.get("allure_probe")["allure_version"] == "3.33.0"
         assert allure_runtime.status()["ready"] is True
 
 
-def test_changed_java_needs_recheck(app, tmp_path, monkeypatch):
-    """A probe record for one home does not bless a different home —
-    switching runtimes flips readiness back to unvalidated."""
-    a, b = _fake_jh(tmp_path / "x"), _fake_jh(tmp_path / "y")
+def test_failed_probe_never_marks_ready(app):
+    """A failed/missing probe record keeps reporting unvalidated —
+    saved config alone is never evidence."""
     with app.app_context():
-        S.update({"allure_java_home": str(a),
-                  "allure_java_probe": {"ok": True, "java_home": str(a),
-                                        "checked_at": "t"}})
-        assert allure_runtime.status()["ready"] is True
-        S.update({"allure_java_home": str(b)})
+        S.update({"allure_probe": {"ok": False,
+                                   "error": "generation failed"}})
         st = allure_runtime.status()
         assert st["ready"] is False
-        assert "recheck" in st["reason"] or st["reason"]
 
 
 # ---------- cross-platform discovery (shared logic, Win + Linux) -----
@@ -486,17 +487,15 @@ def test_discovery_order_bundled_after_java_home(monkeypatch, tmp_path):
     assert allure_runtime.detect_java_homes()[0] == jre
 
 
-def test_version_check_blocks_generation_probe(app, monkeypatch,
-                                               tmp_path):
-    """A java binary that cannot start fails BEFORE generation is
-    attempted — actionable error, still recorded."""
-    home = _fake_jh(tmp_path)
-    monkeypatch.setattr(allure_runtime, "java_version",
-                        lambda h, timeout=15: ("", "spawn failed"))
+def test_missing_runtime_blocks_generation_probe(app, monkeypatch):
+    """No bundled node/allure -> probe fails before generation with an
+    actionable error, still recorded honestly."""
+    monkeypatch.setattr(allure_runtime, "_node", lambda: None)
+    monkeypatch.setattr(allure_runtime, "_allure", lambda: None)
     with app.app_context():
-        rec = allure_runtime.probe(str(home))
+        rec = allure_runtime.probe()
         assert rec["ok"] is False
-        assert "version check" in rec["error"]
+        assert "not installed" in rec["error"]
 
 
 def test_sanitized_errors():

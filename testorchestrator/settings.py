@@ -62,6 +62,7 @@ DEFAULTS = {
     # path via TO_ALLURE_JAVA_HOME instead — admin selection wins.
     "allure_java_home": "",
     "allure_java_probe": {},
+    "allure_probe": {},
     "git_export_repo": "",
     "git_export_credential_ref": "",
     "git_export_ref": "main",
