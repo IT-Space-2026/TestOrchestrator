@@ -1,12 +1,13 @@
-// Plotly init loader — runs Plotly.newPlot for any element whose
-// data-plotly-fig attribute holds figure JSON (CSP-safe: no inline JS).
+// Plotly init loader — CSP-safe (no inline JS).
 function initPlots() {
   if (typeof Plotly === 'undefined') { return; }
   document.querySelectorAll('[data-plotly-fig]').forEach(function (el) {
     try {
       var fig = JSON.parse(el.getAttribute('data-plotly-fig'));
+      if (!fig.layout.autosize && !fig.layout.width && el.clientWidth) {
+        fig.layout.width = el.clientWidth;
+      }
       el.style.minHeight = '300px';
-      if (el.clientWidth > 0) { fig.layout.width = el.clientWidth; }
       Plotly.newPlot(el, fig.data, fig.layout,
         {responsive: true, displaylogo: false});
     } catch (e) {
@@ -14,4 +15,9 @@ function initPlots() {
     }
   });
 }
-document.addEventListener('DOMContentLoaded', initPlots);
+window.addEventListener('load', initPlots);   // after CSS/fonts settle
+window.addEventListener('resize', function () {
+  document.querySelectorAll('[data-plotly-fig]').forEach(function (el) {
+    if (el.classList.contains('js-plotly-plot')) { Plotly.Plots.resize(el); }
+  });
+});

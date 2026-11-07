@@ -8,7 +8,7 @@ _PALETTE = {"passed": "#2e7d32", "failed": "#c62828",
             "running": "#1565c0", "queued": "#90a4ae",
             "unknown": "#616161", "canceled": "#8d6e63"}
 _BASE = dict(font=dict(family="system-ui,sans-serif", size=12),
-             height=300, autosize=True,
+             height=300,
              margin=dict(l=46, r=16, t=10, b=46),
              paper_bgcolor="rgba(0,0,0,0)",
              plot_bgcolor="rgba(0,0,0,0)", showlegend=True,
