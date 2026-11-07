@@ -54,8 +54,8 @@ cleanup() {
   # owned members of each fixture process group, even if leader exited
   for pgid in $(awk '{print $1}' "$EVID/processes.txt" 2>/dev/null); do
     for pid in $(pgrep -g "$pgid" 2>/dev/null); do
-      grep -qa "TO_RUN=$RUN" "/proc/$pid/environ" 2>/dev/null \
-        && kill "$pid" 2>/dev/null
+      tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
+        | grep -qx "TO_RUN=$RUN" && kill "$pid" 2>/dev/null
     done
   done
   for i in $(seq 1 10); do sleep 0.5
@@ -66,8 +66,8 @@ cleanup() {
   if [ "$left" != 0 ]; then   # escalate inside owned groups only
     for pgid in $(awk '{print $1}' "$EVID/processes.txt"); do
       for pid in $(pgrep -g "$pgid" 2>/dev/null); do
-        grep -qa "TO_RUN=$RUN" "/proc/$pid/environ" 2>/dev/null \
-          && kill -9 "$pid" 2>/dev/null
+        tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
+          | grep -qx "TO_RUN=$RUN" && kill -9 "$pid" 2>/dev/null
       done
     done
   fi
@@ -231,8 +231,9 @@ grep -qa "wr-$RUN" "$ROOT/worker/worker.log" \
   && grep -qa "$EXID\|checkout\|katalonc" "$ROOT/worker/worker.log" \
   && note "worker wr-$RUN executed the job (log evidence)" \
   || fail "no worker-side evidence of $EXID in worker log"
-# checkout evidence: .git HEAD == fixture SHA, else fixture content
-# must exist (go-git checkouts may omit .git metadata)
+# checkout evidence: .git HEAD == fixture SHA, else the committed
+# RUN-specific marker inside fixture.ts proves this exact revision
+# (never a generic "file exists" check)
 WSGIT=$(find "$ROOT/ws" -name "HEAD" -path "*.git" | head -1)
 WS_SHA=""
 if [ -n "$WSGIT" ]; then
@@ -242,10 +243,11 @@ if [ -n "$WSGIT" ]; then
 fi
 if [ "$WS_SHA" = "$SHA" ]; then
   note "checkout resolved to expected fixture SHA $SHA"
-elif find "$ROOT/ws" -name "fixture.ts" | head -1 | xargs -r grep -q "fixture"; then
-  note "checkout content verified (fixture.ts present; .git metadata absent)"
+elif find "$ROOT/ws" -name "fixture.ts" \
+     | xargs -r grep -q "RUN-$RUN"; then
+  note "checkout content verified: RUN-$RUN marker = this revision"
 else
-  fail "workspace lacks expected SHA ($SHA) AND fixture content"
+  fail "workspace lacks expected SHA ($SHA) AND run-marker content"
 fi
 
 # --- bounded terminal-state poll -----------------------------------------
