@@ -302,6 +302,30 @@ def project_detail(project_id):
 
 # ---------- git bindings ----------
 
+@portal_bp.route("/projects/<project_id>/dashboard")
+@login_required
+def project_dashboard(project_id):
+    """Project reporting dashboard — trends, failures, drill-down.
+    Aggregation in project_dashboard.py; figures in charts.py."""
+    from ..charts import (outcome_trend, pass_rate_trend,
+                          duration_trend, failure_breakdown)
+    from ..project_dashboard import summary
+    project = _project_or_404(project_id)
+    days = request.args.get("period", "30", type=int) or 30
+    suite = request.args.get("suite", "")
+    state = request.args.get("state", "")
+    data = summary(project.id, days=days, suite=suite, state=state)
+    return render_template(
+        "portal/project_dashboard.html",
+        project=project, data=data, days=days,
+        fig_outcomes=outcome_trend(data["outcome_trend"]),
+        fig_passrate=pass_rate_trend(data["pass_rate"]),
+        fig_duration=duration_trend(data["durations"]),
+        fig_failures=failure_breakdown(data["failures"]),
+        suites=Suite.query.filter_by(project_id=project.id).all(),
+        sel_suite=suite, sel_state=state)
+
+
 @portal_bp.route("/projects/<project_id>/bindings", methods=["POST"])
 @role_required(*EDIT_ROLES)
 def create_binding(project_id):
