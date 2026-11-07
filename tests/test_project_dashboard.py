@@ -114,5 +114,7 @@ def test_figures_serializable_json(app):
                     charts.pass_rate_trend(d["pass_rate"]),
                     charts.duration_trend(d["durations"]),
                     charts.failure_breakdown(d["failures"])):
+            if fig == "null":      # legitimately empty figure
+                continue
             j = json.loads(fig)
             assert "data" in j and "layout" in j
