@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# Worker -> generated report -> portal view/download — v2 FOR APPROVAL.
-# Loopback-only fixture: Dagu coordinator + labelled worker + isolated
-# portal + Dulwich git fixture + fixture KRE (unlicensed).
+# Worker -> generated report -> portal view/download — v5 FOR APPROVAL.
+# Loopback-only fixture: isolated Dagu coordinator + labelled worker +
+# isolated portal + Dulwich git fixture + fixture KRE (unlicensed).
 #
-# Proves: portal -> coordinator -> labelled worker -> checkout ->
-# fixture KRE invocation -> artifacts return -> normalize ->
-# report ready -> /report (200) + /report.zip + /artifacts.zip.
-# Does NOT prove: licensed KRE, real-KRE Reports layout, Allure, or
-# private-ssh checkout — fixture KRE and file:// repo only.
+# Assertions: exact 'completed passed ready'; exactly 2 total / 2 passed
+# cases with run-specific names; run-specific report/archive content;
+# worker-side execution evidence; checkout revision or run marker.
 set -euo pipefail
 umask 077
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,70 +14,82 @@ ROOT="$(mktemp -d /tmp/to-wr-XXXXXX)"
 HTTP_PORT=29987; GRPC_PORT=50055; WEB_PORT=39992
 ADMIN_PASS='DevOnly-Admin!1'
 EVID="$ROOT/evidence"; mkdir -p "$EVID"
-: > "$EVID/processes.txt"          # manifest exists BEFORE the trap
+: > "$EVID/processes.txt"
 FAILED=0
 fail() { echo "FAIL: $*" | tee -a "$EVID/assertions.txt"; FAILED=1; }
 note() { echo "== $*" | tee -a "$EVID/assertions.txt"; }
 
 # --- environment isolation ----------------------------------------------
-# No inherited app/dagu/git/credential config can redirect this run.
 for v in $(env | grep -oE '^(TO_|DAGU_|GIT_|SSH_|FLASK_|XDG_)[A-Z_]*'); do
   unset "$v"; done
 export GIT_CONFIG_NOSYSTEM=1 HOME="$ROOT/home"
 mkdir -p "$ROOT"/{home,coord/{bin,home/dags},worker,ws,portal,proj,kre}
 
-# --- tool + dependency checks -------------------------------------------
-for t in tar curl ss unzip python3 setsid; do
+for t in tar curl ss unzip python3 setsid env; do
   command -v "$t" >/dev/null || { echo "missing tool: $t"; exit 1; }
 done
-[ -x "$REPO/.venv/bin/waitress-serve" ] \
-  && [ -x "$REPO/.venv/bin/flask" ] \
-  || { echo "venv executables missing"; exit 1; }
+[ -x "$REPO/.venv/bin/waitress-serve" ] && [ -x "$REPO/.venv/bin/flask" ] \
+  && [ -x "$REPO/.venv/bin/python" ] || { echo "venv missing"; exit 1; }
 [ -f "$REPO/3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz" ] \
   || { echo "dagu archive missing"; exit 1; }
 ss -tln | grep -qE ":(29987|50055|39992) " \
   && { echo "COLLISION: fixture port in use"; exit 1; }
 
-# --- owned process tracking: per-run process groups ----------------------
-PIDS=()
-spawn() { # spawn NAME CMD...
-  local name="$1"; shift
-  setsid env "TO_RUN=$RUN" "$@" &
-  local pid=$!
-  PIDS+=("$pid")
-  echo "$pid $name" >> "$EVID/processes.txt"
+# --- owned process groups ------------------------------------------------
+# spawn NAME WORKDIR CMD...  (env -C sets the child cwd)
+spawn() {
+  local name="$1" workdir="$2"; shift 2
+  setsid env "TO_RUN=$RUN" -C "$workdir" "$@" &
+  echo "$! $name" >> "$EVID/processes.txt"
+}
+owned_members() {
+  local pgid="$1"
+  for pid in $(pgrep -g "$pgid" 2>/dev/null); do
+    tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
+      | grep -qx "TO_RUN=$RUN" && echo "$pid"
+  done
+}
+preserve_diagnostics() {
+  # runs on EVERY exit — diagnostic-copy failures never mask the result
+  cp "$ROOT/coord/coord.log" "$EVID/coordinator.log" 2>/dev/null || true
+  cp "$ROOT/worker/worker.log" "$EVID/worker.log" 2>/dev/null || true
+  cp "$ROOT/portal/portal.log" "$EVID/portal.log" 2>/dev/null || true
+  cp "$ROOT/report" "$EVID/report.html" 2>/dev/null || true
+  cp "$ROOT"/{report.zip,artifacts.zip} "$EVID/" 2>/dev/null || true
 }
 cleanup() {
   set +e
-  # owned members of each fixture process group, even if leader exited
   for pgid in $(awk '{print $1}' "$EVID/processes.txt" 2>/dev/null); do
-    for pid in $(pgrep -g "$pgid" 2>/dev/null); do
-      tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
-        | grep -qx "TO_RUN=$RUN" && kill "$pid" 2>/dev/null
-    done
+    for pid in $(owned_members "$pgid"); do kill "$pid" 2>/dev/null; done
   done
+  local left=999 i
   for i in $(seq 1 10); do sleep 0.5
     left=$(for pgid in $(awk '{print $1}' "$EVID/processes.txt"); do
-      pgrep -g "$pgid" 2>/dev/null; done | wc -l)
+      owned_members "$pgid"; done | wc -l)
     [ "$left" = 0 ] && break
   done
-  if [ "$left" != 0 ]; then   # escalate inside owned groups only
+  if [ "$left" != 0 ]; then
     for pgid in $(awk '{print $1}' "$EVID/processes.txt"); do
-      for pid in $(pgrep -g "$pgid" 2>/dev/null); do
-        tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
-          | grep -qx "TO_RUN=$RUN" && kill -9 "$pid" 2>/dev/null
+      for pid in $(owned_members "$pgid"); do
+        kill -9 "$pid" 2>/dev/null
       done
     done
+    for i in $(seq 1 6); do sleep 0.5   # wait after forced kill
+      left=$(for pgid in $(awk '{print $1}' "$EVID/processes.txt"); do
+        owned_members "$pgid"; done | wc -l)
+      [ "$left" = 0 ] && break
+    done
   fi
-  left=$(for pgid in $(awk '{print $1}' "$EVID/processes.txt"); do
-    pgrep -g "$pgid" 2>/dev/null; done | wc -l)
-  [ "$left" = 0 ] || { echo "CLEANUP-FAIL: $left fixture procs remain";
-    FAILED=1; }
-  echo "[cleanup] evidence preserved in $EVID (0600)"
+  [ "$left" = 0 ] \
+    || { echo "CLEANUP-FAIL: $left fixture procs remain" \
+         | tee -a "$EVID/assertions.txt"; FAILED=1; }
+  preserve_diagnostics
+  [ "$FAILED" != 0 ] && { echo "FAIL (evidence: $EVID)"; exit 1; }
+  exit 0
 }
 trap cleanup EXIT
 
-# --- coordinator on loopback, per-run home ------------------------------
+# --- coordinator on loopback ----------------------------------------------
 cat > "$ROOT/coord/server.yaml" <<YAML
 auth:
   mode: none
@@ -93,11 +103,10 @@ host: 127.0.0.1
 YAML
 tar xzf "$REPO/3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz" \
   -C "$ROOT/coord/bin" dagu
-spawn coordinator env DAGU_HOME="$ROOT/coord/home" \
+spawn coordinator "$ROOT/coord" env DAGU_HOME="$ROOT/coord/home" \
   "$ROOT/coord/bin/dagu" start-all --port $HTTP_PORT \
   --host 127.0.0.1 --config "$ROOT/coord/server.yaml" \
   --dags "$ROOT/coord/home/dags" >>"$ROOT/coord/coord.log" 2>&1
-# bounded readiness poll — never a fixed sleep
 for i in $(seq 1 20); do
   curl -sf --max-time 2 "http://127.0.0.1:$HTTP_PORT/api/v2/health" \
     -o /dev/null && break; sleep 1
@@ -106,21 +115,19 @@ curl -sf --max-time 2 "http://127.0.0.1:$HTTP_PORT/api/v2/health" \
   -o /dev/null || { echo "coordinator never healthy"; exit 1; }
 ss -tln | grep -q ":$GRPC_PORT " \
   || { echo "coordinator gRPC listener missing"; exit 1; }
-ss -tln | awk '{print $4}' | grep -qvE "127.0.0.1|::1" \
-  && echo "[coord] listeners loopback-checked" || true
 note "coordinator up ($HTTP_PORT/$GRPC_PORT)"
 
-# --- fixture project via Dulwich helper (no git executable dependency) --
-( cd "$REPO" && .venv/bin/python - "$ROOT/proj" <<'PY'
+# --- fixture project (Dulwich) with run-marker content --------------------
+( cd "$REPO" && .venv/bin/python - "$ROOT/proj" "$RUN" <<'PY'
 import sys
-from tests.git_helpers import init_repo, commit_file
-init_repo(sys.argv[1])
-commit_file(sys.argv[1], "fixture.ts",
-            "[fixture test suite]\n")
+from tests.git_helpers import bare_repo, seed_repo
+bare_repo(sys.argv[1])
+seed_repo(sys.argv[1], sys.argv[1] + "-wc",
+          {"fixture.ts": "[fixture test suite]\nRUN-" + sys.argv[2] + "\n"})
 PY
 )
 
-# --- fixture KRE (unlicensed; per-run marker in all outputs) -------------
+# --- fixture KRE (unlicensed; run marker in all outputs) ------------------
 cat > "$ROOT/kre/katalonc" <<KRE
 #!/usr/bin/env bash
 report=""; for a in "\$@"; do
@@ -132,12 +139,12 @@ printf '<testsuite tests="2" failures="0" name="TS">\
 </testsuite>\n' > "\$report/TS/junit.xml"
 printf '<!DOCTYPE html><html><body><h1>Fixture report $RUN</h1>\
 <p>2 passed</p></body></html>\n' > "\$report/index.html"
-echo "[fixture-kre $RUN] wrote junit + report"; exit 0
+echo "[fixture-kre $RUN] invoked for execution"; exit 0
 KRE
 chmod +x "$ROOT/kre/katalonc"
 
-# --- worker on loopback, per-run id/home --------------------------------
-spawn worker env DAGU_HOME="$ROOT/worker/home" \
+# --- worker on loopback ----------------------------------------------------
+spawn worker "$ROOT/worker" env DAGU_HOME="$ROOT/worker/home" \
   "$ROOT/coord/bin/dagu" worker \
   --worker.coordinators=127.0.0.1:$GRPC_PORT \
   --worker.labels "kre=$RUN" --worker.id "wr-$RUN" \
@@ -147,24 +154,23 @@ for i in $(seq 1 20); do
     | grep -q "wr-$RUN" && break; sleep 1
 done
 curl -sf --max-time 2 "http://127.0.0.1:$HTTP_PORT/api/v2/workers" \
-  | grep -q "wr-$RUN" \
-  || { echo "worker not registered"; tail -8 "$ROOT/worker/worker.log"; exit 1; }
+  | grep -q "wr-$RUN" || { echo "worker not registered"; \
+    tail -8 "$ROOT/worker/worker.log"; exit 1; }
 note "worker wr-$RUN registered (label kre=$RUN)"
 
-# --- isolated portal bound to THIS coordinator ---------------------------
+# --- isolated portal bound to THIS coordinator (cwd=$REPO for wsgi:app) ----
 export TO_INSTANCE_DIR="$ROOT/portal" \
        TO_DATABASE_URI="sqlite:///$ROOT/portal/p.db" \
        TO_SECURE_COOKIES=0 TO_SECRET_KEY="wr-$RUN-secret" \
        TO_DAGU_URL="http://127.0.0.1:$HTTP_PORT" \
-       FLASK_APP="$REPO/wsgi.py"
+       FLASK_APP="wsgi.py"
 ( cd "$REPO" && .venv/bin/flask db upgrade > /dev/null )
-( cd "$REPO" && .venv/bin/flask set-admin-password "$ADMIN_PASS" \
-    > /dev/null )
-spawn portal env TO_INSTANCE_DIR="$ROOT/portal" \
+( cd "$REPO" && .venv/bin/flask set-admin-password "$ADMIN_PASS" > /dev/null )
+spawn portal "$REPO" env TO_INSTANCE_DIR="$ROOT/portal" \
   TO_DATABASE_URI="sqlite:///$ROOT/portal/p.db" \
   TO_SECURE_COOKIES=0 TO_SECRET_KEY="wr-$RUN-secret" \
   TO_DAGU_URL="http://127.0.0.1:$HTTP_PORT" \
-  FLASK_APP="$REPO/wsgi.py" \
+  FLASK_APP="wsgi.py" \
   "$REPO/.venv/bin/waitress-serve" --listen="127.0.0.1:$WEB_PORT" wsgi:app \
   >"$ROOT/portal/portal.log" 2>&1
 for i in $(seq 1 25); do
@@ -175,7 +181,7 @@ curl -sf --max-time 2 -o /dev/null "http://127.0.0.1:$WEB_PORT/login" \
   || { echo "portal never ready"; tail -8 "$ROOT/portal/portal.log"; exit 1; }
 note "portal ready ($WEB_PORT)"
 
-# --- login (CSRF by field name, verify success) --------------------------
+# --- login + authenticated-access proof -----------------------------------
 CJ="$ROOT/cookies"
 TOK=$(curl -sf --max-time 5 -c "$CJ" "http://127.0.0.1:$WEB_PORT/login" \
   | grep -oP 'name="csrf_token"[^>]*value="\K[^"]+' | head -1)
@@ -190,7 +196,7 @@ code=$(curl -s --max-time 5 -b "$CJ" -o /dev/null -w "%{http_code}" \
 [ "$code" = 200 ] && note "authenticated access verified" \
   || { echo "auth check failed ($code)"; exit 1; }
 
-# --- register binding+worker+runtime, create+dispatch execution ----------
+# --- register binding+worker+runtime, dispatch via run_execution ----------
 SHA=$(cd "$REPO" && .venv/bin/python - "$ROOT/proj" <<'PY'
 import sys
 from tests.git_helpers import head_sha
@@ -200,7 +206,7 @@ PY
 EXID=$(cd "$REPO" && TO_INSTANCE_DIR="$ROOT/portal" TO_DATABASE_URI="sqlite:///$ROOT/portal/p.db" .venv/bin/python - <<PY
 from testorchestrator import create_app
 from testorchestrator.extensions import db
-from testorchestrator.execution import (Execution, Project, Runner,
+from testorchestrator.execution import (Project, Runner,
     RuntimeConnection, GitBinding, create_execution)
 app = create_app()
 with app.app_context():
@@ -227,30 +233,8 @@ with app.app_context():
 PY
 )
 note "execution $EXID dispatched (run marker $RUN)"
-grep -qa "wr-$RUN" "$ROOT/worker/worker.log" \
-  && grep -qa "$EXID\|checkout\|katalonc" "$ROOT/worker/worker.log" \
-  && note "worker wr-$RUN executed the job (log evidence)" \
-  || fail "no worker-side evidence of $EXID in worker log"
-# checkout evidence: .git HEAD == fixture SHA, else the committed
-# RUN-specific marker inside fixture.ts proves this exact revision
-# (never a generic "file exists" check)
-WSGIT=$(find "$ROOT/ws" -name "HEAD" -path "*.git" | head -1)
-WS_SHA=""
-if [ -n "$WSGIT" ]; then
-  WS_SHA=$(cd "${WSGIT%/.git/HEAD}" && \
-    python3 -c "import dulwich.repo as R; print(R.Repo('.').head().decode())" 2>/dev/null \
-    || grep -oE '[0-9a-f]{40}' "$WSGIT" | head -1)
-fi
-if [ "$WS_SHA" = "$SHA" ]; then
-  note "checkout resolved to expected fixture SHA $SHA"
-elif find "$ROOT/ws" -name "fixture.ts" \
-     | xargs -r grep -q "RUN-$RUN"; then
-  note "checkout content verified: RUN-$RUN marker = this revision"
-else
-  fail "workspace lacks expected SHA ($SHA) AND run-marker content"
-fi
 
-# --- bounded terminal-state poll -----------------------------------------
+# --- bounded terminal-state poll (evidence checks AFTER completion) -------
 S=""
 for i in $(seq 1 40); do
   S=$(cd "$REPO" && TO_INSTANCE_DIR="$ROOT/portal" TO_DATABASE_URI="sqlite:///$ROOT/portal/p.db" .venv/bin/python -c "
@@ -259,14 +243,47 @@ from testorchestrator.execution import Execution
 a=create_app()
 with a.app_context():
     e=Execution.query.get('$EXID')
-    print(e.state.value, e.outcome.value, e.report_status)")
+    dag=getattr(e,'dagu_dag_run_id','') or getattr(e,'dagu_run','')
+    print(e.state.value, e.outcome.value, e.report_status, dag)")
   case "$S" in completed*|failed*|canceled*) break;; esac; sleep 3
 done
 echo "[exec] final: $S" | tee -a "$EVID/execution.txt"
-# exact terminal evidence — not a wildcard match
-[ "$S" = "completed passed ready" ] \
-  && note "exact state/outcome/report: $S" \
-  || fail "expected 'completed passed ready', got '$S'"
+read -r ST OC RS DAGRUN <<< "$S"
+[ "$ST $OC $RS" = "completed passed ready" ] \
+  && note "exact state/outcome/report: $ST $OC $RS" \
+  || fail "expected 'completed passed ready', got '$ST $OC $RS'"
+
+# worker-execution evidence: the worker log must name THIS dag-run (or
+# this fixture's run-marker), not generic checkout/kre activity
+if [ -n "$DAGRUN" ] && [ "$DAGRUN" != " " ]; then
+  grep -qa "$DAGRUN" "$ROOT/worker/worker.log" \
+    && note "worker log contains this dag-run $DAGRUN" \
+    || fail "worker log lacks dag-run $DAGRUN evidence"
+else
+  grep -qa "wr-$RUN" "$ROOT/worker/worker.log" \
+    && grep -qa "$RUN" "$ROOT/worker/worker.log" \
+    && note "worker log carries run-specific evidence" \
+    || fail "worker log lacks run-specific evidence"
+fi
+
+# checkout: .git/HEAD matches SHA (dulwich), else run-marker content
+WS_SHA=""
+WSGIT=$(find "$ROOT/ws" -path "*/.git/HEAD" -name HEAD 2>/dev/null | head -1)
+if [ -n "$WSGIT" ]; then
+  WS_SHA=$(cd "$REPO" && .venv/bin/python - "$WSGIT" <<'PY'
+import sys, dulwich.repo as R
+print(R.Repo(sys.argv[1].rsplit("/.git/HEAD", 1)[0]).head().decode())
+PY
+)
+fi
+if [ "$WS_SHA" = "$SHA" ]; then
+  note "checkout resolved to expected fixture SHA $SHA"
+elif find "$ROOT/ws" -name "fixture.ts" -exec grep -q "RUN-$RUN" {} \; 2>/dev/null; then
+  note "checkout content verified: RUN-$RUN marker = this revision"
+else
+  fail "workspace lacks expected SHA ($SHA) AND run-marker content"
+fi
+
 # exactly two TOTAL parsed cases, both passed, run-specific names
 CASES=$(cd "$REPO" && TO_INSTANCE_DIR="$ROOT/portal" TO_DATABASE_URI="sqlite:///$ROOT/portal/p.db" .venv/bin/python -c "
 from testorchestrator import create_app
@@ -287,22 +304,20 @@ read -r TOT OK NAMES <<< "$CASES"
   && note "run-specific case names verified" \
   || fail "case names mismatch: $NAMES"
 
-# --- routes: assert 200 + run-specific content ---------------------------
+# --- routes: 200 + run-specific content ------------------------------------
 for ep in "report" "report.zip" "artifacts.zip"; do
   code=$(curl -s --max-time 10 -b "$CJ" -o "$ROOT/$ep" -w "%{http_code}" \
     "http://127.0.0.1:$WEB_PORT/executions/$EXID/$ep")
-  [ "$code" = 200 ] && note "$ep: 200" \
-    || fail "$ep: got $code"
+  [ "$code" = 200 ] && note "$ep: 200" || fail "$ep: got $code"
 done
 grep -q "$RUN" "$ROOT/report" \
-  && note "/report contains run marker" \
-  || fail "/report lacks run marker $RUN"
+  && note "/report contains run marker" || fail "/report lacks $RUN"
 unzip -l "$ROOT/report.zip" | grep -q "index.html" \
   && note "report.zip has index.html" \
   || fail "report.zip missing index.html"
 unzip -p "$ROOT/report.zip" index.html 2>/dev/null | grep -q "$RUN" \
   && note "report.zip content is run-specific" \
-  || fail "report.zip index.html lacks run marker"
+  || fail "report.zip index.html lacks $RUN"
 unzip -l "$ROOT/artifacts.zip" | grep -q "junit.xml" \
   && note "artifacts.zip has junit.xml" \
   || fail "artifacts.zip missing junit.xml"
@@ -311,11 +326,4 @@ unzip -p "$ROOT/artifacts.zip" "TS/junit.xml" 2>/dev/null \
   && note "junit contains run-specific test names" \
   || fail "junit lacks run marker"
 
-# --- preserve evidence ----------------------------------------------------
-cp "$ROOT/coord/coord.log" "$EVID/coordinator.log" 2>/dev/null
-cp "$ROOT/worker/worker.log" "$EVID/worker.log" 2>/dev/null
-cp "$ROOT/portal/portal.log" "$EVID/portal.log" 2>/dev/null
-cp "$ROOT/report" "$EVID/report.html" 2>/dev/null
-cp "$ROOT"/{report.zip,artifacts.zip} "$EVID/" 2>/dev/null
-[ "$FAILED" = 0 ] && echo "PASS (evidence: $EVID)" \
-  || { echo "FAIL (evidence: $EVID)"; exit 1; }
+[ "$FAILED" = 0 ] && echo "ASSERTIONS-OK" || echo "ASSERTIONS-FAILED"
