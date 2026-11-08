@@ -54,19 +54,32 @@
 
 <section class="card"><h2>Recent executions</h2>
   <table class="data-table">
-    <thead><tr><th>ID</th><th>State</th><th>Outcome</th><th>Finished</th><th>Report</th></tr></thead>
+    <thead><tr><th>ID</th><th>Worker</th><th>Engine</th><th>SHA</th>
+      <th>State</th><th>Outcome</th><th>Duration</th><th>Report</th></tr></thead>
     <tbody>
       {% for e in data.executions %}
       <tr><td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
+        <td>{{ e.runtime.runner.name if e.runtime and e.runtime.runner else "—" }}</td>
+        <td>{{ e.runtime.name if e.runtime else "—" }}</td>
+        <td><code>{{ (e.binding.last_synced_sha or "")[:8] }}</code></td>
         <td>{{ e.state.value }}</td>
         <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
-        <td>{{ e.finished_at }}</td>
+        <td>{{ "%.0fs"|format((e.finished_at - e.started_at).total_seconds()) if e.started_at and e.finished_at else "—" }}</td>
         <td>{{ e.report_status }}</td></tr>
       {% else %}<tr><td colspan="5" class="muted">No executions.</td></tr>
       {% endfor %}
     </tbody>
   </table>
-</section>
+  <section class="card"><h2>Failing cases — evidence</h2>
+    <p class="muted"><small>Links to logs/artifacts for the top
+    recurring failures in the period.</small></p>
+    <table class="data-table"><thead><tr><th>Case</th>
+      <th>Failures</th><th>Latest execution</th></tr></thead><tbody>
+      {% for f in data.failures %}
+      <tr><td>{{ f.case }}</td><td>{{ f.count }}</td>
+        <td><a href="{{ url_for('portal.execution_detail', execution_id=data.executions[0].id) }}">evidence</a></td></tr>
+      {% else %}<tr><td colspan="3" class="muted">No failures.</td></tr>
+      {% endfor %}</tbody></table></section>
 
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
