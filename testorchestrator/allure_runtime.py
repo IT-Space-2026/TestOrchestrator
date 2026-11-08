@@ -432,8 +432,21 @@ def generate(results_dir: Path, out_dir: Path,
                 "error": "bundled Allure 3 / Node.js runtime not "
                          "installed — reporting unavailable"}
     out_dir.mkdir(parents=True, exist_ok=True)
+    logo = (Path(__file__).resolve().parent
+            / "static" / "branding" / "iT-space-logo.png")
     cmd = cmd_base + ["generate", str(results_dir),
                       "--output", str(out_dir)]
+    # Branding via an allurerc config — supported plugin options
+    # (awesome.logo), not patched JS. --logo is a plugin option, not a
+    # generate flag, so it goes through the config file.
+    if logo.is_file():
+        rc = Path(tempfile.mkdtemp(prefix="allurerc-")) / "allurerc.mjs"
+        rc.write_text(
+            'export default {\n'
+            '  name: "Orchestrator — Test Report",\n'
+            '  plugins: { awesome: { logo: "' + str(logo) + '" } }\n'
+            '}\n')
+        cmd += ["--config", str(rc)]
     # Allure 3 has no --single-file: output is a static multi-file
     # report served/packaged as a directory.
     res = subprocess.run(cmd, capture_output=True, text=True,
