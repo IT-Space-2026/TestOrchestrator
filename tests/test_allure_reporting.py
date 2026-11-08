@@ -173,7 +173,9 @@ def test_real_generation_and_regenerate(app, tmp_path):
         res = allure_adapter.generate_for(ex)
         assert res["status"] == "ready"
         html = Path(ex.report_dir) / ex.allure_path
-        assert html.name == "index.html" and html.stat().st_size > 1e6
+        assert html.name == "index.html" and html.stat().st_size > 0
+        # Allure 3 is multi-file: assets live beside index.html
+        assert len(list(html.parent.glob('**/*'))) > 50
         v1 = ex.allure_version
         res2 = allure_adapter.generate_for(ex)   # retry: regen, no rerun
         assert res2["status"] == "ready" and ex.allure_version == v1

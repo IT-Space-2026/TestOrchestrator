@@ -60,10 +60,9 @@ def _node() -> Path | None:
 def _allure() -> Path | None:
     """Bundled Allure 3 (npm `allure` package) entry — a .js/.mjs CLI
     run under the bundled Node, never npx or a global install."""
-    for pat in ("allure-3*/bin/allure.js",
-                "allure-3*/bin/allure.mjs",
-                "node_modules/allure/bin/allure.js",
-                "allure/bin/allure.js"):
+    for pat in ("allure-3*/node_modules/allure/cli.js",
+                "node_modules/allure/cli.js",
+                "allure/cli.js"):
         dirs = sorted(BUNDLE_ROOT.glob(f"allure3/{pat}"))
         if dirs:
             return dirs[-1]
@@ -434,9 +433,9 @@ def generate(results_dir: Path, out_dir: Path,
                          "installed — reporting unavailable"}
     out_dir.mkdir(parents=True, exist_ok=True)
     cmd = cmd_base + ["generate", str(results_dir),
-                      "-o", str(out_dir)]
-    if single_file:
-        cmd.append("--single-file")
+                      "--output", str(out_dir)]
+    # Allure 3 has no --single-file: output is a static multi-file
+    # report served/packaged as a directory.
     res = subprocess.run(cmd, capture_output=True, text=True,
                          timeout=timeout)
     entry = out_dir / "index.html"

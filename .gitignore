@@ -12,3 +12,4 @@ packaging/windows/*.exe
 3rdparty/java-runtime/*/jre/
 packaging/windows/app-payload/
 3rdparty/git/
+3rdparty/nodejs/\n3rdparty/allure3/node_modules/\nallure-results/

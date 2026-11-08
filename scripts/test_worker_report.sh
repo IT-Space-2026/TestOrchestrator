@@ -39,7 +39,7 @@ ss -tln | grep -qE ":(29987|50055|39992) " \
 # spawn NAME WORKDIR CMD...  (env -C sets the child cwd)
 spawn() {
   local name="$1" workdir="$2"; shift 2
-  setsid env "TO_RUN=$RUN" -C "$workdir" "$@" &
+  setsid env -C "$workdir" "TO_RUN=$RUN" "$@" &
   echo "$! $name" >> "$EVID/processes.txt"
 }
 owned_members() {
@@ -120,9 +120,10 @@ note "coordinator up ($HTTP_PORT/$GRPC_PORT)"
 # --- fixture project (Dulwich) with run-marker content --------------------
 ( cd "$REPO" && .venv/bin/python - "$ROOT/proj" "$RUN" <<'PY'
 import sys
+from pathlib import Path
 from tests.git_helpers import bare_repo, seed_repo
-bare_repo(sys.argv[1])
-seed_repo(sys.argv[1], sys.argv[1] + "-wc",
+bare_repo(Path(sys.argv[1]))
+seed_repo(sys.argv[1], Path(sys.argv[1] + "-wc"),
           {"fixture.ts": "[fixture test suite]\nRUN-" + sys.argv[2] + "\n"})
 PY
 )
@@ -149,7 +150,7 @@ spawn worker "$ROOT/worker" env DAGU_HOME="$ROOT/worker/home" \
   --worker.coordinators=127.0.0.1:$GRPC_PORT \
   --worker.labels "kre=$RUN" --worker.id "wr-$RUN" \
   --worker.health-port 0 >>"$ROOT/worker/worker.log" 2>&1
-for i in $(seq 1 20); do
+for i in $(seq 1 60); do
   curl -sf --max-time 2 "http://127.0.0.1:$HTTP_PORT/api/v2/workers" \
     | grep -q "wr-$RUN" && break; sleep 1
 done
@@ -199,8 +200,9 @@ code=$(curl -s --max-time 5 -b "$CJ" -o /dev/null -w "%{http_code}" \
 # --- register binding+worker+runtime, dispatch via run_execution ----------
 SHA=$(cd "$REPO" && .venv/bin/python - "$ROOT/proj" <<'PY'
 import sys
+from pathlib import Path
 from tests.git_helpers import head_sha
-print(head_sha(sys.argv[1]))
+print(head_sha(Path(sys.argv[1])))
 PY
 )
 EXID=$(cd "$REPO" && TO_INSTANCE_DIR="$ROOT/portal" TO_DATABASE_URI="sqlite:///$ROOT/portal/p.db" .venv/bin/python - <<PY

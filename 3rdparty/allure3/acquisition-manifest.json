@@ -1,0 +1,9 @@
+{"allure": {"version": "3.33.0", "package": "allure",
+ "source": "https://registry.npmjs.org/allure/-/allure-3.33.0.tgz",
+ "license": "Apache-2.0",
+ "cli": "node_modules/allure/cli.js"},
+ "nodejs": {"version": "22.18.0",
+  "linux_x64": {"url": "https://nodejs.org/dist/v22.18.0/node-v22.18.0-linux-x64.tar.xz",
+   "sha256": "c1bfeecf1d7404fa74728f9db72e697decbd8119ccc6f5a294d795756dfcfca7"},
+  "license": "MIT+others (nodejs.org LICENSE)"},
+ "note": "offline bundled runtime — no system node/npm/npx needed"}
