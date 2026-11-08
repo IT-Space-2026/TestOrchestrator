@@ -46,7 +46,7 @@ coordinator:
 host: 127.0.0.1
 YAML
 tar xzf "$REPO/3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz" -C "$ROOT/coord/bin" dagu
-"$ROOT/coord/bin/dagu" --version | tee "$EVID/dagu-version.txt"
+"$ROOT/coord/bin/dagu" version | tee "$EVID/dagu-version.txt"
 spawn coordinator env DAGU_HOME="$ROOT/coord/home" \
   "$ROOT/coord/bin/dagu" start-all --port $HTTP_PORT \
   --host 127.0.0.1 --config "$ROOT/coord/server.yaml" \
