@@ -350,3 +350,46 @@ def test_plan_summary_blocks_incomplete_entries(app):
         s2ex.outcome = Outcome.PASSED
         db.session.commit()
         assert plan_summary(plan) == "passed"
+
+def test_binding_authoring_default_and_toggle(app, client, login_as):
+    """New binding defaults to Source authoring checked; POST honors
+    absence=False; edit preserves/toggles correctly."""
+    from testorchestrator.execution import GitBinding, Project
+    from testorchestrator.extensions import db
+    login_as("admin")
+    with app.app_context():
+        if not Project.query.get("p1"):
+            db.session.add(Project(id="p1", name="p1")); db.session.commit()
+    # create WITHOUT the checkbox (user deselected) -> False now
+    r = client.post("/projects/p1/bindings",
+                    data={"name": "b-off", "url": "/tmp/repo",
+                          "ref": "main", "subdirectory": "",
+                          "prj_path": "", "credential_ref": ""}, follow_redirects=True)
+    with app.app_context():
+        b = GitBinding.query.filter_by(name="b-off").first()
+        assert b is not None and b.authoring_writable is False
+    # create WITH the checkbox -> True
+    r = client.post("/projects/p1/bindings",
+                    data={"name": "b-on", "url": "/tmp/repo",
+                          "ref": "main", "subdirectory": "",
+                          "prj_path": "", "credential_ref": "",
+                          "authoring_writable": "1"},
+                    follow_redirects=True)
+    with app.app_context():
+        b = GitBinding.query.filter_by(name="b-on").first()
+        assert b.authoring_writable is True
+    # edit: unchecked -> False; re-checked -> True
+    bid = b.id
+    client.post(f"/bindings/{bid}/edit",
+                data={"name": "b-on", "url": "/tmp/repo", "ref": "main",
+                      "subdirectory": "", "prj_path": "",
+                      "credential_ref": ""},
+                follow_redirects=True)
+    with app.app_context():
+        assert db.session.get(GitBinding, bid).authoring_writable is False
+    client.post(f"/bindings/{bid}/edit",
+                data={"name": "b-on", "url": "/tmp/repo", "ref": "main",
+                      "subdirectory": "", "prj_path": "",
+                      "credential_ref": "", "authoring_writable": "1"}, follow_redirects=True)
+    with app.app_context():
+        assert db.session.get(GitBinding, bid).authoring_writable is True

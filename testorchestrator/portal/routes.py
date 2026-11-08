@@ -334,14 +334,14 @@ def create_binding(project_id):
     if form.validate_on_submit():
         binding = GitBinding(
             authoring_writable=bool(
-                request.form.get("authoring_writable", "1")),
+                request.form.get("authoring_writable")),
             project_id=project.id,
             name=form.name.data.strip(),
             url=form.url.data.strip(),
             ref=form.ref.data.strip() or "main",
-            subdirectory=form.subdirectory.data.strip(),
-            prj_path=form.prj_path.data.strip(),
-            credential_ref=form.credential_ref.data.strip(),
+            subdirectory=(form.subdirectory.data or "").strip(),
+            prj_path=(form.prj_path.data or "").strip(),
+            credential_ref=(form.credential_ref.data or "").strip(),
         )
         db.session.add(binding)
         db.session.flush()
@@ -365,9 +365,9 @@ def edit_binding(binding_id):
         binding.name = form.name.data.strip()
         binding.url = form.url.data.strip()
         binding.ref = form.ref.data.strip() or "main"
-        binding.subdirectory = form.subdirectory.data.strip()
-        binding.prj_path = form.prj_path.data.strip()
-        binding.credential_ref = form.credential_ref.data.strip()
+        binding.subdirectory = (form.subdirectory.data or "").strip()
+        binding.prj_path = (form.prj_path.data or "").strip()
+        binding.credential_ref = (form.credential_ref.data or "").strip()
         binding.authoring_writable = bool(
             request.form.get("authoring_writable"))
         db.session.commit()

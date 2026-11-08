@@ -521,7 +521,13 @@
       <div class="field">{{ binding_form.subdirectory.label }} {{ binding_form.subdirectory() }}</div>
       <div class="field">{{ binding_form.prj_path.label }} {{ binding_form.prj_path() }}</div>
       <div class="field">{{ binding_form.credential_ref.label }} {{ binding_form.credential_ref() }}</div>
-      <button type="submit" class="button">Apply</button>
+      <div class="field checkbox-field">
+        <label><input type="checkbox" name="authoring_writable"
+               value="1" checked> Source authoring (edit native
+               definitions)</label>
+        <small class="muted">Checked by default for a new binding;
+        deselect to keep it read-only.</small></div>
+      <button type="submit" class="button">Create binding</button>
     </form>
   </details>
   {% endif %}
