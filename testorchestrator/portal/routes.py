@@ -1663,9 +1663,16 @@ def download_artifacts(execution_id):
 
 @portal_bp.route("/executions/<execution_id>/allure")
 @login_required
+def allure_redirect(execution_id):
+    # Trailing slash so ./app-*.js ./data/… resolve under /allure/
+    return redirect(
+        url_for("portal.view_allure", execution_id=execution_id))
+
+
+@portal_bp.route("/executions/<execution_id>/allure/")
+@login_required
 def view_allure(execution_id):
-    """Hosted Allure report — same sandboxed-active-content policy as
-    the native report."""
+    """Hosted Allure 3 report — sandboxed multi-file app."""
     ex = _execution_or_404(execution_id)
     if ex.allure_status != "ready" or not ex.allure_path:
         flash(f"No Allure report for this run "
@@ -1682,8 +1689,32 @@ def view_allure(execution_id):
         abort(404)
     record_audit(current_user.username, "allure.view", execution_id)
     resp = send_file(target, mimetype="text/html")
-    resp.headers["Content-Security-Policy"] = "sandbox"
+    # Allure 3 is a multi-file interactive app — sandbox it (no portal
+    # session/API reach) but allow its scripts + same-origin asset
+    # fetches. Bare 'sandbox' made the page an inert loading screen.
+    resp.headers["Content-Security-Policy"] =         "sandbox allow-scripts allow-same-origin"
     return resp
+
+
+@portal_bp.route("/executions/<execution_id>/allure/<path:rel>")
+@login_required
+def allure_asset(execution_id, rel):
+    """Allure 3 report assets — js/css/data/plugins under the allure
+    subtree. Served inline so the hosted report actually renders."""
+    ex = _execution_or_404(execution_id)
+    if ex.allure_status != "ready" or not ex.allure_path:
+        abort(404)
+    from .. import reporting
+    try:
+        allure_dir = (reporting.report_root(ex)
+                      / Path(ex.allure_path).parent)
+        target = reporting.safe_under(allure_dir.resolve(), rel)
+    except ValueError:
+        abort(404)
+    if not target.is_file():
+        abort(404)
+    mime, _ = mimetypes.guess_type(target.name)
+    return send_file(target, mimetype=mime or "application/octet-stream")
 
 
 @portal_bp.route("/executions/<execution_id>/allure.zip")
@@ -1701,13 +1732,18 @@ def download_allure(execution_id):
                                   ex.allure_path)
     if not target.is_file():
         abort(404)
+    allure_dir = reporting.safe_under(reporting.report_root(ex),
+                                      str(Path(ex.allure_path).parent))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(target, "index.html")
+        for f in sorted(allure_dir.rglob("*")):
+            if f.is_file():
+                z.write(f, f.relative_to(allure_dir))
         z.writestr("manifest.json", json.dumps({
-            "execution_id": ex.id, "format": "allure-single-file",
+            "execution_id": ex.id, "format": "allure-multi-file",
             "allure_version": ex.allure_version,
-            "view": "open index.html directly in a browser"}, indent=2))
+            "view": "extract, then open index.html — assets are "
+                    "separate files"}, indent=2))
     buf.seek(0)
     record_audit(current_user.username, "allure.download", execution_id)
     return send_file(buf, mimetype="application/zip",

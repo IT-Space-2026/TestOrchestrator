@@ -204,9 +204,9 @@ def test_allure_routes_and_settings_authz(client, login_as, app, tmp_path):
         with app.app_context():
             ex = db.session.get(Execution, ex_id)
             assert ex.allure_status == "ready"
-        r = client.get(f"/executions/{ex_id}/allure")
+        r = client.get(f"/executions/{ex_id}/allure", follow_redirects=True)
         assert r.status_code == 200
-        assert r.headers["Content-Security-Policy"] == "sandbox"
+        assert r.headers["Content-Security-Policy"] == "sandbox allow-scripts allow-same-origin"
         z = client.get(f"/executions/{ex_id}/allure.zip")
         assert z.status_code == 200
         assert "index.html" in zipfile.ZipFile(io.BytesIO(z.data)).namelist()
