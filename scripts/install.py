@@ -10,9 +10,9 @@ Not claimed for Windows/SLES until separately validated (compatibility.md).
 
 Usage: sudo python3 scripts/install.py --payload /opt/testorchestrator \
          [--data /var/lib/testorchestrator] [--config /etc/testorchestrator] \
-         [--java-home /path/to/jdk] [--no-allure]
+         [--no-allure]
 
-Java (Allure reporting prerequisite): detected or --java-home, then
+Allure 3 reporting runs on the bundled Node.js runtime — no Java or
 validated by an actual report-generation probe executed as the service
 account. The validated path is persisted in web.env scoped to the app —
 no global Java changes, KRE untouched. Without a compatible runtime the
@@ -50,10 +50,6 @@ def main() -> None:
     parser.add_argument("--config", default="/etc/testorchestrator")
     parser.add_argument("--https-port", type=int, default=443)
     parser.add_argument("--http-port", type=int, default=8080)
-    parser.add_argument("--java-home", default="",
-                        help="JAVA_HOME for Allure reporting (dir or "
-                             "path to the java binary). Empty = "
-                             "auto-detect.")
     parser.add_argument("--no-allure", action="store_true",
                         help="continue installation with Allure "
                              "reporting disabled when no compatible "
@@ -130,12 +126,8 @@ def main() -> None:
             print("[install] WARNING: bundled dagu tarball missing — "
                   "orchestration not provisioned")
 
-        # Java prerequisite for Allure: detect or use --java-home,
-        # validate with a REAL generation probe running as the service
-        # account, then persist TO_ALLURE_JAVA_HOME in web.env (scoped
-        # to the app services — never a global Java setting).
-        ensure_service_user(args.service_user, data)
-        configure_java(args, payload, data, config)
+        # Allure 3 uses the bundled Node.js runtime — no operator
+        # Java configuration is needed or offered.
 
         # Service units: web, worker, dagu, caddy — full lifecycle wiring,
         # activation needs root on the target host.
@@ -336,71 +328,6 @@ def _run_as(user: str, cmd: list) -> tuple[subprocess.CompletedProcess, str]:
             pwd.getpwuid(os.geteuid()).pw_name)
 
 
-def probe_java(payload: Path, java_home: str, user: str) -> dict:
-    """Actual-generation probe via the standalone launcher — validates
-    that THIS Java produces a report with the pinned bundled Allure,
-    executed as the application service account whenever possible."""
-    cmd = [_probe_python(payload),
-           str(payload / "scripts" / "java_probe.py"),
-           "--runtime", str(payload / "testorchestrator" /
-                            "allure_runtime.py")]
-    if java_home:
-        cmd += ["--java-home", java_home]
-    res, ran_as = _run_as(user, cmd)
-    try:
-        record = json.loads(res.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError, json.JSONDecodeError):
-        record = {"ok": False,
-                  "error": (res.stderr or res.stdout or
-                            "probe failed to run")[-300:]}
-    record["probed_as"] = ran_as
-    if ran_as != user:
-        record["service_account_unverified"] = True
-    return record
-
-
-def detect_java(payload: Path, user: str) -> list:
-    cmd = [_probe_python(payload),
-           str(payload / "scripts" / "java_probe.py"),
-           "--runtime", str(payload / "testorchestrator" /
-                            "allure_runtime.py"),
-           "--detect"]
-    res, _ran_as = _run_as(user, cmd)
-    try:
-        return json.loads(res.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError, json.JSONDecodeError):
-        return []
-
-
-def persist_java(config: Path, java_home: str, record: dict,
-                 payload: Path) -> None:
-    """Persist the validated selection where the services read it —
-    TO_ALLURE_JAVA_HOME lives ONLY in the app's EnvironmentFile, never
-    in /etc/environment, profile.d, or any global Java config."""
-    env_file = config / "web.env"
-    lines = env_file.read_text().splitlines() if env_file.exists() else []
-    keys = ("TO_ALLURE_JAVA_HOME", "TO_ALLURE_JAVA_RECORD")
-    lines = [l for l in lines if not any(l.startswith(f"{k}=")
-                                         for k in keys)]
-    lines.append(f"TO_ALLURE_JAVA_HOME={java_home}")
-    record_file = config / "allure-java.json"
-    lines.append(f"TO_ALLURE_JAVA_RECORD={record_file}")
-    env_file.write_text("\n".join(lines) + "\n")
-    os.chmod(env_file, 0o640)
-    record_file.write_text(json.dumps(
-        {**record, "allure_version": _allure_version(payload)},
-        indent=2))
-    os.chmod(record_file, 0o640)
-    if os.geteuid() == 0:
-        import grp
-        try:
-            gid = grp.getgrnam(SERVICE_USER).gr_gid
-            os.chown(env_file, 0, gid)
-            os.chown(record_file, 0, gid)
-        except KeyError:
-            pass
-
-
 def under_user_home(path: str) -> bool:
     try:
         p = Path(path).resolve()
@@ -412,87 +339,9 @@ def under_user_home(path: str) -> bool:
 
 
 def _allure_version(payload: Path) -> str:
-    dirs = sorted((payload / "3rdparty" / "allure").glob("allure-*"))
+    dirs = sorted((payload / "3rdparty" / "allure3").glob("allure*"))
     return dirs[-1].name.split("-", 1)[1] if dirs else ""
 
-
-def configure_java(args, payload: Path, data: Path, config: Path) -> None:
-    """Select + validate + persist a Java runtime for Allure, or mark
-    Allure disabled with a clear warning. Never modifies global Java
-    settings and never touches KRE's own runtime."""
-    attempted = []
-    candidates = ([args.java_home] if args.java_home
-                  else detect_java(payload, args.service_user))
-    record = {"ok": False, "error": "no Java runtime candidates found"}
-    for cand in candidates:
-        home_note = ""
-        if under_user_home(cand):
-            home_note = (" — under a user home directory; a system "
-                         "service account may not reach it")
-        record = probe_java(payload, cand, args.service_user)
-        attempted.append((cand, record.get("ok"), record.get("error", "")
-                          + home_note))
-        if record.get("ok"):
-            if under_user_home(record["java_home"]):
-                print(f"[install] WARNING: selected Java is under a "
-                      f"user's home ({record['java_home']}); verified "
-                      f"as {record.get('probed_as')} — prefer a "
-                      "system-wide location like /usr/lib/jvm")
-            persist_java(config, record["java_home"], record, payload)
-            svc_note = "" if record.get("probed_as") == args.service_user \
-                else f" — WARNING: probed as {record.get('probed_as')}, " \
-                     f"NOT the service account {args.service_user}"
-            print(f"[install] allure java: {record['java_home']} "
-                  f"(Java {record.get('java_version', '?')}) — validated "
-                  f"by report-generation probe as "
-                  f"{record.get('probed_as')}{svc_note}")
-            return
-    # Nothing validated: interactive recheck, or continue disabled.
-    for cand, ok, err in attempted:
-        print(f"[install] java probe FAILED at {cand}: {err}")
-    if not args.no_allure and sys.stdin.isatty() and not args.yes:
-        while True:
-            ans = input("[install] No compatible Java found for Allure. "
-                        "Enter a JAVA_HOME path, 'r' to re-scan, or 'c' "
-                        "to continue with Allure disabled: ").strip()
-            if ans.lower() == "c":
-                break
-            if ans.lower() != "r":
-                record = probe_java(payload, ans, args.service_user)
-                if record.get("ok"):
-                    persist_java(config, record["java_home"], record, payload)
-                    print("[install] allure java: "
-                          f"{record['java_home']} — validated")
-                    return
-                print(f"[install] probe FAILED: {record.get('error')}")
-                continue
-            for cand in detect_java(payload, args.service_user):
-                record = probe_java(payload, cand, args.service_user)
-                if record.get("ok"):
-                    persist_java(config, record["java_home"], record, payload)
-                    print("[install] allure java: "
-                          f"{record['java_home']} — validated")
-                    return
-    elif not args.no_allure:
-        sys.exit(
-            "error: no compatible Java runtime found for Allure "
-            "reporting. Install a JRE/JDK (OpenJDK 21+ recommended), "
-            "re-run with --java-home <path> to select it, or pass "
-            "--no-allure to continue with Allure reporting disabled.")
-    record = {**record, "allure_disabled": True}
-    persist_java(config, "", record, payload)
-    print("[install] WARNING: continuing with Allure reporting DISABLED "
-          "— native KRE reports and artifacts are unaffected; validate "
-          "Java later via Admin -> Reporting -> Check readiness.")
-
-
-if __name__ == "__main__":
-    main()
-
-# --- bundled-runtime path (no host python required) --------------------
-def bundled_python(payload: Path) -> Path:
-    rt = payload / "3rdparty" / "python-runtime" / "python" / "bin" / "python3"
-    return rt if rt.exists() else None
 
 def create_venv_offline(payload: Path) -> Path:
     """Create the app venv from the BUNDLED runtime + vendored wheels —

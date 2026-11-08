@@ -42,8 +42,6 @@ if getattr(sys, "frozen", False):
                    / "3rdparty")
 else:
     BUNDLE_ROOT = Path(__file__).resolve().parent.parent / "3rdparty"
-ENV_JAVA_HOME = "TO_ALLURE_JAVA_HOME"
-ENV_RECORD = "TO_ALLURE_JAVA_RECORD"   # installer-written probe record path
 PROBE_TIMEOUT = 300
 
 
@@ -90,192 +88,12 @@ def version() -> str:
         return ""
 
 
-def normalize_java_home(path: str | Path) -> Path | None:
-    """Accept a JAVA_HOME directory or a path to the java binary itself;
-    return the usable JAVA_HOME, or None when no bin/java exists."""
-    if not path:
-        return None
-    p = Path(path).expanduser()
-    if p.is_file() or p.name in ("java", "java.exe"):
-        # Resolve through PATH shims/symlinks so the recorded JAVA_HOME
-        # is the real JDK root, not a link dir like ~/.local/bin.
-        p = Path(os.path.realpath(p)).parent.parent
-    else:
-        p = p.resolve()
-    return p if (p / "bin" / JAVA_EXE).exists() else None
-
-
-JAVA_EXE = "java.exe" if sys.platform == "win32" else "java"
-
-
-def java_binary(home: Path) -> Path:
-    return home / "bin" / JAVA_EXE
-
-
 def _sanitized(text: str, limit: int = 500) -> str:
     """Error text for operators: control chars stripped, whitespace
     collapsed, truncated — never a raw stack dump."""
     clean = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text or "")
     clean = " ".join(clean.split())
     return clean[-limit:] if len(clean) > limit else clean
-
-
-def java_version(home: Path, timeout: int = 15) -> tuple[str, str]:
-    """(version string, error). A runtime that cannot even start is
-    reported distinctly from one that merely reports oddly."""
-    try:
-        res = subprocess.run([str(java_binary(home)), "-version"],
-                             capture_output=True, text=True,
-                             timeout=timeout)
-    except FileNotFoundError:
-        return "", f"java binary not executable: {java_binary(home)}"
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return "", f"java -version failed to run: {_sanitized(str(exc), 200)}"
-    text = res.stderr or res.stdout
-    m = re.search(r'version "([^"]+)"', text)
-    if res.returncode != 0:
-        return "", (f"java -version exited {res.returncode}: "
-                    f"{_sanitized(text, 200)}")
-    return (m.group(1) if m else "unknown"), ""
-
-
-def _bundled_java_home() -> Path | None:
-    """The app's own pinned JRE: 3rdparty/java-runtime/<platform>/jre
-    relative to the package root — application-local, never a system
-    installation."""
-    base = Path(__file__).resolve().parent.parent / "3rdparty" \
-        / "java-runtime"
-    if not base.is_dir():
-        return None
-    for jre in sorted(base.glob("*/jre")):
-        if (jre / "bin" / JAVA_EXE).exists():
-            return jre
-    return None
-
-
-def detect_java_homes() -> list[Path]:
-    """Candidate JAVA_HOMEs in discovery order — de-duplicated.
-
-    Order: JAVA_HOME env -> java on PATH -> platform-specific install
-    locations (Windows: registry JavaSoft keys + Program Files vendor
-    dirs; Linux/macOS: /usr/lib/jvm, /usr/java, /opt, JVM bundles)."""
-    cands, seen = [], set()
-
-    def add(p):
-        home = normalize_java_home(p) if p else None
-        if home and str(home) not in seen:
-            seen.add(str(home))
-            cands.append(home)
-
-    # An explicit JAVA_HOME wins; the pinned bundled JRE is the
-    # deterministic default after it — the package ships a Temurin
-    # runtime so no system Java is required, while still honoring an
-    # operator's explicit override.
-    add(os.environ.get("JAVA_HOME"))
-    add(_bundled_java_home())
-    add(shutil.which(JAVA_EXE))
-    for p in _platform_java_homes():
-        add(p)
-    return cands
-
-
-def _platform_java_homes() -> list[str]:
-    """OS-specific install locations."""
-    if sys.platform == "win32":
-        return _registry_java_homes() + _windows_dir_homes()
-    homes = []
-    for root in ("/usr/lib/jvm", "/usr/java", "/opt",
-                 "/Library/Java/JavaVirtualMachines"):
-        base = Path(root)
-        if not base.is_dir():
-            continue
-        for d in sorted(base.iterdir()):
-            if d.is_dir():
-                homes.append(str(d))
-                homes.append(str(d / "Contents" / "Home"))  # macOS bundle
-    # /opt itself may hold jdk/bin directly or vendor dirs holding JDKs
-    opt = Path("/opt")
-    if opt.is_dir():
-        for d in sorted(opt.iterdir()):
-            if (d / "bin" / JAVA_EXE).exists():
-                homes.append(str(d))
-    return homes
-
-
-def _windows_dir_homes() -> list[str]:
-    """Common Windows vendor install roots under Program Files et al."""
-    roots = []
-    for var in ("ProgramFiles", "ProgramFiles(x86)",
-                "ProgramW6432", "LOCALAPPDATA"):
-        val = os.environ.get(var)
-        if not val:
-            continue
-        base = Path(val)
-        for vendor in ("Java", "Eclipse Adoptium", "Eclipse Foundation",
-                       "Microsoft", "Amazon Corretto", "Zulu", "BellSoft",
-                       "OpenJDK"):
-            roots.append(base / vendor)
-        if var == "LOCALAPPDATA":
-            roots.append(base / "Programs")
-    homes = []
-    for root in roots:
-        if not root.is_dir():
-            continue
-        for d in sorted(root.iterdir()):
-            if d.is_dir():
-                homes.append(str(d))
-    return homes
-
-
-def _enum_registry_java_homes(winreg) -> list[str]:
-    """Enumerate JavaSoft JavaHome values (HKLM + HKCU, 64-bit view
-    first then default). ``winreg`` is injected so the logic is
-    testable off-Windows."""
-    homes = []
-    roots = (r"SOFTWARE\JavaSoft\JDK", r"SOFTWARE\JavaSoft\JRE",
-             r"SOFTWARE\JavaSoft\Java Development Kit",
-             r"SOFTWARE\JavaSoft\Java Runtime Environment")
-    views = [winreg.KEY_READ]
-    wow = getattr(winreg, "KEY_WOW64_64KEY", 0)
-    if wow:
-        views.insert(0, winreg.KEY_READ | wow)
-    for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
-        for root in roots:
-            for access in views:
-                try:
-                    base = winreg.OpenKey(hive, root, 0, access)
-                except OSError:
-                    continue
-                i = 0
-                while True:
-                    try:
-                        ver = winreg.EnumKey(base, i)
-                    except OSError:
-                        break
-                    i += 1
-                    try:
-                        sub = winreg.OpenKey(base, ver)
-                        val, _typ = winreg.QueryValueEx(sub, "JavaHome")
-                    except OSError:
-                        continue
-                    if val:
-                        homes.append(val)
-    return homes
-
-
-def _registry_java_homes() -> list[str]:
-    """Windows registry discovery — silently empty off-Windows or when
-    no vendor registered a JavaHome."""
-    if sys.platform != "win32":
-        return []
-    try:
-        import winreg
-    except ImportError:
-        return []
-    try:
-        return _enum_registry_java_homes(winreg)
-    except OSError:
-        return []
 
 
 def _setting(key, default=None):
@@ -292,27 +110,6 @@ def _set_setting(key, value) -> None:
     from .settings import set as _s
     _s(key, value)
     db.session.commit()
-
-
-def selected_java() -> tuple[Path | None, str]:
-    """The Java the app will use for Allure, plus its selection source."""
-    home = normalize_java_home(_setting("allure_java_home", ""))
-    if home:
-        return home, "admin"
-    home = normalize_java_home(os.environ.get(ENV_JAVA_HOME, ""))
-    if home:
-        return home, "installer"
-    homes = detect_java_homes()
-    return (homes[0], "detected") if homes else (None, "none")
-
-
-def _child_env(home: Path) -> dict:
-    """Per-invocation environment — JAVA_HOME/PATH scoped to the Allure
-    child process only; os.environ and every other runtime untouched."""
-    env = dict(os.environ)
-    env["JAVA_HOME"] = str(home)
-    env["PATH"] = f"{home / 'bin'}{os.pathsep}{env.get('PATH', '')}"
-    return env
 
 
 def _fixture_results(dest: Path) -> None:
@@ -375,18 +172,6 @@ def select_and_validate(timeout: int = PROBE_TIMEOUT) -> dict:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def _installer_record() -> dict | None:
-    """Probe record written by the installer (path via TO_* env) — used
-    only until the app persists its own probe in settings."""
-    path = os.environ.get(ENV_RECORD, "")
-    if not path:
-        return None
-    try:
-        return json.loads(Path(path).read_text())
-    except (OSError, json.JSONDecodeError):
-        return None
 
 
 def available() -> bool:

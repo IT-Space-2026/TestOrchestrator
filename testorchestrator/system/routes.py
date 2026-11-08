@@ -349,27 +349,15 @@ def reporting_save():
     """Persist reporting config. Saving NEVER publishes — publication is
     a separate explicit action."""
     from flask import request
-    java_home = request.form.get("allure_java_home", "").strip()
     settings_mod.update({
         "allure_enabled": bool(request.form.get("allure_enabled")),
-        "allure_java_home": java_home,
+
     })
     record_audit(current_user.username, "reporting.config.saved",
                  "reporting settings updated (no values)")
     flash("Reporting settings saved. No runs were published.", "info")
-    if java_home:
-        # Selecting a runtime validates it immediately with an actual
-        # generation probe — never assumed compatible from the path.
-        from .. import allure_runtime
-        rec = allure_runtime.select_and_validate(java_home)
-        if rec["ok"]:
-            flash(f"Java validated — generated a report with Allure "
-                  f"{allure_runtime.version()} "
-                  f"(Java {rec.get('java_version', '?')}).", "info")
-        else:
-            flash(f"Java at {java_home} FAILED the generation probe: "
-                  f"{rec.get('error', '')} — Allure stays not-ready.",
-                  "error")
+    # No Java selection: the bundled Node.js runtime is validated via
+    # the separate Check action — not by storing a path.
     return redirect(url_for("system.reporting_page"))
 
 

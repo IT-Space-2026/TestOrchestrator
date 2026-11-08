@@ -53,8 +53,10 @@ INCLUDE = [
     # the dagu binary.
     ("3rdparty/caddy", "caddy"),
     ("3rdparty/dagu", "dagu"),
-    ("3rdparty/allure", "allure"),
-    ("3rdparty/java-runtime", "java-ref"),   # manifest+licences only
+    ("3rdparty/allure3", "allure3"),       # npm `allure` + deps tree
+    ("3rdparty/nodejs", "nodejs"),         # bundled node runtime
+    # java-runtime removed: the JRE was shipped solely for Allure 2.
+    # Allure 3 is Node-based; KRE carries its own runtime.
     ("3rdparty/licenses", "docs"),
 ]
 
@@ -62,11 +64,12 @@ INCLUDE = [
 REQUIRED = [
     "wsgi.py", "testorchestrator/__init__.py", "requirements.txt",
     "release/release.json", "install.sh", "scripts/install.py",
-    "scripts/java_probe.py", "migrations", "deploy/Caddyfile",
+    "migrations", "deploy/Caddyfile",
     "3rdparty/caddy/caddy",
     "3rdparty/python-runtime/python/bin/python3",  # swapped for app/toctl under --frozen
     "3rdparty/dagu",
-    "3rdparty/allure",
+    "3rdparty/allure3",
+    "3rdparty/nodejs",
 ]
 
 EXCLUDE_DIRS = {"__pycache__", ".pytest_cache", "instance", "dist",
@@ -80,9 +83,8 @@ def _excluded(rel: Path) -> bool:
     if any(p.endswith(".pyc") or p.endswith(".egg-info")
            for p in parts):
         return True
-    # The JRE itself is never packaged — keep its manifests/licences.
-    if "java-runtime" in parts and ({"rootfs", "debs"} & parts):
-        return True
+    # No JRE for Allure any more; node_modules dev artifacts trimmed
+    # by the manifest, not blanket-excluded.
     # Product-identity allowlist: the full Windows application
     # installer must never ride inside the Linux package. The
     # supplementary dagu-worker installer IS an intended download
@@ -170,13 +172,6 @@ def collect(frozen: bool = False
 
 
 DEPENDENCIES = {
-    "java-runtime": {
-        "required_for": "Allure report generation (optional)",
-        "requirement": "compatible JRE/JDK — OpenJDK 21+ recommended; "
-                       "validated by an actual report-generation probe "
-                       "at install, re-checkable in Admin > Reporting",
-        "install_flags": "--java-home <path> | --no-allure",
-    },
     "kre": {
         "required_for": "test execution",
         "requirement": "operator-installed, licensed Katalon Runtime "
@@ -254,7 +249,8 @@ def main():
     bundled |= {
         "caddy": "pinned binary + licence + sha256",
         "dagu": "pinned 2.25.8 release tarball",
-        "allure": "pinned allure-commandline generator",
+        "allure3": "pinned allure npm generator + dep tree",
+        "nodejs": "pinned bundled Node.js runtime",
     }
     if args.frozen:
         bundled["frozen-app"] = ("PyInstaller onedir — toctl "
@@ -282,7 +278,7 @@ def main():
         "bundled": bundled,
         "dependencies": DEPENDENCIES,
         "exclusions": {
-            "java-runtime": "operator prerequisite — never bundled; "
+            "nodejs": "bundled Node.js — no system node/npx needed; "
                             "validated by generation probe at install",
             "acquisition-debs": "3rdparty/*/debs — extracted rootfs "
                                 "already packaged",

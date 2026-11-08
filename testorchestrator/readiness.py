@@ -126,8 +126,7 @@ def _pub_fp() -> str:
 def _reporting_state() -> str:
     from . import allure_runtime
     try:
-        homes = allure_runtime.detect_java_homes()
-        if homes and allure_runtime._allure() is not None:
+        if allure_runtime.available():
             return "verified"
         if allure_runtime._allure() is not None:
             return "configured"

@@ -177,7 +177,7 @@ def cmd_java_probe(args) -> int:
     app = _app()
     with app.app_context():
         from . import allure_runtime
-        cands = [str(c) for c in allure_runtime.detect_java_homes()]
+        cands = ["bundled-node+allure3"]
         home = args.java_home or (cands[0] if cands else "")
         rec = allure_runtime.select_and_validate(home) if home else             {"ok": False, "error": "no Java runtime candidates found"}
         print(json.dumps({"candidates": cands,
@@ -317,7 +317,7 @@ def cmd_install(args) -> int:
             if jrec.get("ok"):
                 java_home = jrec.get("selected") or java_home
                 print(f"[install] allure java: {java_home} "
-                      f"({jrec.get('java_version', '?')}) — validated "
+                      f"(bundled Node.js) — validated "
                       "by generation probe")
             else:
                 print(f"[install] Java probe: {jrec.get('error','')} — "

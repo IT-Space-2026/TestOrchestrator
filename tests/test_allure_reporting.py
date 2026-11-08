@@ -244,41 +244,6 @@ def test_settings_survive_restart_and_secrets_never_render(
 
 # ---------- external-Java prerequisite (§ packaging change) ----------
 
-def _fake_jh(tmp_path):
-    home = tmp_path / "jh"
-    (home / "bin").mkdir(parents=True)
-    (home / "bin" / "java").write_text("#!/bin/sh\n")
-    return home
-
-
-def test_normalize_java_home(tmp_path):
-    home = _fake_jh(tmp_path)
-    assert allure_runtime.normalize_java_home(str(home)) == home
-    assert (allure_runtime.normalize_java_home(
-        str(home / "bin" / "java")) == home)
-    assert allure_runtime.normalize_java_home("/nonexistent") is None
-    assert allure_runtime.normalize_java_home("") is None
-
-
-def test_selected_java_precedence(app, tmp_path, monkeypatch):
-    """admin setting > installer env > detection."""
-    a, b, c = (_fake_jh(tmp_path / n) for n in ("a", "b", "c"))
-    monkeypatch.setenv("TO_ALLURE_JAVA_HOME", str(b))
-    monkeypatch.setattr(allure_runtime, "detect_java_homes",
-                        lambda: [c])
-    with app.app_context():
-        S.update({"allure_java_home": ""})
-        home, src = allure_runtime.selected_java()
-        assert (home, src) == (b, "installer")
-        S.update({"allure_java_home": str(a)})
-        home, src = allure_runtime.selected_java()
-        assert (home, src) == (a, "admin")
-        S.update({"allure_java_home": ""})
-        monkeypatch.delenv("TO_ALLURE_JAVA_HOME")
-        home, src = allure_runtime.selected_java()
-        assert (home, src) == (c, "detected")
-
-
 def test_missing_allure3_status_and_generate(app, monkeypatch,
                                                 tmp_path):
     """No bundled node/allure -> honest not-ready + actionable error;
@@ -422,73 +387,6 @@ class FakeWinreg:
         return subkey[name], 1
 
 
-def test_windows_registry_enum():
-    """JavaSoft JavaHome values are harvested across hives and roots,
-    including paths containing spaces."""
-    wr = FakeWinreg({
-        ("HKLM", r"SOFTWARE\JavaSoft\JDK"):
-            {"21": {"JavaHome": r"C:\Program Files\Java\jdk-21"},
-             "17": {"JavaHome": r"C:\Program Files\Java\jdk 17"}},
-        ("HKCU", r"SOFTWARE\JavaSoft\JRE"):
-            {"1.8": {"JavaHome": r"C:\Tools\jre8"}},
-    })
-    homes = allure_runtime._enum_registry_java_homes(wr)
-    assert r"C:\Program Files\Java\jdk-21" in homes
-    assert r"C:\Program Files\Java\jdk 17" in homes
-    assert r"C:\Tools\jre8" in homes
-
-
-def test_registry_empty_off_windows(monkeypatch):
-    monkeypatch.setattr(allure_runtime.sys, "platform", "linux")
-    assert allure_runtime._registry_java_homes() == []
-
-
-def test_windows_dir_discovery(monkeypatch, tmp_path):
-    pf = tmp_path / "Program Files"
-    for vendor in ("Java", "Eclipse Adoptium"):
-        (pf / vendor / "jdk-21" / "bin").mkdir(parents=True)
-        (pf / vendor / "jdk-21" / "bin" / "java.exe").write_text("x")
-    monkeypatch.setenv("ProgramFiles", str(pf))
-    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
-    monkeypatch.delenv("ProgramW6432", raising=False)
-    monkeypatch.delenv("LOCALAPPDATA", raising=False)
-    homes = allure_runtime._windows_dir_homes()
-    assert str(pf / "Java" / "jdk-21") in homes
-    assert str(pf / "Eclipse Adoptium" / "jdk-21") in homes
-
-
-def test_discovery_order_java_home_then_path_then_platform(
-        monkeypatch, tmp_path):
-    a, b, c = (_fake_jh(tmp_path / n) for n in ("d1", "d2", "d3"))
-    monkeypatch.setenv("JAVA_HOME", str(a))
-    monkeypatch.setattr(allure_runtime, "_bundled_java_home",
-                        lambda: None)
-    monkeypatch.setattr(allure_runtime.shutil, "which",
-                        lambda _exe: str(b / "bin" / "java"))
-    monkeypatch.setattr(allure_runtime, "_platform_java_homes",
-                        lambda: [str(c)])
-    homes = allure_runtime.detect_java_homes()
-    assert homes == [a, b, c]          # order is contract
-
-
-def test_discovery_order_bundled_after_java_home(monkeypatch, tmp_path):
-    """The pinned bundled JRE is the deterministic default after an
-    explicit JAVA_HOME — it outranks PATH/platform but not the user's
-    explicit override."""
-    a, jre, b, c = (_fake_jh(tmp_path / n)
-                    for n in ("d1", "jre", "d2", "d3"))
-    monkeypatch.setenv("JAVA_HOME", str(a))
-    monkeypatch.setattr(allure_runtime, "_bundled_java_home",
-                        lambda: jre)
-    monkeypatch.setattr(allure_runtime.shutil, "which",
-                        lambda _exe: str(b / "bin" / "java"))
-    monkeypatch.setattr(allure_runtime, "_platform_java_homes",
-                        lambda: [str(c)])
-    assert allure_runtime.detect_java_homes() == [a, jre, b, c]
-    monkeypatch.delenv("JAVA_HOME")
-    assert allure_runtime.detect_java_homes()[0] == jre
-
-
 def test_missing_runtime_blocks_generation_probe(app, monkeypatch):
     """No bundled node/allure -> probe fails before generation with an
     actionable error, still recorded honestly."""
@@ -506,18 +404,3 @@ def test_sanitized_errors():
     assert "\x00" not in clean and "\n" not in clean
     assert len(clean) <= 500 and clean.endswith("trail")
 
-
-def test_normalize_windows_java_path(tmp_path):
-    home = tmp_path / "jdk-21"
-    (home / "bin").mkdir(parents=True)
-    (home / "bin" / "java.exe").write_text("x")
-    # normalize checks the platform's exe name; simulate win32.
-    monkey = pytest.MonkeyPatch()
-    monkey.setattr(allure_runtime, "JAVA_EXE", "java.exe")
-    try:
-        assert allure_runtime.normalize_java_home(
-            str(home / "bin" / "java.exe")) == home.resolve()
-        assert allure_runtime.normalize_java_home(str(home)) == \
-            home.resolve()
-    finally:
-        monkey.undo()
