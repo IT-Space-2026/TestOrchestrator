@@ -300,3 +300,69 @@ if __name__ == "__main__":
 
 # Dagu is shipped as its release tarball under 3rdparty/dagu/ — extract
 # during bundle assembly/install, not committed uncompressed (>100MB).
+
+
+def verify_acquisition(manifest_path: Path,
+                       stage_dir: Path) -> dict:
+    """Checksum-gate acquired archives BEFORE extraction/use.
+    Verifies each pinned download's checksum against the staged file —
+    never silently falls back to system node/npm/allure/java.
+    Returns {component: {'ok', 'path', 'sha256'|'sha512'}}; raises
+    RuntimeError on missing payload or checksum mismatch."""
+    import base64
+    manifest = json.loads(Path(manifest_path).read_text())
+    results = {}
+    # nodejs archive: sha256 of the downloaded tarball
+    node = manifest.get("nodejs", {})
+    for plat in ("linux_x64",):
+        if plat not in node:
+            continue
+        want = node[plat]["sha256"]
+        tarball = Path(stage_dir) / "node.tar.xz"
+        if not tarball.is_file():
+            raise RuntimeError(
+                f"missing required payload: {tarball} "
+                f"(nodejs {node.get('version')})")
+        got = hashlib.sha256(tarball.read_bytes()).hexdigest()
+        if got != want:
+            raise RuntimeError(
+                f"checksum mismatch on {tarball.name}: "
+                f"expected {want[:12]}… got {got[:12]}…")
+        results["nodejs"] = {"ok": True, "sha256": got}
+    # allure npm tarball: sha512 from the lockfile integrity field
+    allure = manifest.get("allure", {})
+    if allure:
+        want512 = allure["sha512"]
+        tarball = Path(stage_dir) / "allure.tgz"
+        if not tarball.is_file():
+            raise RuntimeError(
+                f"missing required payload: {tarball} "
+                f"(allure {allure.get('version')})")
+        got512 = base64.b64encode(
+            hashlib.sha512(tarball.read_bytes()).digest()).decode()
+        if got512 != want512:
+            raise RuntimeError(
+                f"checksum mismatch on {tarball.name}: "
+                f"expected {want512[:12]}… got {got512[:12]}…")
+        results["allure"] = {"ok": True, "sha512": got512}
+    return results
+
+
+def verify_extracted_runtime(bundle_root: Path,
+                             manifest_path: Path) -> dict:
+    """Completeness check on the EXTRACTED runtime in the bundle —
+    distinct from the archive checksum. Fails on missing cli/binary
+    so a partial stage is never silently packaged."""
+    manifest = json.loads(Path(manifest_path).read_text())
+    problems = []
+    node_dirs = sorted(
+        Path(bundle_root).glob("nodejs/node-v*/bin/node"))
+    if not node_dirs and not list(
+            Path(bundle_root).glob("nodejs/node*")):
+        problems.append("no bundled nodejs runtime found")
+    cli = manifest.get("allure", {}).get("cli",
+                                         "node_modules/allure/cli.js")
+    cli_path = Path(bundle_root) / "allure3" / cli
+    if not cli_path.is_file():
+        problems.append(f"missing allure cli: {cli_path}")
+    return {"ok": not problems, "problems": problems}

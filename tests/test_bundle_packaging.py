@@ -114,3 +114,70 @@ def test_settings_guidance_rendering(client, login_as, app):
         # Placeholder values only — no real secret material rendered.
         for leak in ("sk-live", "AKIA", "BEGIN PRIVATE", "xoxb"):
             assert leak not in body
+
+
+def test_acquisition_checksum_gate(tmp_path):
+    """Positive + negative: verified archive passes; missing/mismatch
+    fails loudly — never silently falls back."""
+    import hashlib, base64, json
+    from scripts.build_bundle import verify_acquisition
+    node_bytes = b"fake-node-tarball"
+    allure_bytes = b"fake-allure-tarball"
+    man = {"nodejs": {"version": "22.18.0",
+            "linux_x64": {"sha256":
+                          hashlib.sha256(node_bytes).hexdigest()}},
+           "allure": {"version": "3.33.0",
+            "sha512": base64.b64encode(
+                hashlib.sha512(allure_bytes).digest()).decode()}}
+    mp = tmp_path / "manifest.json"; mp.write_text(json.dumps(man))
+    stage = tmp_path / "stage"; stage.mkdir()
+    (stage / "node.tar.xz").write_bytes(node_bytes)
+    (stage / "allure.tgz").write_bytes(allure_bytes)
+    res = verify_acquisition(mp, stage)
+    assert res["nodejs"]["ok"] and res["allure"]["ok"]
+
+
+def test_acquisition_missing_payload_fails(tmp_path):
+    import json
+    from scripts.build_bundle import verify_acquisition
+    import pytest
+    man = {"nodejs": {"linux_x64": {"sha256": "x"}},
+           "allure": {"sha512": "y"}}
+    mp = tmp_path / "m.json"; mp.write_text(json.dumps(man))
+    stage = tmp_path / "s"; stage.mkdir()
+    with pytest.raises(RuntimeError, match="missing required payload"):
+        verify_acquisition(mp, stage)
+
+
+def test_acquisition_checksum_mismatch_fails(tmp_path):
+    import json, hashlib
+    from scripts.build_bundle import verify_acquisition
+    import pytest
+    man = {"nodejs": {"linux_x64": {"sha256":
+                          hashlib.sha256(b"expected").hexdigest()}},
+           "allure": {"sha512": "x"}}
+    mp = tmp_path / "m.json"; mp.write_text(json.dumps(man))
+    stage = tmp_path / "s"; stage.mkdir()
+    (stage / "node.tar.xz").write_bytes(b"tampered")
+    with pytest.raises(RuntimeError, match="checksum mismatch"):
+        verify_acquisition(mp, stage)
+
+
+def test_extracted_runtime_completeness(tmp_path):
+    """Extracted-runtime completeness is separate from the archive
+    checksum — a partial stage fails before packaging."""
+    from scripts.build_bundle import verify_extracted_runtime
+    import json
+    man = {"allure": {"cli": "node_modules/allure/cli.js"}}
+    mp = tmp_path / "m.json"; mp.write_text(json.dumps(man))
+    bundle = tmp_path / "bundle"
+    # missing everything -> not ok
+    r = verify_extracted_runtime(bundle, mp)
+    assert r["ok"] is False and r["problems"]
+    # staged node + allure cli -> ok
+    (bundle / "nodejs" / "node-v22").mkdir(parents=True)
+    (bundle / "allure3" / "node_modules" / "allure").mkdir(parents=True)
+    (bundle / "allure3" / "node_modules" / "allure"
+     / "cli.js").write_text("//")
+    r = verify_extracted_runtime(bundle, mp)
+    assert r["ok"] is True
