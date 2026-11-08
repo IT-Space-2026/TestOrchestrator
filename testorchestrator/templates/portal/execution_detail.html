@@ -146,7 +146,7 @@
   {% if ex.allure_version %}— allure {{ ex.allure_version }}{% endif %}</p>
 <p>
   {% if ex.allure_status == 'ready' %}
-    <a class="btn" href="{{ url_for('portal.view_allure', execution_id=ex.id) }}">View Allure report</a>
+    <a class="btn" href="{{ url_for('portal.view_allure', execution_id=ex.id) }}" target="_blank" rel="noopener noreferrer">Open Allure report (new tab)</a>
     <a class="btn" href="{{ url_for('portal.download_allure', execution_id=ex.id) }}">Download Allure report (.zip)</a>
   {% endif %}
 </p>
