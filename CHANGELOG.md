@@ -4,6 +4,58 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — dashboards, reporting, operational logs, Allure 3
+
+- **Project dashboard** (`/projects/<id>/dashboard`): per-project
+  reporting with outcome/pass-rate/duration trends, top-failing-case
+  ranking, summary cards, period/suite/status filters, and
+  recent-executions drill-down. Aggregation in
+  `project_dashboard.py`, figures via `charts.py` → vendored
+  Plotly.js (offline, no CDN/Dash). Pass rate =
+  passed/(passed+failed+error) with skips tracked separately;
+  execution counts never mixed with test-case counts.
+- **Unified chart theme** (`charts.py`): shared Plotly palette,
+  base layout, and `TOCharts` client builder — the live poll now
+  updates charts via `Plotly.react` instead of legacy markup.
+- **Operational Logs** (`/system/logs`, admin-only): structured
+  component events with severity/component/category/project/
+  execution/worker/correlation fields, combined filters, bounded
+  pagination, pausable live-tail with freshness indicator, and
+  bounded secrets-redacted JSONL/CSV export. Independent retention
+  (`logs_retention_days`/`logs_max_rows`); audit kept separate.
+- **Allure 3 reporting** (replaces Allure 2): bundled Node.js +
+  npm `allure` package via `allure_runtime` — no Java, no system
+  node/npm/npx, no runtime downloads. Reports are multi-file
+  (`awesome/` entry) served under a permitted sandbox CSP with a
+  dedicated subtree-asset route; `allurerc` plugin config applies
+  the Orchestrator logo + "Orchestrator — Test Report" title.
+  ZIP downloads ship the whole report subtree.
+- **Build payload integrity** (`verify_acquisition` +
+  `verify_extracted_runtime`): pinned sha256/sha512 checks before
+  extraction, explicit failures on missing/mismatched payloads —
+  never silently falls back to system runtimes.
+
+### Changed
+
+- **Allure report opens in a new tab** (`target="_blank"`
+  + `rel="noopener noreferrer"`) so the portal page state is
+  preserved; download actions unchanged.
+- **`Admin`/`Admin` bootstrap**: on a genuinely fresh install the
+  single admin starts with the shared temporary credential and
+  `must_change_password`; the forced change gate is enforced until
+  a strong password replaces it. Idempotent — installer reruns,
+  restarts, and upgrades never reset an existing account.
+
+### Removed
+
+- **Allure 2 + JRE-for-Allure**: the Java `allure-commandline`
+  jar, the bundled JRE shipped solely for it, `--java-home`/
+  `allure-java.json` install options, `detect_java_homes`/
+  `selected_java`/`java_version` helpers, `java_probe.py`, and the
+  "JRE + Allure" readiness gate are gone. KRE carries its own
+  runtime — the only Java consumer identified.
+
+
 ### Added
 
 ### Added — release dates, charts, schedule multi-targets (cont.)

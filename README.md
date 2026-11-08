@@ -33,6 +33,36 @@ Two roles:
   The Windows worker installer (`packaging/windows/`) targets this role —
   **scaffold only; not yet built or host-validated**.
 
+### Reporting & dashboards
+
+```text
+SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
+            (aggregation)            (Plotly fig JSON)
+                                   └──> vendored plotly.js (offline)
+```
+
+- **Dashboards**: per-project trends (outcome, pass-rate, duration),
+  top-failing cases, filters, drill-down. Aggregation stays
+  server-side in `project_dashboard.py`; `charts.py` builds the
+  Plotly figure JSON; the vendored `plotly.min.js` renders it —
+  no CDN, no Dash, no second server. Execution counts and test-case
+  counts are never mixed; pass rate excludes skips.
+- **Allure 3**: `allure_runtime` runs a bundled Node.js + the npm
+  `allure` package (pinned + checksum-verified at build) — no Java,
+  no system node/npm/npx, no runtime downloads. Reports are
+  multi-file static sites served under `sandbox allow-scripts
+  allow-same-origin` + a dedicated subtree-asset route; branding
+  comes from an `allurerc` plugin config, not patched JS. See
+  `docs/report-serving-security.md` for the honest trust boundary
+  (no origin isolation — same-origin report scripts can reach the
+  portal; a separate serving origin is an unresolved topology
+  decision).
+- **Operational Logs**: structured `OperationalLog` rows (severity/
+  component/category/project/execution/worker/correlation), combined
+  filters, bounded pagination, pausable live-tail, redacted bounded
+  JSONL/CSV export, independent retention — separate from the Audit
+  trail.
+
 ## Supported platforms (evidence level)
 
 | Platform | Status | Evidence |
