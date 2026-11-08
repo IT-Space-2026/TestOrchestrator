@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Operational Logs</h1>
+  <p class="muted"><small>Component events — separate from the
+  <a href="{{ url_for('main.audit') }}">Audit trail</a>.
+  Remote worker logs are not collected and appear unavailable.</small></p>
+  <form method="get" class="filter-bar" id="log-filters">
+    <label>Severity
+      <select name="severity"><option value="">all</option>
+        {% for s in severities %}<option value="{{ s }}"
+          {% if filters.severity == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}</select></label>
+    <label>Component
+      <select name="component"><option value="">all</option>
+        {% for c in components %}<option value="{{ c }}"
+          {% if filters.component == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}</select></label>
+    <label>Category
+      <select name="category"><option value="">all</option>
+        {% for c in categories %}<option value="{{ c }}"
+          {% if filters.category == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}</select></label>
+    <label>Search <input name="q" value="{{ filters.q or '' }}"
+      placeholder="message contains"></label>
+    <button type="submit">Apply</button>
+    <a class="btn" href="{{ url_for('system.operational_logs_export', format='csv', severity=filters.severity or '', component=filters.component or '', category=filters.category or '', q=filters.q or '') }}">CSV</a>
+    <a class="btn" href="{{ url_for('system.operational_logs_export', format='jsonl', severity=filters.severity or '', component=filters.component or '', category=filters.category or '', q=filters.q or '') }}">JSONL</a>
+    <label><input type="checkbox" id="live-tail"> live tail</label>
+    <span id="tail-status" class="muted"><small>paused</small></span>
+  </form>
+</div>
+
+<div class="card">
+  <table class="data-table" id="log-table">
+    <thead><tr>
+      <th>Time</th><th>Severity</th><th>Component</th><th>Category</th>
+      <th>Message</th><th>Context</th>
+    </tr></thead>
+    <tbody id="log-rows">
+      {% for r in rows %}
+      <tr data-ts="{{ r.occurred_at.isoformat() }}">
+        <td><code>{{ r.occurred_at.strftime("%H:%M:%S") }}</code></td>
+        <td><span class="badge sev-{{ r.severity }}">{{ r.severity }}</span></td>
+        <td>{{ r.component }}</td>
+        <td>{{ r.category }}</td>
+        <td class="log-msg" title="{{ r.details }}">{{ r.message }}</td>
+        <td><small class="muted">
+          {{ r.project_id or "" }} {{ r.execution_id or "" }}
+          {{ r.worker_id or "" }} {{ r.correlation_id or "" }}
+        </small></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">No log events — sources emit on
+      activity; filters may exclude everything.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if page.pages > 1 %}
+  <div class="pagination muted"><small>
+    {% for p in range(1, page.pages + 1) %}
+      <a href="?page={{ p }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">{{ p }}</a>
+    {% endfor %}</small></div>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  var tail = document.getElementById("live-tail"),
+      status = document.getElementById("tail-status"),
+      tbody = document.getElementById("log-rows"),
+      timer = null;
+  function fetchTail() {
+    var last = tbody.querySelector("tr[data-ts]");
+    var after = last ? last.dataset.ts : "";
+    fetch("{{ url_for('system.operational_logs_tail') }}?after=" +
+          encodeURIComponent(after))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        status.textContent = "live · updated " +
+          d.generated_at.split("T")[1].slice(0, 8);
+        (d.rows || []).forEach(function (r) {
+          var tr = document.createElement("tr");
+          tr.dataset.ts = r.ts;
+          tr.innerHTML = "<td><code>" + r.ts.split("T")[1]
+            .slice(0, 8) + "</code></td><td><span class='badge sev-" +
+            r.severity + "'>" + r.severity + "</span></td><td>" +
+            r.component + "</td><td>" + r.category + "</td><td class='log-msg'>" +
+            r.message.replace(/[&<>]/g, function (c) {
+              return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c];
+            }) + "</td><td><small class='muted'>" +
+            [r.project, r.execution, r.worker, r.corr]
+              .filter(Boolean).join(" ") + "</small></td>";
+          tbody.insertBefore(tr, tbody.firstChild);
+        });
+      })
+      .catch(function () { status.textContent = "source unavailable"; });
+  }
+  tail.addEventListener("change", function () {
+    if (tail.checked) {
+      status.textContent = "live";
+      timer = setInterval(fetchTail, 4000);
+    } else {
+      status.textContent = "paused";
+      clearInterval(timer);
+    }
+  });
+})();
+</script>
+{% endblock %}

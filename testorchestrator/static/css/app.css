@@ -877,3 +877,8 @@ td .row-actions{min-width:9rem}
 .block-details form > .field{margin-bottom:.6rem}
 /* Plotly chart containers */
 [data-plotly-fig] { min-height: 260px; width: 100%; }
+
+.sev-debug{background:#455a64}.sev-info{background:#1565c0}
+.sev-warning{background:#ef6c00}.sev-error{background:#c62828}
+.sev-critical{background:#6a1b9a}
+.log-msg{max-width:34em;word-break:break-word;white-space:pre-wrap}

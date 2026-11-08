@@ -9,7 +9,8 @@ import re
 import sys
 from datetime import datetime, timezone
 
-from flask import (abort, current_app, flash, redirect, render_template,
+from flask import (Response, abort, current_app, flash, redirect,
+                   render_template, request,
                    request, send_file, url_for)
 from flask_login import current_user
 
@@ -387,6 +388,91 @@ def reporting_check():
     else:
         flash(f"Allure: NOT ready — {a['reason']}", "error")
     return redirect(url_for("system.reporting_page"))
+
+
+@system_bp.route("/logs")
+@role_required(Role.ADMIN)
+def operational_logs():
+    """Admin -> Operational Logs — structured events, filters, live
+    tail, bounded export. Separate from the Audit trail."""
+    from .. import logs
+    filters = {
+        "severity": request.args.get("severity") or None,
+        "component": request.args.get("component") or None,
+        "category": request.args.get("category") or None,
+        "project_id": request.args.get("project") or None,
+        "execution_id": request.args.get("execution") or None,
+        "worker_id": request.args.get("worker") or None,
+        "correlation_id": request.args.get("corr") or None,
+        "q": request.args.get("q") or None,
+    }
+    page = request.args.get("page", 1, type=int) or 1
+    paged = logs.query(filters).paginate(
+        page=page, per_page=50, error_out=False)
+    components = [r[0] for r in
+                  db.session.query(logs.OperationalLog.component)
+                  .distinct()]
+    return render_template("system/operational_logs.html",
+                           rows=paged.items, page=paged,
+                           filters=filters, components=components,
+                           severities=logs.SEVERITIES,
+                           categories=logs.CATEGORIES)
+
+
+@system_bp.route("/logs/tail")
+@role_required(Role.ADMIN)
+def operational_logs_tail():
+    """JSON rows newer than `after` — live-tail feed for the page."""
+    from .. import logs
+    from datetime import datetime, timezone
+    after = request.args.get("after", "")
+    q = logs.OperationalLog.query.order_by(
+        logs.OperationalLog.occurred_at.desc(),
+        logs.OperationalLog.id.desc()).limit(200)
+    if after:
+        try:
+            q = logs.OperationalLog.query.filter(
+                logs.OperationalLog.occurred_at >
+                datetime.fromisoformat(after)).order_by(
+                    logs.OperationalLog.occurred_at)
+        except ValueError:
+            pass
+    rows = [{"id": r.id, "ts": r.occurred_at.isoformat(),
+             "severity": r.severity, "component": r.component,
+             "category": r.category, "project": r.project_id,
+             "execution": r.execution_id, "worker": r.worker_id,
+             "corr": r.correlation_id, "source": r.source,
+             "message": logs.redact(r.message)}
+            for r in q.limit(200)]
+    return {"rows": rows,
+            "generated_at": datetime.now(timezone.utc).isoformat()}
+
+
+@system_bp.route("/logs/export")
+@role_required(Role.ADMIN)
+def operational_logs_export():
+    """Bounded filtered export — JSONL or CSV, secrets redacted,
+    CSV-escape-safe. Export action is audited (no log content)."""
+    from .. import logs
+    from ..models import record_audit
+    fmt = request.args.get("format", "csv")
+    if fmt not in ("csv", "jsonl"):
+        fmt = "csv"
+    filters = {
+        "severity": request.args.get("severity") or None,
+        "component": request.args.get("component") or None,
+        "category": request.args.get("category") or None,
+        "q": request.args.get("q") or None,
+    }
+    rows = logs.query(filters).limit(10000).all()
+    record_audit(current_user.username, "logs.export",
+                 f"{fmt} {len(rows)} rows")
+    mime = ("application/x-ndjson" if fmt == "jsonl"
+            else "text/csv")
+    return Response(logs.export(rows, fmt),
+                    mimetype=mime,
+                    headers={"Content-Disposition":
+                             f"attachment; filename=oplog.{fmt}"})
 
 
 @system_bp.route("/users")
