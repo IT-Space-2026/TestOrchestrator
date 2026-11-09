@@ -41,6 +41,7 @@
     fetch(tailUrl + "?after=" + encodeURIComponent(after),
           {credentials: "same-origin"})
       .then(function (r) {
+        if (g !== gen) return null;       // stale lifecycle: ignore entirely
         if (r.status === 401) {           // session expired
           stopPolling();
           setStatus("sign-in required — reload to continue", "unavailable");
