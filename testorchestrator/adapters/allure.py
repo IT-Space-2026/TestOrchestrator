@@ -23,7 +23,6 @@ from pathlib import Path
 
 from ..allure_runtime import generate as run_generator, version
 from ..execution import Artifact, Execution, ExecutionState
-from ..results import sha256_file
 
 STATUS_MAP = {"passed": "passed", "failed": "failed",
               "error": "broken", "skipped": "skipped"}

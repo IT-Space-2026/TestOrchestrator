@@ -14,7 +14,6 @@ The trusted public key lives outside the payload at TO_UPDATE_KEY.
 import hashlib
 import json
 import shutil
-import subprocess
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path

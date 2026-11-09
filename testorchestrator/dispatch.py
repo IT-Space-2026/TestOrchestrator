@@ -13,8 +13,6 @@ Dispatch and collection run in `flask worker`, outside request handlers.
 """
 
 import json
-import shutil
-import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

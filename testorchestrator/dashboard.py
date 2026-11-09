@@ -25,7 +25,6 @@ from datetime import timedelta
 
 from .execution import (Execution, ExecutionState, Outcome, Project,
                         Runner, Schedule)
-from .extensions import db
 from .execution import utcnow
 
 ACTIVE_STATES = (

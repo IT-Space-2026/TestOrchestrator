@@ -119,13 +119,21 @@ def ensure_coordinator_credential(app) -> bool:
     name = "coordinator-agent"
     if SecretRef.query.filter_by(name=name).first() is not None:
         return False
-    token = _secrets.token_urlsafe(32)
-    store_secret(app, name, "dagu", token,
-                 {"purpose": "coordinator enrollment", "auto": True},
+    # The coordinator (scripts/provision_dagu.py) is configured with
+    # auth.mode=basic: server.yaml carries basic.username/password and
+    # the adapter sends HTTP basic when dagu_username is set. The
+    # provisioned credential is that basic-auth PASSWORD; the username
+    # is the fixed "testorchestrator" service account.
+    password = _secrets.token_urlsafe(32)
+    store_secret(app, name, "dagu", password,
+                 {"purpose": "coordinator basic-auth password",
+                  "auto": True},
                  internal=True)
-    # Point the backend-managed ref at the provisioned credential so the
-    # dispatch adapter resolves it — without user-visible wiring.
+    # Wire the backend-managed refs so the adapter resolves the
+    # credential + does basic auth — without user-visible wiring.
     from . import settings as settings_mod
     if not settings_mod.get("dagu_credential_ref"):
         settings_mod.update({"dagu_credential_ref": name})
+    if not settings_mod.get("dagu_username"):
+        settings_mod.update({"dagu_username": "testorchestrator"})
     return True

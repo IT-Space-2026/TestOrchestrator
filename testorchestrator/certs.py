@@ -18,7 +18,6 @@ Private keys are written to the protected cert directory (0700 dir, 0600
 files), never appear in audit logs, Git exports, or UI.
 """
 
-import hashlib
 import ipaddress
 import os
 from dataclasses import dataclass, field

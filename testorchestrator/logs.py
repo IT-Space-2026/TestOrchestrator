@@ -4,7 +4,6 @@ paths); remote worker logs are NOT collected and are shown as
 unavailable honestly."""
 import csv, io, re
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from .extensions import db
 from .settings import DEFAULTS
 

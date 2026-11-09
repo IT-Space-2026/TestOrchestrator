@@ -12,7 +12,6 @@ config into settings.previous_good_config (rollback: `flask caddy-rollback`
 or the Admin UI button). Apply failures leave the last good config running.
 """
 
-import json
 import shutil
 import subprocess
 from pathlib import Path

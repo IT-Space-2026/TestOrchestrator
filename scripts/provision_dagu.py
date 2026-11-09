@@ -17,7 +17,16 @@ def main(argv=None):
     user = "testorchestrator"
     # auth.mode: basic (verified vs bundled 2.25.8 — builtin's token.secret
     # is a JWT signing secret, not a static bearer credential).
-    token = "to-dagu-" + secrets.token_urlsafe(32)
+    # Source the credential the portal adapter already provisioned so the
+    # coordinator validates the SAME secret Orchestrator will send —
+    # never a second random token the portal doesn't know.
+    token = os.environ.get("TO_DAGU_PROVISION_PASSWORD")
+    if not token:
+        print("[dagu] WARNING: TO_DAGU_PROVISION_PASSWORD not set — "
+              "coordinator gets a credential the portal can't match. "
+              "Provision via the app's credential store instead.",
+              file=sys.stderr)
+        token = "to-dagu-" + secrets.token_urlsafe(32)
     steps = [
         ("mkdirs", home/"dags", home/"data"),
         ("install binary", cfg/"dagu"),
