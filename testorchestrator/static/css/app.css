@@ -206,11 +206,11 @@ a { color: var(--accent); }
   max-width: 22rem;
 }
 .field { margin-bottom: 1rem; }
-.btn-row { display: flex; flex-direction: column; gap: 0.5rem;
-  align-items: flex-start; margin-top: 0.4rem; }
+.btn-row { display: flex; flex-direction: row; gap: 0.6rem;
+  align-items: center; margin-top: 0.4rem; }
 /* binding edit: buttons + checkbox */
-.cell-actions { display: flex; flex-direction: column; gap: 0.5rem;
-  align-items: flex-start; }
+.cell-actions { display: flex; flex-direction: row; gap: 0.5rem;
+  align-items: flex-start; flex-wrap: wrap; }
 .cell-actions form.inline { margin: 0; }
 .cell-actions .button { margin: 0; }
 .cell-actions details.inline-details summary { margin: 0; }
