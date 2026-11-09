@@ -54,7 +54,9 @@ def test_interruption_cleans_extract_and_child(tmp_path):
     # fixture install.sh spawns a long-running child marker then sleeps
     install = tmp_path / "payload" / "install.sh"
     install.parent.mkdir(parents=True)
-    install.write_text('#!/bin/sh\nsleep 300\n')
+    install.write_text(
+        '#!/bin/sh\n'
+        'sleep 299 &\necho gc:$! > "$TMP_TO_OUT"\nsleep 298\n')
     install.chmod(0o755)
     tb = tmp_path / "payload.tar.gz"
     with tarfile.open(tb, "w:gz") as t:
@@ -75,6 +77,11 @@ def test_interruption_cleans_extract_and_child(tmp_path):
     assert before, "expected a to-install-* dir during the run"
     leftover = [p for p in before if p.exists()]
     assert not leftover, f"extraction dir not cleaned: {leftover}"
-    # the direct child (install.sh) is terminated; deeper grandchildren
-    # are install.sh's own trap responsibility (out of wrapper scope).
+    # install.sh's descendant tree is killed — the grandchild is gone.
     assert proc.returncode is not None
+    gc = int(outfile.read_text().split(":")[1])
+    try:
+        os.kill(gc, 0); alive = True
+    except ProcessLookupError:
+        alive = False
+    assert not alive, "install.sh descendant still running"

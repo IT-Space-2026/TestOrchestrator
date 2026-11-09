@@ -33,10 +33,14 @@ WORK=$(mktemp -d "${{TMPDIR:-/tmp}}/to-install-XXXXXX")
 tail -n +"$LINE" "$SELF" | tar xzf - -C "$WORK"
 # Run install.sh as a child in this group; on INT/TERM kill the whole
 # group (install.sh + children it spawned) and clean the extract dir.
+# kill install.sh's whole descendant tree (children before parents)
+# without touching the invoking shell's group — no TTY needed.
+_killtree() {{
+  for _c in $(pgrep -P "$1" 2>/dev/null); do _killtree "$_c"; done
+  kill "$1" 2>/dev/null
+}}
 "$WORK/install.sh" "$@" & CHILD=$!
-# on signal: kill the direct child (install.sh) and clean the extract
-# dir; install.sh owns trapping any children it spawned itself.
-trap 'rc=$?; kill "$CHILD" 2>/dev/null; rm -rf -- "$WORK"; exit "$rc"' INT TERM
+trap 'rc=$?; _killtree "$CHILD"; rm -rf -- "$WORK"; exit "$rc"' INT TERM
 wait "$CHILD"; rc=$?
 rm -rf -- "$WORK"
 exit $rc
