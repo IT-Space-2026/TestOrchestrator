@@ -45,3 +45,13 @@ def test_nullable_historical(app):
         ex = Execution(project_id="p1", suite_id="s1", source_sha="")
         db.session.add(ex); db.session.commit()
         assert ex.source_ref is None and ex.environment is None
+
+
+def test_source_sha_matches_staged_content(tmp_path):
+    """prepare_workspace stages verbatim at the recorded source_sha —
+    the recorded SHA drives the checkout."""
+    from testorchestrator.adapters.kre import prepare_workspace
+    src = tmp_path / "src"; src.mkdir()
+    (src / "case.krec").write_text("recorded content")
+    staged = prepare_workspace(src, tmp_path / "work", sha="deadbeef")
+    assert (staged / "case.krec").read_text() == "recorded content"
