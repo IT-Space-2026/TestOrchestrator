@@ -1,6 +1,7 @@
 from flask_wtf import FlaskForm
 from wtforms import (IntegerField, SelectField, SelectMultipleField,
                      StringField, TextAreaField)
+from wtforms import (StringField, TextAreaField, SelectField, BooleanField)
 from wtforms.validators import DataRequired, Length, Optional
 
 from ..adapters.kre import SUPPORTED_BROWSERS
@@ -22,6 +23,8 @@ class BindingForm(FlaskForm):
     subdirectory = StringField("Subdirectory", validators=[Optional()])
     prj_path = StringField(".prj path", validators=[Optional()])
     credential_ref = StringField("Credential reference", validators=[Optional()])
+    authoring_writable = BooleanField(
+        "Source authoring (edit native definitions)", default=True)
 
 
 class SuiteForm(FlaskForm):

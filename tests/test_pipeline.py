@@ -393,3 +393,15 @@ def test_binding_authoring_default_and_toggle(app, client, login_as):
                       "credential_ref": "", "authoring_writable": "1"}, follow_redirects=True)
     with app.app_context():
         assert db.session.get(GitBinding, bid).authoring_writable is True
+
+
+def test_binding_validation_error_preserves_checkbox(client, login_as, app):
+    login_as("admin")
+    with app.app_context():
+        from testorchestrator.execution import Project
+        db.session.add(Project(id="pv", name="pv")); db.session.commit()
+    r = client.post("/projects/pv/bindings", data={
+        "name": "", "url": "", "authoring_writable": ""},
+        follow_redirects=True)
+    body = r.get_data(as_text=True)
+    assert "Binding not saved" in body  # error flashed, not silent

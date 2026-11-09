@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import (abort, flash, redirect, render_template, request,
-                   send_file, url_for)
+                   send_file, session, url_for)
 from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
@@ -158,6 +158,10 @@ def edit_project(project_id):
 @login_required
 def project_detail(project_id):
     project = _project_or_404(project_id)
+    _bind_aw = session.pop("_bind_aw", None)
+    _bind_err = session.pop("_bind_err", None)
+    if _bind_err:
+        flash(f"Binding not saved — {_bind_err}", "error")
     can_edit = current_user.role.value in ("admin", "test_manager")
     can_run = current_user.role.value in ("admin", "test_manager", "tester")
     suite_form = SuiteForm()
@@ -345,8 +349,7 @@ def create_binding(project_id):
     form = BindingForm()
     if form.validate_on_submit():
         binding = GitBinding(
-            authoring_writable=bool(
-                request.form.get("authoring_writable")),
+            authoring_writable=form.authoring_writable.data,
             project_id=project.id,
             name=form.name.data.strip(),
             url=form.url.data.strip(),
@@ -362,6 +365,12 @@ def create_binding(project_id):
             payload_json=json.dumps({"binding_id": binding.id})))
         db.session.commit()
         record_audit(current_user.username, "binding.created", binding.id)
+    else:
+        # Validation failure: preserve the submitted selection + errors so
+        # the re-rendered form shows what the user entered (not defaults).
+        session["_bind_aw"] = bool(request.form.get("authoring_writable"))
+        session["_bind_err"] = "; ".join(
+            e for errs in form.errors.values() for e in errs)
     return redirect(url_for("portal.project_detail", project_id=project_id))
 
 
@@ -380,8 +389,7 @@ def edit_binding(binding_id):
         binding.subdirectory = (form.subdirectory.data or "").strip()
         binding.prj_path = (form.prj_path.data or "").strip()
         binding.credential_ref = (form.credential_ref.data or "").strip()
-        binding.authoring_writable = bool(
-            request.form.get("authoring_writable"))
+        binding.authoring_writable = form.authoring_writable.data
         db.session.commit()
         record_audit(current_user.username, "binding.edited", binding.id)
         flash("Binding updated.", "info")
