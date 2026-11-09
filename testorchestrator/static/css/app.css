@@ -920,7 +920,14 @@ td .row-actions{min-width:9rem}
 .tail-status.paused { color: var(--muted); }
 .tail-status.live { color: #1a7f37; }
 .tail-status.unavailable { color: #c0392b; }
-.log-details summary { cursor: pointer; }
+/* consistent left edge for expandable + plain messages */
+.log-msg { padding-left: 1.1rem !important; }
+.log-msg:has(> .log-details) { padding-left: 0 !important; }
+.log-details { display: inline-block; }
+.log-details summary { cursor: pointer; list-style: none; }
+.log-details summary::before { content: "\25B8"; display: inline-block;
+  width: 1rem; color: var(--muted); }
+.log-details[open] summary::before { content: "\25BE"; }
 .log-details summary:hover { text-decoration: underline; }
 .log-detail-text { margin: 0.4rem 0 0; padding: 0.5rem;
   background: #f6f8fa; border-left: 3px solid #d0d7de;
