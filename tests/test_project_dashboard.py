@@ -141,3 +141,14 @@ def test_source_ref_env_filters_independent_and_combined(app):
                        environment="linux")["total"] == 1
         assert summary("pf", source_ref="__none__")["total"] == 1
         assert summary("pf")["total"] == 4
+
+
+def test_project_dashboard_route_renders(client, login_as, app):
+    """Route/render regression — the executions table used to 500 on
+    e.binding (nonexistent attr). Must render 200 with the sha column."""
+    login_as("admin")
+    with app.app_context():
+        db.session.add(Project(id="pr", name="pr")); db.session.commit()
+    r = client.get("/projects/pr/dashboard")
+    assert r.status_code == 200
+    assert "Recent executions" in r.get_data(as_text=True)
