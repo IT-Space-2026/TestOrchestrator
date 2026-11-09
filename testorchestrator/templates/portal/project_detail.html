@@ -14,18 +14,18 @@
   <input type="radio" name="ptabs" id="tab-dash" class="tab-input" {% if not request.args.get("tab") or request.args.get("tab")=="dash" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-releases" class="tab-input" {% if request.args.get("tab")=="releases" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-suites" class="tab-input" {% if request.args.get("tab")=="suites" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-schedules" class="tab-input" {% if request.args.get("tab")=="schedules" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-executions" class="tab-input" {% if request.args.get("tab")=="executions" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-inventory" class="tab-input" {% if request.args.get("tab")=="inventory" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-bindings" class="tab-input" {% if request.args.get("tab")=="bindings" %}checked{% endif %}>
-  <input type="radio" name="ptabs" id="tab-schedules" class="tab-input" {% if request.args.get("tab")=="schedules" %}checked{% endif %}>
   <nav class="tab-bar">
     <label for="tab-dash">Dashboard</label>
     <label for="tab-releases">Releases</label>
     <label for="tab-suites">Suites</label>
+    <label for="tab-schedules">Schedules</label>
     <label for="tab-executions">Executions</label>
     <label for="tab-inventory">Inventory</label>
     <label for="tab-bindings">Git bindings</label>
-    <label for="tab-schedules">Schedules</label>
   </nav>
 
 <!-- ============ PLANS ============ -->
