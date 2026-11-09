@@ -982,3 +982,6 @@ td .row-actions{min-width:9rem}
 .dash-3col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem}
 @media(max-width:1100px){.dash-3col{grid-template-columns:1fr 1fr}}
 @media(max-width:760px){.dash-3col{grid-template-columns:1fr}}
+/* wide dashboard: fill viewport on large screens */
+.content-wide{max-width:none}
+@media(min-width:1280px){.content-wide .dash-3col{grid-template-columns:1.1fr 1.3fr 1.3fr}}
