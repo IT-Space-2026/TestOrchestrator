@@ -111,6 +111,11 @@ def install_gates(app) -> None:
             return None
 
         ensure_bootstrap_admin()
+        try:
+            from .secrets_store import ensure_coordinator_credential
+            ensure_coordinator_credential(current_app)
+        except Exception:
+            pass  # pre-migration; retry on next request
 
         try:
             completed = settings_mod.setup_completed()

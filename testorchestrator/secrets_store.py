@@ -105,3 +105,27 @@ def list_secret_meta() -> list:
         }
         for row in SecretRef.query.order_by(SecretRef.name).all()
     ]
+
+
+def ensure_coordinator_credential(app) -> bool:
+    """Provision the internal coordinator credential on fresh installs.
+
+    Idempotent: returns False (and leaves the existing secret + its
+    consumers untouched) when already provisioned — never regenerates
+    on restart, repair, upgrade, or installer rerun. The value is
+    never surfaced to settings, logs, exports, or command examples.
+    """
+    import secrets as _secrets
+    name = "coordinator-agent"
+    if SecretRef.query.filter_by(name=name).first() is not None:
+        return False
+    token = _secrets.token_urlsafe(32)
+    store_secret(app, name, "dagu", token,
+                 {"purpose": "coordinator enrollment", "auto": True},
+                 internal=True)
+    # Point the backend-managed ref at the provisioned credential so the
+    # dispatch adapter resolves it — without user-visible wiring.
+    from . import settings as settings_mod
+    if not settings_mod.get("dagu_credential_ref"):
+        settings_mod.update({"dagu_credential_ref": name})
+    return True

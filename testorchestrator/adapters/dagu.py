@@ -312,3 +312,52 @@ class DaguAdapter:
                 "exit": {"run": "rm -rf " + remote_workspace}},
             "steps": steps,
         }
+
+
+import re as _re
+
+# Safe worker identity/label alphabet — validates before shell emission
+# so an untrusted label can't inject into the generated launcher.
+_ID_RE = _re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
+_LABEL_RE = _re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,48}$")
+
+
+def worker_launcher_script(*, worker_id: str, kre_label: str,
+                           platform: str = "linux") -> str:
+    """Generate the Orchestrator-level `to-worker` launcher — the pinned
+    worker binary invoked with the coordinator address + label baked
+    in, so the operator never assembles raw backend flags. Identity and
+    labels are validated (not concatenated blindly into shell)."""
+    from .. import settings as sm
+    coord = (sm.get("dagu_coordinator_url") or "").strip()
+    if not coord:
+        raise ValueError("execution coordinator address is not "
+                         "configured — set it under Network settings "
+                         "(backend-managed, not a worker input)")
+    if not _ID_RE.match(worker_id or ""):
+        raise ValueError(f"worker id {worker_id!r} is not a valid "
+                         "identifier (letters/digits/._- only)")
+    if not _LABEL_RE.match(kre_label or ""):
+        raise ValueError(f"worker label {kre_label!r} is not a valid "
+                         "label (letters/digits/._- only)")
+    if platform not in ("linux", "windows"):
+        raise ValueError(f"platform {platform!r} is not supported")
+    if platform == "windows":
+        return (
+            "REM to-worker — generated execution-worker launcher\n"
+            "REM Orchestrator-managed; do not edit the coordinator "
+            "address or labels.\n"
+            f".\\dagu.exe worker "
+            f"--worker.coordinators={coord} "
+            f"--worker.labels kre={kre_label} "
+            f"--worker.id {worker_id}\n")
+    return (
+        "#!/usr/bin/env bash\n"
+        "# to-worker — generated execution-worker launcher.\n"
+        "# Orchestrator-managed; the coordinator address + labels are\n"
+        "# baked in at generation time. Do not edit.\n"
+        "set -euo pipefail\n"
+        'exec ./dagu worker '
+        f'--worker.coordinators="{coord}" '
+        f'--worker.labels "kre={kre_label}" '
+        f'--worker.id "{worker_id}"\n')

@@ -669,6 +669,26 @@ def dagu_worker_download(filename):
                      download_name=filename)
 
 
+@system_bp.route("/infrastructure/worker-launcher/<worker_id>/<kre_label>")
+@role_required(Role.ADMIN)
+def worker_launcher(worker_id, kre_label):
+    """Download a generated `to-worker` launcher for this worker —
+    coordinator address + label baked in, so operators never assemble
+    raw backend flags. Admin-only; no secret material in the script."""
+    from ..adapters.dagu import worker_launcher_script
+    platform = request.args.get("platform", "linux")
+    try:
+        script = worker_launcher_script(worker_id=worker_id,
+                                        kre_label=kre_label,
+                                        platform=platform)
+    except ValueError as exc:
+        abort(400, str(exc))
+    name = ("to-worker.bat" if platform == "windows" else "to-worker.sh")
+    return Response(script, mimetype="application/octet-stream",
+                    headers={"Content-Disposition":
+                             f"attachment; filename={name}"})
+
+
 @system_bp.route("/infrastructure/dagu-worker-installer/<filename>")
 @role_required(Role.ADMIN)
 def dagu_worker_installer_download(filename):

@@ -54,6 +54,9 @@ DEFAULTS = {
     # auth.mode: basic username (password lives in the SecretRef). Empty =
     # Bearer token mode (builtin auth API key).
     "dagu_username": "",
+    # worker-facing coordinator transport (gRPC) — distinct from the
+    # portal-side HTTP api dagu_endpoint. Backend-managed.
+    "dagu_coordinator_url": "",
     # Reporting settings (Admin -> Reporting page). Enable flags gate the
     # optional backends; local native-KRE reporting is always on.
     "allure_enabled": False,
