@@ -211,10 +211,13 @@ a { color: var(--accent); }
 .checkbox-field input { width: auto; margin: 0; }
 .btn-row { display: flex; flex-direction: column; gap: 0.5rem;
   align-items: flex-start; margin-top: 0.4rem; }
-.cell-actions { display: flex; gap: 0.5rem; align-items: center; }
+.cell-actions { display: flex; gap: 0.5rem; align-items: flex-start;
+  flex-wrap: wrap; }
 .cell-actions form.inline { margin: 0; }
 .cell-actions .button { margin: 0; }
+.cell-actions details.inline-details { flex: 1 1 100%; }
 .cell-actions details.inline-details summary { margin: 0; }
+.button.danger { background: #c0392b; color: #fff; }
 .button.primary { background: #2f6df0; color: #fff; }
 .btn-row .button { flex: 0 0 auto; }
 .field label { display: block; margin-bottom: 0.25rem; font-weight: 600; }
