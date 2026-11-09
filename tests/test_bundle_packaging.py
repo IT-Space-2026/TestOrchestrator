@@ -85,16 +85,13 @@ def test_integrations_page_sections(client, login_as, app):
 def test_integrations_save_persists(client, login_as, app):
     login_as("admin")
     client.post("/system/integrations/save", data={
-        "dagu_endpoint": "https://dagu.internal:8080",
-        "dagu_credential_ref": "dagu-api-key",
-        "dagu_username": "",
         "git_export_repo": "/srv/evidence/repo",
         "git_export_credential_ref": "",
         "git_export_ref": "main"})
     from testorchestrator import settings as sm
     with app.app_context():
-        assert sm.get("dagu_endpoint") == "https://dagu.internal:8080"
         assert sm.get("git_export_ref") == "main"
+        assert sm.get("git_export_repo") == "/srv/evidence/repo"
 
 
 def test_settings_guidance_rendering(client, login_as, app):
