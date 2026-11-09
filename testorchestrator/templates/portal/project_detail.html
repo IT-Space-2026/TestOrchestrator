@@ -327,50 +327,61 @@
     <p class="muted">Set Start and Target end dates on a release to see the timeline.</p>
   </div></div>
   {% endif %}
-  <input type="search" id="release-search" placeholder="Search releases…"
-         style="max-width:20rem;margin-bottom:.5rem">
-  <ul class="notice-list" id="releases-list">
-    {% for r in project.releases %}
-    <li data-release-row><strong><a href="{{ url_for('portal.release_detail', release_id=r.id) }}">{{ r.name }}</a></strong>
-      — <span class="badge {{ r.status }}">{{ r.status }}</span>
-      {% if r.start_date or r.end_date %}
-      <span class="muted">{{ r.start_date or '—' }} → {{ r.end_date or '—' }}</span>
-      {% endif %}
-      {% if r.end_date and r.status not in ('released','archived') and r.end_date < today() %}
-      <span class="badge danger">overdue</span>
-      {% endif %}
-      {% set pc = rel_progress.get(r.id, {}) %}
-      {% set tot = pc.values() | sum %}
-      {% if tot %}
-      <div class="release-progress" title="{{ pc }}">
-        {% for k in ['passed','failed','running','queued','cancelled','unexecuted','unavailable'] %}
-        {% if pc.get(k, 0) %}
-        <span class="rp-{{ k }}" data-width="{{ (pc[k] / tot * 100) | round(1) }}"
-              title="{{ pc[k] }} {{ k }}"></span>
-        {% endif %}
-        {% endfor %}
-      </div>
-      {% endif %}
-      {% if can_edit %}
-      <details class="inline-details">
-        <summary class="button secondary">Edit</summary>
-        <form method="post" action="{{ url_for('portal.edit_release', release_id=r.id) }}" class="edit-form">
-          {{ plain_form.csrf_token }}
-          <div class="field"><label>Name</label>
-            <input name="name" value="{{ r.name }}"></div>
-          <div class="field"><label>Description</label>
-            <textarea name="description">{{ r.description }}</textarea></div>
-          <div class="field"><label>Start date</label>
-            <input name="start_date" type="date" value="{{ r.start_date or '' }}"></div>
-          <div class="field"><label>Target end date</label>
-            <input name="end_date" type="date" value="{{ r.end_date or '' }}"></div>
-          <button type="submit" class="button">Apply</button>
-          <button type="button" class="button danger" data-cancel-details>Cancel</button>
-        </form>
-      </details>
-      {% endif %}</li>
-    {% endfor %}
-  </ul>
+  <div class="rel-summary">
+    {% set cats = rel_summary.values() | map(attribute="category") | list %}
+    {% set n_active = active_releases | length %}
+    {% set n_ready = rel_summary.values() | selectattr("category","equalto","ready") | list | length %}
+    {% set n_nr = rel_summary.values() | selectattr("category","equalto","not_ready") | list | length %}
+    {% set n_empty = rel_summary.values() | selectattr("category","equalto","empty") | list | length %}
+    <div class="rel-cards">
+      <div class="rel-card"><b>{{ n_active }}</b><span>Total Active</span></div>
+      <div class="rel-card ready"><b>{{ n_ready }}</b><span>Ready</span></div>
+      <div class="rel-card not-ready"><b>{{ n_nr }}</b><span>Not Ready</span></div>
+      <div class="rel-card empty"><b>{{ n_empty }}</b><span>Empty</span></div>
+    </div>
+    {% if n_active %}
+    <div class="rel-bar">
+      {% if n_ready %}<span class="rb-ready" style="width:{{ n_ready/n_active*100|round(1) }}%" title="{{ n_ready }} ready"></span>{% endif %}
+      {% if n_nr %}<span class="rb-not-ready" style="width:{{ n_nr/n_active*100|round(1) }}%" title="{{ n_nr }} not ready"></span>{% endif %}
+      {% if n_empty %}<span class="rb-empty" style="width:{{ n_empty/n_active*100|round(1) }}%" title="{{ n_empty }} empty"></span>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  <table class="rel-table">
+    <thead><tr><th>Status</th><th>Name</th><th>Total Duration</th>
+      <th>Test Runs</th><th>Test Cases</th><th>Start Date</th>
+      <th>Release Date</th></tr></thead>
+    <tbody>
+      {% for r in project.releases %}
+      {% set rs = rel_summary.get(r.id, {}) %}
+      {% set cat = rs.category or "empty" %}
+      <tr>
+        <td><span class="rel-status rs-{{ cat }}"
+              title="{{ cat.replace('_',' ') }}"></span></td>
+        <td><a href="{{ url_for('portal.release_detail', release_id=r.id) }}">{{ r.name }}</a></td>
+        <td>{{ "%ds" | format(rs.duration_s or 0) }}</td>
+        <td>{{ rs.test_runs or 0 }}</td>
+        <td>
+          {% set pc = rel_progress.get(r.id, {}) %}
+          {% set tot = pc.values() | sum %}
+          {% if tot %}
+          <div class="rel-cases">
+            {% for k in ['passed','failed','running','queued','unexecuted','unavailable'] %}
+            {% if pc.get(k,0) %}
+            <span class="rc-{{ k }}" style="width:{{ pc[k]/tot*100|round(1) }}%" title="{{ pc[k] }} {{ k }}"></span>
+            {% endif %}
+            {% endfor %}
+            <b>{{ pc.get('passed',0) }}/{{ tot }}</b>
+            {% if pc.get('failed',0) %}<i class="rc-badge">{{ pc.failed }}</i>{% endif %}
+          </div>
+          {% else %}<span class="muted">0/0</span>{% endif %}
+        </td>
+        <td>{{ r.start_date or '—' }}</td>
+        <td>{{ r.end_date or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% else %}<p class="muted">No releases yet.</p>{% endif %}
   {% if can_edit %}
   <details class="add-block">

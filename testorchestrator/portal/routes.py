@@ -226,6 +226,7 @@ def project_detail(project_id):
     # per-release testing progress: latest outcome per scoped target
     # (path+kind+binding+config), not all history.
     progress = {}
+    rel_summary = {}
     for rel in project.releases:
         items = ReleaseItem.query.filter_by(
             release_id=rel.id).all()
@@ -233,8 +234,9 @@ def project_detail(project_id):
                   "queued": 0, "cancelled": 0, "unexecuted": 0,
                   "unavailable": 0}
         latest = {}
-        for e in Execution.query.filter_by(release_id=rel.id).order_by(
-                Execution.created_at.desc()):
+        _runs = list(Execution.query.filter_by(release_id=rel.id)
+                   .order_by(Execution.created_at.desc()))
+        for e in _runs:
             st = e.snapshot().get("source_target", {})
             key = (st.get("path", ""), st.get("kind", ""),
                    st.get("binding_id", ""))
@@ -261,6 +263,21 @@ def project_detail(project_id):
             else:
                 counts["queued"] += 1
         progress[rel.id] = counts
+        # TestOps-style readiness: empty (no cases), ready (all passed,
+        # none pending/failed), not_ready (failures or in-flight).
+        tot = sum(counts.values())
+        pending = (counts.get("failed", 0) + counts.get("running", 0)
+                   + counts.get("queued", 0))
+        dur = sum((e.finished_at - e.started_at).total_seconds()
+                  for e in _runs if e.started_at and e.finished_at)
+        rel_summary[rel.id] = {
+            "category": ("empty" if tot == 0 else
+                         "ready" if counts.get("passed") and not pending
+                         else "not_ready"),
+            "test_cases": tot, "test_runs": len(_runs),
+            "duration_s": int(dur),
+            "failed": counts.get("failed", 0), "counts": counts,
+        }
     # Dashboard release overview: active releases (draft+in_progress),
     # dated timeline + undated list — "current state", not
     # date-filtered.
@@ -278,7 +295,7 @@ def project_detail(project_id):
            if dated_active else None)
     return render_template(
         "portal/project_detail.html", project=project,
-        rel_progress=progress,
+        rel_progress=progress, rel_summary=rel_summary,
         repo_targets=repo_targets,
         sched_targets=[],
         active_releases=active, dated_active=dated_active,
