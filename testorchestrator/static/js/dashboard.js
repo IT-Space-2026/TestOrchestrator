@@ -7,6 +7,8 @@
 (function () {
   var script = document.currentScript;
   var url = script && script.dataset.url;
+  var sel = document.getElementById("p-days");
+  if (sel && sel.form) sel.addEventListener("change", function () { sel.form.submit(); });
   if (!url) return;
 
   var BASE_MS = 5000, MAX_MS = 60000, delay = BASE_MS;

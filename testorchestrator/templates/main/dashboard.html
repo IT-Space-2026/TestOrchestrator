@@ -9,7 +9,7 @@
 </p>
 <form method="get" class="dash-period">
   <label for="p-days" class="muted"><small>Period</small></label>
-  <select name="days" id="p-days" onchange="this.form.submit()">
+  <select name="days" id="p-days">
     {% for d in (7, 30, 90) %}
     <option value="{{ d }}" {% if period == d %}selected{% endif %}>last {{ d }} days</option>
     {% endfor %}</select>
