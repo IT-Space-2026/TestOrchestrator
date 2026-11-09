@@ -974,3 +974,8 @@ td .row-actions{min-width:9rem}
 .rs-in_progress{background:#fde68a}
 .rs-released{background:#a7f3d0}
 .rs-archived{background:#bfdbfe}
+/* compact dashboard cards */
+.dash-2col .card{padding:.9rem 1rem}
+.dash-2col .card h2{font-size:.95rem;margin:0 0 .15rem}
+.dash-2col .card .muted small{font-size:.72rem;line-height:1.25}
+.dash-2col [data-plotly-fig]{min-height:0;height:215px}
