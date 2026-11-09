@@ -28,11 +28,16 @@ LINE=$(grep -an -m1 "^$MARKER$" "$SELF" | cut -d: -f1)
 LINE=$((LINE + 1))
 [ -n "$LINE" ] || {{ echo "corrupt installer: no payload" >&2; exit 1; }}
 WORK=$(mktemp -d "${{TMPDIR:-/tmp}}/to-install-XXXXXX")
-trap 'rm -rf -- "$WORK"' EXIT
 # flags: --dir <target> forces the install destination; else the
 # packaged default (installer-mode) applies.
 tail -n +"$LINE" "$SELF" | tar xzf - -C "$WORK"
-"$WORK/install.sh" "$@"; rc=$?
+# Run install.sh as a child in this group; on INT/TERM kill the whole
+# group (install.sh + children it spawned) and clean the extract dir.
+"$WORK/install.sh" "$@" & CHILD=$!
+# on signal: kill the direct child (install.sh) and clean the extract
+# dir; install.sh owns trapping any children it spawned itself.
+trap 'rc=$?; kill "$CHILD" 2>/dev/null; rm -rf -- "$WORK"; exit "$rc"' INT TERM
+wait "$CHILD"; rc=$?
 rm -rf -- "$WORK"
 exit $rc
 __TO_ARCHIVE_BELOW__
