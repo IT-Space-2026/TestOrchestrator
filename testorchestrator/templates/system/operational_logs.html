@@ -102,55 +102,6 @@
   {% endif %}
 </div>
 
-<script>
-(function () {
-  var tail = document.getElementById("live-tail"),
-      status = document.getElementById("tail-status"),
-      tbody = document.getElementById("log-rows"),
-      timer = null;
-  function esc(t) {
-    return t.replace(/[&<>]/g, function (c) {
-      return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c]; });
-  }
-  function fetchTail() {
-    var last = tbody.querySelector("tr[data-ts]");
-    var after = last ? last.dataset.ts : "";
-    fetch("{{ url_for('system.operational_logs_tail') }}?after=" +
-          encodeURIComponent(after))
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        status.textContent = "live · updated " +
-          d.generated_at.split("T")[1].slice(0, 8);
-        status.className = "tail-status live";
-        (d.rows || []).forEach(function (r) {
-          var tr = document.createElement("tr");
-          tr.dataset.ts = r.ts;
-          tr.innerHTML = "<td><code>" + esc(r.ts.split("T")[1]
-            .slice(0, 8)) + "</code></td><td><span class='badge sev-" +
-            esc(r.severity) + "'>" + esc(r.severity) +
-            "</span></td><td>" + esc(r.component) + "</td><td>" +
-            esc(r.category) + "</td><td class='log-msg'>" +
-            esc(r.message) + "</td><td><small class='muted'>" +
-            esc([r.project, r.execution, r.worker, r.corr]
-              .filter(Boolean).join(" ")) + "</small></td>";
-          tbody.insertBefore(tr, tbody.firstChild);
-        });
-      })
-      .catch(function () {
-        status.textContent = "source unavailable";
-        status.className = "tail-status unavailable"; });
-  }
-  tail.addEventListener("change", function () {
-    if (tail.checked) {
-      status.textContent = "live";
-      status.className = "tail-status live";
-      timer = setInterval(fetchTail, 4000);
-    } else {
-      status.textContent = "paused";
-      status.className = "tail-status paused";
-      clearInterval(timer);
-    }
-  });
-})();
-</script>
+<script src="{{ url_for('static', filename='js/operational_logs.js') }}" defer
+        data-url="{{ url_for('system.operational_logs_tail') }}"></script>
 {% endblock %}
