@@ -314,7 +314,17 @@ def project_dashboard(project_id):
     days = request.args.get("period", 30, type=int) or 30
     suite = request.args.get("suite", "")
     state = request.args.get("state", "")
-    data = summary(project.id, days=days, suite=suite, state=state)
+    source_ref = request.args.get("source_ref", "")
+    environment = request.args.get("environment", "")
+    data = summary(project.id, days=days, suite=suite, state=state,
+                   source_ref=source_ref, environment=environment)
+    # filter option sets for the controls (authorized project scope)
+    refs = sorted({x for (x,) in db.session.query(Execution.source_ref)
+                   .filter_by(project_id=project.id)
+                   if x})
+    envs = sorted({x for (x,) in db.session.query(Execution.environment)
+                   .filter_by(project_id=project.id)
+                   if x})
     return render_template(
         "portal/project_dashboard.html",
         project=project, data=data, days=days,
@@ -323,7 +333,9 @@ def project_dashboard(project_id):
         fig_duration=duration_trend(data["durations"]),
         fig_failures=failure_breakdown(data["failures"]),
         suites=Suite.query.filter_by(project_id=project.id).all(),
-        sel_suite=suite, sel_state=state)
+        sel_suite=suite, sel_state=state,
+        source_refs=refs, environments=envs,
+        sel_source_ref=source_ref, sel_environment=environment)
 
 
 @portal_bp.route("/projects/<project_id>/bindings", methods=["POST"])

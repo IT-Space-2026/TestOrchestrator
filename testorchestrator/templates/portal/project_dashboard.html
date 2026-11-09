@@ -18,6 +18,18 @@
         {% for s in ["completed", "failed", "canceled"] %}
         <option value="{{ s }}" {% if s == sel_state %}selected{% endif %}>{{ s }}</option>{% endfor %}
       </select></label>
+    <label>Source ref
+      <select name="source_ref"><option value="">all</option>
+        <option value="__none__" {% if sel_source_ref == '__none__' %}selected{% endif %}>(unavailable)</option>
+        {% for r in source_refs %}
+        <option value="{{ r }}" {% if r == sel_source_ref %}selected{% endif %}>{{ r }}</option>{% endfor %}
+      </select></label>
+    <label>Environment
+      <select name="environment"><option value="">all</option>
+        <option value="__none__" {% if sel_environment == '__none__' %}selected{% endif %}>(unavailable)</option>
+        {% for e in environments %}
+        <option value="{{ e }}" {% if e == sel_environment %}selected{% endif %}>{{ e }}</option>{% endfor %}
+      </select></label>
     <button type="submit">Apply</button>
   </form>
 </div>

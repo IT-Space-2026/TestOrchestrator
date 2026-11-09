@@ -2,7 +2,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 from testorchestrator.extensions import db
-from testorchestrator.execution import (Execution, ExecutionState,
+from testorchestrator.execution import (Project, Execution, ExecutionState,
                                         Outcome, Project, TestResult)
 from testorchestrator.project_dashboard import summary
 from testorchestrator import charts
@@ -118,3 +118,26 @@ def test_figures_serializable_json(app):
                 continue
             j = json.loads(fig)
             assert "data" in j and "layout" in j
+
+
+def test_source_ref_env_filters_independent_and_combined(app):
+    from testorchestrator.project_dashboard import summary
+    from testorchestrator.execution import Execution, Outcome, utcnow
+    from testorchestrator.extensions import db
+    with app.app_context():
+        p = Project(id="pf", name="pf")
+        db.session.add(p)
+        for i,(ref,env) in enumerate([("main","linux"),("dev","linux"),
+                                       ("main","win"),(None,None)]):
+            e=Execution(project_id="pf",source_sha="x",source_ref=ref,
+                        environment=env)
+            e.outcome=Outcome.PASSED; e.finished_at=utcnow()
+            e.state=ExecutionState.COMPLETED
+            db.session.add(e)
+        db.session.commit()
+        assert summary("pf", source_ref="main")["total"] == 2
+        assert summary("pf", environment="win")["total"] == 1
+        assert summary("pf", source_ref="main",
+                       environment="linux")["total"] == 1
+        assert summary("pf", source_ref="__none__")["total"] == 1
+        assert summary("pf")["total"] == 4

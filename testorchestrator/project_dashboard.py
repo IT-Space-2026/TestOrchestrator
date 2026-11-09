@@ -14,13 +14,25 @@ def _aw(dt):
 
 
 def summary(project_id: str, days: int = 30, suite: str = "",
-            state: str = "") -> dict:
+            state: str = "", source_ref: str = "",
+            environment: str = "") -> dict:
     since = _aw(datetime.now(timezone.utc) - timedelta(days=days))
     q = Execution.query.filter_by(project_id=project_id)
     if suite:
         q = q.filter_by(suite_id=suite)
     if state:
         q = q.filter_by(state=state)
+    if source_ref:
+        # "(unavailable)" selects the historical/NULL records
+        if source_ref == "__none__":
+            q = q.filter(Execution.source_ref.is_(None))
+        else:
+            q = q.filter_by(source_ref=source_ref)
+    if environment:
+        if environment == "__none__":
+            q = q.filter(Execution.environment.is_(None))
+        else:
+            q = q.filter_by(environment=environment)
     exes = [e for e in q.all()
             if e.state in TERMINAL and e.finished_at
             and _aw(e.finished_at) >= since]
