@@ -73,7 +73,7 @@
       <tr><td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
         <td>{{ e.runtime.runner.name if e.runtime and e.runtime.runner else "—" }}</td>
         <td>{{ e.runtime.name if e.runtime else "—" }}</td>
-        <td><code>{{ (e.binding.last_synced_sha or "")[:8] }}</code></td>
+        <td><code>{{ (e.source_sha or "")[:8] }}</code></td>
         <td>{{ e.state.value }}</td>
         <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
         <td>{{ "%.0fs"|format((e.finished_at - e.started_at).total_seconds()) if e.started_at and e.finished_at else "—" }}</td>
