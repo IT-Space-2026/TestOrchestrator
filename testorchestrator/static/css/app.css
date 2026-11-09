@@ -971,6 +971,6 @@ td .row-actions{min-width:9rem}
 
 /* release status dots — same shade as the .badge.* background */
 .rs-draft{background:var(--bg-subtle,#98a2b3)}
-.rs-in_progress{background:#fef3c7}
-.rs-released{background:#d1fae5}
-.rs-archived{background:#dbeafe}
+.rs-in_progress{background:#fde68a}
+.rs-released{background:#a7f3d0}
+.rs-archived{background:#bfdbfe}
