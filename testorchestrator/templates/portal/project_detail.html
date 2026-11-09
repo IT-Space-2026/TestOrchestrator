@@ -492,9 +492,10 @@
               <div class="field"><label>Ref / branch</label>
                 <input name="ref" value="{{ b.ref }}"></div>
               <div class="field checkbox-field">
-                <label><input type="checkbox" name="authoring_writable" value="1"
+                <label class="check-label">
+                  <input type="checkbox" name="authoring_writable" value="1"
                        {% if b.authoring_writable %}checked{% endif %}>
-                Source authoring (edit native definitions)</label>
+                  <span>Source authoring (edit native definitions)</span></label>
                 <small class="muted">Write access to native definitions.</small></div>
               <div class="field"><label>Subdirectory</label>
                 <input name="subdirectory" value="{{ b.subdirectory }}"></div>

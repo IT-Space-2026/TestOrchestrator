@@ -206,17 +206,20 @@ a { color: var(--accent); }
   max-width: 22rem;
 }
 .field { margin-bottom: 1rem; }
-.checkbox-field label { display: flex; align-items: center; gap: 0.5rem;
-  margin-bottom: 0; font-weight: 500; }
-.checkbox-field input { width: auto; margin: 0; }
 .btn-row { display: flex; flex-direction: column; gap: 0.5rem;
   align-items: flex-start; margin-top: 0.4rem; }
-.cell-actions { display: flex; gap: 0.5rem; align-items: flex-start;
-  flex-wrap: wrap; }
+/* binding edit: buttons + checkbox */
+.cell-actions { display: flex; flex-direction: column; gap: 0.5rem;
+  align-items: flex-start; }
 .cell-actions form.inline { margin: 0; }
 .cell-actions .button { margin: 0; }
-.cell-actions details.inline-details { flex: 1 1 100%; }
 .cell-actions details.inline-details summary { margin: 0; }
+.check-label { display: inline-flex; align-items: center; gap: 0.5rem;
+  font-weight: 500; white-space: normal; }
+.check-label input[type=checkbox] { width: auto !important; margin: 0;
+  flex: 0 0 auto; }
+.check-label span { display: inline-block; }
+.field.checkbox-field small { margin-left: 1.5rem; }
 .button.danger { background: #c0392b; color: #fff; }
 .button.primary { background: #2f6df0; color: #fff; }
 .btn-row .button { flex: 0 0 auto; }
