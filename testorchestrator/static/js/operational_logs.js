@@ -6,7 +6,7 @@
   var tail = document.getElementById("live-tail"),
       status = document.getElementById("tail-status"),
       tbody = document.getElementById("log-rows"),
-      timer = null;
+      timer = null, gen = 0;
   var tailUrl = (document.currentScript &&
                  document.currentScript.dataset.url) || "";
 
@@ -35,6 +35,7 @@
     if (timer) { clearInterval(timer); timer = null; }
   }
   function fetchTail() {
+    var g = gen;                    // capture this lifecycle's generation
     var last = tbody.querySelector("tr[data-ts]");
     var after = last ? last.dataset.ts : "";
     fetch(tailUrl + "?after=" + encodeURIComponent(after),
@@ -64,7 +65,7 @@
         return r.json();
       })
       .then(function (d) {
-        if (!d) return;
+        if (!d || g !== gen) return;  // stale: paused or re-toggled
         setStatus("live · updated " +
                   String(d.generated_at).split("T")[1].slice(0, 8), "live");
         (d.rows || []).forEach(function (r) {
@@ -76,6 +77,7 @@
       });
   }
   tail.addEventListener("change", function () {
+    gen += 1;                             // new lifecycle / invalidate stale
     if (tail.checked) {
       setStatus("live", "live");
       fetchTail();                        // immediate first poll
