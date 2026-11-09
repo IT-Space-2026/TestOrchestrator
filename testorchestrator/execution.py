@@ -332,6 +332,10 @@ class Execution(db.Model):
     # binding — never mutated by later definition edits (A07).
     snapshot_json = db.Column(db.Text, nullable=False, default="{}")
     source_sha = db.Column(db.String(64), nullable=False, default="")
+    # Selected source ref (branch/tag selector — NOT the resolved SHA)
+    # + the environment captured from the effective run_config.
+    source_ref = db.Column(db.String(128), nullable=True)
+    environment = db.Column(db.String(128), nullable=True)
     binding_id = db.Column(db.String(32), db.ForeignKey("git_bindings.id"),
                            nullable=True)
     runner_id = db.Column(db.String(32), db.ForeignKey("runners.id"),

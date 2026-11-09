@@ -157,6 +157,10 @@ def create_execution(username: str, suite: Suite = None,
                     (source_item.binding_id if source_item else None)),
         snapshot_json=json.dumps(snapshot),
         source_sha=source_sha,
+        # source_ref = the SELECTED ref (selector), distinct from the
+        # resolved source_sha. environment = effective run_config value.
+        source_ref=((binding.ref or None) if binding else None),
+        environment=(rc.get("environment") or None),
         created_by=username,
         schedule_id=schedule_id or None,
     )
