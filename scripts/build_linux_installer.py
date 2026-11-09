@@ -23,14 +23,18 @@ def build(tarball: Path, out: Path) -> Path:
 set -eu
 SELF=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/"$(basename -- "$0")"
 MARKER="__TO_ARCHIVE_BELOW__"
-LINE=$(awk "/$MARKER/{{print NR + 1; exit 0}}" "$SELF")
+# full-line match so this assignment isn't matched
+LINE=$(grep -an -m1 "^$MARKER$" "$SELF" | cut -d: -f1)
+LINE=$((LINE + 1))
 [ -n "$LINE" ] || {{ echo "corrupt installer: no payload" >&2; exit 1; }}
 WORK=$(mktemp -d "${{TMPDIR:-/tmp}}/to-install-XXXXXX")
 trap 'rm -rf -- "$WORK"' EXIT
 # flags: --dir <target> forces the install destination; else the
 # packaged default (installer-mode) applies.
 tail -n +"$LINE" "$SELF" | tar xzf - -C "$WORK"
-exec "$WORK/install.sh" "$@"
+"$WORK/install.sh" "$@"; rc=$?
+rm -rf -- "$WORK"
+exit $rc
 __TO_ARCHIVE_BELOW__
 '''
     out.write_text(stub, encoding="utf-8")
