@@ -27,28 +27,32 @@ MARKER="__TO_ARCHIVE_BELOW__"
 LINE=$(grep -an -m1 "^$MARKER$" "$SELF" | cut -d: -f1)
 LINE=$((LINE + 1))
 [ -n "$LINE" ] || {{ echo "corrupt installer: no payload" >&2; exit 1; }}
+# pgrep (procps) is a required host prerequisite for interruption-safe
+# descendant cleanup. Fail before creating any temporary state —
+# nothing is extracted or installed when it is absent.
+if ! command -v pgrep >/dev/null 2>&1; then
+  echo "error: pgrep (procps) is required for safe interruption cleanup;" \
+       "aborting before extraction" >&2
+  exit 1
+fi
 WORK=$(mktemp -d "${{TMPDIR:-/tmp}}/to-install-XXXXXX")
 # flags: --dir <target> forces the install destination; else the
 # packaged default (installer-mode) applies.
 tail -n +"$LINE" "$SELF" | tar xzf - -C "$WORK"
-# _killtree kills install.sh's descendant tree (children before
-# parents) without a TTY or touching the invoking shell's group.
-# pgrep (procps) is required to discover descendants — degrade to
-# direct-child kill when absent (declared prerequisite).
-# two passes: TERM the whole tree, then KILL any survivor — a child
-# that ignores TERM is still reaped. No sleep inside the trap.
-_tree() {{
-  for _c in $(pgrep -P "$1" 2>/dev/null); do _tree "$_c" "$2"; done
-  kill "-$2" "$1" 2>/dev/null || :
+# _collect records descendant pids (children before parents) so the
+# KILL pass still reaches processes reparented when a parent exits on
+# TERM. pgrep required — checked above.
+_collect() {{
+  for _c in $(pgrep -P "$1" 2>/dev/null); do _collect "$_c"; done
+  TREE_PIDS="$TREE_PIDS $1"
 }}
 _killtree() {{
-  _tree "$1" TERM
-  _tree "$1" KILL
+  TREE_PIDS=""
+  _collect "$1"
+  kill -TERM $TREE_PIDS 2>/dev/null || :
+  sleep 0.2 2>/dev/null || :
+  kill -KILL $TREE_PIDS 2>/dev/null || :
 }}
-if ! command -v pgrep >/dev/null 2>&1; then
-  echo "note: pgrep not found — interruption cleanup limited to the" \
-       "direct child (install.sh); descendants are not reaped" >&2
-fi
 "$WORK/install.sh" "$@" & CHILD=$!
 trap 'rc=$?; _killtree "$CHILD"; rm -rf -- "$WORK"; exit "$rc"' INT TERM
 wait "$CHILD"; rc=$?

@@ -147,3 +147,81 @@ def test_term_ignoring_child_is_killed(tmp_path):
     except ProcessLookupError:
         alive = False
     assert not alive, "descendant survived SIGTERM"
+
+
+def test_missing_pgrep_aborts_before_extraction(tmp_path):
+    """pgrep is a declared prerequisite: absent -> fail before any
+    extraction or installation; no temp state left behind."""
+    import shutil
+    install = tmp_path / "payload" / "install.sh"
+    install.parent.mkdir(parents=True)
+    install.write_text('#!/bin/sh\necho ran > "$TMP_TO_OUT"\n')
+    install.chmod(0o755)
+    tb = tmp_path / "payload.tar.gz"
+    with tarfile.open(tb, "w:gz") as t:
+        t.add(install.parent, arcname=".")
+    run = tmp_path / "to.run"
+    build(tb, run); os.chmod(run, 0o755)
+    marker = tmp_path / "install-ran"
+    # minimal PATH: only tools the stub needs before the pgrep check —
+    # deliberately no pgrep
+    bindir = tmp_path / "stubtools"; bindir.mkdir()
+    for tool in ("grep", "cut", "mktemp", "tail", "tar", "dirname",
+                 "basename", "rm"):
+        src = shutil.which(tool)
+        if src:
+            os.symlink(src, bindir / tool)
+    env = dict(os.environ, PATH=str(bindir), TMP_TO_OUT=str(marker),
+               TMPDIR=str(tmp_path / "xit"))
+    Path(env["TMPDIR"]).mkdir()
+    r = subprocess.run([str(run)], env=env, capture_output=True,
+                       text=True, timeout=20)
+    assert r.returncode != 0, "should abort without pgrep"
+    assert not list(Path(env["TMPDIR"]).iterdir()), \
+        "extraction dir created despite missing pgrep"
+    assert not marker.exists(), "install.sh ran despite missing pgrep"
+    assert "pgrep" in r.stderr.lower()
+
+
+def test_orphaned_term_ignoring_grandchild_killed(tmp_path):
+    """Parent dies on TERM, reparenting a TERM-ignoring grandchild —
+    the snapshot-PID KILL pass still reaps it."""
+    import signal, time
+    install = tmp_path / "payload" / "install.sh"
+    install.parent.mkdir(parents=True)
+    # grandchild traps+ignores TERM; install.sh has no handler so it
+    # dies on TERM, reparenting the grandchild to init
+    install.write_text(
+        '#!/bin/sh\n'
+        "sh -c 'trap \"\" TERM; sleep 300' &\n"
+        'echo gc:$! > "$TMP_TO_OUT"\n'
+        'sleep 298\n')
+    install.chmod(0o755)
+    tb = tmp_path / "payload.tar.gz"
+    with tarfile.open(tb, "w:gz") as t:
+        t.add(install.parent, arcname=".")
+    run = tmp_path / "to.run"
+    build(tb, run); os.chmod(run, 0o755)
+    outfile = tmp_path / "gc.pid"
+    env = dict(os.environ, TMP_TO_OUT=str(outfile),
+               TMPDIR=str(tmp_path / "xit"))
+    Path(env["TMPDIR"]).mkdir()
+    proc = subprocess.Popen([str(run)], env=env,
+                            start_new_session=True)
+    time.sleep(1.5)
+    subs = int(outfile.read_text().split(":")[1])
+    import subprocess as sp
+    # the TERM-ignoring grandchild (sh -c's sleep) BEFORE the signal —
+    # it reparents to init when its parent dies on TERM
+    kids = sp.run(["pgrep", "-P", str(subs)], capture_output=True,
+                  text=True).stdout.split()
+    assert kids, "fixture grandchild not spawned"
+    proc.send_signal(signal.SIGTERM)
+    proc.wait(timeout=15)
+    assert not list(Path(env["TMPDIR"]).iterdir()), "dir not cleaned"
+    for k in kids:
+        try:
+            os.kill(int(k), 0); alive = True
+        except ProcessLookupError:
+            alive = False
+        assert not alive, f"orphaned grandchild {k} survived"
