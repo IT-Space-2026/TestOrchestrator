@@ -76,7 +76,8 @@ def dashboard_data():
     Same visibility scope as the page — project_allowed() applies."""
     from flask import jsonify
     from .. import dashboard as dash
-    return jsonify(dash.snapshot(current_user))
+    period = request.args.get("days", type=int) or 30
+    return jsonify(dash.snapshot(current_user, period_days=period))
 
 
 @main_bp.route("/about")

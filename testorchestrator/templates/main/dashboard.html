@@ -137,5 +137,5 @@
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 
 <script src="{{ url_for('static', filename='js/dashboard.js') }}" defer
-        data-url="{{ url_for('main.dashboard_data') }}"></script>
+        data-url="{{ url_for('main.dashboard_data', days=period) }}"></script>
 {% endblock %}
