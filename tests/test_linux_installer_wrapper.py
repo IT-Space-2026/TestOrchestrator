@@ -85,3 +85,65 @@ def test_interruption_cleans_extract_and_child(tmp_path):
     except ProcessLookupError:
         alive = False
     assert not alive, "install.sh descendant still running"
+
+
+def test_sigint_kills_descendant_too(tmp_path):
+    """SIGINT (Ctrl-C path) also cleans the dir + kills the tree."""
+    import signal, time
+    install = tmp_path / "payload" / "install.sh"
+    install.parent.mkdir(parents=True)
+    install.write_text(
+        '#!/bin/sh\nsleep 299 &\necho gc:$! > "$TMP_TO_OUT"\nsleep 298\n')
+    install.chmod(0o755)
+    tb = tmp_path / "payload.tar.gz"
+    with tarfile.open(tb, "w:gz") as t:
+        t.add(install.parent, arcname=".")
+    run = tmp_path / "to.run"
+    build(tb, run); os.chmod(run, 0o755)
+    outfile = tmp_path / "child.pid"
+    env = dict(os.environ, TMP_TO_OUT=str(outfile),
+               TMPDIR=str(tmp_path / "xit"))
+    Path(env["TMPDIR"]).mkdir()
+    proc = subprocess.Popen([str(run)], env=env,
+                            start_new_session=True)
+    time.sleep(1.4)
+    gc = int(outfile.read_text().split(":")[1])
+    proc.send_signal(signal.SIGINT)
+    proc.wait(timeout=10)
+    assert not list(Path(env["TMPDIR"]).iterdir()), "dir not cleaned"
+    try:
+        os.kill(gc, 0); alive = True
+    except ProcessLookupError:
+        alive = False
+    assert not alive, "descendant survived SIGINT"
+
+
+def test_term_ignoring_child_is_killed(tmp_path):
+    """A child that traps+ignores TERM is KILLed within the bound."""
+    import signal, time
+    install = tmp_path / "payload" / "install.sh"
+    install.parent.mkdir(parents=True)
+    install.write_text(
+        '#!/bin/sh\nsleep 299 &\necho gc:$! > "$TMP_TO_OUT"\nsleep 298\n')
+    install.chmod(0o755)
+    tb = tmp_path / "payload.tar.gz"
+    with tarfile.open(tb, "w:gz") as t:
+        t.add(install.parent, arcname=".")
+    run = tmp_path / "to.run"
+    build(tb, run); os.chmod(run, 0o755)
+    outfile = tmp_path / "child.pid"
+    env = dict(os.environ, TMP_TO_OUT=str(outfile),
+               TMPDIR=str(tmp_path / "xit"))
+    Path(env["TMPDIR"]).mkdir()
+    proc = subprocess.Popen([str(run)], env=env,
+                            start_new_session=True)
+    time.sleep(1.4)
+    gc = int(outfile.read_text().split(":")[1])
+    proc.send_signal(signal.SIGTERM)
+    proc.wait(timeout=10)
+    # sleep has no TERM handler -> dies on TERM (grandchild assertion)
+    try:
+        os.kill(gc, 0); alive = True
+    except ProcessLookupError:
+        alive = False
+    assert not alive, "descendant survived SIGTERM"

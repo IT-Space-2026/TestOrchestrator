@@ -31,14 +31,24 @@ WORK=$(mktemp -d "${{TMPDIR:-/tmp}}/to-install-XXXXXX")
 # flags: --dir <target> forces the install destination; else the
 # packaged default (installer-mode) applies.
 tail -n +"$LINE" "$SELF" | tar xzf - -C "$WORK"
-# Run install.sh as a child in this group; on INT/TERM kill the whole
-# group (install.sh + children it spawned) and clean the extract dir.
-# kill install.sh's whole descendant tree (children before parents)
-# without touching the invoking shell's group — no TTY needed.
-_killtree() {{
-  for _c in $(pgrep -P "$1" 2>/dev/null); do _killtree "$_c"; done
-  kill "$1" 2>/dev/null
+# _killtree kills install.sh's descendant tree (children before
+# parents) without a TTY or touching the invoking shell's group.
+# pgrep (procps) is required to discover descendants — degrade to
+# direct-child kill when absent (declared prerequisite).
+# two passes: TERM the whole tree, then KILL any survivor — a child
+# that ignores TERM is still reaped. No sleep inside the trap.
+_tree() {{
+  for _c in $(pgrep -P "$1" 2>/dev/null); do _tree "$_c" "$2"; done
+  kill "-$2" "$1" 2>/dev/null || :
 }}
+_killtree() {{
+  _tree "$1" TERM
+  _tree "$1" KILL
+}}
+if ! command -v pgrep >/dev/null 2>&1; then
+  echo "note: pgrep not found — interruption cleanup limited to the" \
+       "direct child (install.sh); descendants are not reaped" >&2
+fi
 "$WORK/install.sh" "$@" & CHILD=$!
 trap 'rc=$?; _killtree "$CHILD"; rm -rf -- "$WORK"; exit "$rc"' INT TERM
 wait "$CHILD"; rc=$?
