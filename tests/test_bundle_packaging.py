@@ -74,9 +74,9 @@ def test_integrations_page_sections(client, login_as, app):
     r = client.get("/system/integrations")
     assert r.status_code == 200
     body = r.data.decode()
-    for section in ("Dagu — orchestration", "Git — evidence export"):
+    for section in ("Git — evidence export",):
         assert section in body
-    for field in ("dagu_endpoint", "git_export_repo",
+    for field in ("git_export_repo",
                   "git_export_ref"):
         assert f'name="{field}"' in body
     assert "Example" in body and "user:password content" in body

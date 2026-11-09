@@ -198,12 +198,12 @@ or license KRE.</p>
       <small><strong>Local:</strong> TestOrchestrator starts this
         executable locally — it and the working directory must exist
         on the TestOrchestrator execution host.<br>
-        <strong>Remote:</strong> a <strong>Dagu worker</strong> service
-        on the KRE machine connects to TestOrchestrator's Dagu
+        <strong>Remote:</strong> an <strong>execution worker</strong> service
+        on the KRE machine connects to TestOrchestrator's execution
         coordinator — a path is not a connection. The executable path
         is verified on <em>that</em> computer, never run here.</small>
     </fieldset>
-    <div class="field" id="worker-label-field"><label>Dagu worker label</label>
+    <div class="field" id="worker-label-field"><label>Worker label</label>
       {{ runtime_form.worker_label() }}
       <small><strong>Required for Remote.</strong> Unique label this
         installation is bound to — must match the worker's
@@ -233,12 +233,12 @@ or license KRE.</p>
 </section>
 
 <section class="card" id="dagu-worker-downloads">
-  <h2>Download Dagu worker</h2>
-  <p class="muted">Remote execution uses a pinned <strong>Dagu
+  <h2>Download execution worker</h2>
+  <p class="muted">Remote execution uses a pinned <strong>worker
     worker</strong> — install it on the computer that contains the
-    remote KRE, then connect it to TestOrchestrator's Dagu
+    remote KRE, then connect it to TestOrchestrator's execution
     coordinator. Sequence: install KRE on the test computer → install
-    the Dagu worker → connect securely to the coordinator → register
+    the execution worker → connect securely to the coordinator → register
     the KRE installation here with the worker's label → verify →
     execute.</p>
   {% if dagu_assets %}
@@ -272,7 +272,7 @@ or license KRE.</p>
   <p class="muted">The guided installer is a supplementary option for
     Windows workers — <strong>unsigned</strong>, not host-verified;
     the plain archive + manual setup above remains the verified path.
-    It installs only the Dagu worker, never the full application.</p>
+    It installs only the execution worker, never the full application.</p>
   {% endif %}
   <details class="block-details"><summary class="button secondary">Worker setup instructions</summary>
     <p class="muted">On the computer containing the remote KRE:</p>
@@ -281,7 +281,7 @@ tar xzf dagu_{{ dagu_assets[0].version }}_&lt;os&gt;_amd64.tar.gz
 
 # 2. Start the worker, labeled uniquely for this installation.
 #    The coordinator address must be reachable FROM the worker —
-#    use this portal's configured Dagu coordinator address, never
+#    use this portal's configured coordinator address, never
 #    "localhost" for a different computer. Example:
 ./dagu worker --worker.coordinators=&lt;portal-host&gt;:50055 \
   --worker.labels kre=&lt;unique-label&gt; --worker.id &lt;worker-name&gt;

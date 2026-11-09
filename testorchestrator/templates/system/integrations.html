@@ -18,36 +18,6 @@ future operations; no restart is required.</p>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   <section class="card">
-    <h2>Dagu — orchestration</h2>
-    <p class="muted">Coordinates dispatch of executions to workers.
-      Required when Dagu is the mandatory orchestrator; executions
-      queue until reachable. Empty = not configured (local dispatch
-      only where the deployment permits it).</p>
-    <div class="field"><label>Dagu endpoint <span class="muted">(optional)</span><br>
-      <input type="text" name="dagu_endpoint" size="46"
-             value="{{ settings.dagu_endpoint }}"
-             placeholder="https://dagu.example:8080"></label><br>
-      <small>Base URL of the Dagu server. Format: http(s)://host[:port].
-      Used by the dispatch worker; applies to future dispatches.</small></div>
-    <div class="field"><label>Dagu credential <span class="muted">(conditional)</span><br>
-      <input type="text" name="dagu_credential_ref" size="46"
-             value="{{ settings.dagu_credential_ref }}"
-             placeholder="name of a Secret"></label><br>
-      <small>Reference to a stored secret (bearer token, or password
-      when basic-auth username is set). Required only if the Dagu
-      server enforces auth. Never the secret value itself.</small></div>
-    <div class="field"><label>Dagu username <span class="muted">(conditional)</span><br>
-      <input type="text" name="dagu_username" size="46"
-             value="{{ settings.dagu_username }}"
-             placeholder="basic-auth user (empty = bearer)"></label><br>
-      <small>Empty = bearer-token auth against the credential;
-      non-empty = HTTP basic auth (username + credential secret).</small></div>
-    <details><summary>Example</summary><pre class="example">dagu_endpoint: https://dagu.internal:8080
-dagu_credential_ref: dagu-api-key   # a Secret named 'dagu-api-key'
-dagu_username:                      # empty → bearer-token mode</pre></details>
-  </section>
-
-  <section class="card">
     <h2>Git — evidence export repository</h2>
     <p class="muted">Internal export repo receiving execution evidence
       pushes (non-force). Optional — local artifact storage always
