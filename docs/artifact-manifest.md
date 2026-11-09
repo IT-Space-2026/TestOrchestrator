@@ -17,10 +17,10 @@
 ## Wrapper (self-extracting installer)
 - File: dist/testorchestrator-1.0.0-pre.7-linux-x86_64.run
 - Built: `.venv/bin/python scripts/build_linux_installer.py <tarball> <run>`
-- Stub source: scripts/build_linux_installer.py at git `43d0308`+ (signal-
-  safe killtree: kills install.sh descendant tree on INT/TERM, then
+- Stub source: scripts/build_linux_installer.py at git `0398c69` (two-pass
+  TERM+KILL killtree: kills install.sh descendant tree on INT/TERM, then
   removes the extract dir, exits with child's status).
-- sha256: 0ea00c5087fdb8188e8e17ce3670d037e254b5b5b104dbaba5f6e40702c46b80
+- sha256: 6f322bbe309dab852a6ee920f0e3d4cd9f0698a6313ca085df425b72a70c8f2b
 
 ## Verification status
 - Wrapper behavior: 4/4 fixture tests (spaces+args, nonzero exit,
