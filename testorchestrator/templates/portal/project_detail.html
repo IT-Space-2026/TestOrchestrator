@@ -249,8 +249,9 @@
                      data-cases='{{ repo_targets | tojson }}'
                      data-selected='{{ s.targets() | map(attribute="source_item_id") | map("regex_replace", "^", "repo:") | list | tojson }}'>
                   <div data-hidden></div></div></div>
-              <button type="submit" class="button">Apply</button>
-              <button type="button" class="button danger" data-cancel-details>Cancel</button>
+              <div class="btn-row">
+              <button type="submit" class="button primary">Apply</button>
+              <button type="button" class="button" data-cancel-details>Cancel</button></div>
             </form></details>
         </td>
         {% endif %}
@@ -489,18 +490,20 @@
                 <input name="url" value="{{ b.url }}"></div>
               <div class="field"><label>Ref / branch</label>
                 <input name="ref" value="{{ b.ref }}"></div>
-              <div class="field"><label>
-                <input type="checkbox" name="authoring_writable" value="1"
+              <div class="field checkbox-field">
+                <label><input type="checkbox" name="authoring_writable" value="1"
                        {% if b.authoring_writable %}checked{% endif %}>
-                Source authoring (edit native definitions)</label></div>
+                Source authoring (edit native definitions)</label>
+                <small class="muted">Write access to native definitions.</small></div>
               <div class="field"><label>Subdirectory</label>
                 <input name="subdirectory" value="{{ b.subdirectory }}"></div>
               <div class="field"><label>Project root (.prj)</label>
                 <input name="prj_path" value="{{ b.prj_path }}"></div>
               <div class="field"><label>Credential ref</label>
                 <input name="credential_ref" value="{{ b.credential_ref }}"></div>
-              <button type="submit" class="button">Apply</button>
-              <button type="button" class="button danger" data-cancel-details>Cancel</button>
+              <div class="btn-row">
+              <button type="submit" class="button primary">Apply</button>
+              <button type="button" class="button" data-cancel-details>Cancel</button></div>
             </form>
           </details>
           {% endif %}
