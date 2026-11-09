@@ -17,7 +17,7 @@
 ## Wrapper (self-extracting installer)
 - File: dist/testorchestrator-1.0.0-pre.7-linux-x86_64.run
 - Built: `.venv/bin/python scripts/build_linux_installer.py <tarball> <run>`
-- Stub source: scripts/build_linux_installer.py (pgrep fail-fast before
+- Stub source: scripts/build_linux_installer.py at git `04ebbbe` (pgrep fail-fast before
   extraction; snapshot-PID killtree collects descendant pids before TERM
   so the KILL pass reaps processes reparented when a parent dies; INT
   and TERM handled). Host prerequisite: pgrep (procps) — installer
