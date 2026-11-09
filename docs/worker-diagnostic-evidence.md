@@ -7,7 +7,7 @@
 | Binary | `dagu 2.25.8` (pinned `3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz`) |
 | Coordinator | `start-all` loopback HTTP `29987`, gRPC `50055`, `auth.mode:none` |
 | Worker | `--worker.coordinators=127.0.0.1:50055 --worker.labels kre=$RUN --worker.id wr-$RUN --worker.health-port 0` |
-| Endpoint | `/api/v1/workers` (v1; `/api/v2/workers` does not exist) |
+| Endpoint | `GET /api/v1/workers` (v1; `/api/v2/workers` does not exist) — polled read, not a POST |
 | Envelope | object with `workers` array; worker = `{id, labels:{arch,kre,os}, healthStatus, lastHeartbeatAt, busyPollers, runningTasks, totalPollers}` |
 | Match | exact `id` AND `labels.kre` on the SAME worker object |
 | Outcome | REGISTERED; 0 survivors; listeners released |

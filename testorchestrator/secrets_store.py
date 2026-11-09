@@ -119,19 +119,39 @@ def ensure_coordinator_credential(app) -> bool:
     name = "coordinator-agent"
     if SecretRef.query.filter_by(name=name).first() is not None:
         return False
-    # The coordinator (scripts/provision_dagu.py) is configured with
-    # auth.mode=basic: server.yaml carries basic.username/password and
-    # the adapter sends HTTP basic when dagu_username is set. The
-    # provisioned credential is that basic-auth PASSWORD; the username
-    # is the fixed "testorchestrator" service account.
-    password = _secrets.token_urlsafe(32)
-    store_secret(app, name, "dagu", password,
-                 {"purpose": "coordinator basic-auth password",
-                  "auto": True},
-                 internal=True)
-    # Wire the backend-managed refs so the adapter resolves the
-    # credential + does basic auth — without user-visible wiring.
+    # Concurrency: the name is UNIQUE — a simultaneous first-provisioning
+    # attempt commits first and makes OUR check-then-create raise
+    # IntegrityError. Recheck after rollback: the row now exists → we
+    # resolve to it (no duplicate, no overwrite) instead of failing.
+    try:
+        return _provision(app, name)
+    except Exception:
+        db.session.rollback()
+        if SecretRef.query.filter_by(name=name).first() is not None:
+            return False            # the other attempt won — adopt it
+        raise
+    # (reached only when the row is still absent)
+
+
+def _provision(app, name):
+    """Create the coordinator credential + wire refs (called once by
+    ensure_coordinator_credential under the race-recheck guard).
+
+    INSERT-ONLY: builds the SecretRef directly instead of the upserting
+    store_secret, so a UNIQUE-name conflict raises IntegrityError — the
+    caller's guard rolls back + adopts the winner's credential instead
+    of silently overwriting it. Never rotates an existing row."""
+    import secrets as _secrets
     from . import settings as settings_mod
+    from .execution import SecretRef
+    fernet = _load_fernet(app)
+    row = SecretRef(
+        name=name, kind="dagu",
+        encrypted=fernet.encrypt(_secrets.token_urlsafe(32).encode()),
+        meta_json=json.dumps({"purpose": "coordinator basic-auth "
+                              "password", "auto": True}))
+    db.session.add(row)
+    db.session.commit()            # UNIQUE(name) -> IntegrityError if racing
     if not settings_mod.get("dagu_credential_ref"):
         settings_mod.update({"dagu_credential_ref": name})
     if not settings_mod.get("dagu_username"):

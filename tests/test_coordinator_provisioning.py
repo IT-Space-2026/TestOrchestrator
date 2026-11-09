@@ -64,3 +64,36 @@ def test_launcher_endpoint_admin_only(app, client, login_as):
     r = client.get("/system/infrastructure/worker-launcher/wr-1/kre-a")
     assert r.status_code == 200 and "worker.coordinators" in r.get_data(
         as_text=True)
+
+
+def test_concurrent_provisioning_race(app):
+    """A losing concurrent _provision hits the UNIQUE name constraint;
+    the guard rolls back and resolves to the winner's credential — no
+    duplicate, no overwrite."""
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+    from testorchestrator import secrets_store as ss
+    with app.app_context():
+        ss.ensure_coordinator_credential(app)        # winner
+        winner = read_secret(app, "coordinator-agent")
+        # a losing attempt that reaches _provision directly: store_secret
+        # adds a row with the same UNIQUE name -> IntegrityError on commit
+        with pytest.raises(Exception):
+            ss._provision(app, "coordinator-agent")
+        ss.db.session.rollback()
+        # after the conflict the original credential is intact + single
+        assert ss.SecretRef.query.filter_by(
+            name="coordinator-agent").count() == 1
+        assert read_secret(app, "coordinator-agent") == winner
+        # and a subsequent ensure resolves to it
+        assert ss.ensure_coordinator_credential(app) is False
+
+
+def test_existing_credential_not_overwritten_on_rerun(app):
+    from testorchestrator import secrets_store as ss
+    with app.app_context():
+        ss.ensure_coordinator_credential(app)
+        first = read_secret(app, "coordinator-agent")
+        ss.ensure_coordinator_credential(app)   # restart/rerun
+        ss.ensure_coordinator_credential(app)   # upgrade
+        assert read_secret(app, "coordinator-agent") == first
