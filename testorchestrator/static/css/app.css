@@ -895,6 +895,10 @@ td .row-actions{min-width:9rem}
 /* Plotly chart containers */
 [data-plotly-fig] { min-height: 260px; width: 100%; }
 
+.badge.sev-debug,.badge.sev-info,.badge.sev-warning,
+.badge.sev-error,.badge.sev-critical{
+  color:#fff;border:none;padding:.18rem .55rem;border-radius:.7rem;
+  font-size:.74rem;font-weight:600;letter-spacing:.02em;line-height:1.4}
 .sev-debug{background:#455a64}.sev-info{background:#1565c0}
 .sev-warning{background:#ef6c00}.sev-error{background:#c62828}
 .sev-critical{background:#6a1b9a}
@@ -924,3 +928,11 @@ td .row-actions{min-width:9rem}
 .pagination { display: flex; align-items: center; gap: 1rem;
   justify-content: center; margin-top: 0.8rem; }
 .empty-cell { text-align: center; padding: 1.5rem; }
+
+/* op-logs alignment/readability polish */
+#log-table td { vertical-align: middle; padding: .5rem .6rem; }
+#log-table td code { font-size: .8rem; }
+.log-msg { min-width: 14rem; }
+.dash-period { display:inline-flex; align-items:center; gap:.4rem;
+  margin: .2rem 0 .4rem; }
+.dash-period select { font: inherit; }
