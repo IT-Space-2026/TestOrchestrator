@@ -146,6 +146,29 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
         series.append({"day": d, "passed": p_, "failed": f_,
                        "total": t_})
 
+    # Duration trend: avg seconds per day for completed runs.
+    dur = {}
+    for e in terminal_period:
+        if e.started_at and e.finished_at:
+            k = _day_key(e.finished_at)
+            sec = (e.finished_at - e.started_at).total_seconds()
+            dur.setdefault(k, []).append(sec)
+    dur_series = [{"day": k, "seconds": round(sum(v)/len(v), 1)}
+                  for k, v in sorted(dur.items())]
+
+    # Top failing cases across the period (test-case level).
+    from .execution import TestResult
+    fail = {}
+    ids = [e.id for e in terminal_period]
+    if ids:
+        for tr in (TestResult.query
+                   .filter(TestResult.execution_id.in_(ids),
+                           TestResult.status.in_(["failed", "error"]))):
+            fail[tr.case_ref] = fail.get(tr.case_ref, 0) + 1
+    top_failing = sorted(({"case": c, "count": n}
+                          for c, n in fail.items()),
+                         key=lambda r: -r["count"])[:8]
+
     return {
         "generated_at": now.isoformat(),
         "period_days": period_days,
@@ -182,4 +205,6 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
             "created_by": e.created_by,
         } for e in recent],
         "chart_outcomes": series,
+        "chart_duration": dur_series,
+        "top_failing": top_failing,
     }
