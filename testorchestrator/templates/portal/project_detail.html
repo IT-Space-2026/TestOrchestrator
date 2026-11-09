@@ -477,6 +477,7 @@
         <td>{{ b.status }}{% if b.last_error %} — {{ b.last_error[:80] }}{% endif %}</td>
         <td>
           {% if can_edit %}
+          <div class="cell-actions">
           <form method="post" action="{{ url_for('portal.sync_binding', binding_id=b.id) }}" class="inline">
             {{ plain_form.csrf_token }}
             <button type="submit" class="button secondary">Sync</button>
@@ -507,7 +508,7 @@
             </form>
           </details>
           {% endif %}
-        </td>
+        </div></td>
       </tr>
       {% endfor %}
     </tbody>
