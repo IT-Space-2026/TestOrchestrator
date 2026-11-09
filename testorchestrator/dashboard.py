@@ -129,9 +129,9 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
         key=lambda e: (e.finished_at or e.started_at or e.created_at),
         reverse=True)[:10]
 
-    # Charts: per-day terminal counts for CHART_DAYS.
-    days = [(_day_key(now - timedelta(days=CHART_DAYS - 1 - i)), 0, 0, 0)
-            for i in range(CHART_DAYS)]
+    # Charts: per-day terminal counts for the selected period.
+    days = [(_day_key(now - timedelta(days=period_days - 1 - i)), 0, 0, 0)
+            for i in range(period_days)]
     idx = {d[0]: i for i, d in enumerate(days)}
     series = []
     for e in terminal_period:
