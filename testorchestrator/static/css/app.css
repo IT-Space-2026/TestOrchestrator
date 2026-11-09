@@ -966,3 +966,5 @@ td .row-actions{min-width:9rem}
 .rc-running,.rc-queued{background:#f5a623}
 .rc-unexecuted,.rc-unavailable{background:#d0d5dd}
 .rc-badge{font-style:normal;background:#e5484d;color:#fff;border-radius:99px;padding:.05rem .4rem;font-size:.68rem}
+.rs-released{background:#2ecc71}.rs-archived{background:#98a2b3}
+.rs-draft{background:#98a2b3}.rs-in_progress{background:#3b82f6}

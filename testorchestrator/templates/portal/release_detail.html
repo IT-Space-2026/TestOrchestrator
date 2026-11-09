@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ release.name }} · TestOrchestrator{% endblock %}
 {% block content %}
-<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=release.project_id) }}">← Back to project</a></p>
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=release.project_id, tab='releases') }}">← Back to release</a></p>
 <h1>{{ release.name }} <span class="badge {{ release.status }}">{{ release.status }}</span></h1>
 <p class="muted">{{ release.description }}
   {% if release.start_date or release.end_date %}

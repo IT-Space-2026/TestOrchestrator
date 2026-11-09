@@ -11,13 +11,13 @@
 {% endwith %}
 
 <div class="tabs">
-  <input type="radio" name="ptabs" id="tab-dash" class="tab-input" checked>
-  <input type="radio" name="ptabs" id="tab-suites" class="tab-input">
-  <input type="radio" name="ptabs" id="tab-schedules" class="tab-input">
-  <input type="radio" name="ptabs" id="tab-releases" class="tab-input">
-  <input type="radio" name="ptabs" id="tab-executions" class="tab-input">
-  <input type="radio" name="ptabs" id="tab-inventory" class="tab-input">
-  <input type="radio" name="ptabs" id="tab-bindings" class="tab-input">
+  <input type="radio" name="ptabs" id="tab-dash" class="tab-input" {% if not request.args.get("tab") or request.args.get("tab")=="dash" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-suites" class="tab-input" {% if request.args.get("tab")=="suites" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-schedules" class="tab-input" {% if request.args.get("tab")=="schedules" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-releases" class="tab-input" {% if request.args.get("tab")=="releases" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-executions" class="tab-input" {% if request.args.get("tab")=="executions" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-inventory" class="tab-input" {% if request.args.get("tab")=="inventory" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-bindings" class="tab-input" {% if request.args.get("tab")=="bindings" %}checked{% endif %}>
   <nav class="tab-bar">
     <label for="tab-dash">Dashboard</label>
     <label for="tab-suites">Suites</label>
@@ -354,7 +354,7 @@
     <tbody>
       {% for r in project.releases %}
       {% set rs = rel_summary.get(r.id, {}) %}
-      {% set cat = rs.category or "empty" %}
+      {% set cat = r.status %}
       <tr>
         <td><span class="rel-status rs-{{ cat }}"
               title="{{ cat.replace('_',' ') }}"></span></td>
