@@ -304,7 +304,7 @@
     <div class="card-head"><h3>Timeline</h3>
       <span class="muted">start → target end · today marked</span></div>
     {% set lo = dated | map(attribute="start_date") | min %}
-    {% set hi = dated | map(attribute="end_date") | map("default", lo) | max %}
+    {% set hi = (dated | map(attribute="end_date") | select | max) or lo %}
     {% set span = [(hi - lo).days, 1] | max %}
     {% for r in dated %}
     <div class="timeline-row">
