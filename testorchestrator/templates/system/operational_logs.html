@@ -5,29 +5,57 @@
   <p class="muted"><small>Component events — separate from the
   <a href="{{ url_for('main.audit') }}">Audit trail</a>.
   Remote worker logs are not collected and appear unavailable.</small></p>
-  <form method="get" class="filter-bar" id="log-filters">
-    <label>Severity
-      <select name="severity"><option value="">all</option>
+
+  <form method="get" class="filter-bar log-filter-bar" id="log-filters">
+    <div class="filter-group">
+      <label for="f-sev">Severity</label>
+      <select name="severity" id="f-sev">
+        <option value="">all</option>
         {% for s in severities %}<option value="{{ s }}"
           {% if filters.severity == s %}selected{% endif %}>{{ s }}</option>
-        {% endfor %}</select></label>
-    <label>Component
-      <select name="component"><option value="">all</option>
+        {% endfor %}</select>
+    </div>
+    <div class="filter-group">
+      <label for="f-comp">Component</label>
+      <select name="component" id="f-comp">
+        <option value="">all</option>
         {% for c in components %}<option value="{{ c }}"
           {% if filters.component == c %}selected{% endif %}>{{ c }}</option>
-        {% endfor %}</select></label>
-    <label>Category
-      <select name="category"><option value="">all</option>
+        {% endfor %}</select>
+    </div>
+    <div class="filter-group">
+      <label for="f-cat">Category</label>
+      <select name="category" id="f-cat">
+        <option value="">all</option>
         {% for c in categories %}<option value="{{ c }}"
           {% if filters.category == c %}selected{% endif %}>{{ c }}</option>
-        {% endfor %}</select></label>
-    <label>Search <input name="q" value="{{ filters.q or '' }}"
-      placeholder="message contains"></label>
-    <button type="submit">Apply</button>
-    <a class="btn" href="{{ url_for('system.operational_logs_export', format='csv', severity=filters.severity or '', component=filters.component or '', category=filters.category or '', q=filters.q or '') }}">CSV</a>
-    <a class="btn" href="{{ url_for('system.operational_logs_export', format='jsonl', severity=filters.severity or '', component=filters.component or '', category=filters.category or '', q=filters.q or '') }}">JSONL</a>
-    <label><input type="checkbox" id="live-tail"> live tail</label>
-    <span id="tail-status" class="muted"><small>paused</small></span>
+        {% endfor %}</select>
+    </div>
+    <div class="filter-group grow">
+      <label for="f-q">Search</label>
+      <input name="q" id="f-q" value="{{ filters.q or '' }}"
+             placeholder="message contains…">
+    </div>
+    <div class="filter-actions">
+      <button type="submit" class="button primary">Apply</button>
+      <a class="button" href="{{ url_for('system.operational_logs') }}">Reset</a>
+    </div>
+    <div class="filter-actions exports">
+      <span class="muted"><small>Export</small></span>
+      <a class="button secondary"
+         href="{{ url_for('system.operational_logs_export', format='csv',
+            severity=filters.severity or '', component=filters.component or '',
+            category=filters.category or '', q=filters.q or '') }}">CSV</a>
+      <a class="button secondary"
+         href="{{ url_for('system.operational_logs_export', format='jsonl',
+            severity=filters.severity or '', component=filters.component or '',
+            category=filters.category or '', q=filters.q or '') }}">JSONL</a>
+    </div>
+    <div class="filter-actions tail-toggle">
+      <label class="check-label">
+        <input type="checkbox" id="live-tail"><span>Live tail</span></label>
+      <span id="tail-status" class="tail-status paused"><small>paused</small></span>
+    </div>
   </form>
 </div>
 
@@ -44,23 +72,33 @@
         <td><span class="badge sev-{{ r.severity }}">{{ r.severity }}</span></td>
         <td>{{ r.component }}</td>
         <td>{{ r.category }}</td>
-        <td class="log-msg" title="{{ r.details }}">{{ r.message }}</td>
+        <td class="log-msg">
+          {% if r.details %}
+          <details class="log-details"><summary>{{ r.message }}</summary>
+            <pre class="log-detail-text">{{ r.details }}</pre></details>
+          {% else %}{{ r.message }}{% endif %}
+        </td>
         <td><small class="muted">
           {{ r.project_id or "" }} {{ r.execution_id or "" }}
           {{ r.worker_id or "" }} {{ r.correlation_id or "" }}
         </small></td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="muted">No log events — sources emit on
-      activity; filters may exclude everything.</td></tr>
+      <tr><td colspan="6" class="muted empty-cell">No log events —
+      sources emit on activity; filters may exclude everything.</td></tr>
       {% endfor %}
     </tbody>
   </table>
   {% if page.pages > 1 %}
-  <div class="pagination muted"><small>
-    {% for p in range(1, page.pages + 1) %}
-      <a href="?page={{ p }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">{{ p }}</a>
-    {% endfor %}</small></div>
+  <nav class="pagination" aria-label="Pages">
+    {% if page.has_prev %}
+      <a class="button secondary sm" href="?page={{ page.prev_num }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">&larr; Prev</a>
+    {% endif %}
+    <span class="muted"><small>Page {{ page.page }} of {{ page.pages }}</small></span>
+    {% if page.has_next %}
+      <a class="button secondary sm" href="?page={{ page.next_num }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">Next &rarr;</a>
+    {% endif %}
+  </nav>
   {% endif %}
 </div>
 
@@ -70,6 +108,10 @@
       status = document.getElementById("tail-status"),
       tbody = document.getElementById("log-rows"),
       timer = null;
+  function esc(t) {
+    return t.replace(/[&<>]/g, function (c) {
+      return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c]; });
+  }
   function fetchTail() {
     var last = tbody.querySelector("tr[data-ts]");
     var after = last ? last.dataset.ts : "";
@@ -79,29 +121,33 @@
       .then(function (d) {
         status.textContent = "live · updated " +
           d.generated_at.split("T")[1].slice(0, 8);
+        status.className = "tail-status live";
         (d.rows || []).forEach(function (r) {
           var tr = document.createElement("tr");
           tr.dataset.ts = r.ts;
-          tr.innerHTML = "<td><code>" + r.ts.split("T")[1]
-            .slice(0, 8) + "</code></td><td><span class='badge sev-" +
-            r.severity + "'>" + r.severity + "</span></td><td>" +
-            r.component + "</td><td>" + r.category + "</td><td class='log-msg'>" +
-            r.message.replace(/[&<>]/g, function (c) {
-              return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c];
-            }) + "</td><td><small class='muted'>" +
-            [r.project, r.execution, r.worker, r.corr]
-              .filter(Boolean).join(" ") + "</small></td>";
+          tr.innerHTML = "<td><code>" + esc(r.ts.split("T")[1]
+            .slice(0, 8)) + "</code></td><td><span class='badge sev-" +
+            esc(r.severity) + "'>" + esc(r.severity) +
+            "</span></td><td>" + esc(r.component) + "</td><td>" +
+            esc(r.category) + "</td><td class='log-msg'>" +
+            esc(r.message) + "</td><td><small class='muted'>" +
+            esc([r.project, r.execution, r.worker, r.corr]
+              .filter(Boolean).join(" ")) + "</small></td>";
           tbody.insertBefore(tr, tbody.firstChild);
         });
       })
-      .catch(function () { status.textContent = "source unavailable"; });
+      .catch(function () {
+        status.textContent = "source unavailable";
+        status.className = "tail-status unavailable"; });
   }
   tail.addEventListener("change", function () {
     if (tail.checked) {
       status.textContent = "live";
+      status.className = "tail-status live";
       timer = setInterval(fetchTail, 4000);
     } else {
       status.textContent = "paused";
+      status.className = "tail-status paused";
       clearInterval(timer);
     }
   });
