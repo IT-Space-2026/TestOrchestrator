@@ -73,7 +73,7 @@
   {% endif %}
 </section>
 
-<div class="dash-2col">
+<div class="dash-3col">
   <section class="card">
     <h2>Recent executions</h2>
     <table class="data-table" id="recent-table">
@@ -92,10 +92,6 @@
     </table>
     <p class="muted" id="recent-no-data" {% if data.recent %}hidden{% endif %}>No executions yet.</p>
   </section>
-
-</div>
-
-<div class="dash-2col">
 <section class="card">
   <h2>Outcomes per day · {{ data.period_days }}d</h2>
   <div id="chart-outcomes"
