@@ -97,3 +97,46 @@ def test_existing_credential_not_overwritten_on_rerun(app):
         ss.ensure_coordinator_credential(app)   # restart/rerun
         ss.ensure_coordinator_credential(app)   # upgrade
         assert read_secret(app, "coordinator-agent") == first
+
+
+def test_launcher_safety_paths_and_quoting(app):
+    """Paths with spaces, unsafe chars rejected; bundled-exe resolution."""
+    from testorchestrator.adapters.dagu import worker_launcher_script
+    from testorchestrator import settings as sm
+    import pytest
+    with app.app_context():
+        sm.update({"dagu_coordinator_url": "coord.internal:50055"})
+        # unsafe worker_id / label rejected (no shell injection)
+        for bad in ("w;r;m", "w id", "w`id`", "w$(id)", ""):
+            with pytest.raises(ValueError):
+                worker_launcher_script(worker_id=bad, kre_label="kre-a")
+        for bad in ("l;l", "l l", "l|l", ""):
+            with pytest.raises(ValueError):
+                worker_launcher_script(worker_id="wr-1", kre_label=bad)
+        # coordinator addr present + quoted in both outputs
+        sh = worker_launcher_script(worker_id="wr-1", kre_label="kre-a")
+        assert 'worker.coordinators="coord.internal:50055"' in sh
+        win = worker_launcher_script(worker_id="wr-1", kre_label="kre-a",
+                                     platform="windows")
+        assert "coord.internal:50055" in win and "dagu.exe" in win
+        # unsupported platform rejected
+        with pytest.raises(ValueError):
+            worker_launcher_script(worker_id="wr-1", kre_label="kre-a",
+                                   platform="plan9")
+
+
+def test_launcher_endpoint_authz(app, client, login_as):
+    from testorchestrator import settings as sm
+    with app.app_context():
+        sm.update({"dagu_coordinator_url": "coord.internal:50055"})
+    # unauthenticated -> redirect/deny
+    assert client.get(
+        "/system/infrastructure/worker-launcher/wr-1/kre-a").status_code in (302,403,401)
+    # non-admin -> deny
+    login_as("tester")
+    assert client.get(
+        "/system/infrastructure/worker-launcher/wr-1/kre-a").status_code in (302,403)
+    # admin -> 200 + correct content-disposition
+    login_as("admin")
+    r = client.get("/system/infrastructure/worker-launcher/wr-1/kre-a")
+    assert r.status_code == 200 and "attachment" in r.headers.get("Content-Disposition","")
