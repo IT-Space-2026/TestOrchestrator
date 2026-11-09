@@ -74,25 +74,7 @@
   {% endif %}
 </section>
 
-<div class="dash-3col">
-  <section class="card">
-    <h2>Recent executions</h2>
-    <table class="data-table" id="recent-table">
-      <thead><tr><th>ID</th><th>Suite</th><th>State</th><th>Outcome</th><th>By</th></tr></thead>
-      <tbody id="recent-rows">
-        {% for e in data.recent %}
-        <tr>
-          <td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
-          <td>{{ e.suite }}</td>
-          <td>{{ e.state }}</td>
-          <td>{% if e.outcome != 'none' %}<span class="badge outcome-{{ e.outcome }}">{{ e.outcome }}</span>{% else %}—{% endif %}</td>
-          <td>{{ e.created_by }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="muted" id="recent-no-data" {% if data.recent %}hidden{% endif %}>No executions yet.</p>
-  </section>
+<div class="dash-2col">
 <section class="card">
   <h2>Outcomes per day · {{ data.period_days }}d</h2>
   <div id="chart-outcomes"
@@ -118,6 +100,25 @@
 </section>
 </div>
 
+<div class="dash-2col">
+<section class="card">
+    <h2>Recent executions</h2>
+    <table class="data-table" id="recent-table">
+      <thead><tr><th>ID</th><th>Suite</th><th>State</th><th>Outcome</th><th>By</th></tr></thead>
+      <tbody id="recent-rows">
+        {% for e in data.recent %}
+        <tr>
+          <td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
+          <td>{{ e.suite }}</td>
+          <td>{{ e.state }}</td>
+          <td>{% if e.outcome != 'none' %}<span class="badge outcome-{{ e.outcome }}">{{ e.outcome }}</span>{% else %}—{% endif %}</td>
+          <td>{{ e.created_by }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted" id="recent-no-data" {% if data.recent %}hidden{% endif %}>No executions yet.</p>
+  </section>
 <section class="card">
   <h2>Top failing cases · {{ data.period_days }}d</h2>
   <table class="data-table">
@@ -130,6 +131,7 @@
       {% endfor %}
     </tbody></table>
 </section>
+</div>
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 
