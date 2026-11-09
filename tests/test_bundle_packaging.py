@@ -181,3 +181,27 @@ def test_extracted_runtime_completeness(tmp_path):
      / "cli.js").write_text("//")
     r = verify_extracted_runtime(bundle, mp)
     assert r["ok"] is True
+
+
+def test_hidden_dagu_keys_rejected_not_updated(app, client, login_as):
+    """A normal settings POST carrying backend-managed dagu_* keys must
+    not change stored values — they're internally managed, not
+    user-configurable."""
+    from testorchestrator import settings as sm
+    login_as("admin")
+    with app.app_context():
+        # seed a known stored value
+        try: sm.update({"dagu_endpoint": "https://coord.internal:50055"})
+        except Exception: pass
+        before = sm.get("dagu_endpoint")
+    r = client.post("/system/integrations/save",
+                    data={"dagu_endpoint": "https://evil:1",
+                          "dagu_username": "attacker",
+                          "git_export_repo": "/tmp/exp"},
+                    follow_redirects=True)
+    with app.app_context():
+        assert sm.get("dagu_endpoint") == before  # unchanged
+        assert sm.get("dagu_username") != "attacker"
+        assert sm.get("git_export_repo") == "/tmp/exp"  # allowed field saved
+    assert "Coordinator settings" in r.get_data(as_text=True) or \
+           r.status_code == 200

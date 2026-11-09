@@ -326,11 +326,26 @@ def integrations_save():
     values. Applies to future operations; no restart needed."""
     from flask import request
     updates = {}
+    hidden = set()
     for key in ("dagu_endpoint", "dagu_credential_ref", "dagu_username",
                 "git_export_repo", "git_export_credential_ref",
                 "git_export_ref"):
-        if key in request.form:
-            updates[key] = request.form.get(key, "").strip()
+        if key not in request.form:
+            continue
+        # Backend-managed keys (execution-coordinator config) are not
+        # user-configurable: rejecting + auditing so an ignored update
+        # is never silently dropped.
+        if key.startswith("dagu_"):
+            hidden.add(key)
+            continue
+        updates[key] = request.form.get(key, "").strip()
+    if hidden:
+        record_audit(current_user.username,
+                     "integrations.hidden_key.rejected",
+                     "ignored backend-managed keys: " +
+                     ",".join(sorted(hidden)))
+        flash("Coordinator settings are managed internally and were "
+              "not changed.", "warn")
     try:
         settings_mod.update(updates)
     except KeyError as exc:
