@@ -24,12 +24,18 @@ Two roles:
 
 - **Central server** (this package): web UI, outbox/dispatch, results,
   reporting, Dagu, Caddy, bundled git — runs on one Linux host.
-- **Remote KRE host** (Dagu worker): a pinned **Dagu worker** service
+- **Remote KRE host** (execution worker): a pinned worker service
   runs on the machine where KRE is installed, connects outbound to the
-  portal's Dagu coordinator (no inbound port needed), and executes the
-  registered KRE there. Installations bound to a unique
-  `--worker.labels kre=<label>`; remote executable paths are never
-  invoked on the portal host.
+  portal's coordinator (no inbound port needed), and executes the
+  registered KRE there. Onboarding uses a generated **`to-worker`**
+  launcher (coordinator address + worker label baked in, validated and
+  safely encoded) — operators do not assemble raw backend flags.
+  Installations bound to a unique `kre=<label>`; remote executable
+  paths are never invoked on the portal host. The internal coordinator
+  credential is provisioned automatically on fresh installs
+  (`ensure_coordinator_credential`, basic-auth over the coordinator
+  transport — distinct from portal HTTPS), idempotent across restart /
+  repair / upgrade / rerun.
   The Windows worker installer (`packaging/windows/`) targets this role —
   **scaffold only; not yet built or host-validated**.
 
@@ -57,11 +63,17 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
   (no origin isolation — same-origin report scripts can reach the
   portal; a separate serving origin is an unresolved topology
   decision).
+- **Dashboards**: the main Dashboard (`/`) is TestOps-inspired —
+  period selector, KPI cards, outcome + duration trends, top-failing
+  cases, projects rollup, and recent executions; the per-project
+  dashboard (`/projects/<id>/dashboard`) adds suite/status filters and
+  four charts (outcome / pass rate / duration / top-failing).
 - **Operational Logs**: structured `OperationalLog` rows (severity/
-  component/category/project/execution/worker/correlation), combined
-  filters, bounded pagination, pausable live-tail, redacted bounded
-  JSONL/CSV export, independent retention — separate from the Audit
-  trail.
+  component/category/project/execution/worker/correlation), grouped
+  labelled filters, export buttons (CSV/JSONL), expandable details,
+  Prev/Next pagination, live-tail status states, readable severity
+  badges, redacted bounded export, independent retention — separate
+  from the Audit trail.
 
 ## Supported platforms (evidence level)
 

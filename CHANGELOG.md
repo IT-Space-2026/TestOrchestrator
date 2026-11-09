@@ -34,9 +34,45 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `verify_extracted_runtime`): pinned sha256/sha512 checks before
   extraction, explicit failures on missing/mismatched payloads —
   never silently falls back to system runtimes.
+- **Main dashboard** (`/`): TestOps-inspired overview — period
+  selector (7/30/90 d via `?days=`), KPI cards, side-by-side
+  outcome-per-day and duration-per-day charts, top-failing-case
+  table, projects rollup with pass rate, and recent executions.
+  New `chart_duration` + `top_failing` aggregates in
+  `dashboard.snapshot`.
+- **Coordinator credential provisioning**
+  (`ensure_coordinator_credential`): fresh-install generates the
+  internal coordinator basic-auth password through the protected
+  credential store (`kind="dagu"`, internal), wires
+  `dagu_credential_ref` + `dagu_username`, idempotent — restarts,
+  repairs, upgrades, and installer reruns do not regenerate or
+  overwrite. `provision_dagu.py` now sources the same password via
+  `TO_DAGU_PROVISION_PASSWORD` so the coordinator validates the
+  credential the portal sends (previously a second random token).
+- **`to-worker` launcher generation**: `worker_launcher_script()`
+  produces a `.sh`/`.bat` with the coordinator address + worker
+  label baked in, validated against safe identity/label regexes —
+  operators run the generated artifact instead of assembling raw
+  `dagu worker` flags. Admin-only download
+  (`/system/infrastructure/worker-launcher/<id>/<label>`).
+- **Execution source metadata**: nullable `Execution.source_ref`
+  (selected binding ref at creation) + `environment` (effective
+  run-config env), additive migration `m2n3o4p5q6r7`, snapshotted
+  so later binding/config edits do not rewrite history. The
+  existing `source_sha` remains the resolved-commit snapshot
+  driving checkout.
+- **Hidden-setting protection**: the normal `integrations_save`
+  POST now rejects manually injected `dagu_endpoint`,
+  `dagu_credential_ref`, and `dagu_username` — stored values are
+  preserved, the attempt is audited, and the operator is warned.
 
 ### Changed
 
+- **Operational Logs UI**: grouped labelled filters (severity /
+  component / category / search), CSV/JSONL export as buttons,
+  expandable record details, Prev/Next pagination, live-tail
+  status states (live/paused/unavailable), readable white-on-color
+  severity badges, and tightened table/filter alignment.
 - **Allure report opens in a new tab** (`target="_blank"`
   + `rel="noopener noreferrer"`) so the portal page state is
   preserved; download actions unchanged.
