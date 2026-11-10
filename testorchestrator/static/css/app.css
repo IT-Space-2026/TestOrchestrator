@@ -1017,3 +1017,23 @@ td .row-actions{min-width:9rem}
 .st-s{background:#3b82f6}
 /* Test tab — use full width on large screens */
 @media(min-width:1280px){.content-wide .test-layout{grid-template-columns:13rem 1fr}}
+/* creation modals */
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.45);
+  display:none;align-items:center;justify-content:center;z-index:100}
+.modal.on{display:flex}
+.modal-card{background:#fff;border-radius:10px;width:min(34rem,94vw);
+  max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.28)}
+.modal-head{display:flex;justify-content:space-between;align-items:center;
+  padding:1rem 1.2rem;border-bottom:1px solid #e6e9ee}
+.modal-head h3{margin:0;font-size:1.05rem}
+.modal-x{background:none;border:none;font-size:1.5rem;cursor:pointer;color:#667;line-height:1}
+.modal-body{padding:1rem 1.2rem;overflow-y:auto}
+.modal-foot{display:flex;justify-content:flex-end;gap:.5rem;
+  padding:.8rem 1.2rem;border-top:1px solid #e6e9ee}
+.modal-error{color:#b91c1c;font-size:.85rem;min-height:1rem;margin-bottom:.3rem}
+.modal .field{margin-bottom:.8rem}
+.adv{border:1px solid #e6e9ee;border-radius:6px;padding:.5rem .7rem;margin-top:.5rem}
+.adv summary{cursor:pointer;font-size:.85rem;color:#1e40af;font-weight:600}
+body.modal-open{overflow:hidden}
+@media(max-width:720px){.modal-card{width:100vw;height:100vh;max-height:100vh;
+  border-radius:0}}
