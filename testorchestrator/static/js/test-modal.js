@@ -54,6 +54,13 @@
   });
   document.addEventListener("input", function (e) {
     if (openModal && openModal.contains(e.target)) dirty = true;
+    // path auto-generation (CSP-safe — replaces the blocked inline oninput)
+    var auto = e.target.closest && e.target.closest("[data-path-auto]");
+    if (auto) {
+      var t = document.getElementById(auto.dataset.pathAuto);
+      if (t) t.value = "Test Suites/" +
+        auto.value.replace(/[^A-Za-z0-9_.-]+/g, "_") + ".ts";
+    }
   });
   var pending = null;
   document.addEventListener("submit", function (e) {

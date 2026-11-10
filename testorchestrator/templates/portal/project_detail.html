@@ -608,8 +608,7 @@
       <div class="modal-body">
         <div class="modal-error" role="alert"></div>
         <div class="field"><label>Suite name</label>
-          <input name="name" required placeholder="e.g. Smoke Suite"
-                 oninput="document.getElementById('suite-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
+          <input name="name" required placeholder="e.g. Smoke Suite" data-path-auto="suite-path-auto"></div>
         <div class="field"><label>Test cases</label>
           <div data-case-selector
                data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
@@ -636,8 +635,7 @@
       <div class="modal-body">
         <div class="modal-error" role="alert"></div>
         <div class="field"><label>Collection name</label>
-          <input name="name" required placeholder="e.g. Regression Pack"
-                 oninput="document.getElementById('coll-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
+          <input name="name" required placeholder="e.g. Regression Pack" data-path-auto="coll-path-auto"></div>
         <details class="adv"><summary>Member suites</summary>
           <div data-case-selector
                data-cases='{{ repo_suites | tojson }}' data-selected='[]'>
