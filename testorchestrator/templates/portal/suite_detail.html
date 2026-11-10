@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ suite.name }} · TestOrchestrator{% endblock %}
 {% block content %}
-<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=suite.project_id) }}">← Back to project</a></p>
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=suite.project_id) }}?tab=test&subtab=suites">← Back to Test Suites</a></p>
 <h1>{{ suite.name }} <small>v{{ suite.version }}</small>
   {% if can_edit and not suite.readonly %}
   <a class="button secondary sm" href="{{ url_for('portal.suite_edit', suite_id=suite.id) }}">Edit</a>

@@ -55,13 +55,18 @@
   document.addEventListener("input", function (e) {
     if (openModal && openModal.contains(e.target)) dirty = true;
   });
+  var pending = null;
   document.addEventListener("submit", function (e) {
     var form = e.target.closest("form[data-modal-form]");
     if (!form) return;
     e.preventDefault();
+    // duplicate-submit guard: one in-flight create per modal — a second
+    // requestSubmit or click while pending is dropped, not re-fired
+    if (pending) return;
     var modal = form.closest(".modal");
     var btn = form.querySelector("[data-modal-submit]");
-    if (btn && btn.disabled) return;          // duplicate-submit guard
+    if (btn && btn.disabled) return;
+    pending = modal;
     var orig = btn ? btn.textContent : "";
     if (btn) { btn.disabled = true; btn.textContent = "Creating…"; }
     var err = modal.querySelector(".modal-error");
@@ -95,6 +100,7 @@
         if (err) err.textContent = "Request failed — check connectivity.";
       })
       .finally(function () {
+        pending = null;
         if (btn) { btn.disabled = false; btn.textContent = orig; }
       });
   });
