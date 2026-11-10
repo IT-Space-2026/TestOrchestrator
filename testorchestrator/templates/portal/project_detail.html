@@ -185,7 +185,6 @@
         from the optional evidence-export repo).</small></p>
 
       {% elif test_subtab == "suites" %}
-      {% if test_suites %}
       <table class="data-table test-tbl">
         <thead><tr><th>Name</th><th>Path</th><th>Last updated</th>
           <th>Last executed</th><th><span class="st st-p">P</span></th><th><span class="st st-f">F</span></th><th><span class="st st-e">E</span></th><th><span class="st st-i">I</span></th><th><span class="st st-s">S</span></th><th></th></tr></thead>
@@ -200,9 +199,8 @@
             <td>{% if can_author and not i.dynamic %}
               <a class="button ghost sm" href="{{ url_for('portal.author_item', item_id=i.id) }}">Edit</a>{% endif %}</td>
           </tr>
-          {% endfor %}
+          {% else %}<tr><td colspan="10" class="muted">There is no data to display.</td></tr>{% endfor %}
         </tbody></table>
-      {% else %}<p class="muted">No repository suites.</p>{% endif %}
       {% if project.suites %}
       <h3 class="muted">App suites <span class="badge">app-side</span></h3>
       <table class="data-table test-tbl">
@@ -228,7 +226,6 @@
       {% endif %}
 
       {% elif test_subtab == "collections" %}
-      {% if test_colls %}
       <table class="data-table test-tbl">
         <thead><tr><th>Name</th><th>Path</th><th>Last updated</th>
           <th>Last executed</th><th><span class="st st-p">P</span></th><th><span class="st st-f">F</span></th><th><span class="st st-e">E</span></th><th><span class="st st-i">I</span></th><th><span class="st st-s">S</span></th><th></th></tr></thead>
@@ -241,9 +238,8 @@
             <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
             <td></td>
           </tr>
-          {% endfor %}
+          {% else %}<tr><td colspan="10" class="muted">There is no data to display.</td></tr>{% endfor %}
         </tbody></table>
-      {% else %}<p class="muted">No test collections.</p>{% endif %}
       {% endif %}
 
 
