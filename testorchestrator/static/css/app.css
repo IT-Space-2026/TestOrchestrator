@@ -1006,3 +1006,5 @@ td .row-actions{min-width:9rem}
 @media(max-width:900px){.test-layout{grid-template-columns:1fr}
   .test-nav{border-right:none;border-bottom:1px solid #334;
     padding-bottom:.6rem}}
+.test-nav-actions{margin-bottom:.7rem}
+.test-nav-actions .button{width:100%;text-align:left}

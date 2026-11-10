@@ -112,8 +112,57 @@
   </div>
 </section>
 <section class="tab-panel card" id="panel-test">
+  <nav class="test-subtabs">
+    {% for key,lab in [("case","Test Cases"),("suites","Test Suites"),("collections","Test Collections")] %}
+    <a class="tsub {% if test_subtab == key %}on{% endif %}"
+       href="?tab=test&subtab={{ key }}{% if test_repo %}&repo={{ test_repo }}{% endif %}{% if test_q %}&q={{ test_q }}{% endif %}">{{ lab }}</a>
+    {% endfor %}
+  </nav>
   <div class="test-layout">
     <aside class="test-nav">
+      <div class="test-nav-actions">
+      {% if can_edit and test_subtab in ("suites","collections") %}
+      {% if can_author %}
+      {% if test_subtab == "suites" %}
+      <details class="block-details"><summary class="button">+ Test Suite</summary>
+        <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
+          {{ plain_form.csrf_token }}
+          <input type="hidden" name="kind" value="suite">
+          <input type="hidden" name="path" id="suite-path-auto">
+          <div class="field"><label>Name</label>
+            <input name="name" required
+                   oninput="document.getElementById('suite-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
+          <div class="field"><label>Test cases</label>
+            <div data-case-selector
+                 data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
+              <div data-hidden></div></div></div>
+          <button type="submit" class="button">Create</button>
+          <button type="button" class="button danger" data-cancel-details>Cancel</button>
+        </form></details>
+      {% else %}
+      <details class="block-details"><summary class="button">+ Test Collection</summary>
+        <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
+          {{ plain_form.csrf_token }}
+          <input type="hidden" name="kind" value="collection">
+          <input type="hidden" name="path" id="coll-path-auto">
+          <div class="field"><label>Name</label>
+            <input name="name" required
+                   oninput="document.getElementById('coll-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
+          <div class="field"><label>Suites</label>
+            <div data-case-selector
+                 data-cases='{{ repo_suites | tojson }}' data-selected='[]'>
+              <div data-hidden></div></div></div>
+          <button type="submit" class="button">Create</button>
+          <button type="button" class="button danger" data-cancel-details>Cancel</button>
+        </form></details>
+      {% endif %}
+      {% else %}
+      <p class="warn"><small>Native authoring not enabled — enable
+        <em>Source authoring</em> in Git bindings to create/edit.</small></p>
+      <p><a class="button secondary sm" href="{{ url_for('portal.suite_new', project_id=project.id) }}">+ app-side suite</a></p>
+      {% endif %}
+      {% endif %}
+      </div>
       <div class="test-nav-head">Repositories</div>
       <a class="test-nav-item {% if not test_repo %}on{% endif %}"
          href="?tab=test&subtab={{ test_subtab }}{% if test_q %}&q={{ test_q }}{% endif %}">All repositories</a>
@@ -125,12 +174,6 @@
       {% endfor %}
     </aside>
     <div class="test-main">
-      <nav class="test-subtabs">
-        {% for key,lab in [("case","Test Cases"),("suites","Test Suites"),("collections","Test Collections")] %}
-        <a class="tsub {% if test_subtab == key %}on{% endif %}"
-           href="?tab=test&subtab={{ key }}{% if test_repo %}&repo={{ test_repo }}{% endif %}{% if test_q %}&q={{ test_q }}{% endif %}">{{ lab }}</a>
-        {% endfor %}
-      </nav>
       <form method="get" class="test-search">
         <input type="hidden" name="tab" value="test">
         <input type="hidden" name="subtab" value="{{ test_subtab }}">
@@ -231,50 +274,7 @@
       {% else %}<p class="muted">No test collections.</p>{% endif %}
       {% endif %}
 
-      {% if can_edit and test_subtab in ("suites","collections") %}
-      <div class="repo-actions">
-      {% if can_author %}
-      {% if test_subtab == "suites" %}
-      <details class="block-details"><summary class="button">Create suite</summary>
-        <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
-          {{ plain_form.csrf_token }}
-          <input type="hidden" name="kind" value="suite">
-          <input type="hidden" name="path" id="suite-path-auto">
-          <div class="field"><label>Name</label>
-            <input name="name" required
-                   oninput="document.getElementById('suite-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
-          <div class="field"><label>Test cases</label>
-            <div data-case-selector
-                 data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
-              <div data-hidden></div></div></div>
-          <button type="submit" class="button">Create</button>
-          <button type="button" class="button danger" data-cancel-details>Cancel</button>
-        </form></details>
-      {% else %}
-      <details class="block-details"><summary class="button">Create collection</summary>
-        <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
-          {{ plain_form.csrf_token }}
-          <input type="hidden" name="kind" value="collection">
-          <input type="hidden" name="path" id="coll-path-auto">
-          <div class="field"><label>Name</label>
-            <input name="name" required
-                   oninput="document.getElementById('coll-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
-          <div class="field"><label>Suites</label>
-            <div data-case-selector
-                 data-cases='{{ repo_suites | tojson }}' data-selected='[]'>
-              <div data-hidden></div></div></div>
-          <button type="submit" class="button">Create</button>
-          <button type="button" class="button danger" data-cancel-details>Cancel</button>
-        </form></details>
-      {% endif %}
-      {% else %}
-      <p class="warn">Native authoring is not enabled on the binding —
-        enable <em>Source authoring</em> in Git bindings to create or
-        edit repository definitions.</p>
-      <p><a class="button secondary" href="{{ url_for('portal.suite_new', project_id=project.id) }}">Create app-side suite (not written to the repository)</a></p>
-      {% endif %}
-      </div>
-      {% endif %}
+
     </div>
   </div>
 </section>
