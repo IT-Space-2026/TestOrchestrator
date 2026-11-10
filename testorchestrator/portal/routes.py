@@ -822,7 +822,10 @@ def author_new(binding_id):
     d = authoring.open_new_draft(current_user.username, binding,
                                  kind, path, name)
     if refs:
-        d.members_json = json.dumps(list(dict.fromkeys(refs)))
+        # suites dedupe by case identity; collections keep repeated
+        # suite entries (same suite, different per-entry config)
+        d.members_json = json.dumps(refs if kind == "collection"
+                                  else list(dict.fromkeys(refs)))
         db.session.commit()
     item = _draft_item(d)
     return redirect(url_for("portal.author_item",
@@ -863,9 +866,10 @@ def author_item(item_id):
         "portal/author_edit.html", item=item, draft=draft, binding=b,
         cases=avail, diff=authoring.draft_diff(draft),
         review_sig=authoring.draft_signature(draft),
-        disabled=[m for m in draft.members()
-                  if draft.member_cfg().get(m, {}).get("isRun")
-                  == "false"],
+        disabled=[f"{i}:{m}" for i, m in enumerate(draft.members())
+                  if draft.member_cfg().get(f"{i}:{m}",
+                                            draft.member_cfg().get(m, {}))
+                  .get("isRun") == "false"],
         plain_form=PlainForm())
 
 
@@ -886,29 +890,34 @@ def author_save(draft_id):
     PlainForm().validate_on_submit()
     refs = [x.strip() for x in request.form.getlist("case_refs")
             if x.strip()]
-    draft.members_json = json.dumps(list(dict.fromkeys(refs)))
+    draft.members_json = json.dumps(
+        refs if draft.kind == "collection"
+        else list(dict.fromkeys(refs)))
     name = request.form.get("name", "").strip()
     if name:
         draft.name = name
     # per-member enabled state: enabled[] mirrors case_refs order
     enabled = set(request.form.getlist("member_enabled"))
     cfg = draft.member_cfg()
-    for ref in draft.members():
-        cfg.setdefault(ref, {})["isRun"] = (
-            "true" if ref in enabled else "false")
-    # collection per-member config: runEnabled/profileName/
-    # runConfigurationId are posted as membercfg_<idx>_<field> for
-    # each selected ref in order.
-    if draft.kind == "collection":
-        for i, ref in enumerate(draft.members()):
-            cfg.setdefault(ref, {})
-            cfg[ref]["runEnabled"] = (
+    is_run = {}
+    for i, ref in enumerate(draft.members()):
+        # idx+ref key keeps same-suite entries independent; legacy
+        # ref-only keys remain readable as a fallback
+        key = f"{i}:{ref}"
+        base = cfg.get(key) or cfg.get(ref) or {}
+        cfg[key] = dict(base, isRun=("true" if ref in enabled
+                                     else "false"))
+        if draft.kind == "collection":
+            cfg[key]["runEnabled"] = (
                 "true" if request.form.get(
                     f"membercfg_{i}_runEnabled") else "false")
             for f in ("profileName", "runConfigurationId"):
                 v = request.form.get(f"membercfg_{i}_{f}")
                 if v:
-                    cfg[ref][f] = v
+                    cfg[key][f] = v
+            # canonical: isRun mirrors runEnabled — cannot diverge
+            cfg[key]["isRun"] = cfg[key]["runEnabled"]
+            is_run[ref] = cfg[key]["runEnabled"] == "true"
     draft.member_cfg_json = json.dumps(cfg)
     # suite-level editable settings (verified .ts fields)
     st = draft.settings()
