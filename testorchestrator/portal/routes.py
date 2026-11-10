@@ -909,7 +909,9 @@ def author_save(draft_id):
     for i, ref in enumerate(draft.members()):
         # idx+ref key keeps same-suite entries independent; legacy
         # ref-only keys remain readable as a fallback
-        key = f"{i}:{ref}"
+        # collections: idx+ref (repeated suites stay independent);
+        # suites: ref key (members unique by case identity)
+        key = f"{i}:{ref}" if draft.kind == "collection" else ref
         base = cfg.get(key) or cfg.get(ref) or {}
         cfg[key] = dict(base, isRun=("true" if ref in enabled
                                      else "false"))

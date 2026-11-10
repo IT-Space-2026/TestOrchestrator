@@ -593,6 +593,7 @@
 
 </div>
 <script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>
+{% if discovered and discovered.binding %}
 <!-- ============ CREATION MODALS ============ -->
 <div class="modal" id="suite-modal" role="dialog" aria-modal="true" aria-labelledby="suite-modal-t">
   <div class="modal-card">
@@ -656,6 +657,7 @@
   </div>
 </div>
 <script src="{{ url_for('static', filename='js/test-modal.js') }}" defer></script>
+{% endif %}
 {% endblock %}
 
 
