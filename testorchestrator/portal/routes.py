@@ -835,7 +835,7 @@ def author_new(binding_id):
         db.session.commit()
     item = _draft_item(d)
     return redirect(url_for("portal.author_item",
-                            item_id=item.id if item else "",
+                            item_id=item.id if item else "new",
                             draft_id=d.id))
 
 
@@ -847,6 +847,8 @@ def author_item(item_id):
     draft = db.session.get(AuthoringDraft,
                            request.args.get("draft_id", ""))
     if draft is None:
+        if item_id == "new":
+            abort(404)   # draft_id required for draft-only authoring
         item = db.session.get(DiscoveredItem, item_id)
         if item is None or item.kind not in ("suite", "collection"):
             abort(404)
