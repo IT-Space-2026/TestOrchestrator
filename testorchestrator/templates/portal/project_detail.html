@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }} · TestOrchestrator<script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>
 {% endblock %}
+{% block content_class %}content-wide{% endblock %}
 {% block content %}
 <h1>{{ project.name }}</h1>
 <p>{{ project.description }}</p>
@@ -216,7 +217,7 @@
       {% if test_suites %}
       <table class="data-table test-tbl">
         <thead><tr><th>Name</th><th>Path</th><th>Last updated</th>
-          <th>Last executed</th><th>P</th><th>F</th><th>E</th><th>I</th><th>S</th><th></th></tr></thead>
+          <th>Last executed</th><th><span class="st st-p">P</span></th><th><span class="st st-f">F</span></th><th><span class="st st-e">E</span></th><th><span class="st st-i">I</span></th><th><span class="st st-s">S</span></th><th></th></tr></thead>
         <tbody>
           {% for i in test_suites %}
           <tr>
@@ -235,7 +236,7 @@
       <h3 class="muted">App suites <span class="badge">app-side</span></h3>
       <table class="data-table test-tbl">
         <thead><tr><th>Name</th><th>Path</th><th>Last updated</th>
-          <th>Last executed</th><th>P</th><th>F</th><th>E</th><th>I</th><th>S</th><th></th></tr></thead>
+          <th>Last executed</th><th><span class="st st-p">P</span></th><th><span class="st st-f">F</span></th><th><span class="st st-e">E</span></th><th><span class="st st-i">I</span></th><th><span class="st st-s">S</span></th><th></th></tr></thead>
         <tbody>
         {% for s in project.suites %}
         {% set se = suite_exec.get(s.id) %}
@@ -243,11 +244,11 @@
             <td><code class="muted">app</code></td>
             <td>—</td>
             <td>{{ se.ex.finished_at.strftime('%Y-%m-%d') if se and se.ex and se.ex.finished_at else '—' }}</td>
-            <td>{{ se.cnt.passed if se and se.ex else '—' }}</td>
-            <td>{{ se.cnt.failed if se and se.ex else '—' }}</td>
-            <td>{{ se.cnt.error if se and se.ex else '—' }}</td>
-            <td>{{ se.cnt.incomplete if se and se.ex else '—' }}</td>
-            <td>{{ se.cnt.skipped if se and se.ex else '—' }}</td>
+            <td>{% if se and se.ex %}<span class="st st-p">{{ se.cnt.passed }}</span>{% else %}—{% endif %}</td>
+            <td>{% if se and se.ex %}<span class="st st-f">{{ se.cnt.failed }}</span>{% else %}—{% endif %}</td>
+            <td>{% if se and se.ex %}<span class="st st-e">{{ se.cnt.error }}</span>{% else %}—{% endif %}</td>
+            <td>{% if se and se.ex %}<span class="st st-i">{{ se.cnt.incomplete }}</span>{% else %}—{% endif %}</td>
+            <td>{% if se and se.ex %}<span class="st st-s">{{ se.cnt.skipped }}</span>{% else %}—{% endif %}</td>
             <td>{% if can_run %}
               <form method="post" action="{{ url_for('portal.launch_execution', suite_id=s.id) }}" class="inline">{{ plain_form.csrf_token }}
                 <button type="submit" class="button">Run</button></form>{% endif %}</td></tr>
@@ -259,7 +260,7 @@
       {% if test_colls %}
       <table class="data-table test-tbl">
         <thead><tr><th>Name</th><th>Path</th><th>Last updated</th>
-          <th>Last executed</th><th>P</th><th>F</th><th>E</th><th>I</th><th>S</th><th></th></tr></thead>
+          <th>Last executed</th><th><span class="st st-p">P</span></th><th><span class="st st-f">F</span></th><th><span class="st st-e">E</span></th><th><span class="st st-i">I</span></th><th><span class="st st-s">S</span></th><th></th></tr></thead>
         <tbody>
           {% for i in test_colls %}
           <tr>

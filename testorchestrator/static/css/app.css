@@ -1008,3 +1008,12 @@ td .row-actions{min-width:9rem}
     padding-bottom:.6rem}}
 .test-nav-actions{margin-bottom:.7rem}
 .test-nav-actions .button{width:100%;text-align:left}
+/* TestOps status circles — letter inside a colored badge */
+.st{display:inline-flex;align-items:center;justify-content:center;
+  width:1.35rem;height:1.35rem;border-radius:50%;font-size:.72rem;
+  font-weight:700;color:#fff}
+.st-p{background:#22c55e}.st-f{background:#ef4444}
+.st-e{background:#f59e0b}.st-i{background:#475569}
+.st-s{background:#3b82f6}
+/* Test tab — use full width on large screens */
+@media(min-width:1280px){.content-wide .test-layout{grid-template-columns:13rem 1fr}}
