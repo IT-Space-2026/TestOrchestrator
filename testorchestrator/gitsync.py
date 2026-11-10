@@ -730,3 +730,36 @@ def delete_report(execution_id: str) -> dict:
         ex.deletion_error = str(exc)[:400]
         db.session.commit()
         return {"error": str(exc)[:200]}
+
+
+def parse_collection_detail(ts_file):
+    """Read-only collection definition from a .tsc XML — ordered member
+    entries + collection execution settings. Returns None on unparseable.
+    Per-member keys map the TestSuiteRunConfiguration fields; missing
+    values come back None (rendered —, never invented)."""
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+    try:
+        r = ET.parse(str(Path(ts_file))).getroot()
+    except Exception:
+        return None
+    if r.tag != "TestSuiteCollectionEntity":
+        return None
+    members = []
+    for cfg in r.findall(".//TestSuiteRunConfiguration"):
+        def t(tag):
+            el = cfg.find(tag)
+            return el.text.strip() if el is not None and el.text else None
+        ref = t("testSuiteEntity")
+        if ref:
+            members.append({"ref": ref, "runEnabled": t("runEnabled"),
+                            "profileName": t("profileName"),
+                            "runConfigurationId": t("runConfigurationId"),
+                            "runWith": t("runWith")})
+    def top(tag):
+        el = r.find(tag)
+        return el.text.strip() if el is not None and el.text else None
+    return {"executionMode": top("executionMode"),
+            "delayBetweenInstances": top("delayBetweenInstances"),
+            "maxConcurrentInstances": top("maxConcurrentInstances"),
+            "members": members}

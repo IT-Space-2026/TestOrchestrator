@@ -15,6 +15,7 @@ import mimetypes
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import os
 from flask import (abort, flash, redirect, render_template, request,
                    send_file, session, url_for)
 from flask_login import current_user, login_required
@@ -690,8 +691,13 @@ def discovered_detail(item_id):
     profiles = [i.name for i in DiscoveredItem.query.filter_by(
         binding_id=item.binding_id, kind="profile")]
     b2 = db.session.get(GitBinding, item.binding_id)
+    coll_detail = None
+    if item.kind == "collection" and b2 and b2.worktree_path:
+        coll_detail = gitsync.parse_collection_detail(
+            os.path.join(b2.worktree_path, item.path))
     return render_template(
         "portal/discovered_detail.html", item=item, runners=runners,
+        coll_detail=coll_detail,
         runtimes=runtimes, profiles=profiles,
         plain_form=PlainForm(),
         can_author=bool(b2 and b2.authoring_writable and

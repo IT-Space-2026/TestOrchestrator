@@ -13,7 +13,32 @@
 </p>
 {% if item.warnings %}<p class="warn">{{ item.warnings }}</p>{% endif %}
 
-{% if item.members() %}
+{% if coll_detail %}
+<details open><summary><strong>Collection definition</strong>
+  (source XML @ {{ (item.sha or "—")[:12] }})</summary>
+<p class="muted"><small>
+  Execution mode <strong>{{ coll_detail.executionMode or "—" }}</strong> ·
+  delay <strong>{{ coll_detail.delayBetweenInstances or "—" }}s</strong> ·
+  max concurrent <strong>{{ coll_detail.maxConcurrentInstances or "—" }}</strong></small></p>
+<table class="data-table">
+  <thead><tr><th>#</th><th>Suite</th><th>Run</th><th>Profile</th>
+    <th>Run config</th><th>Run with</th></tr></thead>
+  <tbody>
+    {% for m in coll_detail.members %}
+    <tr><td>{{ loop.index }}</td>
+        <td><code>{{ m.ref }}</code></td>
+        <td>{% if m.runEnabled == "true" %}<span class="st st-p">✓</span>
+          {% elif m.runEnabled == "false" %}<span class="st st-i">✗</span>
+          {% else %}—{% endif %}</td>
+        <td>{{ m.profileName or "—" }}</td>
+        <td>{{ m.runConfigurationId or "—" }}</td>
+        <td>{{ m.runWith or "—" }}</td></tr>
+    {% else %}<tr><td colspan="6" class="muted">No member suites.</td></tr>{% endfor %}
+  </tbody></table>
+<p class="muted"><small>Collection execution history is not linked to this
+  definition — last-executed/outcome statistics remain —.</small></p>
+</details>
+{% elif item.members() %}
 <details open><summary><strong>Members</strong> ({{ item.members()|length }})</summary>
 <ol>
   {% for m in item.members() %}<li><code>{{ m }}</code></li>{% endfor %}
