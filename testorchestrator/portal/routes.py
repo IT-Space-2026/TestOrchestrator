@@ -178,6 +178,55 @@ def project_detail(project_id):
         DiscoveredItem.kind.in_(("suite", "collection"))).all()
     bind_names = {b.id: b.name for b in GitBinding.query.filter_by(
         project_id=project.id)}
+
+    # ---- Test tab: read-only Git-discovered cases + suites/collections
+    test_subtab = request.args.get("subtab") or "case"
+    test_repo = request.args.get("repo") or ""
+    test_q = (request.args.get("q") or "").strip().lower()
+    bindings_nav = GitBinding.query.filter_by(
+        project_id=project.id).order_by(GitBinding.name).all()
+    case_defs = DiscoveredItem.query.join(GitBinding).filter(
+        GitBinding.project_id == project.id,
+        DiscoveredItem.kind == "case").all()
+    # per-case execution stats from parsed results (documented mapping;
+    # unavailable metadata left as None -> rendered as —)
+    from ..execution import TestResult, Execution, CaseStatus
+    stats = {}
+    res_rows = (db.session.query(TestResult)
+                .join(Execution, TestResult.execution_id == Execution.id)
+                .filter(Execution.project_id == project.id).all())
+    for r in res_rows:
+        s = stats.setdefault(r.case_name, {"n": set(), "dur": 0.0,
+                                           "fail": 0, "last": None})
+        s["n"].add(r.execution_id)
+        s["dur"] += (r.duration_s or 0.0)
+        s["fail"] += int(r.status != CaseStatus.PASSED)
+        fin = getattr(r.execution, "finished_at", None)
+        if fin and (s["last"] is None or fin > s["last"]):
+            s["last"] = fin
+    def _cstats(name):
+        s = stats.get(name)
+        if not s:
+            return None
+        n = len(s["n"])
+        return {"execs": n,
+                "avg_dur": round(s["dur"] / n, 1) if n else None,
+                "flakiness": round(100.0 * s["fail"] /
+                                   (s["fail"] + max(0, n - s["fail"]))
+                                   if n else 0.0, 1),
+                "last": s["last"]}
+    def _in_repo(i):
+        return (not test_repo) or i.binding_id == test_repo
+    def _in_q(i):
+        return (not test_q) or test_q in (i.name or "").lower() \
+            or test_q in (i.path or "").lower()
+    test_cases = [{"item": i, "stats": _cstats(i.name),
+                   "repo": bind_names.get(i.binding_id, "?")}
+                  for i in case_defs if _in_repo(i) and _in_q(i)]
+    test_suites = [i for i in repo_defs
+                   if i.kind == "suite" and _in_repo(i) and _in_q(i)]
+    test_colls = [i for i in repo_defs
+                  if i.kind == "collection" and _in_repo(i) and _in_q(i)]
     repo_targets = [
         {"v": f"repo:{d.id}",
          "l": f"{d.name or d.path.split('/')[-1].rsplit('.', 1)[0]} "
@@ -318,6 +367,9 @@ def project_detail(project_id):
         plan_summaries={p.id: results_mod.plan_summary(p)
                         for p in project.plans},
         state_labels=results_mod.STATE_LABELS,
+        test_subtab=test_subtab, test_repo=test_repo, test_q=test_q,
+        bindings_nav=bindings_nav, test_cases=test_cases,
+        test_suites=test_suites, test_colls=test_colls,
     )
 
 

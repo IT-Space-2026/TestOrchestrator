@@ -13,14 +13,14 @@
 <div class="tabs">
   <input type="radio" name="ptabs" id="tab-dash" class="tab-input" {% if not request.args.get("tab") or request.args.get("tab")=="dash" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-releases" class="tab-input" {% if request.args.get("tab")=="releases" %}checked{% endif %}>
-  <input type="radio" name="ptabs" id="tab-suites" class="tab-input" {% if request.args.get("tab")=="suites" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-test" class="tab-input" {% if request.args.get("tab") in ("test","suites") %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-schedexec" class="tab-input" {% if request.args.get("tab") in ("schedexec","schedules","executions") %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-inventory" class="tab-input" {% if request.args.get("tab")=="inventory" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-bindings" class="tab-input" {% if request.args.get("tab")=="bindings" %}checked{% endif %}>
   <nav class="tab-bar">
     <label for="tab-dash">Dashboard</label>
     <label for="tab-releases">Releases</label>
-    <label for="tab-suites">Suites</label>
+    <label for="tab-test">Test</label>
     <label for="tab-schedexec">Schedules-Executions</label>
     <label for="tab-inventory">Inventory</label>
     <label for="tab-bindings">Git bindings</label>
@@ -111,97 +111,157 @@
     {% endif %}
   </div>
 </section>
-<section class="tab-panel card" id="panel-suites">
-  <h2>Suites</h2>
-  {% if discovered and discovered.rows %}
-  <h3 class="muted">Repository Suites
-    {% if not can_author %}<span class="badge">read-only — enable Source authoring on the binding to edit</span>{% endif %}</h3>
-  {% for kind, label in [("suite","Suites"),("collection","Collections")] %}
-  {% set items = discovered["rows"]|selectattr("kind","equalto",kind)|list %}
-  {% if items %}
-  <ul class="notice-list">
-    {% for i in items %}
-    <li>
-      <a href="{{ url_for('portal.discovered_detail', item_id=i.id) }}">
-        <strong>{{ i.name }}</strong></a>
-      <span class="badge {% if kind == 'collection' %}accent{% endif %}">{{ i.kind }}</span>
-      {% if i.dynamic %}<span class="badge warn">dynamic?</span>{% endif %}
-      <code class="muted">{{ i.path }}</code>
-      {% if i.members() %}<span class="muted">{{ i.members()|length }} members</span>{% endif %}
-      {% if i.warnings %}<span class="badge warn" title="{{ i.warnings }}">warn</span>{% endif %}
-      {% if can_author and i.kind == "suite" and not i.dynamic %}
-      <a class="button ghost sm" href="{{ url_for('portal.author_item', item_id=i.id) }}">Edit</a>
-      {% elif i.kind == "suite" and i.dynamic %}
-      <span class="badge warn" title="query membership is read-only">dynamic</span>
-      {% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% endfor %}
-  {% endif %}
-  {% if project.suites %}
-  <h3 class="muted">App suites <span class="badge">app-side — sync to repository to reconcile</span></h3>
-  <ul class="notice-list">
-    {% for s in project.suites %}
-    <li>
-      <a href="{{ url_for('portal.suite_detail', suite_id=s.id) }}">{{ s.name }}</a>
-      v{{ s.version }} — {{ s.entries | length }} entries
-      {% if s.imported %}(imported, read-only){% endif %}
-      {% if can_run %}
-      <form method="post" action="{{ url_for('portal.launch_execution', suite_id=s.id) }}" class="inline">
-        {{ plain_form.csrf_token }}
-        <button type="submit" class="button">Run</button>
+<section class="tab-panel card" id="panel-test">
+  <div class="test-layout">
+    <aside class="test-nav">
+      <div class="test-nav-head">Repositories</div>
+      <a class="test-nav-item {% if not test_repo %}on{% endif %}"
+         href="?tab=test&subtab={{ test_subtab }}{% if test_q %}&q={{ test_q }}{% endif %}">All repositories</a>
+      {% for b in bindings_nav %}
+      <a class="test-nav-item {% if test_repo == b.id %}on{% endif %}"
+         href="?tab=test&subtab={{ test_subtab }}&repo={{ b.id }}{% if test_q %}&q={{ test_q }}{% endif %}">{{ b.name }}</a>
+      {% else %}
+      <p class="muted"><small>No repositories — add a Git binding.</small></p>
+      {% endfor %}
+    </aside>
+    <div class="test-main">
+      <nav class="test-subtabs">
+        {% for key,lab in [("case","Test case"),("suites","Test Suites"),("collections","Test Collections")] %}
+        <a class="tsub {% if test_subtab == key %}on{% endif %}"
+           href="?tab=test&subtab={{ key }}{% if test_repo %}&repo={{ test_repo }}{% endif %}{% if test_q %}&q={{ test_q }}{% endif %}">{{ lab }}</a>
+        {% endfor %}
+      </nav>
+      <form method="get" class="test-search">
+        <input type="hidden" name="tab" value="test">
+        <input type="hidden" name="subtab" value="{{ test_subtab }}">
+        {% if test_repo %}<input type="hidden" name="repo" value="{{ test_repo }}">{% endif %}
+        <input type="search" name="q" value="{{ test_q }}" placeholder="Search…" aria-label="Search">
+        <button type="submit" class="button ghost sm">Apply</button>
       </form>
+
+      {% if test_subtab == "case" %}
+      <table class="data-table test-tbl">
+        <thead><tr><th>Name</th><th>Maintainer</th><th>Last execution</th>
+          <th>Last update</th><th># exec</th><th>Avg dur</th>
+          <th>Flakiness %</th><th>Requirements</th></tr></thead>
+        <tbody>
+          {% for c in test_cases %}
+          <tr>
+            <td><strong>{{ c.item.name }}</strong><br>
+              <code class="muted">{{ c.item.path }}</code>
+              <span class="muted">· {{ c.repo }}</span></td>
+            <td>—</td>
+            <td>{{ c.stats.last.strftime('%Y-%m-%d') if c.stats and c.stats.last else '—' }}</td>
+            <td>{{ c.item.created_at.strftime('%Y-%m-%d') if c.item.created_at else '—' }}</td>
+            <td>{{ c.stats.execs if c.stats else '—' }}</td>
+            <td>{{ c.stats.avg_dur ~ 's' if c.stats and c.stats.avg_dur is not none else '—' }}</td>
+            <td>{{ c.stats.flakiness ~ '%' if c.stats else '—' }}</td>
+            <td>—</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="muted">No test cases discovered —
+            connect a source repository and sync inventory.</td></tr>
+          {% endfor %}
+        </tbody></table>
+      <p class="muted"><small>Read-only Git inventory. Maintainer and
+        Requirements aren't tracked — shown as —. Flakiness % = share of
+        non-passed results over executions for the case. Last update =
+        discovery time. Source = the connected Git repository (separate
+        from the optional evidence-export repo).</small></p>
+
+      {% elif test_subtab == "suites" %}
+      {% if test_suites %}
+      <table class="data-table test-tbl">
+        <thead><tr><th>Name</th><th>Path</th><th>Members</th><th></th></tr></thead>
+        <tbody>
+          {% for i in test_suites %}
+          <tr>
+            <td><a href="{{ url_for('portal.discovered_detail', item_id=i.id) }}"><strong>{{ i.name }}</strong></a>
+              {% if i.dynamic %}<span class="badge warn">dynamic</span>{% endif %}</td>
+            <td><code class="muted">{{ i.path }}</code></td>
+            <td>{{ i.members()|length if i.members() else '—' }}</td>
+            <td>{% if can_author and not i.dynamic %}
+              <a class="button ghost sm" href="{{ url_for('portal.author_item', item_id=i.id) }}">Edit</a>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody></table>
+      {% else %}<p class="muted">No repository suites.</p>{% endif %}
+      {% if project.suites %}
+      <h3 class="muted">App suites <span class="badge">app-side</span></h3>
+      <table class="data-table test-tbl"><tbody>
+        {% for s in project.suites %}
+        <tr><td><a href="{{ url_for('portal.suite_detail', suite_id=s.id) }}">{{ s.name }}</a> v{{ s.version }}</td>
+            <td>{{ s.entries | length }} entries</td>
+            <td>{% if can_run %}
+              <form method="post" action="{{ url_for('portal.launch_execution', suite_id=s.id) }}" class="inline">{{ plain_form.csrf_token }}
+                <button type="submit" class="button">Run</button></form>{% endif %}</td></tr>
+        {% endfor %}
+      </tbody></table>
       {% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% if not project.suites and not (discovered and discovered.rows) %}
-  <p class="muted">No suites yet.</p>
-  {% endif %}
-  {% if can_edit %}
-  <div class="repo-actions">
-  {% if can_author %}
-  <details class="block-details"><summary class="button">Create suite</summary>
-    <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
-      {{ plain_form.csrf_token }}
-      <input type="hidden" name="kind" value="suite">
-      <input type="hidden" name="path" id="suite-path-auto">
-      <div class="field"><label>Name</label>
-        <input name="name" required
-               oninput="document.getElementById('suite-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
-      <div class="field"><label>Test cases</label>
-        <div data-case-selector
-             data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
-          <div data-hidden></div></div></div>
-      <button type="submit" class="button">Create</button>
-      <button type="button" class="button danger" data-cancel-details>Cancel</button>
-    </form></details>
-  <details class="block-details"><summary class="button">Create collection</summary>
-    <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
-      {{ plain_form.csrf_token }}
-      <input type="hidden" name="kind" value="collection">
-      <input type="hidden" name="path" id="coll-path-auto">
-      <div class="field"><label>Name</label>
-        <input name="name" required
-               oninput="document.getElementById('coll-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
-      <div class="field"><label>Suites</label>
-        <div data-case-selector
-             data-cases='{{ repo_suites | tojson }}' data-selected='[]'>
-          <div data-hidden></div></div></div>
-      <button type="submit" class="button">Create</button>
-      <button type="button" class="button danger" data-cancel-details>Cancel</button>
-    </form></details>
-  {% else %}
-  <p class="warn">Native authoring is not enabled on the binding —
-    enable <em>Source authoring</em> in Git bindings to create or
-    edit repository definitions.</p>
-  <p><a class="button secondary" href="{{ url_for('portal.suite_new', project_id=project.id) }}">Create app-side suite (not written to the repository)</a></p>
-  {% endif %}
+
+      {% elif test_subtab == "collections" %}
+      {% if test_colls %}
+      <table class="data-table test-tbl">
+        <thead><tr><th>Name</th><th>Path</th><th>Members</th><th></th></tr></thead>
+        <tbody>
+          {% for i in test_colls %}
+          <tr>
+            <td><a href="{{ url_for('portal.discovered_detail', item_id=i.id) }}"><strong>{{ i.name }}</strong></a></td>
+            <td><code class="muted">{{ i.path }}</code></td>
+            <td>{{ i.members()|length if i.members() else '—' }}</td>
+            <td></td>
+          </tr>
+          {% endfor %}
+        </tbody></table>
+      {% else %}<p class="muted">No test collections.</p>{% endif %}
+      {% endif %}
+
+      {% if can_edit and test_subtab in ("suites","collections") %}
+      <div class="repo-actions">
+      {% if can_author %}
+      {% if test_subtab == "suites" %}
+      <details class="block-details"><summary class="button">Create suite</summary>
+        <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
+          {{ plain_form.csrf_token }}
+          <input type="hidden" name="kind" value="suite">
+          <input type="hidden" name="path" id="suite-path-auto">
+          <div class="field"><label>Name</label>
+            <input name="name" required
+                   oninput="document.getElementById('suite-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
+          <div class="field"><label>Test cases</label>
+            <div data-case-selector
+                 data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
+              <div data-hidden></div></div></div>
+          <button type="submit" class="button">Create</button>
+          <button type="button" class="button danger" data-cancel-details>Cancel</button>
+        </form></details>
+      {% else %}
+      <details class="block-details"><summary class="button">Create collection</summary>
+        <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" class="add-form">
+          {{ plain_form.csrf_token }}
+          <input type="hidden" name="kind" value="collection">
+          <input type="hidden" name="path" id="coll-path-auto">
+          <div class="field"><label>Name</label>
+            <input name="name" required
+                   oninput="document.getElementById('coll-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
+          <div class="field"><label>Suites</label>
+            <div data-case-selector
+                 data-cases='{{ repo_suites | tojson }}' data-selected='[]'>
+              <div data-hidden></div></div></div>
+          <button type="submit" class="button">Create</button>
+          <button type="button" class="button danger" data-cancel-details>Cancel</button>
+        </form></details>
+      {% endif %}
+      {% else %}
+      <p class="warn">Native authoring is not enabled on the binding —
+        enable <em>Source authoring</em> in Git bindings to create or
+        edit repository definitions.</p>
+      <p><a class="button secondary" href="{{ url_for('portal.suite_new', project_id=project.id) }}">Create app-side suite (not written to the repository)</a></p>
+      {% endif %}
+      </div>
+      {% endif %}
+    </div>
   </div>
-  {% endif %}
 </section>
 
 <!-- ============ SCHEDULES ============ -->

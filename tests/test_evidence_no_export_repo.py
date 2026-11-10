@@ -52,3 +52,25 @@ def test_evidence_and_report_without_export_repo(app, client, tmp_path):
     rv = client.get(f"/executions/{exid}/report")
     assert rv.status_code == 200
     assert rv.headers.get("Content-Security-Policy") == "sandbox"
+
+
+def test_report_scan_and_collect_without_export_repo(app, tmp_path):
+    """Local report collection/scan works with git_export_repo unset —
+    the local evidence store is authoritative for status."""
+    from testorchestrator import reporting
+    with app.app_context():
+        settings_mod.set("git_export_repo", "")
+        p = Project(name="P"); db.session.add(p); db.session.flush()
+        s = Suite(project_id=p.id, name="S"); db.session.add(s)
+        db.session.flush()
+        ex = create_execution("m", s, source_sha="sha1")
+        ex.state = ExecutionState.COMPLETED
+        repdir = tmp_path / "rep2"
+        repdir.mkdir()
+        (repdir / "index.html").write_text("<html>r</html>")
+        ex.report_dir = str(repdir)
+        db.session.commit()
+        # local scan marks the report ready — no export dependency
+        reporting.refresh_report_status(ex)
+        assert ex.report_status in ("ready", "partial")
+        assert ex.report_path == "index.html"

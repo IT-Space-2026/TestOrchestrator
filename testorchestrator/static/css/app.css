@@ -443,7 +443,7 @@ pre.example {
 .tab-bar label:hover { color: #dfe7ee; }
 #tab-bindings:checked ~ .tab-bar label[for=tab-bindings],
 #tab-dash:checked ~ .tab-bar label[for=tab-dash],
-#tab-suites:checked ~ .tab-bar label[for=tab-suites],
+#tab-test:checked ~ .tab-bar label[for=tab-test],
 #tab-schedexec:checked ~ .tab-bar label[for=tab-schedexec],
 #tab-releases:checked ~ .tab-bar label[for=tab-releases],
 #tab-inventory:checked ~ .tab-bar label[for=tab-inventory]
@@ -451,7 +451,7 @@ pre.example {
 .tab-panel { display: none; }
 #tab-bindings:checked ~ #panel-bindings,
 #tab-dash:checked ~ #panel-dash,
-#tab-suites:checked ~ #panel-suites,
+#tab-test:checked ~ #panel-test,
 #tab-schedexec:checked ~ #panel-schedules,
 #tab-schedexec:checked ~ #panel-executions,
 #tab-releases:checked ~ #panel-releases,
@@ -984,3 +984,25 @@ td .row-actions{min-width:9rem}
 /* wide dashboard: fill viewport on large screens */
 .content-wide{max-width:none}
 @media(min-width:1280px){.content-wide .dash-3col{grid-template-columns:1.1fr 1.3fr 1.3fr}}
+/* Test tab — TestOps layout (left repo nav + subtabs + table) */
+.test-layout{display:grid;grid-template-columns:12rem 1fr;gap:1rem}
+.test-nav{border-right:1px solid #334;padding-right:.6rem}
+.test-nav-head{font-size:.8rem;font-weight:600;color:#556;
+  text-transform:uppercase;letter-spacing:.04em;margin:.2rem 0 .5rem}
+.test-nav-item{display:block;padding:.35rem .5rem;border-radius:6px;
+  color:#2a3f5f;text-decoration:none;font-size:.86rem}
+.test-nav-item:hover{background:#eef2f7}
+.test-nav-item.on{background:#dbeafe;color:#1e40af;font-weight:600}
+.test-subtabs{display:flex;gap:.4rem;border-bottom:2px solid #e6e9ee;
+  margin-bottom:.7rem}
+.test-subtabs .tsub{padding:.35rem .8rem;text-decoration:none;color:#445;
+  border-bottom:2px solid transparent;margin-bottom:-2px;font-size:.9rem}
+.test-subtabs .tsub.on{color:#1e40af;border-bottom-color:#2563eb;
+  font-weight:600}
+.test-search{display:flex;gap:.5rem;margin-bottom:.8rem}
+.test-search input[type=search]{max-width:22rem;padding:.4rem .6rem}
+.test-tbl th{font-size:.8rem;color:#556;text-transform:uppercase;
+  letter-spacing:.03em}
+@media(max-width:900px){.test-layout{grid-template-columns:1fr}
+  .test-nav{border-right:none;border-bottom:1px solid #334;
+    padding-bottom:.6rem}}
