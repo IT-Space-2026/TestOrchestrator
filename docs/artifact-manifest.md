@@ -2,9 +2,9 @@
 
 ## Payload (application)
 - File: dist/testorchestrator-1.0.0-pre.7-linux-x86_64.tar.gz
-- sha256: e0c451f8819d8c6d16ca8dc96c1f3151190e72f6191f1aa8368f3cd478299185
-- Built: `.venv/bin/python scripts/build_bundle.py` at git `b93240a` (clean worktree)
-- Embedded: version `1.0.0-pre.7`, build/source_rev `b93240a`, built_at
+- sha256: 95b9dbf4f9eaaad1f7498c90bd6e36a16f72151034ec4fe6601590c36a1d7a5f
+- Built: `.venv/bin/python scripts/build_bundle.py` at git `4a01e45` (clean worktree)
+- Embedded: version `1.0.0-pre.7`, build/source_rev `4a01e45`, built_at
   now-stamped per build (build_bundle.py stamps the packaged
   release.json — real source revision + build timestamp, not the old
   static `bf8a7d5a3155`/`2026-11-06`)
@@ -29,7 +29,7 @@
   Wrapper tests: 8 passing (spaces/args, nonzero-exit, scoped cleanup,
   SIGTERM+SIGINT descendant kill, TERM-ignore, orphan grandchild,
   missing-pgrep abort).
-- sha256: bea3b863c84606037dc82ef1bc0c035aed7830531c53dead8de563b5f5891e0c
+- sha256: 8b02df966be9a568175beab10f0bd04ec0535c55ec305bd53d06981b977652b3
 
 ## Verification status
 - Wrapper behavior: 4/4 fixture tests (spaces+args, nonzero exit,
