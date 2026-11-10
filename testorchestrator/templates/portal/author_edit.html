@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Edit {{ item.name }} · TestOrchestrator{% endblock %}
 {% block content %}
-<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=item.project_id) }}">← Back to project</a></p>
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=item.project_id) }}?tab=test&subtab={{ 'collections' if item.kind == 'collection' else 'suites' }}">← Back to Test {{ 'Collections' if item.kind == 'collection' else 'Suites' }}</a></p>
 <h1>Edit {{ item.name }} <span class="badge accent">{{ item.kind }}</span></h1>
 <p class="muted">Native source editing — writes back to
   <code>{{ binding.name }}</code> on branch
