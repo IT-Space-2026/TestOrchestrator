@@ -227,6 +227,20 @@ def project_detail(project_id):
                    if i.kind == "suite" and _in_repo(i) and _in_q(i)]
     test_colls = [i for i in repo_defs
                   if i.kind == "collection" and _in_repo(i) and _in_q(i)]
+    # app-side suite last-execution + outcome summary (P/F/E/I/S)
+    from ..execution import Execution as _Ex
+    suite_exec = {}
+    for s in project.suites:
+        ex = (_Ex.query.filter_by(project_id=project.id, suite_id=s.id)
+              .order_by(_Ex.finished_at.desc()).first())
+        cnt = {"passed": 0, "failed": 0, "error": 0,
+               "incomplete": 0, "skipped": 0}
+        if ex:
+            for r in ex.results:
+                k = r.status.value if hasattr(r.status, "value") \
+                    else str(r.status)
+                cnt[k] = cnt.get(k, 0) + 1
+        suite_exec[s.id] = {"ex": ex, "cnt": cnt}
     repo_targets = [
         {"v": f"repo:{d.id}",
          "l": f"{d.name or d.path.split('/')[-1].rsplit('.', 1)[0]} "
@@ -370,6 +384,7 @@ def project_detail(project_id):
         test_subtab=test_subtab, test_repo=test_repo, test_q=test_q,
         bindings_nav=bindings_nav, test_cases=test_cases,
         test_suites=test_suites, test_colls=test_colls,
+        suite_exec=suite_exec,
     )
 
 

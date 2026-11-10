@@ -126,7 +126,7 @@
     </aside>
     <div class="test-main">
       <nav class="test-subtabs">
-        {% for key,lab in [("case","Test case"),("suites","Test Suites"),("collections","Test Collections")] %}
+        {% for key,lab in [("case","Test Cases"),("suites","Test Suites"),("collections","Test Collections")] %}
         <a class="tsub {% if test_subtab == key %}on{% endif %}"
            href="?tab=test&subtab={{ key }}{% if test_repo %}&repo={{ test_repo }}{% endif %}{% if test_q %}&q={{ test_q }}{% endif %}">{{ lab }}</a>
         {% endfor %}
@@ -172,14 +172,16 @@
       {% elif test_subtab == "suites" %}
       {% if test_suites %}
       <table class="data-table test-tbl">
-        <thead><tr><th>Name</th><th>Path</th><th>Members</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Path</th><th>Last updated</th>
+          <th>Last executed</th><th>P</th><th>F</th><th>E</th><th>I</th><th>S</th><th></th></tr></thead>
         <tbody>
           {% for i in test_suites %}
           <tr>
             <td><a href="{{ url_for('portal.discovered_detail', item_id=i.id) }}"><strong>{{ i.name }}</strong></a>
               {% if i.dynamic %}<span class="badge warn">dynamic</span>{% endif %}</td>
             <td><code class="muted">{{ i.path }}</code></td>
-            <td>{{ i.members()|length if i.members() else '—' }}</td>
+            <td>{{ i.created_at.strftime('%Y-%m-%d') if i.created_at else '—' }}</td>
+            <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
             <td>{% if can_author and not i.dynamic %}
               <a class="button ghost sm" href="{{ url_for('portal.author_item', item_id=i.id) }}">Edit</a>{% endif %}</td>
           </tr>
@@ -188,10 +190,21 @@
       {% else %}<p class="muted">No repository suites.</p>{% endif %}
       {% if project.suites %}
       <h3 class="muted">App suites <span class="badge">app-side</span></h3>
-      <table class="data-table test-tbl"><tbody>
+      <table class="data-table test-tbl">
+        <thead><tr><th>Name</th><th>Path</th><th>Last updated</th>
+          <th>Last executed</th><th>P</th><th>F</th><th>E</th><th>I</th><th>S</th><th></th></tr></thead>
+        <tbody>
         {% for s in project.suites %}
+        {% set se = suite_exec.get(s.id) %}
         <tr><td><a href="{{ url_for('portal.suite_detail', suite_id=s.id) }}">{{ s.name }}</a> v{{ s.version }}</td>
-            <td>{{ s.entries | length }} entries</td>
+            <td><code class="muted">app</code></td>
+            <td>—</td>
+            <td>{{ se.ex.finished_at.strftime('%Y-%m-%d') if se and se.ex and se.ex.finished_at else '—' }}</td>
+            <td>{{ se.cnt.passed if se and se.ex else '—' }}</td>
+            <td>{{ se.cnt.failed if se and se.ex else '—' }}</td>
+            <td>{{ se.cnt.error if se and se.ex else '—' }}</td>
+            <td>{{ se.cnt.incomplete if se and se.ex else '—' }}</td>
+            <td>{{ se.cnt.skipped if se and se.ex else '—' }}</td>
             <td>{% if can_run %}
               <form method="post" action="{{ url_for('portal.launch_execution', suite_id=s.id) }}" class="inline">{{ plain_form.csrf_token }}
                 <button type="submit" class="button">Run</button></form>{% endif %}</td></tr>
@@ -202,13 +215,15 @@
       {% elif test_subtab == "collections" %}
       {% if test_colls %}
       <table class="data-table test-tbl">
-        <thead><tr><th>Name</th><th>Path</th><th>Members</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Path</th><th>Last updated</th>
+          <th>Last executed</th><th>P</th><th>F</th><th>E</th><th>I</th><th>S</th><th></th></tr></thead>
         <tbody>
           {% for i in test_colls %}
           <tr>
             <td><a href="{{ url_for('portal.discovered_detail', item_id=i.id) }}"><strong>{{ i.name }}</strong></a></td>
             <td><code class="muted">{{ i.path }}</code></td>
-            <td>{{ i.members()|length if i.members() else '—' }}</td>
+            <td>{{ i.created_at.strftime('%Y-%m-%d') if i.created_at else '—' }}</td>
+            <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
             <td></td>
           </tr>
           {% endfor %}
