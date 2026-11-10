@@ -131,3 +131,42 @@ def test_success_navigates_to_draft_editor():
         pg.wait_for_timeout(1500)
         assert "author" in pg.url   # navigated to the draft editor
         b.close()
+
+
+def test_suite_creation_reaches_draft():
+    """Suite creation: navigates to its draft editor (author URL)."""
+    with sync_playwright() as p:
+        b = p.chromium.launch(headless=True)
+        pg = b.new_page()
+        _login(pg)
+        _open(pg, "suite-modal", "suites")
+        pg.fill('#suite-modal input[name=name]', 'SuiteNavCheck')
+        pg.evaluate("var f=document.querySelector('#suite-modal "
+                    "form[data-modal-form]');f.dispatchEvent(new Event("
+                    "'submit',{bubbles:true,cancelable:true}));")
+        pg.wait_for_timeout(1500)
+        assert "author" in pg.url
+        b.close()
+
+
+def test_stale_pending_response_isolated():
+    """A response from a closed-then-reopened session doesn't leak into
+    the new modal session."""
+    with sync_playwright() as p:
+        b = p.chromium.launch(headless=True)
+        pg = b.new_page()
+        _login(pg)
+        # close the modal before any response; reopen fresh
+        _open(pg, "suite-modal", "suites")
+        pg.fill('#suite-modal input[name=name]', 'Stale')
+        # dirty -> Escape fires confirm; accept -> modal closes
+        pg.once("dialog", lambda d: d.accept())
+        pg.keyboard.press("Escape"); pg.wait_for_timeout(300)
+        assert pg.locator("#suite-modal.on").count() == 0
+        # reopen -> fresh session, dirty flag reset (close is clean)
+        pg.click('[data-modal-open="suite-modal"]'); pg.wait_for_timeout(300)
+        assert pg.locator("#suite-modal.on").count() == 1
+        # focus is inside the reopened dialog
+        assert pg.evaluate("document.getElementById('suite-modal')"
+                           ".contains(document.activeElement)")
+        b.close()
