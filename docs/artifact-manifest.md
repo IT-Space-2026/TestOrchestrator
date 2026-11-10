@@ -2,11 +2,12 @@
 
 ## Payload (application)
 - File: dist/testorchestrator-1.0.0-pre.7-linux-x86_64.tar.gz
-- sha256: f43718a61bbf2d33e717085a493612a463aad95a8b84c981d330d5728c828aaf
-- Built: `.venv/bin/python scripts/build_bundle.py` at git `77c4a70` (clean worktree)
-- Note: `bf8a7d5a3155` persists unchanged across rebuilds (stale
-  stamp — does not identify the build date/source; treat as a
-  static spec tag, not a build identifier)
+- sha256: a649d88fedd6e6a7f90393ef016aaa3369802d86684a99e229b7559d0d9c6b15
+- Built: `.venv/bin/python scripts/build_bundle.py` at git `a3e7f0e` (clean worktree)
+- Embedded: version `1.0.0-pre.7`, build/source_rev `a3e7f0e`, built_at
+  now-stamped per build (build_bundle.py stamps the packaged
+  release.json — real source revision + build timestamp, not the old
+  static `bf8a7d5a3155`/`2026-11-06`)
 - Embedded identity: version `1.0.0-pre.7`, build `bf8a7d5a3155`
   - `bf8a7d5a3155` is the packaging stamp written into release.json at
     bundle-build time by scripts/build_bundle.py (records which build
@@ -28,7 +29,7 @@
   Wrapper tests: 8 passing (spaces/args, nonzero-exit, scoped cleanup,
   SIGTERM+SIGINT descendant kill, TERM-ignore, orphan grandchild,
   missing-pgrep abort).
-- sha256: e5957ed93970588eb908016dd69566a9835e49b140cb7a012b5764ef35795520
+- sha256: 988b93995ece85028e02a6235fcb64b94e96a3e22d8fdf5fc4063670eef88723
 
 ## Verification status
 - Wrapper behavior: 4/4 fixture tests (spaces+args, nonzero exit,
