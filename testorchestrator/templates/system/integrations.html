@@ -18,11 +18,16 @@ future operations; no restart is required.</p>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   <section class="card">
-    <h2>Git — evidence export repository</h2>
-    <p class="muted">Internal export repo receiving execution evidence
-      pushes (non-force). Optional — local artifact storage always
-      works without it. Runs under the Dulwich backend; HTTPS uses a
-      Secret with user:pass content, SSH uses host ssh/agent.</p>
+    <h2>Git — evidence export repository <span class="muted">(optional)</span></h2>
+    <p class="muted">Optional Git destination for explicitly-requested
+      evidence exports (non-force pushes). <strong>Not required for
+      ordinary evidence retention or reporting</strong> — leaving it
+      unset does not disable local artifact storage, log/screenshot
+      viewing, or Allure report generation/viewing; the local evidence
+      store is authoritative. Export credentials and write access are
+      separate from source-repository access. Runs under the Dulwich
+      backend; HTTPS uses a Secret with user:pass content, SSH uses
+      host ssh/agent.</p>
     <div class="field"><label>Export repository <span class="muted">(optional)</span><br>
       <input type="text" name="git_export_repo" size="46"
              value="{{ settings.git_export_repo }}"

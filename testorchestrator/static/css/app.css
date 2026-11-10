@@ -444,18 +444,17 @@ pre.example {
 #tab-bindings:checked ~ .tab-bar label[for=tab-bindings],
 #tab-dash:checked ~ .tab-bar label[for=tab-dash],
 #tab-suites:checked ~ .tab-bar label[for=tab-suites],
-#tab-schedules:checked ~ .tab-bar label[for=tab-schedules],
+#tab-schedexec:checked ~ .tab-bar label[for=tab-schedexec],
 #tab-releases:checked ~ .tab-bar label[for=tab-releases],
-#tab-executions:checked ~ .tab-bar label[for=tab-executions],
 #tab-inventory:checked ~ .tab-bar label[for=tab-inventory]
   { color: #eef3f7; border-color: #334; background: #1c2630; }
 .tab-panel { display: none; }
 #tab-bindings:checked ~ #panel-bindings,
 #tab-dash:checked ~ #panel-dash,
 #tab-suites:checked ~ #panel-suites,
-#tab-schedules:checked ~ #panel-schedules,
+#tab-schedexec:checked ~ #panel-schedules,
+#tab-schedexec:checked ~ #panel-executions,
 #tab-releases:checked ~ #panel-releases,
-#tab-executions:checked ~ #panel-executions,
 #tab-inventory:checked ~ #panel-inventory { display: block; }
 .inline-details { display: inline-block; }
 .inline-details summary, .add-block summary { list-style: none;

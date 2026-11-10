@@ -201,6 +201,16 @@ def main():
     commit = subprocess.run(
         ["git", "rev-parse", "--short=8", "HEAD"], cwd=REPO,
         capture_output=True, text=True).stdout.strip() or "unknown"
+    # Stamp the packaged release.json with the real build identity —
+    # the checked-in file keeps `version`/`spec` only; build + source
+    # revision + timestamp are generated per-build, not static.
+    import datetime, tempfile
+    stamped = dict(meta, build=commit, source_rev=commit,
+                   built_at=datetime.datetime.now(
+                       datetime.timezone.utc).isoformat())
+    _stamp = tempfile.NamedTemporaryFile(
+        "w", suffix=".json", delete=False, encoding="utf-8")
+    json.dump(stamped, _stamp); _stamp.close()
     name = f"testorchestrator-{meta['version']}-{plat}" \
         + (f"-frozen-{commit}" if args.frozen else "")
     OUT.mkdir(exist_ok=True)
@@ -227,6 +237,8 @@ def main():
     t0 = time.time()
     with tarfile.open(bundle, "w:gz") as tar:
         for src, rel, _cat in files:
+            if rel == "release/release.json":
+                src = _stamp.name          # stamped build identity
             tar.add(src, arcname=f"{name}/{rel}", recursive=False)
     build_s = round(time.time() - t0, 1)
 
