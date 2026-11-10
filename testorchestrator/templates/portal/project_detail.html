@@ -1,69 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ project.name }} · TestOrchestrator<script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>
-<!-- ============ CREATION MODALS ============ -->
-<div class="modal" id="suite-modal" role="dialog" aria-modal="true" aria-labelledby="suite-modal-t">
-  <div class="modal-card">
-    <header class="modal-head">
-      <h3 id="suite-modal-t">New Test Suite</h3>
-      <button type="button" class="modal-x" data-modal-close aria-label="Close">&times;</button>
-    </header>
-    <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" data-modal-form>
-      {{ plain_form.csrf_token }}
-      <input type="hidden" name="kind" value="suite">
-      <input type="hidden" name="path" id="suite-path-auto">
-      <div class="modal-body">
-        <div class="modal-error" role="alert"></div>
-        <div class="field"><label>Suite name</label>
-          <input name="name" required placeholder="e.g. Smoke Suite"
-                 oninput="document.getElementById('suite-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
-        <div class="field"><label>Test cases</label>
-          <div data-case-selector
-               data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
-            <div data-hidden></div></div></div>
-      </div>
-      <footer class="modal-foot">
-        <button type="button" class="button ghost" data-modal-close>Cancel</button>
-        <button type="submit" class="button" data-modal-submit>Create and configure</button>
-      </footer>
-    </form>
-  </div>
-</div>
-
-<div class="modal" id="coll-modal" role="dialog" aria-modal="true" aria-labelledby="coll-modal-t">
-  <div class="modal-card">
-    <header class="modal-head">
-      <h3 id="coll-modal-t">New Test Collection</h3>
-      <button type="button" class="modal-x" data-modal-close aria-label="Close">&times;</button>
-    </header>
-    <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" data-modal-form>
-      {{ plain_form.csrf_token }}
-      <input type="hidden" name="kind" value="collection">
-      <input type="hidden" name="path" id="coll-path-auto">
-      <div class="modal-body">
-        <div class="modal-error" role="alert"></div>
-        <div class="field"><label>Collection name</label>
-          <input name="name" required placeholder="e.g. Regression Pack"
-                 oninput="document.getElementById('coll-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
-        <details class="adv"><summary>Member suites</summary>
-          <div data-case-selector
-               data-cases='{{ repo_suites | tojson }}' data-selected='[]'>
-            <div data-hidden></div></div>
-        </details>
-        <details class="adv"><summary>Advanced — per-member config</summary>
-          <p class="muted"><small>Ordered suite entries with per-entry
-            runEnabled / profileName / runConfigurationId — edit in the
-            draft after creation; repeated suites keep independent
-            settings.</small></p></details>
-      </div>
-      <footer class="modal-foot">
-        <button type="button" class="button ghost" data-modal-close>Cancel</button>
-        <button type="submit" class="button" data-modal-submit>Create and configure</button>
-      </footer>
-    </form>
-  </div>
-</div>
-<script src="{{ url_for('static', filename='js/test-modal.js') }}" defer></script>
-{% endblock %}
+{% block title %}{{ project.name }} · TestOrchestrator<script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>{% endblock %}
 {% block content_class %}content-wide{% endblock %}
 {% block content %}
 <h1>{{ project.name }}</h1>
@@ -660,6 +596,69 @@
 
 </div>
 <script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>
+<!-- ============ CREATION MODALS ============ -->
+<div class="modal" id="suite-modal" role="dialog" aria-modal="true" aria-labelledby="suite-modal-t">
+  <div class="modal-card">
+    <header class="modal-head">
+      <h3 id="suite-modal-t">New Test Suite</h3>
+      <button type="button" class="modal-x" data-modal-close aria-label="Close">&times;</button>
+    </header>
+    <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" data-modal-form>
+      {{ plain_form.csrf_token }}
+      <input type="hidden" name="kind" value="suite">
+      <input type="hidden" name="path" id="suite-path-auto">
+      <div class="modal-body">
+        <div class="modal-error" role="alert"></div>
+        <div class="field"><label>Suite name</label>
+          <input name="name" required placeholder="e.g. Smoke Suite"
+                 oninput="document.getElementById('suite-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
+        <div class="field"><label>Test cases</label>
+          <div data-case-selector
+               data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
+            <div data-hidden></div></div></div>
+      </div>
+      <footer class="modal-foot">
+        <button type="button" class="button ghost" data-modal-close>Cancel</button>
+        <button type="submit" class="button" data-modal-submit>Create and configure</button>
+      </footer>
+    </form>
+  </div>
+</div>
+
+<div class="modal" id="coll-modal" role="dialog" aria-modal="true" aria-labelledby="coll-modal-t">
+  <div class="modal-card">
+    <header class="modal-head">
+      <h3 id="coll-modal-t">New Test Collection</h3>
+      <button type="button" class="modal-x" data-modal-close aria-label="Close">&times;</button>
+    </header>
+    <form method="post" action="{{ url_for('portal.author_new', binding_id=discovered.binding.id) }}" data-modal-form>
+      {{ plain_form.csrf_token }}
+      <input type="hidden" name="kind" value="collection">
+      <input type="hidden" name="path" id="coll-path-auto">
+      <div class="modal-body">
+        <div class="modal-error" role="alert"></div>
+        <div class="field"><label>Collection name</label>
+          <input name="name" required placeholder="e.g. Regression Pack"
+                 oninput="document.getElementById('coll-path-auto').value='Test Suites/'+this.value.replace(/[^A-Za-z0-9_.-]+/g,'_')+'.ts'"></div>
+        <details class="adv"><summary>Member suites</summary>
+          <div data-case-selector
+               data-cases='{{ repo_suites | tojson }}' data-selected='[]'>
+            <div data-hidden></div></div>
+        </details>
+        <details class="adv"><summary>Advanced — per-member config</summary>
+          <p class="muted"><small>Ordered suite entries with per-entry
+            runEnabled / profileName / runConfigurationId — edit in the
+            draft after creation; repeated suites keep independent
+            settings.</small></p></details>
+      </div>
+      <footer class="modal-foot">
+        <button type="button" class="button ghost" data-modal-close>Cancel</button>
+        <button type="submit" class="button" data-modal-submit>Create and configure</button>
+      </footer>
+    </form>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/test-modal.js') }}" defer></script>
 {% endblock %}
 
 
