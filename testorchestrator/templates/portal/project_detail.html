@@ -236,7 +236,8 @@
             <td><code class="muted">{{ i.path }}</code></td>
             <td>{{ i.created_at.strftime('%Y-%m-%d') if i.created_at else '—' }}</td>
             <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
-            <td></td>
+            <td>{% if can_author %}
+              <a class="button ghost sm" href="{{ url_for('portal.author_item', item_id=i.id) }}">Edit</a>{% endif %}</td>
           </tr>
           {% else %}<tr><td colspan="10" class="muted">There is no data to display.</td></tr>{% endfor %}
         </tbody></table>
