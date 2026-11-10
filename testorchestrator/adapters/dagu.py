@@ -258,6 +258,8 @@ class DaguAdapter:
     def remote_kre_spec(self, *, worker_label: str, repository: str,
                         ref: str, git_auth: dict, remote_workspace: str,
                         executable: str, args: list,
+                        credential_wrapper: str = "",
+                        credential_file: str = "",
                         timeout_s: int = 3600) -> dict:
         """A remote-KRE execution DAG — dispatched to the worker whose
         labels include the installation's unique tag (precise routing,
@@ -298,12 +300,19 @@ class DaguAdapter:
              "action": "exec",
              "depends": ["checkout"],
              "working_dir": remote_workspace + "/proj",
-             "with": {
-                 "command": executable,
-                 "args": [
-                     *args,
-                     "-reportFolder=${context.paths.artifacts_dir}"
-                                  "/Reports"]}},
+             "with": (
+                 # Credential-file mode: the worker-local resolver reads
+                 # the configured file and execs KRE with an argv list —
+                 # the spec carries paths only, never the secret, and no
+                 # shell interprets file contents (§5, §12).
+                 # -reportFolder is NOT appended here: build_args already
+                 # emits it (remote artifacts_dir placeholder) — a second
+                 # occurrence makes KRE reject argv (joptsimple single-
+                 # value option).
+                 {"command": credential_wrapper,
+                  "args": [credential_file, executable, *args]}
+                 if credential_wrapper and credential_file else
+                 {"command": executable, "args": [*args]})},
         ]
         return {
             "worker_selector": {"kre": worker_label},

@@ -118,6 +118,14 @@ def _agent_compatible() -> bool:
         return False
 
 
+def _agent_owned(ex: Execution) -> bool:
+    """The agent API may deliver/mutate only agent-owned executions.
+    A dagu-worker transport owns its execution end-to-end — an agent
+    touching it would create a second executor and conflicting
+    authoritative results (§9 transport isolation)."""
+    return ex.snapshot().get("dispatch_transport") != "dagu-worker"
+
+
 @agent_bp.route("/tasks")
 @require_agent
 def tasks():
@@ -134,7 +142,8 @@ def tasks():
         Execution.runner_id == g.runner.id,
         Execution.state == ExecutionState.DISPATCHED,
     ).all()
-    return jsonify({"tasks": [_task_payload(e) for e in assigned]})
+    return jsonify({"tasks": [_task_payload(e) for e in assigned
+                              if _agent_owned(e)]})
 
 
 @agent_bp.route("/tasks/<execution_id>/claim", methods=["POST"])
@@ -143,6 +152,11 @@ def claim_task(execution_id):
     """Atomic DISPATCHED -> RUNNING pickup claim scoped to this runner —
     exactly one agent may take a task. A second claim (duplicate agent,
     reconnect racing an in-flight launch) gets 409 and must skip it."""
+    ex = db.session.get(Execution, execution_id)
+    if ex is not None and not _agent_owned(ex):
+        record_audit(f"agent:{g.runner.name}",
+                     "execution.claim_rejected_transport", execution_id)
+        return jsonify({"claimed": False, "transport": "dagu-worker"}), 403
     n = db.session.query(Execution).filter(
         Execution.id == execution_id,
         Execution.runner_id == g.runner.id,
@@ -172,7 +186,7 @@ def heartbeat():
     from datetime import timedelta
     for ex_id in data.get("executions", []):
         ex = db.session.get(Execution, ex_id)
-        if ex and ex.runner_id == runner.id:
+        if ex and ex.runner_id == runner.id and _agent_owned(ex):
             ex.heartbeat_at = utcnow()
             ex.lease_expires_at = utcnow() + timedelta(seconds=LEASE_SECONDS)
             renewed.append(ex_id)
@@ -218,6 +232,11 @@ def result():
     ex = db.session.get(Execution, data.get("execution_id", ""))
     if ex is None or ex.runner_id != g.runner.id:
         abort(404)
+    if not _agent_owned(ex):
+        record_audit(f"agent:{g.runner.name}",
+                     "execution.result_rejected_transport", ex.id)
+        return jsonify({"status": "rejected",
+                        "transport": "dagu-worker"}), 403
     if ex.state in (ExecutionState.COMPLETED, ExecutionState.FAILED,
                     ExecutionState.CANCELED):
         return jsonify({"status": "already-terminal"})
@@ -283,6 +302,10 @@ def artifact(execution_id):
     ex = db.session.get(Execution, execution_id)
     if ex is None or ex.runner_id != g.runner.id:
         abort(404)
+    if not _agent_owned(ex):
+        record_audit(f"agent:{g.runner.name}",
+                     "execution.artifact_rejected_transport", ex.id)
+        abort(403)
     upload = request.files.get("file")
     if upload is None:
         abort(400)

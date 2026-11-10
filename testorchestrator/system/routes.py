@@ -1166,12 +1166,19 @@ def create_runtime():
             workspace_root=form.workspace_root.data or "",
             git_ssh_key_path=form.git_ssh_key_path.data or "",
             credential_ref=(form.credential_ref.data or "").strip(),
+            credential_file=(form.credential_file.data or "").strip(),
             worker_label=(worker_label if is_remote else ""),
             concurrency=form.concurrency.data or 1,
         ))
         db.session.commit()
         record_audit(current_user.username, "runtime.registered",
                      form.name.data.strip())
+    else:
+        errs = "; ".join(
+            f"{k}: {', '.join(v[:2])}"
+            for k, v in form.errors.items())
+        if errs:
+            flash(f"Runtime not registered — {errs}", "error")
     return redirect(url_for("system.infrastructure"))
 
 
@@ -1179,19 +1186,17 @@ def create_runtime():
                  methods=["POST"])
 @role_required(Role.ADMIN)
 def probe_runtime(runtime_id):
-    rt = db.session.get(RuntimeConnection, runtime_id)
-    if rt and rt.runner and rt.runner.connection_mode != "local":
-        flash("Remote installation — the portal-host check cannot "
-              "verify a remote worker's KRE. Remote verification "
-              "through the agent is not implemented.", "error")
-        return redirect(url_for("system.infrastructure"))
-        return redirect(url_for("system.infrastructure"))
     """Test connection: executable presence + version probe only. Does not
     install anything, change licensing, or run project tests (§5)."""
     from ..adapters.kre import KreError, probe_version
     from ..execution import RuntimeConnection
     ApplyForm().validate_on_submit()
     rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt and rt.runner and rt.runner.connection_mode != "local":
+        flash("Remote installation — the portal-host check cannot "
+              "verify a remote worker's KRE. Remote verification "
+              "through the agent is not implemented.", "error")
+        return redirect(url_for("system.infrastructure"))
     if rt is None:
         abort(404)
     try:
@@ -1249,8 +1254,8 @@ def edit_runner(runner_id):
     if runner is None:
         abort(404)
     runner.name = request.form.get("name", runner.name).strip()
-    worker.description = request.form.get(
-        "description", worker.description)
+    runner.description = request.form.get(
+        "description", runner.description)
     old_arch, old_ws = runner.os_arch, runner.workspace_root
     runner.os_arch = request.form.get("os_arch", runner.os_arch)
     ws = request.form.get("workspace_root")
@@ -1259,6 +1264,9 @@ def edit_runner(runner_id):
     ms = request.form.get("max_slots")
     if ms:
         runner.max_slots = int(ms)
+    ls = request.form.get("license_slots")
+    if ls is not None:
+        runner.license_slots = int(ls) if ls.strip() else None
     if (runner.os_arch != old_arch or
             runner.workspace_root != old_ws):
         from ..execution import RuntimeConnection
@@ -1299,6 +1307,9 @@ def edit_runtime(runtime_id):
     cr = request.form.get("credential_ref")
     if cr is not None:
         rt.credential_ref = cr
+    cf = request.form.get("credential_file")
+    if cf is not None:
+        rt.credential_file = cf.strip()
     conc = request.form.get("concurrency")
     if conc:
         rt.concurrency = int(conc)

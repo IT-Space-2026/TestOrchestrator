@@ -20,7 +20,7 @@ report=""
 for arg in "$@"; do
   case "$arg" in
     -reportFolder=*) report="${arg#-reportFolder=}";;
-    -version) echo "9.7.0"; exit 0;;
+    -version) echo "katalon.versionNumber=9.7.0"; exit 0;;
   esac
 done
 mkdir -p "$report/s" && echo '<testsuite tests="1"/>' > "$report/s/junit.xml"

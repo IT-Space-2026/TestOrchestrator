@@ -199,3 +199,168 @@ def test_gating_unknown_version_rejected(app, tmp_path):
         assert ex.state == ExecutionState.COMPLETED  # dropped, acknowledged
         assert "version unknown" in (
             tmp_path / ex.id / "logs" / "kre-gating.log").read_text()
+
+
+def _one_slot_env(tmp_path):
+    """A single-KRE-slot environment: runner max_slots=1 AND
+    license_slots=1 (capacity = min of both), runtime on it."""
+    p, s = _project_suite()
+    from testorchestrator.execution import Runner, RuntimeConnection
+    runner = Runner(name="one-slot", connection_mode="local",
+                    max_slots=1, license_slots=1)
+    db.session.add(runner); db.session.flush()
+    rt = RuntimeConnection(
+        name="fixture-kre", runner_id=runner.id,
+        executable_path="/bin/true", detected_version="8.0.0",
+        workspace_root=str(tmp_path))
+    db.session.add(rt); db.session.commit()
+    return p, s, runner, rt
+
+
+def _due_once(p, s, name):
+    sched = Schedule(
+        project_id=p.id, name=name, target_type="suite",
+        suite_id=s.id, kind="once",
+        next_run_at=utcnow() - timedelta(minutes=1),
+        created_by="manager")
+    db.session.add(sched); db.session.commit()
+    return sched
+
+
+def test_three_schedules_share_one_slot(app, tmp_path):
+    """Three overlapping due occurrences on a single-KRE-slot runner:
+    all fire into QUEUED; exactly one holds the slot at a time; the
+    rest wait (stay QUEUED) until it frees."""
+    with app.app_context():
+        p, s, runner, rt = _one_slot_env(tmp_path)
+        for n in ("s1", "s2", "s3"):
+            _due_once(p, s, n)
+        assert dispatch.fire_due_schedules() == 3
+        exs = Execution.query.order_by(Execution.created_at).all()
+        assert len(exs) == 3
+        assert {e.state for e in exs} == {ExecutionState.QUEUED}
+        # occupy the sole slot — a running KRE-equivalent
+        exs[0].state = ExecutionState.RUNNING
+        exs[0].runner_id = runner.id
+        db.session.commit()
+        # the other two cannot acquire it — they stay visibly QUEUED
+        for e in exs[1:]:
+            dispatch.run_execution(e.id)
+            db.session.refresh(e)
+            assert e.state == ExecutionState.QUEUED
+            assert e.runner_id is None
+        # first finishes -> exactly one waiter is admitted
+        exs[0].state = ExecutionState.COMPLETED
+        db.session.commit()
+        dispatch.run_execution(exs[1].id)
+        db.session.refresh(exs[1])
+        assert exs[1].state == ExecutionState.COMPLETED
+        # third still queued only until slot is free again
+        dispatch.run_execution(exs[2].id)
+        db.session.refresh(exs[2])
+        assert exs[2].state == ExecutionState.COMPLETED
+
+
+def test_failure_and_cancel_release_capacity(app, tmp_path):
+    with app.app_context():
+        p, s, runner, rt = _one_slot_env(tmp_path)
+        from testorchestrator.execution import Runner
+        run = Runner.query.get(runner.id)
+        e1 = dispatch.create_execution("m", s)
+        e2 = dispatch.create_execution("m", s)
+        # fail: slot frees
+        e1.runner_id = run.id
+        e1.state = ExecutionState.RUNNING; db.session.commit()
+        assert dispatch.effective_slots(run) == 0
+        e1.state = ExecutionState.FAILED; db.session.commit()
+        assert dispatch.effective_slots(run) == 1
+        # cancel-requested holds the slot (still active); CANCELED frees
+        e2.runner_id = run.id
+        e2.state = ExecutionState.CANCEL_REQUESTED; db.session.commit()
+        assert dispatch.effective_slots(run) == 0
+        e2.state = ExecutionState.CANCELED; db.session.commit()
+        assert dispatch.effective_slots(run) == 1
+
+
+def test_unknown_holds_slot_no_unsafe_release(app, tmp_path):
+    """UNKNOWN counts active — an uncertain execution may still have a
+    live process; the slot is NOT freed on uncertainty."""
+    with app.app_context():
+        p, s, runner, rt = _one_slot_env(tmp_path)
+        e = dispatch.create_execution("m", s)
+        e.runner_id = runner.id
+        e.state = ExecutionState.UNKNOWN
+        db.session.commit()
+        assert dispatch.effective_slots(runner) == 0
+        e2 = dispatch.create_execution("m", s)
+        dispatch.run_execution(e2.id)
+        db.session.refresh(e2)
+        assert e2.state == ExecutionState.QUEUED
+
+
+def test_assign_runner_race_only_one_wins(app, tmp_path):
+    """Two dispatchers racing a single slot: the atomic conditional
+    UPDATE lets exactly one QUEUED->DISPATCHED transition win."""
+    with app.app_context():
+        p, s, runner, rt = _one_slot_env(tmp_path)
+        e1 = dispatch.create_execution("m", s)
+        e2 = dispatch.create_execution("m", s)
+        assert dispatch._assign_runner(e1, runner, rt) is True
+        db.session.refresh(e2)
+        assert dispatch._assign_runner(e2, runner, rt) is False
+        assert e2.state == ExecutionState.QUEUED
+
+
+def test_license_slots_caps_below_hardware(app, tmp_path):
+    """capacity belongs to the RUNNER as min(max_slots, license_slots)
+    — a second runtime record cannot multiply concurrent sessions."""
+    with app.app_context():
+        p, s, runner, rt = _one_slot_env(tmp_path)
+        runner.max_slots = 3; db.session.commit()
+        # hardware says 3, licence says 1 -> still 1 concurrent
+        assert dispatch.capacity_limit(runner) == 1
+        e = dispatch.create_execution("m", s)
+        e.runner_id = runner.id
+        e.state = ExecutionState.RUNNING
+        db.session.commit()
+        e2 = dispatch.create_execution("m", s)
+        dispatch.run_execution(e2.id)
+        db.session.refresh(e2)
+        assert e2.state == ExecutionState.QUEUED
+
+
+def test_interval_overlap_skip_policy(app, tmp_path):
+    """Recurring schedule due while its own previous execution is
+    active: 'skip' policy drops the occurrence (audit), never doubles
+    or queues an unbounded backlog."""
+    with app.app_context():
+        p, s, runner, rt = _one_slot_env(tmp_path)
+        sched = Schedule(
+            project_id=p.id, name="ov", target_type="suite",
+            suite_id=s.id, kind="interval", interval_minutes=60,
+            overlap_policy="skip",
+            next_run_at=utcnow() - timedelta(minutes=5),
+            created_by="manager")
+        db.session.add(sched); db.session.commit()
+        active = dispatch.create_execution("m", s, schedule_id=sched.id)
+        active.state = ExecutionState.RUNNING
+        active.runner_id = runner.id
+        db.session.commit()
+        assert dispatch.fire_due_schedules() == 0
+        # no new execution created for the skipped occurrence
+        assert Execution.query.filter_by(
+            schedule_id=sched.id).count() == 1
+        from testorchestrator.models import AuditEvent
+        assert AuditEvent.query.filter_by(
+            event="schedule.overlap_skipped").count() >= 1
+
+
+def test_repeated_ticks_no_duplicate_occurrence(app, tmp_path):
+    """Duplicate scheduler ticks cannot fire a 'once' schedule twice
+    nor create a second execution."""
+    with app.app_context():
+        p, s, runner, rt = _one_slot_env(tmp_path)
+        sched = _due_once(p, s, "once1")
+        assert dispatch.fire_due_schedules() == 1
+        assert dispatch.fire_due_schedules() == 0
+        assert Execution.query.filter_by(schedule_id=sched.id).count() == 1

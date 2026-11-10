@@ -13,6 +13,7 @@ Dispatch and collection run in `flask worker`, outside request handlers.
 """
 
 import json
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,7 +25,7 @@ from .adapters import kre as kre_adapter
 from .adapters.dagu import DaguAdapter, NotConfigured as DaguNotConfigured
 from .execution import (Artifact, DiscoveredItem, Execution,
                         ExecutionState, GitBinding,
-                        OutboxEvent, Outcome, Plan, Runner,
+                        OutboxEvent, Outcome, Plan, Release, Runner,
                         RuntimeConnection, Schedule, Suite, SyncState,
                         TestResult, utcnow)
 from sqlalchemy.exc import OperationalError
@@ -47,6 +48,7 @@ class DispatchError(RuntimeError):
 def create_execution(username: str, suite: Suite = None,
                      binding: GitBinding = None,
                      plan_id: str = "",
+                     release_id: str = None,
                      source_sha: str = "", run_config: dict = None,
                      extra_snapshot: dict = None,
                      schedule_id: str = "",
@@ -59,6 +61,14 @@ def create_execution(username: str, suite: Suite = None,
         raise DispatchError(
             "exactly one execution target required: suite or "
             "source item")
+
+    project_id = (suite.project_id if suite else source_item.project_id)
+    if release_id:
+        rel = db.session.get(Release, release_id)
+        if rel is None or rel.project_id != project_id:
+            raise DispatchError(
+                "selected release is unavailable or out of scope for "
+                "this project")
 
     rc = dict(run_config or {})
     if source_item is not None:
@@ -147,9 +157,9 @@ def create_execution(username: str, suite: Suite = None,
             snapshot["dispatch_transport"] = "dagu-worker"
     snapshot.update(extra_snapshot or {})
     execution = Execution(
-        project_id=(suite.project_id if suite
-                    else source_item.project_id),
+        project_id=project_id,
         suite_id=suite.id if suite else None,
+        release_id=release_id or None,
         source_item_id=source_item.id if source_item else None,
         binding_id=(binding.id if binding else
                     (source_item.binding_id if source_item else None)),
@@ -665,6 +675,8 @@ def run_execution(execution_id: str) -> None:
             ex.state = (ExecutionState.FAILED if ex.error_kind
                         else ExecutionState.COMPLETED)
         db.session.commit()
+    except DispatchError as exc:  # configuration problem — name it
+        _fail(ex, "config", str(exc))
     except Exception as exc:  # infrastructure failure — record honestly
         _fail(ex, "infrastructure", f"{type(exc).__name__}: {exc}")
     finally:
@@ -682,8 +694,10 @@ def _redact_values(runtime: RuntimeConnection) -> list:
     try:
         return [read_secret(current_app._get_current_object(),
                             runtime.credential_ref)]
-    except SecretError:
-        return []
+    except SecretError as exc:
+        raise DispatchError(
+            f"runtime credential {runtime.credential_ref!r} is "
+            f"configured but cannot be resolved: {exc}") from exc
 
 
 def _fail(ex: Execution, kind: str, text: str) -> None:
@@ -1017,7 +1031,7 @@ def fire_due_schedules(now=None) -> int:
                     d_item = db.session.get(
                         DiscoveredItem, tgt.get("source_item_id"))
                     if (d_item is None or
-                            d_item.binding.project_id
+                            d_item.project_id
                             != sched.project_id):
                         record_audit("worker", "schedule.target_unavailable",
                                      sched.id)
@@ -1145,9 +1159,45 @@ def enforce_plan_policies() -> int:
     return cancelled
 
 
+def _heartbeat_local_runners() -> int:
+    """The flask worker IS the execution driver for every
+    connection_mode=local runner on this instance — its own liveness
+    is their availability signal (§6). Stamped while the loop lives;
+    when it stops, the existing freshness window marks them ineligible.
+    Heartbeat certifies driver liveness only — never KRE/credential
+    availability, which separate checks own."""
+    runners = Runner.query.filter_by(enabled=True,
+                                     connection_mode="local").all()
+    for r in runners:
+        r.heartbeat_at = utcnow()
+        r.health = "ok"
+    if runners:
+        db.session.commit()
+    return len(runners)
+
+
+def _redrive_queued_remote(limit: int = 10) -> int:
+    """Capacity-blocked dagu-worker executions: their dispatch outbox
+    event is consumed once — a lost capacity CAS must not strand them
+    QUEUED forever. Each tick revisits QUEUED dagu-worker executions;
+    _submit_remote re-runs the CAS and submits only when a slot frees.
+    The execution-pinned dagRunId makes a duplicate event harmless —
+    the coordinator cannot create a second run for the same id."""
+    n = 0
+    for ex in Execution.query.filter(
+            Execution.state == ExecutionState.QUEUED).limit(limit):
+        if (ex.snapshot().get("dispatch_transport") != "dagu-worker"):
+            continue
+        _submit_remote(ex)
+        if ex.state != ExecutionState.QUEUED:
+            n += 1
+    return n
+
+
 def worker_once() -> int:
     n = (reconcile_stale() + fire_due_schedules() + process_outbox()
-         + enforce_plan_policies())
+         + enforce_plan_policies()
+         + _heartbeat_local_runners() + _redrive_queued_remote())
     # Dagu-side reconciliation (§7): a finished dagu run with no portal
     # result is ambiguous -> UNKNOWN, never a blind re-dispatch. Agent
     # heartbeats — not dagu run state — own lease renewal.
@@ -1183,6 +1233,18 @@ def _submit_remote(ex: Execution) -> None:
               "worker-bound runtime is unavailable, unlabeled, or has "
               "no executable path — no local fallback")
         return
+    if ex.state == ExecutionState.QUEUED:
+        # Capacity from ASSIGNMENT, not launch (§6): the dagu path must
+        # hold the runner slot atomically before submit — otherwise N
+        # schedules all enqueue at once and the coordinator's own
+        # maxActiveRuns becomes the accidental serializer (proven by
+        # the e2e-batch incident). A lost CAS leaves it QUEUED for the
+        # next tick.
+        runner = (db.session.get(Runner, rc.get("requested_runner"))
+                  if rc.get("requested_runner") else
+                  db.session.get(Runner, rt.runner_id))
+        if runner is None or not _assign_runner(ex, runner, rt):
+            return
     binding = (db.session.get(GitBinding, ex.binding_id)
                if ex.binding_id else None)
     if binding is None or not binding.url:
@@ -1223,9 +1285,25 @@ def _submit_remote(ex: Execution) -> None:
     if not ok_b:
         _fail(ex, "config", browser_val)
         return
-    # -apiKey is intentionally NOT sent: remote KRE uses the licence
-    # installed on the worker host — an activation credential must not
-    # be embedded in a spec stored by the coordinator.
+    # -apiKey is intentionally NOT embedded in the spec: remote KRE
+    # uses either the licence installed on the worker host or, when
+    # rt.credential_file is configured, the worker-local credential
+    # FILE — referenced by path only. A portal-side credential_ref
+    # alone still yields no -apiKey for the remote run.
+    cred_wrapper = ""
+    cred_file = ""
+    if rt.credential_file:
+        cred_wrapper = str(
+            Path(__file__).resolve().parent.parent
+            / "scripts" / "kre_cred_exec.py")
+        cred_file = rt.credential_file
+    elif rt.credential_ref:
+        _fail(ex, "config",
+              "runtime credential_ref is portal-side only — remote "
+              "(dagu-worker) dispatch needs a worker-local "
+              "credential_file configured on the runtime; refusing "
+              "to launch KRE without the credential it expects")
+        return
     kre_args = kre_adapter.build_args(
         executable=rt.executable_path,
         project_path=workspace + "/proj",
@@ -1276,8 +1354,21 @@ def _submit_remote(ex: Execution) -> None:
         remote_workspace=workspace,
         executable=rt.executable_path,
         args=kre_args[1:],
+        credential_wrapper=cred_wrapper,
+        credential_file=cred_file,
         timeout_s=int(rc.get("timeout_seconds") or 3600))
     import json as _json
+    # TO_SPEC_PREVIEW=<path>: supported dry-run diagnostic — write the
+    # exact spec this driver WOULD submit and stop before enqueueing.
+    # Proves the active dispatch driver's loaded code without spending
+    # a KRE attempt on stale-code discovery.
+    _preview = os.environ.get("TO_SPEC_PREVIEW")
+    if _preview:
+        Path(_preview).write_text(_json.dumps(spec, indent=2))
+        _fail(ex, "config",
+              f"spec preview written to {_preview} — no dispatch "
+              "performed (TO_SPEC_PREVIEW diagnostic)")
+        return
     try:
         dag_run_id = adapter.enqueue(
             spec_yaml=_json.dumps(spec),
@@ -1287,11 +1378,34 @@ def _submit_remote(ex: Execution) -> None:
             params=f"execution_id={ex.id}",
             singleton=True)
     except Exception as exc:
-        # 409 = a run with this id already exists — adopt its identity;
-        # a retry of this outbox event can never duplicate the run.
+        # 409 is ambiguous: either OUR dag_run_id already exists (safe
+        # idempotent adopt) or the coordinator's singleton/concurrency
+        # limit rejected a DIFFERENT concurrent run (rejection, not
+        # acceptance). Verify our id is the live run before adopting —
+        # otherwise dispatch_id would name a run that never existed
+        # (proven by batch B/C going UNKNOWN with coordinator 404s).
         resp = getattr(exc, "response", None)
         if resp is not None and resp.status_code == 409:
-            dag_run_id = ex.id
+            try:
+                adapter.dag_run(DaguAdapter.REMOTE_DAG_NAME, ex.id)
+                dag_run_id = ex.id
+            except Exception as se:
+                # Confirmed absent (404) vs inconclusive lookup
+                # (timeout/conn/auth) differ: only a 404 on the CORRECT
+                # dag proves rejection — anything else is ambiguous.
+                sresp = getattr(se, "response", None)
+                if sresp is not None and sresp.status_code == 404:
+                    _fail(ex, "infrastructure",
+                          "coordinator rejected the submission (409 "
+                          "concurrent-run limit) and our run id is "
+                          "absent — recorded as a rejected dispatch")
+                else:
+                    record_audit("system", "dispatch.submit_ambiguous",
+                                 f"{ex.id}: 409 + unverifiable lookup "
+                                 f"({type(se).__name__}) — run may "
+                                 "exist; holding capacity")
+                    db.session.commit()
+                return
         else:
             _fail(ex, "infrastructure",
                   f"Dagu submission failed — reconcile before retry: "
@@ -1329,6 +1443,23 @@ def _collect_remote(adapter: DaguAdapter, ex: Execution,
                    / "remote-runs" / ex.id)
     report_dir = attempt_dir / "Reports"
     log_dir = attempt_dir / "logs"
+    # Remote boundary redaction (§5): worker-side stdout/artifacts are
+    # scrubbed BEFORE persistence, same as local run_invocation's pass.
+    # The value is only known portal-side when the runtime still names
+    # a resolvable credential_ref; a credential_file-only runtime has
+    # no portal-visible value to scrub (documented limitation).
+    rt0 = db.session.get(RuntimeConnection, ex.runtime_id)
+    try:
+        creds = _redact_values(rt0) if rt0 else []
+    except DispatchError:
+        creds = []
+
+    def _scrub(data: bytes) -> bytes:
+        for c in creds:
+            data = data.replace(c.encode("utf-8", "replace"),
+                                b"***REDACTED***")
+        return data
+
     try:
         report_dir.mkdir(parents=True, exist_ok=True)
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -1336,17 +1467,17 @@ def _collect_remote(adapter: DaguAdapter, ex: Execution,
                 DaguAdapter.REMOTE_DAG_NAME, ex.dispatch_id)):
             dest = attempt_dir / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(adapter.download_artifact(
-                DaguAdapter.REMOTE_DAG_NAME, ex.dispatch_id, rel))
+            dest.write_bytes(_scrub(adapter.download_artifact(
+                DaguAdapter.REMOTE_DAG_NAME, ex.dispatch_id, rel)))
     except Exception as exc:
         _fail(ex, "infrastructure",
               f"remote run {ex.dispatch_id} ended '{label}' but "
               f"artifact retrieval failed: {exc}")
         return
     try:
-        (log_dir / "kre-remote-run.log").write_bytes(
+        (log_dir / "kre-remote-run.log").write_bytes(_scrub(
             adapter.run_log(DaguAdapter.REMOTE_DAG_NAME, ex.dispatch_id)
-            .encode("utf-8", "replace"))
+            .encode("utf-8", "replace")))
     except Exception:
         pass  # run log is best-effort evidence
     ex.workspace_path = str(attempt_dir)

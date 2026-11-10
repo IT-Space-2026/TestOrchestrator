@@ -25,6 +25,9 @@ class BindingForm(FlaskForm):
     credential_ref = StringField("Credential reference", validators=[Optional()])
     authoring_writable = BooleanField(
         "Source authoring (edit native definitions)", default=True)
+    report_writable = BooleanField(
+        "Report write-back (publish execution reports to this "
+        "repository)", default=False)
 
 
 class SuiteForm(FlaskForm):

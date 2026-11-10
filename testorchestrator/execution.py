@@ -274,6 +274,13 @@ class RuntimeConnection(db.Model):
     # the worker host; key material never enters the portal.
     git_ssh_key_path = db.Column(db.String(512), nullable=False,
                                  default="")
+    # Worker-local credential FILE path for Dagu-dispatched KRE — the
+    # coordinator spec carries this path only; the worker-side
+    # resolver (scripts/kre_cred_exec.py) reads the value on the
+    # worker immediately before exec. Admin-configured; an execution
+    # request can never select an arbitrary worker path.
+    credential_file = db.Column(db.String(512), nullable=False,
+                                default="")
     runner = db.relationship("Runner", backref="runtimes")
 
 

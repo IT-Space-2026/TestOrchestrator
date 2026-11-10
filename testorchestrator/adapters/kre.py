@@ -114,13 +114,20 @@ def build_args(
     extra: list | None = None,
     collection: bool = False,
 ) -> list:
+    # KRE console selectors want the project-relative path WITHOUT the
+    # file extension (.ts / .tsc) — the discovered inventory path keeps
+    # it, so it is stripped at the adapter boundary (Katalon docs:
+    # "test suite file (without extension .ts/.tsc)").
+    ext = ".tsc" if collection else ".ts"
+    selector = (suite_path[:-len(ext)]
+                if suite_path.lower().endswith(ext) else suite_path)
     args = [
         executable,
         "-noSplash",
         "-runMode=console",
         f"-projectPath={project_path}",
-        (f"-testSuiteCollectionPath={suite_path}"
-         if collection else f"-testSuitePath={suite_path}"),
+        (f"-testSuiteCollectionPath={selector}"
+         if collection else f"-testSuitePath={selector}"),
         f"-executionProfile={profile}",
     ]
     if remote_webdriver_url:
@@ -198,8 +205,17 @@ def probe_version(executable: str, timeout: int = 30) -> str:
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise KreError(f"version probe failed for {executable}: {exc}")
     text = (proc.stdout + proc.stderr).strip()
-    match = re.search(r"(\d+\.\d+(?:\.\d+)*)", text)
-    return match.group(1) if match else text[:64] or "unknown"
+    # The engine-version marker is explicit: katalon.versionNumber=.
+    # A bare first-number match is NOT acceptable — boot output carries
+    # timestamps, hashes, and framework versions that are not the engine
+    # version (a wrong parse is worse than an honest unknown).
+    match = re.search(r"katalon\.versionNumber=(\d+\.\d+(?:\.\d+)*)",
+                      text)
+    if match:
+        return match.group(1)
+    raise KreError(
+        "version probe produced no katalon.versionNumber marker — "
+        "installation version inconclusive")
 
 
 def prepare_workspace(source_dir: Path, dest: Path, sha: str) -> Path:

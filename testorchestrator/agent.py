@@ -101,11 +101,17 @@ def run_task(client: AgentClient, task: dict, work_root: Path) -> None:
         project_dir = kre_adapter.prepare_workspace(
             source_dir, attempt_dir, task.get("source_sha", ""))
         rc = (task.get("snapshot") or {}).get("run_config") or {}
+        entries = [e for e in (task["snapshot"].get("entries") or [])
+                   if e.get("enabled", True)]
+        suite_path = (rc.get("suite_path")
+                      or (entries[0]["case_ref"] if entries else ""))
+        if not suite_path:
+            raise ValueError("agent task has no suite selector — "
+                             "refusing to launch KRE without one")
         args = kre_adapter.build_args(
             executable=runtime["executable_path"],
             project_path=str(project_dir),
-            suite_path=task["snapshot"]["entries"][0]["case_ref"]
-            if task["snapshot"].get("entries") else "",
+            suite_path=suite_path,
             report_dir=str(report_dir),
             profile=rc.get("profile", "default"),
             browser=rc.get("browser", "Chrome (headless)"),

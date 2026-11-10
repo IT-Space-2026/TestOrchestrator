@@ -160,6 +160,7 @@ def edit_project(project_id):
 def project_detail(project_id):
     project = _project_or_404(project_id)
     _bind_aw = session.pop("_bind_aw", None)
+    _bind_rw = session.pop("_bind_rw", None)
     _bind_err = session.pop("_bind_err", None)
     if _bind_err:
         flash(f"Binding not saved — {_bind_err}", "error")
@@ -367,6 +368,7 @@ def project_detail(project_id):
         overdue_active=overdue_active,
         tlo=tlo, thi=thi, dash=dash,
         binding_form=BindingForm(),
+        bind_aw=_bind_aw, bind_rw=_bind_rw,
         can_author=GitBinding.query.filter_by(
             project_id=project.id, authoring_writable=True).count() > 0,
         repo_cases=cases,
@@ -435,6 +437,7 @@ def create_binding(project_id):
     if form.validate_on_submit():
         binding = GitBinding(
             authoring_writable=form.authoring_writable.data,
+            report_writable=form.report_writable.data,
             project_id=project.id,
             name=form.name.data.strip(),
             url=form.url.data.strip(),
@@ -454,6 +457,7 @@ def create_binding(project_id):
         # Validation failure: preserve the submitted selection + errors so
         # the re-rendered form shows what the user entered (not defaults).
         session["_bind_aw"] = bool(request.form.get("authoring_writable"))
+        session["_bind_rw"] = bool(request.form.get("report_writable"))
         session["_bind_err"] = "; ".join(
             e for errs in form.errors.values() for e in errs)
     return redirect(url_for("portal.project_detail", project_id=project_id))
@@ -475,6 +479,7 @@ def edit_binding(binding_id):
         binding.prj_path = (form.prj_path.data or "").strip()
         binding.credential_ref = (form.credential_ref.data or "").strip()
         binding.authoring_writable = form.authoring_writable.data
+        binding.report_writable = form.report_writable.data
         db.session.commit()
         record_audit(current_user.username, "binding.edited", binding.id)
         flash("Binding updated.", "info")
@@ -671,7 +676,7 @@ def suite_detail(suite_id):
         profiles=[i.name for i in DiscoveredItem.query.filter_by(
             project_id=suite.project_id, kind="profile")],
         binding=binding, plain_form=PlainForm(),
-        runners=runners, runtimes=runtimes)
+        workers=runners, runtimes=runtimes)
 
 
 # ---------- executions ----------
@@ -695,8 +700,12 @@ def discovered_detail(item_id):
     if item.kind == "collection" and b2 and b2.worktree_path:
         coll_detail = gitsync.parse_collection_detail(
             os.path.join(b2.worktree_path, item.path))
+    releases = [r for r in Release.query.filter_by(
+        project_id=item.project_id).all()
+        if r.status in ("draft", "in_progress")]
     return render_template(
-        "portal/discovered_detail.html", item=item, runners=runners,
+        "portal/discovered_detail.html", item=item, workers=runners,
+        releases=releases,
         coll_detail=coll_detail,
         runtimes=runtimes, profiles=profiles,
         plain_form=PlainForm(),
@@ -727,11 +736,16 @@ def run_discovered(item_id):
         "suite_path": item.path,
         "collection": item.kind == "collection",
     }
-    ex = dispatch.create_execution(
-        current_user.username, binding=binding,
-        release_id=(request.form.get("release_id") or None),
-        source_sha=binding.last_synced_sha if binding else "",
-        run_config=run_config, source_item=item)
+    try:
+        ex = dispatch.create_execution(
+            current_user.username, binding=binding,
+            release_id=(request.form.get("release_id") or None),
+            source_sha=binding.last_synced_sha if binding else "",
+            run_config=run_config, source_item=item)
+    except dispatch.DispatchError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("portal.discovered_detail",
+                              item_id=item.id))
     record_audit(current_user.username, "execution.queued", ex.id)
     flash(f"Execution {ex.id[:8]} queued for "
           f"{item.kind} {item.path!r}.", "info")
@@ -1216,6 +1230,19 @@ def _parse_date(s):
         return _d.fromisoformat(s.strip())
     except ValueError:
         return None
+
+
+def _parse_run_at(s):
+    """'YYYY-MM-DD HH:MM' (UTC) -> aware datetime; None on blank/bad."""
+    from datetime import datetime as _dt, timezone as _tz
+    if not s or not s.strip():
+        return None
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return _dt.strptime(s.strip(), fmt).replace(tzinfo=_tz.utc)
+        except ValueError:
+            continue
+    return None
 
 
 def _release_export(release, items, binding=None):
@@ -1941,7 +1968,13 @@ def create_schedule(project_id):
     from .forms import ScheduleForm
     project = _project_or_404(project_id)
     form = ScheduleForm()
+    # Same choices the GET offers: discovered repo items + app suites —
+    # a repo:<id> value must be a valid choice or validation rejects it
+    # before the target can be persisted.
     form.target_id.choices = [
+        (f"repo:{d.id}", f"{d.kind} · {d.path}") for d in
+        DiscoveredItem.query.join(GitBinding).filter(
+            GitBinding.project_id == project.id).all()] + [
         (s.id, f"Suite: {s.name}") for s in project.suites]
     if form.validate_on_submit():
         kind = form.kind.data
@@ -1954,10 +1987,28 @@ def create_schedule(project_id):
                   "error")
             return redirect(url_for("portal.project_detail",
                                     project_id=project_id))
+        # Discovered-repo targets: the GET form offers repo:<item_id>
+        # choices — persist them into targets_json so fire_due_schedules
+        # can resolve them. A repo: value that isn't a project item is
+        # rejected, never silently coerced to an empty suite_id.
+        tid = form.target_id.data or ""
+        targets = []
+        suite_id = tid
+        if tid.startswith("repo:"):
+            d = db.session.get(DiscoveredItem, tid[5:])
+            if d is None or d.project_id != project.id:
+                flash("Selected repository target is unavailable for "
+                      "this project.", "error")
+                return redirect(url_for("portal.project_detail",
+                                        project_id=project_id))
+            targets = [{"kind": d.kind, "path": d.path,
+                        "source_item_id": d.id,
+                        "binding_id": d.binding_id}]
+            suite_id = None
         db.session.add(Schedule(
             project_id=project.id, name=form.name.data.strip(),
             description=form.description.data or "",
-            target_type="suite", suite_id=form.target_id.data,
+            target_type="suite", suite_id=suite_id,
             plan_id=None,
             targets_json=json.dumps(targets), kind=kind,
             interval_minutes=interval if kind == "interval" else None,
