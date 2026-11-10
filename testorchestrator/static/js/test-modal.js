@@ -73,16 +73,23 @@
       .then(function (r) { return r.text().then(function (t) {
         return {url: r.url, body: t, ok: r.ok}; }); })
       .then(function (res) {
-        // success: server redirected to the draft editor -> navigate
+        // success contract: redirect to the draft editor (author URL)
+        // AND HTTP ok — a draft creation opens the editor to configure.
         if (res.url && res.url.indexOf("author") >= 0 && res.ok) {
           window.location.href = res.url; return;
         }
-        // failure: pull the flashed error out of the returned page
-        var m = res.body.match(/class="[^"]*flash[^"]*error[^"]*"[^>]*>([\s\S]*?)</);
-        if (err && m) err.textContent = m[1].trim();
-        else if (err && !res.ok) err.textContent =
-          "Creation failed (" + res.url + ").";
-        if (!err || !err.textContent) window.location.href = res.url;
+        // explicit failures — never mistake for success
+        if (err) {
+          if (!res.ok) {
+            err.textContent = "Creation failed (HTTP " + res.ok +
+              ") — check permissions/session.";
+          } else {
+            var m = res.body.match(
+              /class="[^"]*flash[^"]*error[^"]*"[^>]*>([\s\S]*?)</);
+            err.textContent = m ? m[1].trim() :
+              "Creation did not produce a draft — check the fields.";
+          }
+        }
       })
       .catch(function () {
         if (err) err.textContent = "Request failed — check connectivity.";
