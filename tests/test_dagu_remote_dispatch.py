@@ -88,6 +88,7 @@ def _env(app, monkeypatch, stub, *, workers=None, run_status="succeeded"):
                    os_arch="linux", max_slots=2)
         db.session.add(r); db.session.flush()
         rt = RuntimeConnection(name="kre-remote", runner_id=r.id,
+                               workspace_root="/tmp/kre-ws",
                                executable_path="/opt/kre/katalonc",
                                worker_label="kre-1", enabled=True)
         db.session.add(rt); db.session.flush()

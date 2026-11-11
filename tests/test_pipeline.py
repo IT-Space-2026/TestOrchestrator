@@ -859,7 +859,8 @@ def _dagu_env(app, count=1):
         db.session.add(r); db.session.flush()
         rt = RuntimeConnection(
             name="kre", runner_id=r.id, transport="dagu-worker",
-            executable_path="/bin/true", worker_label="kre=x")
+            executable_path="/bin/true", worker_label="kre=x",
+            workspace_root="/tmp/kre-ws")
         db.session.add(rt); db.session.flush()
         ids = []
         for _ in range(count):
@@ -981,3 +982,42 @@ def test_portal_schedule_repo_target(app, client, login_as):
     with app.app_context():
         assert Schedule.query.filter_by(
             project_id=pid).filter(Schedule.name == "bad").count() == 0
+
+
+def test_create_runtime_honors_selected_runner(app, client, login_as):
+    """create_runtime binds the explicitly selected remote runner —
+    not the first remote runner in the table."""
+    with app.app_context():
+        r1 = Runner(name="r-first", connection_mode="remote")
+        r2 = Runner(name="r-second", connection_mode="remote")
+        db.session.add_all([r1, r2]); db.session.commit()
+        r2_id = r2.id
+    login_as("admin")
+    resp = client.post("/system/infrastructure/runtimes", data={
+        "name": "kre-x", "exec_location": "remote",
+        "worker_label": "kre=x", "runner_id": r2_id,
+        "executable_path": "/bin/true"})
+    assert resp.status_code in (302, 303)
+    with app.app_context():
+        rt = RuntimeConnection.query.filter_by(name="kre-x").one()
+        assert rt.runner_id == r2_id
+        assert rt.transport == "dagu-worker"
+
+
+def test_create_runtime_rejects_bad_runner(app, client, login_as):
+    """Invalid/disabled/mode-incompatible runner selections fail
+    visibly with no partial runtime create."""
+    with app.app_context():
+        remote = Runner(name="r1", connection_mode="remote")
+        local = Runner(name="l1", connection_mode="local")
+        dead = Runner(name="d1", connection_mode="remote", enabled=False)
+        db.session.add_all([remote, local, dead]); db.session.commit()
+        bad = ["does-not-exist", local.id, dead.id]
+    login_as("admin")
+    for rid in bad:
+        client.post("/system/infrastructure/runtimes", data={
+            "name": f"rt-{rid[:4]}", "exec_location": "remote",
+            "worker_label": f"kre={rid[:4]}", "runner_id": rid,
+            "executable_path": "/bin/true"})
+    with app.app_context():
+        assert RuntimeConnection.query.count() == 0

@@ -1233,6 +1233,15 @@ def _submit_remote(ex: Execution) -> None:
               "worker-bound runtime is unavailable, unlabeled, or has "
               "no executable path — no local fallback")
         return
+    if not (rt.workspace_root or "").strip():
+        # An empty workspace silently falls back to a default the
+        # worker usually can't create (proven: /var/lib/to-worker
+        # mkdir EACCES). Fail at config time, before enqueue — never
+        # waste a coordinator run on a known-unusable workspace.
+        _fail(ex, "config",
+              "worker-bound runtime has no workspace_root — remote "
+              "checkout requires an explicit worker path")
+        return
     if ex.state == ExecutionState.QUEUED:
         # Capacity from ASSIGNMENT, not launch (§6): the dagu path must
         # hold the runner slot atomically before submit — otherwise N

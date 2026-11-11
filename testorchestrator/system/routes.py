@@ -1146,13 +1146,31 @@ def create_runtime():
                   f"installation {clash.name!r} — labels must be "
                   "unique per installation.", "error")
             return redirect(url_for("system.infrastructure"))
-    _runner = Runner.query.filter_by(
-        connection_mode=("remote" if is_remote else "local")).first()
+    # Explicit runner selection wins: the form's runner_id names the
+    # intended host — never silently fall back to "first matching
+    # mode" (that misbound a dagu-worker runtime to the wrong runner).
+    # An invalid/disabled/incompatible selection is a visible error,
+    # not a partial create.
+    want_mode = "remote" if is_remote else "local"
+    _runner = None
+    if form.runner_id.data and form.runner_id.data.strip():
+        _runner = db.session.get(Runner, form.runner_id.data.strip())
+        if _runner is None or not _runner.enabled:
+            flash("Selected runner is unavailable.", "error")
+            return redirect(url_for("system.infrastructure"))
+        if _runner.connection_mode != want_mode:
+            flash(f"Runner {_runner.name!r} is a "
+                  f"{_runner.connection_mode} host — a {want_mode} "
+                  "runtime cannot be bound to it.", "error")
+            return redirect(url_for("system.infrastructure"))
+    else:
+        _runner = Runner.query.filter_by(
+            connection_mode=want_mode).first()
     if _runner is None:
         _runner = Runner(
             name=(f"dagu-worker:{worker_label}" if is_remote
                   else "local"),
-            connection_mode=("remote" if is_remote else "local"),
+            connection_mode=want_mode,
             os_arch=("dagu-worker" if is_remote else "local"),
             max_slots=4)
         db.session.add(_runner); db.session.flush()

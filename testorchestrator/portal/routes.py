@@ -1976,6 +1976,15 @@ def create_schedule(project_id):
         DiscoveredItem.query.join(GitBinding).filter(
             GitBinding.project_id == project.id).all()] + [
         (s.id, f"Suite: {s.name}") for s in project.suites]
+    # runner/runtime pins must be valid choices or SelectField
+    # validation rejects the submission silently — same population
+    # the GET uses.
+    from ..execution import Runner as _R, RuntimeConnection as _RT
+    form.runner_id.choices = [("", "Auto")] + [
+        (r.id, r.name) for r in _R.query.filter_by(
+            enabled=True).all() if not r.draining]
+    form.runtime_id.choices = [("", "Auto")] + [
+        (x.id, x.name) for x in _RT.query.filter_by(enabled=True).all()]
     if form.validate_on_submit():
         kind = form.kind.data
         run_at = _parse_run_at(form.run_at.data)

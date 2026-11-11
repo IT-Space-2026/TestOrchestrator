@@ -271,13 +271,14 @@ def test_runtime_create_persists_valid_remote(app, client, login_as):
     dagu-worker transport, and the unique worker label."""
     login_as("admin")
     with app.app_context():
-        db.session.add(Runner(name="remote-w",
-                              connection_mode="remote",
-                              os_arch="linux-x64"))
-        db.session.commit()
+        rw = Runner(name="remote-w",
+                    connection_mode="remote",
+                    os_arch="linux-x64")
+        db.session.add(rw); db.session.commit()
+        rw_id = rw.id
     client.post("/system/infrastructure/runtimes", data={
         "name": "kre-remote", "exec_location": "remote",
-        "worker_label": "lbl-1", "runner_id": "x",
+        "worker_label": "lbl-1", "runner_id": rw_id,
         "executable_path": "/opt/katalonc", "credential_ref": "",
         "concurrency": "1",
     })
