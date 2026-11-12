@@ -78,7 +78,11 @@ EXCLUDE_DIRS = {"__pycache__", ".pytest_cache", "instance", "dist",
 
 def _excluded(rel: Path) -> bool:
     parts = set(rel.parts)
-    if parts & EXCLUDE_DIRS:
+    # 'dist' excludes only the repo's top-level build output — nested
+    # dependency dirs like allure3/node_modules/allure/dist must survive.
+    if parts & (EXCLUDE_DIRS - {"dist"}):
+        return True
+    if rel.parts and rel.parts[0] == "dist":
         return True
     if any(p.endswith(".pyc") or p.endswith(".egg-info")
            for p in parts):

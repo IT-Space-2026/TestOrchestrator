@@ -1,7 +1,7 @@
 # Next milestone — completed workflows vs remaining limits
 
 ## Completed user workflows (this build)
-- Fresh install → Admin/Admin → mandatory strong change → dashboard; headless `flask set-admin-password`.
+- Fresh install → Admin/Admin → mandatory strong change → dashboard; `flask set-admin-password <password>` (headless positional arg; password appears in argv).
 - Admin: users CRUD + reset (session revoke), credentials store, runners/runtimes register + probe + drain, network/ports/certs with staged apply + `flask caddy-rollback`.
 - All roles: About dialog, dashboard links, notices, project/execution/report viewing (project-scoped).
 - Manager/Admin: project + git binding create/sync, suite create from binding cases, plan create + add suite entries, release create + mark-released, suite duplicate (imported stays read-only), suite entry add (bumps version).

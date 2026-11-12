@@ -78,8 +78,7 @@ Two long-running processes, both from `TO_ROOT`:
 ```
 
 First login at `http://127.0.0.1:18080`: bootstrap `Admin`/`Admin` forces a
-strong password change (headless alternative: `flask set-admin-password`
-— prefer the UI so the new password never appears in shell history).
+strong password change (headless alternative: `flask set-admin-password <password>` (positional arg; appears in argv)).
 
 ## 3. Start authenticated Dagu and install the workflow
 

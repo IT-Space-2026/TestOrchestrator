@@ -336,3 +336,33 @@ def test_license_slots_set_change_clear_via_route(app, client, login_as):
             "name": "rr", "max_slots": "1", "license_slots": val})
         with app.app_context():
             assert db.session.get(Runner, rid).license_slots == exp
+
+
+def test_install_py_cli_entrypoint():
+    """scripts/install.py invoked as a script reaches its CLI — the
+    missing __main__ guard was a silent no-op."""
+    import subprocess, sys
+    r = subprocess.run([sys.executable, "scripts/install.py", "--help"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0 and "usage" in r.stdout.lower()
+
+
+def test_install_py_invalid_args_nonzero():
+    """Invalid arguments return nonzero — not a silent exit 0."""
+    import subprocess, sys
+    r = subprocess.run([sys.executable, "scripts/install.py",
+                        "--bogus-flag"], capture_output=True, text=True)
+    assert r.returncode != 0
+
+
+def test_bundle_exclusion_scopes():
+    """dist exclusion is top-level only — nested dependency dist/ dirs
+    survive; other private/runtime exclusions intact."""
+    from scripts.build_bundle import _excluded
+    from pathlib import Path
+    assert _excluded(Path("dist/testorchestrator"))
+    assert _excluded(Path("testorchestrator/__pycache__/x.py"))
+    assert _excluded(Path("instance/x"))
+    assert not _excluded(Path(
+        "3rdparty/allure3/node_modules/allure/dist/index.js"))
+    assert not _excluded(Path("testorchestrator/dist/x"))

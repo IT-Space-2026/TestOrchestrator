@@ -357,3 +357,7 @@ def create_venv_offline(payload: Path) -> Path:
         "--find-links", str(payload / "3rdparty" / "python-wheels"),
         "-r", str(payload / "requirements.txt")])
     return venv
+
+
+if __name__ == "__main__":
+    main()
