@@ -24,14 +24,14 @@ from .. import dispatch, gitsync
 from ..execution import (DiscoveredItem, Execution, ExecutionState,
                          ReleaseItem,
                        GitBinding, OutboxEvent,
-                         Outcome, Plan, PlanEntry, Project, Release,
+                         Outcome, Plan, Project, Release,
                          Schedule, Suite, SuiteEntry, utcnow)
 from ..extensions import db
 from ..models import Role, record_audit
 from ..security import role_required
 from . import portal_bp
 from .. import results as results_mod
-from .forms import (BindingForm, PlanForm, PlainForm, ProjectForm,
+from .forms import (BindingForm, PlainForm, ProjectForm,
                     ScheduleForm, SuiteForm)
 
 EDIT_ROLES = (Role.ADMIN, Role.TEST_MANAGER)

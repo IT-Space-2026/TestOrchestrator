@@ -364,3 +364,28 @@ def test_repeated_ticks_no_duplicate_occurrence(app, tmp_path):
         assert dispatch.fire_due_schedules() == 1
         assert dispatch.fire_due_schedules() == 0
         assert Execution.query.filter_by(schedule_id=sched.id).count() == 1
+
+
+def test_runner_cap_delegates_to_capacity_limit(app):
+    """_runner_cap delegates to capacity_limit — same result for
+    unset, zero, and positive license_slots (no duplicated logic)."""
+    from testorchestrator.dispatch import capacity_limit, _runner_cap
+    with app.app_context():
+        from testorchestrator.execution import Runner as _R
+        for lic in (None, 0, 1, 3):
+            r = _R(name=f"c{lic}", connection_mode="local",
+                   max_slots=4, license_slots=lic)
+            db.session.add(r); db.session.flush()
+            assert _runner_cap(r) == capacity_limit(r) == min(
+                4, lic or 4)
+
+
+def test_restart_helper_returns_bool_no_dead_feedback(monkeypatch,
+                                                      tmp_path):
+    """_launch_restart_helper returns a label/False — the request
+    handler (not the helper) owns flash/redirect feedback."""
+    from testorchestrator.system.routes import _launch_restart_helper
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda x: None)
+    hp = tmp_path / "helper.py"; hp.write_text("pass")
+    assert _launch_restart_helper(hp, "system") is False

@@ -22,7 +22,7 @@ from ..caddyconf import (CaddyApplyError, apply_config, render_caddyfile,
 from ..certs import (CertificateError, generate_local, import_pem)
 from ..models import Role, record_audit
 from ..network import (ValidationError, access_links, check_port_conflicts,
-                       detect_address_candidates, parse_host, port_available,
+                       detect_address_candidates, parse_host,
                        port_needs_privilege, validate_port)
 from ..security import role_required
 from . import system_bp
@@ -1047,10 +1047,6 @@ def _launch_restart_helper(helper_path, scope: str) -> "bool | str":
             return False
         return task
     return False
-    flash("Restart requested — services will be restarted by systemd. "
-          "The browser will disconnect briefly; reconnect and check "
-          "System health for the result.", "info")
-    return redirect(url_for("system.system_health"))
 
 
 @system_bp.route("/infrastructure")

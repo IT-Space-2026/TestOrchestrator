@@ -92,3 +92,27 @@ def test_license_slots_set_change_clear(pg):
         form = pg.locator('form[action$="/edit"]').first
         assert form.locator('input[name="license_slots"]') \
             .input_value() == val
+
+
+def test_license_slots_invalid_rejected_no_partial_update(pg):
+    """Invalid capacity values are rejected without a partial update —
+    the persisted value stays unchanged."""
+    pg.goto(f"{BASE}/system/infrastructure")
+    pg.evaluate("document.querySelectorAll('details').forEach(d=>d.open=true)")
+    form = pg.locator('form[action$="/edit"]').first
+    # establish a known-good baseline first
+    form.locator('input[name="license_slots"]').fill("2")
+    form.locator("button[type=submit]").click()
+    pg.wait_for_timeout(1000)
+    pg.goto(f"{BASE}/system/infrastructure")
+    pg.evaluate("document.querySelectorAll('details').forEach(d=>d.open=true)")
+    form = pg.locator('form[action$="/edit"]').first
+    # submit an invalid value
+    form.locator('input[name="license_slots"]').fill("abc")
+    form.locator("button[type=submit]").click()
+    pg.wait_for_timeout(1000)
+    pg.goto(f"{BASE}/system/infrastructure")
+    pg.evaluate("document.querySelectorAll('details').forEach(d=>d.open=true)")
+    # persisted value must still be the earlier valid one, not blank/abc
+    assert pg.locator('form[action$="/edit"]').first.locator(
+        'input[name="license_slots"]').input_value() == "2"

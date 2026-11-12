@@ -22,7 +22,7 @@ from flask import current_app
 
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
-from .adapters.dagu import DaguAdapter, NotConfigured as DaguNotConfigured
+from .adapters.dagu import DaguAdapter
 from .execution import (Artifact, DiscoveredItem, Execution,
                         ExecutionState, GitBinding,
                         OutboxEvent, Outcome, Plan, Release, Runner,
@@ -375,8 +375,7 @@ def _active_count_subquery(runner: Runner, exclude_id):
 
 
 def _runner_cap(runner: Runner) -> int:
-    return min(runner.max_slots,
-               runner.license_slots or runner.max_slots)
+    return capacity_limit(runner)
 
 
 def _assign_runner(ex: Execution, runner: Runner,
