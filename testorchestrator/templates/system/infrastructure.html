@@ -20,7 +20,7 @@ or license KRE.</p>
   <table class="audit-table">
     <thead><tr><th>Name</th><th>Mode</th><th>OS/arch</th><th>Slots</th><th>Health</th><th>Heartbeat</th><th>Agent</th><th>Drain</th></tr></thead>
     <tbody>
-      {% for r in workers %}
+      {% for r in runners %}
       <tr>
         <td><strong>{{ r.name }}</strong><br>
           <small class="muted">{{ r.description }}</small></td>
@@ -54,6 +54,7 @@ or license KRE.</p>
               <div class="field"><label>OS/arch</label><input name="os_arch" value="{{ r.os_arch }}"></div>
               <div class="field"><label>Workspace root</label><input name="workspace_root" value="{{ r.workspace_root }}"></div>
               <div class="field"><label>Max slots</label><input name="max_slots" value="{{ r.max_slots }}"></div>
+              <div class="field"><label>License slots</label><input name="license_slots" value="{{ r.license_slots if r.license_slots is not none else '' }}" placeholder="(unlimited)"></div>
               <button type="submit" class="button">Apply</button>
               <button type="button" class="button danger" data-cancel-details>Cancel</button>
             </form></details>
@@ -107,7 +108,7 @@ or license KRE.</p>
     a probe on the portal host by default — on a remote worker, the
     executable must exist on <em>that</em> worker; the check does not
     currently verify remote availability end-to-end.</p>
-  {% for r in workers %}
+  {% for r in runners %}
   <div class="runner-group">
     <div class="runner-group-head">
       <strong>{{ r.name }}</strong>
@@ -204,6 +205,15 @@ or license KRE.</p>
         coordinator — a path is not a connection. The executable path
         is verified on <em>that</em> computer, never run here.</small>
     </fieldset>
+    <div class="field" id="runner-select-field"><label>Remote runner</label>
+      <select name="runner_id">
+        <option value="">(auto — first compatible)</option>
+        {% for rn in runners if rn.connection_mode == 'remote' and rn.enabled %}
+        <option value="{{ rn.id }}"{{ ' selected' if request.form.get('runner_id') == rn.id }}>{{ rn.name }} — {{ rn.id[:12] }}</option>
+        {% endfor %}
+      </select>
+      <small><strong>Remote only.</strong> The execution worker this
+      runtime binds to; validated against compatibility.</small></div>
     <div class="field" id="worker-label-field"><label>Worker label</label>
       {{ runtime_form.worker_label() }}
       <small><strong>Required for Remote.</strong> Unique label this

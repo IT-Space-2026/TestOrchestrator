@@ -1061,6 +1061,12 @@ def infrastructure():
     record_audit(current_user.username, "page.infrastructure")
     runner_form = RunnerForm()
     runtime_form = RuntimeForm()
+    return _render_infrastructure(runner_form, runtime_form)
+
+
+def _render_infrastructure(runner_form, runtime_form):
+    from ..execution import Runner, RuntimeConnection
+    from ..execution import Project
     runner_form.allowed_projects.choices = [
         (p.id, p.name) for p in Project.query.all()]
     runtime_form.runner_id = ""
@@ -1197,6 +1203,11 @@ def create_runtime():
             for k, v in form.errors.items())
         if errs:
             flash(f"Runtime not registered — {errs}", "error")
+            from ..execution import Project as _P
+            runner_form = RunnerForm()
+            runner_form.allowed_projects.choices = [
+                (p.id, p.name) for p in _P.query.all()]
+            return _render_infrastructure(runner_form, form)
     return redirect(url_for("system.infrastructure"))
 
 

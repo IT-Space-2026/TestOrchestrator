@@ -310,3 +310,29 @@ def test_report_writable_control_and_publish_gate(app, client,
         "name": "pub", "url": "file:///tmp/x.git", "ref": "main"})
     with app.app_context():
         assert GitBinding.query.get(bid).report_writable is False
+
+
+def test_infrastructure_renders_new_controls(app, client, login_as):
+    """The infra page renders the remote-runner selector and the
+    license_slots input — browser-usable, not POST-only."""
+    login_as("admin")
+    with app.app_context():
+        db.session.add(Runner(name="rem-2", connection_mode="remote",
+                              license_slots=3))
+        db.session.commit()
+    r = client.get("/system/infrastructure")
+    assert b'name="runner_id"' in r.data and b'rem-2' in r.data
+    assert b'name="license_slots"' in r.data
+
+
+def test_license_slots_set_change_clear_via_route(app, client, login_as):
+    """license_slots set/change/clear through the edit route."""
+    login_as("admin")
+    with app.app_context():
+        r0 = Runner(name="rr", connection_mode="local", max_slots=1)
+        db.session.add(r0); db.session.commit(); rid = r0.id
+    for val, exp in (("2", 2), ("5", 5), ("", None)):
+        client.post(f"/system/runners/{rid}/edit", data={
+            "name": "rr", "max_slots": "1", "license_slots": val})
+        with app.app_context():
+            assert db.session.get(Runner, rid).license_slots == exp
