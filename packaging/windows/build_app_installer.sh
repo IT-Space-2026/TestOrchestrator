@@ -20,12 +20,12 @@ fetch "https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip" \
 unzip -q -o /tmp/python-3.12.7-embed-amd64.zip -d app-payload/python
 tar xzf "$REPO/3rdparty/dagu/dagu_2.25.8_windows_amd64.tar.gz" \
     -C app-payload/dagu dagu.exe LICENSE
-SHA_NODE="c95d8a7e1c99e669cc08c9f1176e068c1f50847c37908fcb8c35b62482366511"
-fetch "https://nodejs.org/dist/v22.18.0/node-v22.18.0-win-x64.zip" \
+SHA_NODE="e2edda75bfb089654705cf65a13b58933bfd5f57148e8ebda916f58a2474f1f7"
+fetch "https://nodejs.org/dist/v26.13.1/node-v26.13.1-win-x64.zip" \
       "/tmp/node-win.zip" "$SHA_NODE"
 unzip -q -o /tmp/node-win.zip -d app-payload/nodejs && \
-    mv app-payload/nodejs/node-v22.18.0-win-x64/* app-payload/nodejs/ && \
-    rmdir app-payload/nodejs/node-v22.18.0-win-x64
+    mv app-payload/nodejs/node-v26.13.1-win-x64/* app-payload/nodejs/ && \
+    rmdir app-payload/nodejs/node-v26.13.1-win-x64
 fetch "https://github.com/caddyserver/caddy/releases/download/v2.9.1/caddy_2.11.9_windows_amd64.zip" \
       "/tmp/caddy-win.zip" "$SHA_CAD"
 unzip -q -o /tmp/caddy-win.zip -d app-payload/caddy

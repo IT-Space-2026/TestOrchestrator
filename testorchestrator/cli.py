@@ -214,6 +214,14 @@ def _write_unit(path, body: str) -> None:
     path.write_text(body)
 
 
+def cmd_allure_probe(args) -> int:
+    from . import allure_runtime
+    import json
+    r = allure_runtime.probe()
+    print(json.dumps(r))
+    return 0 if r.get("ok") else 1
+
+
 def cmd_install(args) -> int:
     """Install the frozen package — payload copy, dirs, web.env,
     migrations, Java probe, unit staging/enable, readiness.
@@ -274,10 +282,8 @@ def cmd_install(args) -> int:
         env_file.write_text("\n".join(env_lines) + "\n")
         os.chmod(env_file, 0o640)
 
-    # 3+4) migrations + Java probe — as CHILD toctl processes so env
-    #      (TO_INSTANCE_DIR) resolves at their import time. In-process
-    #      env-setting is too late: config constants bind at import.
-    java_home = args.java_home or ""
+    # 3+4) migrations + bundled-Allure probe — as CHILD toctl
+    #      processes so env (TO_INSTANCE_DIR) resolves at import.
     if not args.dry_run:
         env = dict(os.environ,
                    TO_INSTANCE_DIR=str(data),
@@ -291,9 +297,7 @@ def cmd_install(args) -> int:
             sys.stderr.write(res.stderr)
 
         if not args.no_allure:
-            jcmd = ["java-probe"] + (["--java-home", java_home]
-                                     if java_home else [])
-            jr = _run_toctl(jcmd, env, timeout=600)
+            jr = _run_toctl(["allure-probe"], env, timeout=600)
             try:
                 jrec = json.loads(jr.stdout.strip().splitlines()[-1])
             except (json.JSONDecodeError, IndexError):
@@ -301,17 +305,11 @@ def cmd_install(args) -> int:
                         "error": jr.stderr.strip()[:200] or
                                  "probe produced no output"}
             if jrec.get("ok"):
-                java_home = jrec.get("selected") or java_home
-                print(f"[install] allure java: {java_home} "
-                      f"(bundled Node.js) — validated "
-                      "by generation probe")
+                print("[install] bundled Allure 3 — validated by "
+                      "generation probe")
             else:
-                print(f"[install] Java probe: {jrec.get('error','')} — "
-                      "continuing with Allure disabled (install/select "
-                      "Java then recheck in Admin → Reporting)")
-    if java_home and not args.dry_run:
-        with open(env_file, "a") as f:
-            f.write(f"TO_ALLURE_JAVA_HOME={java_home}\n")
+                print(f"[install] Allure probe: {jrec.get('error','')} "
+                      "— continuing with reporting disabled")
 
     # 5) systemd units — ExecStart on the frozen binary, never flask
     #    CLI or a venv.
@@ -410,9 +408,8 @@ def main(argv=None) -> int:
                                                 required=True)
     p.add_argument("--into", required=True)
     sub.add_parser("install-info")
-    p = sub.add_parser("java-probe",
-                       help="detect + validate Java for Allure (JSON)")
-    p.add_argument("--java-home", default="")
+    p = sub.add_parser("allure-probe",
+                       help="validate bundled Allure 3 (JSON)")
     p = sub.add_parser(
         "install",
         help="install the frozen package — payload, config, "
@@ -423,7 +420,6 @@ def main(argv=None) -> int:
     p.add_argument("--https-port", type=int, default=443)
     p.add_argument("--service-user", default="testorchestrator")
     p.add_argument("--secret-key", default="")
-    p.add_argument("--java-home", default="")
     p.add_argument("--no-allure", action="store_true")
     p.add_argument("--no-service-start", action="store_true")
     p.add_argument("--upgrade", action="store_true",

@@ -28,7 +28,8 @@ requirements, and installation instructions.
 
 The JRE is NOT part of the standard distribution (removed from the
 package and from unpublished Git history; the acquisition manifest +
-licence set under `3rdparty/java-runtime/` is retained as the pinned
+bundled Node.js (`3rdparty/nodejs/`) provides the report runtime — the
+Allure-3 npm tree under `3rdparty/allure3/` is vendored; the pinned
 reference for a separately supplied runtime, and `acquire_git.py --root
 openjdk-25-jre-headless` can re-acquire it for other purposes).
 
