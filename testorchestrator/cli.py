@@ -170,20 +170,6 @@ def cmd_recover(args) -> int:
     return 0
 
 
-def cmd_java_probe(args) -> int:
-    """JSON Java detection/probe — runs under whatever account invoked
-    it (service-account verification = run it AS that account)."""
-    import json
-    app = _app()
-    with app.app_context():
-        from . import allure_runtime
-        cands = ["bundled-node+allure3"]
-        home = args.java_home or (cands[0] if cands else "")
-        rec = allure_runtime.select_and_validate(home) if home else             {"ok": False, "error": "no Java runtime candidates found"}
-        print(json.dumps({"candidates": cands,
-                          "selected": home, **rec}))
-    return 0 if rec.get("ok") else 1
-
 
 def _run_toctl(cmd: list, env: dict, timeout: int = 900):
     """Re-execute this CLI for env-dependent steps — env is resolved
@@ -452,7 +438,7 @@ def main(argv=None) -> int:
     fn = {"web": cmd_web, "worker": cmd_worker, "db-upgrade": cmd_db_upgrade,
           "readiness": cmd_readiness, "backup": cmd_backup,
           "recover": cmd_recover, "install-info": cmd_install_info,
-          "install": cmd_install, "java-probe": cmd_java_probe}
+          "install": cmd_install}
     return fn[args.cmd](args)
 
 

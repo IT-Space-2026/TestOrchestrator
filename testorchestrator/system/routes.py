@@ -1381,3 +1381,27 @@ def drain_runner(runner_id):
     return redirect(url_for("system.infrastructure"))
 
 
+
+
+@system_bp.route("/licence", methods=["GET", "POST"])
+@role_required(Role.ADMIN)
+def licence_admin():
+    from .. import licensing
+    if request.method == "POST":
+        code = (request.form.get("licence_code") or "").strip()
+        ok, msg = licensing.add(code)
+        flash(msg, "info" if ok else "error")
+        return redirect(url_for("system.licence_admin"))
+    st, best, all_lic = licensing.current_status()
+    return render_template(
+        "system/licence.html", status=st, best=best,
+        licences=all_lic)
+
+
+@system_bp.route("/licence/resume", methods=["POST"])
+@role_required(Role.ADMIN)
+def licence_resume():
+    from .. import settings
+    settings.set("licence_dispatch_held", "")
+    flash("Dispatch resumed — held queue is now eligible.", "info")
+    return redirect(url_for("system.licence_admin"))

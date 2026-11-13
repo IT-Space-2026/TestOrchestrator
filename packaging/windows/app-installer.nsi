@@ -1,5 +1,5 @@
 ; TestOrchestrator FULL application installer — Windows amd64
-; Complete product: app + embedded Python + Dagu + Temurin JRE + Caddy.
+; Complete product: app + embedded Python + Dagu + Node.js + Caddy.
 ; The KRE execution engine is installed/licensed SEPARATELY — not
 ; redistributed; the installer registers the user's installation.
 ; UNSIGNED build — labelled clearly.
@@ -45,11 +45,10 @@ Section "Install TestOrchestrator" SecMain
     ${EndIf}
 
     ; application env — internal component wiring is generated, not
-    ; user-configured (application-local jre/python/dagu paths).
+    ; user-configured (application-local nodejs/python/dagu paths).
     FileOpen $0 "$DATA_DIR\testorchestrator.env" w
     FileWrite $0 "TO_INSTANCE_DIR=$DATA_DIR\instance$\r$\n"
     FileWrite $0 "TO_DATABASE_URI=sqlite:///$DATA_DIR\instance\to.db$\r$\n"
-    FileWrite $0 "TO_ALLURE_JAVA_HOME=$INSTDIR\jre$\r$\n"
     FileWrite $0 "TO_PUBLIC_ADDR=$PUBLIC_ADDR$\r$\n"
     FileWrite $0 "TO_PORT=$ORCH_PORT$\r$\n"
     FileClose $0

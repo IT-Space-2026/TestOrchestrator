@@ -126,3 +126,12 @@ def ready_ops(app):
         readiness.record_verified("publishing",
                                   readiness._pub_fp())
         _db.session.commit()
+
+
+@pytest.fixture(autouse=True)
+def _test_licence(monkeypatch):
+    """Suite-wide licence bypass — unit/route tests exercise behaviour
+    unrelated to licensing; enforcement itself is covered in
+    test_licensing.py against the real checks."""
+    monkeypatch.setattr(
+        "testorchestrator.licensing.usable", lambda *a, **k: True)

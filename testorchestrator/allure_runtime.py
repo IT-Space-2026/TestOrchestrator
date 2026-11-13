@@ -1,26 +1,16 @@
-"""Allure launcher — bundled allure-commandline + OPERATOR-SUPPLIED Java.
+"""Allure 3 launcher — bundled generator + bundled Node.js.
 
-Java is a declared prerequisite for Allure reporting: it is detected or
-operator-selected, then validated by an ACTUAL report-generation probe
-with the pinned bundled generator — never by ``java -version`` alone.
-The selected JAVA_HOME is persisted and exported only inside the Allure
-child process: no global Java settings are changed, KRE's own runtime is
-untouched, and unrelated processes keep their normal environment.
-
-Selection precedence (first non-empty wins):
-1. ``allure_java_home`` setting (Admin -> Reporting).
-2. ``TO_ALLURE_JAVA_HOME`` environment (installer-persisted, scoped to
-   the service units via EnvironmentFile).
-3. Auto-detection: ``JAVA_HOME`` env, ``java`` on PATH, then
-   platform-specific locations (Linux /usr/lib/jvm + /opt + /usr/java;
-   Windows registry JavaSoft entries + Program Files vendor dirs).
+Self-contained and offline: the pinned allure3 npm package runs under
+the bundled Node runtime via explicit application-controlled paths —
+no system node/npm, no Java, no downloads. Validated by an ACTUAL
+report-generation probe, never presence alone.
 
 Every subprocess runs as an argument list — never a shell string — so
 paths containing spaces are safe on both platforms.
 
-If no Java is found or validation fails, status reports not-ready
-honestly — Allure is disabled with a clear warning, native KRE reports
-and original artifacts remain available independently.
+If the bundled runtime is missing or validation fails, status reports
+not-ready honestly — native KRE reports and original artifacts remain
+available independently.
 """
 
 import json
@@ -114,8 +104,8 @@ def _fixture_results(dest: Path) -> None:
     """Minimal valid allure-results input for the generation probe."""
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "probe-result.json").write_text(json.dumps({
-        "uuid": "probe-1", "historyId": "probe.java",
-        "name": "java-runtime-probe", "fullName": "probe.java",
+        "uuid": "probe-1", "historyId": "probe.allure3",
+        "name": "allure3-probe", "fullName": "probe.allure3",
         "status": "passed", "stage": "finished", "labels": []}))
 
 
@@ -141,7 +131,7 @@ def probe(timeout: int = PROBE_TIMEOUT) -> dict:
             _fixture_results(results_dir)
             res = subprocess.run(
                 cmd + ["generate", str(results_dir),
-                       "-o", str(out_dir), "--single-file"],
+                       "--output", str(out_dir)],
                 capture_output=True, text=True, timeout=timeout)
             entry = out_dir / "index.html"
             ok = res.returncode == 0 and entry.is_file() \
@@ -173,9 +163,8 @@ def _now() -> str:
 
 
 def available() -> bool:
-    """A generation attempt is possible: generator bundled AND some
-    Java runtime selectable. 'available' is not 'validated' — see
-    status()/probe() for the validated-readiness signal."""
+    """A generation attempt is possible with the bundled runtime.
+    'available' is not 'validated' — see status()/probe()."""
     return _allure_cmd() is not None
 
 
@@ -207,8 +196,8 @@ def status() -> dict:
 
 def generate(results_dir: Path, out_dir: Path,
              single_file: bool = True, timeout: int = 300) -> dict:
-    """Run the bundled generator on an allure-results dir using the
-    selected Java. Offline: no network — CLI + plugins are vendored."""
+    """Run the bundled Allure 3 generator on an allure-results dir.
+    Offline: no network — CLI + plugins are vendored."""
     cmd_base = _allure_cmd()
     if cmd_base is None:
         return {"ok": False,
@@ -242,18 +231,8 @@ def generate(results_dir: Path, out_dir: Path,
 
 
 def main(argv=None) -> int:
-    """Probe CLI — used by the installer, possibly via runuser as the
-    service account. Pure stdlib: importable standalone (see
-    scripts/java_probe.py). Prints a JSON record."""
-    import argparse
-    ap = argparse.ArgumentParser(prog="allure_runtime")
-    ap.add_argument("--java-home", default="")
-    ap.add_argument("--detect", action="store_true")
-    args = ap.parse_args(argv)
-    if args.detect:
-        print(json.dumps([str(h) for h in detect_java_homes()]))
-        return 0
-    record = probe(args.java_home or None)
+    """Probe CLI — used by the installer. Prints a JSON record."""
+    record = probe()
     print(json.dumps(record))
     return 0 if record.get("ok") else 1
 

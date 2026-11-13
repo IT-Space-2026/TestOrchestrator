@@ -42,7 +42,14 @@ def login():
         record_audit(username or "<empty>", "login.failure")
         form.password.errors = (*form.password.errors, "Invalid username or password.")
 
-    return render_template("auth/login.html", form=form)
+    from .. import licensing
+    from .forms import LicenceActivationForm
+    st, best, _ = licensing.current_status()
+    return render_template(
+        "auth/login.html", form=form,
+        licence_state=st if st != "valid" else None,
+        licence_best=best,
+        licence_form=LicenceActivationForm())
 
 
 @auth_bp.route("/logout", methods=["POST"])

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Licence · TestOrchestrator{% endblock %}
+{% block content %}
+<h2>Licence</h2>
+<p>Status: <strong>{{ status }}</strong></p>
+{% if best %}
+<p><strong>{{ best.customer }}</strong> — licence {{ best.licence_id }}<br>
+Valid {{ best.valid_from[:10] }} → {{ best.valid_until[:10] }} (UTC, end date inclusive)</p>
+{% endif %}
+{% if licences %}
+<h3>Activated licences</h3>
+<table><tr><th>ID</th><th>Customer</th><th>Valid from</th><th>Expiry</th></tr>
+{% for l in licences %}
+<tr><td>{{ l.licence_id }}</td><td>{{ l.customer }}</td>
+<td>{{ l.valid_from[:10] }}</td><td>{{ l.valid_until[:10] }}</td></tr>
+{% endfor %}</table>
+{% endif %}
+<h3>Add licence</h3>
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Licence code <input type="text" name="licence_code"
+        autocomplete="off" style="width:36em"></label>
+  <button type="submit">Add licence</button>
+</form>
+{% endblock %}

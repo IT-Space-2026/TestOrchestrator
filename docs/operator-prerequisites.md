@@ -15,7 +15,7 @@ updater may alter it.
 | Runner host | Agent | reachable `flask agent` runtime |
 | Git remote + credential (optional) | `git_export_repo` + SecretRef | HTTPS/SSH URL + scoped token |
 | Dagu endpoint (optional seam) | `dagu_endpoint` + SecretRef | version to pin and verify |
-| Java runtime (optional, for Allure reports) | `allure_java_home` setting / `TO_ALLURE_JAVA_HOME` | JRE/JDK compatible with bundled Allure — OpenJDK 21+ recommended; the installer detects or takes `--java-home`, validates with a real report-generation probe as the `testorchestrator` service account, or continues with Allure disabled (`--no-allure`). Scoped to Allure only — never a global Java change, never touches KRE |
+| Report runtime | bundled — none required | Bundled Node.js + Allure 3; no customer Java/Node/npm. |
 
 ## Smoke checks the operator can run first
 

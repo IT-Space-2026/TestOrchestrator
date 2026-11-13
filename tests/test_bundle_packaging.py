@@ -99,7 +99,7 @@ def test_settings_guidance_rendering(client, login_as, app):
     never appear in any config page body."""
     login_as("admin")
     checks = {"/system/reporting": ["Example — accepted configuration",
-                                    "Java home vs executable"],
+                                    "Bundled runtime vs system tools"],
               "/system/network":   ["internal app port", "1–65535"],
               "/system/secrets":   ["Example — create + reference",
                                     "never re-displayed"],

@@ -3,7 +3,7 @@
 # digest (3rdparty/caddy/caddy.sha256). Used when preparing a release payload.
 set -euo pipefail
 
-VERSION="2.9.1"
+VERSION="2.11.9"
 ARCH="linux_amd64"
 DEST="$(cd "$(dirname "$0")/../3rdparty/caddy" && pwd)"
 TMP="$(mktemp -d)"

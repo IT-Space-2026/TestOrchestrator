@@ -45,14 +45,7 @@ enhanced reporting backend; saving never regenerates reports.</p>
     path and re-run <em>Check readiness</em>, or disable Allure. Native
     KRE reports and original artifacts are unaffected.</p>
   {% endif %}
-  <p><label>Java home (JAVA_HOME or path to the java binary)<br>
-    <input type="text" name="allure_java_home" size="50"
-           list="allure-java-candidates"
-           value="{{ settings.allure_java_home }}"
-           placeholder="/usr/lib/jvm/java-21-openjdk-amd64"></label><br>
-    <small>Saving a path validates it with a real report-generation
-    probe. Leave empty to use the installer-selected or auto-detected
-    runtime. Scoped to Allure only — no global Java settings change.</small></p>
+  
   {% if allure.detected %}
   <datalist id="allure-java-candidates">
     {% for h in allure.detected %}<option value="{{ h }}">{% endfor %}
@@ -65,24 +58,16 @@ enhanced reporting backend; saving never regenerates reports.</p>
   <button class="btn" type="submit">Save settings</button>
 </form>
 
-<details><summary>Example — accepted configuration</summary><pre class="example">allure_java_home: /usr/lib/jvm/java-17-openjdk-amd64   # JAVA_HOME dir…
-                  /usr/bin/java                         # …or java binary path
-allure_enabled:   checked</pre>
-<p class="muted"><strong>Java home vs executable:</strong> the field
-accepts either a JDK/JRE home directory (like JAVA_HOME — the
-<code>bin/java</code> inside it is used) or the path to the
-<code>java</code> executable itself. <strong>Platform note:</strong>
-paths are host-specific — on the packaged Linux target a JDK/JRE
-installed by the distro or unpacked to e.g.
-<code>/opt/java/openjdk</code> is expected; Windows paths are not
-valid on this target. <strong>Enablement:</strong> the checkbox turns
-generation on; without a validated runtime generation still fails —
-enabling does not substitute for a working Java.
-<strong>Probe:</strong> saving a path or pressing <em>Check
-readiness</em> runs a real Allure report-generation probe with the
-bundled generator — pass/fail is recorded and shown under Readiness.
-Changes apply to future generations; existing reports are unaffected.</p>
+<details><summary>Example — accepted configuration</summary><pre class="example">allure_enabled:   checked</pre>
+<p class="muted"><strong>Bundled runtime vs system tools:</strong>
+report generation uses the package's own Node.js and Allure 3 — no
+customer-installed Java, Node, or npm is needed and no extra download
+runs at report time. <strong>Enablement:</strong> the checkbox turns
+generation on; without a validated bundled runtime generation still
+fails — use Check to verify it first.</p>
 </details>
+
+
 
 <form method="post" action="{{ url_for('system.reporting_check') }}"
       style="display:inline">

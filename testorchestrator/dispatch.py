@@ -57,6 +57,8 @@ def create_execution(username: str, suite: Suite = None,
     target: a TO suite OR a repository DiscoveredItem — never both,
     never neither. Repo-def runs snapshot their durable identity
     (binding+kind+path+sha) so history survives inventory replacement."""
+    if not _licence_ok():
+        raise DispatchError("no valid TestOrchestrator licence")
     if bool(suite) == bool(source_item):
         raise DispatchError(
             "exactly one execution target required: suite or "
@@ -273,6 +275,19 @@ def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
     db.session.commit()
     record_audit(username, "execution.cancel_requested", execution_id)
     return True
+
+
+# ---------- licence gate ----------
+
+def _licence_ok() -> bool:
+    """Shared check — dispatch surfaces (manual, scheduled, queue,
+    worker) all recheck at dispatch time so queued work cannot bypass
+    expiry."""
+    try:
+        from . import licensing
+        return licensing.usable()
+    except Exception:
+        return False
 
 
 # ---------- runner selection (§6) ----------
@@ -1194,6 +1209,20 @@ def _redrive_queued_remote(limit: int = 10) -> int:
 
 
 def worker_once() -> int:
+    if not _licence_ok():
+        # mark the queue held — renewal alone must NOT resume it
+        try:
+            from . import settings
+            settings.set("licence_dispatch_held", "1")
+        except Exception:
+            pass
+        return 0
+    try:
+        from . import settings
+        if settings.get("licence_dispatch_held", "") == "1":
+            return 0  # held until an authorised admin resumes
+    except Exception:
+        pass
     n = (reconcile_stale() + fire_due_schedules() + process_outbox()
          + enforce_plan_policies()
          + _heartbeat_local_runners() + _redrive_queued_remote())

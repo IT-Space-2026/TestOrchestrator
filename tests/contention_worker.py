@@ -14,6 +14,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+# Test-side injection: contention workers run a licensed scenario —
+# bypass is injected here (test code), never via a production env var.
+from testorchestrator import licensing
+licensing.usable = lambda *a, **k: True
+
 
 def main():
     tmp = Path(sys.argv[1])

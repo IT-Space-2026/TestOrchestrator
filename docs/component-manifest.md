@@ -14,7 +14,7 @@
 ## References / download instructions (NOT included)
 | Component | Status | Notes |
 |---|---|---|
-| Java runtime (OpenJDK 21+/25) | `java-ref`: manifest+licences only (68K, no rootfs) | **External prerequisite** — detected at install by scripts/java_probe.py, only for Allure; `--no-allure` continues without it. Package is NOT Java-self-contained. |
+| Node.js (bundled, for Allure 3 reports) | `3rdparty/nodejs` | **Bundled** — no customer Node/npm/Java required. |
 | Windows embeddable Python | not staged | would be needed for a full Windows app installer |
 
 ## External prerequisites

@@ -40,3 +40,9 @@ class ChangePasswordForm(FlaskForm):
             EqualTo("new_password", message="Passwords do not match."),
         ],
     )
+
+
+class LicenceActivationForm(FlaskForm):
+    licence_code = StringField("Licence code",
+                               validators=[DataRequired(), Length(max=8192)])
+    website = StringField("Website")   # honeypot — must stay empty

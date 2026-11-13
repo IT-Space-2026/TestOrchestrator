@@ -15,7 +15,7 @@ import secrets
 from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask
+from flask import Flask, render_template
 
 from .config import BASE_DIR, Config, INSTANCE_DIR
 from .extensions import csrf, db, login_manager, migrate
@@ -113,6 +113,54 @@ def create_app(config_object=Config) -> Flask:
     from .bootstrap import install_gates
 
     install_gates(app)
+
+    # ---- licence enforcement ----
+    _LIC_OPEN = {"/licence", "/licence-activate", "/healthz", "/login"}
+    _LIC_PREFIX = ("/static", "/setup")
+    app.config.setdefault("MAX_CONTENT_LENGTH", 64 * 1024)
+
+    @app.before_request
+    def _licence_gate():
+        from . import licensing
+        from flask import redirect, request
+        if licensing.usable():
+            return None
+        p = request.path
+        if p in _LIC_OPEN or p.startswith(_LIC_PREFIX):
+            return None
+        if request.method == "GET" and not p.startswith("/api"):
+            return redirect("/licence")
+        return ("Licence required — activation needed before "
+                "protected operations.", 403)
+
+    @app.route("/licence")
+    def licence_status_page():
+        from . import licensing
+        from .auth.forms import LicenceActivationForm
+        st, best, _ = licensing.current_status()
+        return render_template("auth/licence.html",
+                               form=LicenceActivationForm(),
+                               status=st, best=best)
+
+    @app.route("/licence-activate", methods=["POST"])
+    def licence_activate():
+        from . import licensing
+        from flask import redirect, request
+        from .auth.forms import LicenceActivationForm
+        from .bootstrap import rate_limit_exceeded
+        from .models import record_audit
+        ip = request.headers.get("X-Forwarded-For",
+                                 request.remote_addr or "?")
+        if rate_limit_exceeded(f"licence-activate:{ip}"):
+            return "Too many attempts. Try again shortly.", 429
+        form = LicenceActivationForm()
+        if form.validate_on_submit() and not form.website.data:
+            ok, msg = licensing.add(form.licence_code.data)
+            record_audit("licence-activate",
+                         "accepted" if ok else "rejected")
+            if ok:
+                return redirect("/login")
+        return redirect("/licence")
 
     @login_manager.user_loader
     def load_user(user_id):

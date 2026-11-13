@@ -26,6 +26,19 @@
     {% endfor %}
     <button type="submit" class="button">Sign in</button>
   </form>
+{% if licence_state %}
+<hr><p><strong>Licence: {{ licence_state }}</strong>
+{% if licence_best %} — {{ licence_best.customer }},
+expires {{ licence_best.valid_until[:10] }}{% endif %}</p>
+<p>Activate a licence below or <a href="/licence">see details</a>.</p>
+<form method="post" action="/licence-activate">
+  {{ licence_form.csrf_token }}
+  {{ licence_form.licence_code.label }}
+  {{ licence_form.licence_code(autocomplete="off", size="60") }}
+  {{ licence_form.website(style="display:none") }}
+  <button type="submit">Activate licence</button>
+</form>
+{% endif %}
 </main>
 </body>
 </html>
