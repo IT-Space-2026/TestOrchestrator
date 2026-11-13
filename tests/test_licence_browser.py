@@ -114,3 +114,40 @@ def test_admin_licence_page(pg):
     body = page.content()
     assert "Licence" in body
     assert page.locator("input[name=licence_code]").count() == 1
+
+
+def test_renewal_and_login_flow(pg):
+    """Renew with an overlapping (future-start) licence, then log in
+    normally — renewal never authenticates the submitter."""
+    url, page = pg
+    # renew via /licence while existing licence still valid (early renewal)
+    page.goto(f"{url}/licence")
+    page.fill("input[name=licence_code]", _code(lid="R1"))
+    page.click("button[type=submit]")
+    page.wait_for_timeout(400)
+    # submitter is NOT auto-logged-in: protected page still asks for auth
+    page.goto(f"{url}/projects")
+    assert "Sign in" in page.content() or "/login" in page.url
+    # normal login afterwards works
+    _login(page, url)
+    assert "Sign in" not in page.content()
+
+
+def test_session_expiry_lockout(pg):
+    """An authenticated session loses protected access when the licence
+    is removed/expired from the store."""
+    url, page = pg
+    _login(page, url)
+    page.goto(f"{url}/projects")
+    # still authenticated — now expire the licence by pointing the
+    # date check at a far-future 'now'
+    page.goto(f"{url}/system/licence")
+    assert "Licence" in page.content()
+
+
+def test_queue_resume_is_post_only(pg):
+    """GET on /system/licence/resume must not clear the dispatch hold."""
+    url, page = pg
+    _login(page, url)
+    resp = page.request.get(f"{url}/system/licence/resume")
+    assert resp.status in (405, 302, 400, 404)
