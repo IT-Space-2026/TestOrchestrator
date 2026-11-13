@@ -175,13 +175,17 @@ def current_status(now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     parsed = []
     for r in rows:
-        try:
-            p = dict(r)
-            p["_from"] = datetime.datetime.fromisoformat(r["valid_from"])
-            p["_until"] = datetime.datetime.fromisoformat(r["valid_until"])
-            parsed.append(p)
-        except (KeyError, ValueError):
+        # Re-verify each stored row: the settings store is a local
+        # trust boundary, not a signature oracle — a forged row
+        # (written without a valid code) must not count.
+        p = parse(r.get("code", ""))
+        if isinstance(p, str):
             continue
+        if (p["licence_id"] != r.get("licence_id") or
+                p["valid_from"] != r.get("valid_from") or
+                p["valid_until"] != r.get("valid_until")):
+            continue
+        parsed.append(p)
     st, best = status(parsed, now)
     return st, best, parsed
 
