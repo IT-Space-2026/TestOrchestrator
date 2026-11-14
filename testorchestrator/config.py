@@ -6,7 +6,40 @@ environment variables or an instance config file.
 """
 
 import os
+import sys
 from pathlib import Path
+
+
+def _load_env_file():
+    """Load the platform env file written by the installer.
+
+    systemd sources ``/etc/testorchestrator/web.env`` via ``EnvironmentFile=``;
+    Task Scheduler has no equivalent, so Windows installs must load
+    ``%ProgramData%\\TestOrchestrator\\testorchestrator.env`` themselves. Real
+    environment variables always win (setdefault) so the file only supplies
+    values not already injected.
+    """
+    candidates = []
+    if sys.platform.startswith("win"):
+        pd = os.environ.get("ProgramData", r"C:\ProgramData")
+        candidates.append(Path(pd) / "TestOrchestrator" / "testorchestrator.env")
+    else:
+        candidates.append(Path("/etc/testorchestrator/web.env"))
+    for path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip())
+        break
+
+
+_load_env_file()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 INSTANCE_DIR = Path(os.environ.get("TO_INSTANCE_DIR", BASE_DIR / "instance"))

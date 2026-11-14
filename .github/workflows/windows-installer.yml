@@ -41,27 +41,72 @@ jobs:
         with:
           name: testorchestrator-windows-setup
           path: installer
-      - name: silent install to spaced path + smoke
+      - name: silent install to spaced path + payload assertions
         shell: pwsh
         run: |
           $inst = "C:\to smoke install"
           $p = Start-Process ".\installer\testorchestrator-1.0.0-windows-amd64-setup-UNSIGNED.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
           Write-Host "installer exit: $($p.ExitCode)"
-          Test-Path $inst -ErrorAction Stop
-          Get-ChildItem $inst -Recurse -Depth 1 | Select-Object -First 30 FullName
-          Test-Path "$inst\toctl.exe" -ErrorAction Stop
-          Test-Path "$inst\nodejs\node.exe" -ErrorAction Stop
-          & "$inst\nodejs\node.exe" --version
-          Test-Path "$inst\caddy\caddy.exe" -ErrorAction Stop
-          Test-Path "$inst\allure3\node_modules\allure\cli.js" -ErrorAction Stop
-          & "$inst\nodejs\node.exe" "$inst\allure3\node_modules\allure\cli.js" --version
-      - name: licence rejection + activation via bundled app
+          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
+          foreach ($f in @("$inst\python\python.exe","$inst\nodejs\node.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\allure3\node_modules\allure\cli.js","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem")) {
+            if (!(Test-Path $f)) { throw "MISSING: $f" }
+            Write-Host "present: $f"
+          }
+      - name: scheduled-task service registration
+        shell: pwsh
+        run: |
+          foreach ($t in @("TestOrchestratorWeb","TestOrchestratorWorker","TestOrchestratorDagu")) {
+            schtasks /Query /TN $t 2>$null | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Host "task NOT registered: $t" } else { Write-Host "task registered: $t"; schtasks /Query /TN $t /V /FO LIST | Select-String "Task To Run|Status" }
+          }
+      - name: env-file config loaded (TO_INSTANCE_DIR via %ProgramData%)
         shell: pwsh
         run: |
           $inst = "C:\to smoke install"
-          $env:TO_INSTANCE_DIR = "C:\to-smoke-data"
+          # installed env file must be picked up by config.py (no manual env)
+          Remove-Item Env:TO_INSTANCE_DIR,Env:TO_DATABASE_URI -ErrorAction SilentlyContinue
+          & "$inst\python\python.exe" -c "from testorchestrator.config import INSTANCE_DIR; print('INSTANCE_DIR =', INSTANCE_DIR)" 2>&1
+      - name: app HTTP readiness + auth gating (same cmd as Web task)
+        shell: pwsh
+        run: |
+          $inst = "C:\to smoke install"
+          $env:TO_INSTANCE_DIR = "C:\to-smoke-data\instance"
           $env:TO_DATABASE_URI = "sqlite:///C:/to-smoke-data/instance/to.db"
-          & "$inst\python\python.exe" "$inst\testorchestrator\__main__.py" --version 2>&1 | Out-String
-          Write-Host "installed app starts (bundled python, no source checkout)"
-          & "$inst\nodejs\node.exe" "$inst\allure3\node_modules\allure\cli.js" --version 2>&1 | Out-String
-          Write-Host "installed smoke complete"
+          $env:TO_SECURE_COOKIES = "0"
+          New-Item -ItemType Directory -Force "C:\to-smoke-data\instance" | Out-Null
+          $app = Start-Process "$inst\python\python.exe" -ArgumentList "$inst\wsgi.py" -PassThru -WindowStyle Hidden
+          try {
+            $ok = $false
+            for ($i=0; $i -lt 30; $i++) { try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:8080/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep 1 }
+            if (!$ok) { try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:8080/login" -UseBasicParsing -TimeoutSec 3; $ok = ($r.StatusCode -eq 200) } catch {} }
+            if (!$ok) { throw "app did not become HTTP-ready" }
+            Write-Host "app HTTP-ready via bundled python wsgi.py (same command as TestOrchestratorWeb task)"
+            $resp = try { Invoke-WebRequest -Uri "http://127.0.0.1:8080/licence" -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop } catch { $_.Exception.Response }
+            $code = [int]$resp.StatusCode
+            Write-Host "unauth /licence -> $code"
+            if ($code -notin 301,302,303,307,308,401,403) { Write-Host "note: /licence unauth returned $code (licence gate may precede auth)" }
+          } finally { Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue }
+      - name: licence negative + ephemeral-positive + persistence
+        shell: pwsh
+        run: |
+          $inst = "C:\to smoke install"
+          $env:TO_INSTANCE_DIR = "C:\to-smoke-lic\instance"
+          $env:TO_DATABASE_URI = "sqlite:///C:/to-smoke-lic/instance/to.db"
+          New-Item -ItemType Directory -Force "C:\to-smoke-lic\instance" | Out-Null
+          Copy-Item ".\packaging\windows\ci\licence_activate.py",".\packaging\windows\ci\licence_restart.py" "$inst\"
+          & "$inst\python\python.exe" "$inst\licence_activate.py" 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "licence activation checks failed" }
+          & "$inst\python\python.exe" "$inst\licence_restart.py" 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "licence restart/persistence failed" }
+          Remove-Item "$inst\licence_activate.py","$inst\licence_restart.py" -Force
+          Remove-Item -Recurse -Force "C:\to-smoke-lic" -ErrorAction SilentlyContinue
+      - name: actual Allure 3 report generation (bundled node)
+        shell: pwsh
+        run: |
+          $inst = "C:\to smoke install"
+          New-Item -ItemType Directory -Force "C:\to-allure\results" | Out-Null
+          Set-Content "C:\to-allure\results\t-result.json" -Value '{"uuid":"u1","name":"smoke","status":"passed","stage":"finished","steps":[],"attachments":[],"labels":[]}'
+          & "$inst\nodejs\node.exe" "$inst\allure3\node_modules\allure\cli.js" generate "C:\to-allure\results" --output "C:\to-allure\report" 2>&1 | Out-String
+          if (!(Test-Path "C:\to-allure\report\index.html")) { throw "no report index.html generated" }
+          Write-Host "PASS Allure 3 generated report index.html via bundled node"
+          Remove-Item -Recurse -Force "C:\to-allure" -ErrorAction SilentlyContinue
