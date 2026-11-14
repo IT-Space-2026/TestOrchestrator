@@ -77,6 +77,10 @@ jobs:
           $env:TO_DATABASE_URI = "sqlite:///C:/to-smoke-data/instance/to.db"
           $env:TO_SECURE_COOKIES = "0"
           New-Item -ItemType Directory -Force "C:\to-smoke-data\instance" | Out-Null
+          Push-Location $inst
+          & "$inst\python\python.exe" -m testorchestrator db-upgrade 2>&1 | Select-Object -Last 10
+          if ($LASTEXITCODE -ne 0) { throw "db-upgrade failed" }
+          Pop-Location
           $warg = '"' + $inst + '\wsgi.py"'
           $app = Start-Process "$inst\python\python.exe" -ArgumentList $warg -PassThru -WindowStyle Hidden -RedirectStandardError "C:\to-smoke-data\app.err" -RedirectStandardOutput "C:\to-smoke-data\app.out"
           try {
