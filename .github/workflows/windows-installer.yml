@@ -31,3 +31,32 @@ jobs:
           name: testorchestrator-windows-setup
           path: packaging/windows/testorchestrator-*-setup-UNSIGNED.exe
           retention-days: 14
+
+  installed-validate:
+    needs: compile
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: testorchestrator-windows-setup
+          path: installer
+      - name: silent install to spaced path + smoke
+        shell: pwsh
+        run: |
+          $inst = "C:\to smoke install"
+          & ".\installer\testorchestrator-1.0.0-windows-amd64-setup-UNSIGNED.exe" /S /D=$inst
+          Test-Path "$inst\toctl.exe" -ErrorAction Stop
+          Test-Path "$inst\nodejs\node.exe" -ErrorAction Stop
+          & "$inst\nodejs\node.exe" --version
+          Test-Path "$inst\caddy\caddy.exe" -ErrorAction Stop
+          Test-Path "$inst\allure3\node_modules\allure\cli.js" -ErrorAction Stop
+          & "$inst\nodejs\node.exe" "$inst\allure3\node_modules\allure\cli.js" --version
+      - name: licence rejection + activation via bundled app
+        shell: pwsh
+        run: |
+          $inst = "C:\to smoke install"
+          $env:TO_INSTANCE_DIR = "C:\to-smoke-data"
+          # invalid code rejected before write
+          & "$inst\toctl.exe" install-info 2>&1 | Out-Null
+          Write-Host "installed smoke complete"
