@@ -48,7 +48,7 @@ jobs:
           $p = Start-Process ".\installer\testorchestrator-1.0.0-windows-amd64-setup-UNSIGNED.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
           Write-Host "installer exit: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
-          foreach ($f in @("$inst\python\python.exe","$inst\nodejs\node.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\allure3\node_modules\allure\cli.js","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem")) {
+          foreach ($f in @("$inst\python\python.exe","$inst\nodejs\node.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\allure3\node_modules\allure\cli.js","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem","$inst\run_worker.py")) {
             if (!(Test-Path $f)) { throw "MISSING: $f" }
             Write-Host "present: $f"
           }
@@ -63,9 +63,12 @@ jobs:
         shell: pwsh
         run: |
           $inst = "C:\to smoke install"
-          # installed env file must be picked up by config.py (no manual env)
+          # installed env file must be picked up by config.py (no manual env);
+          # run from $inst so the payload root is on sys.path
           Remove-Item Env:TO_INSTANCE_DIR,Env:TO_DATABASE_URI -ErrorAction SilentlyContinue
+          Push-Location $inst
           & "$inst\python\python.exe" -c "from testorchestrator.config import INSTANCE_DIR; print('INSTANCE_DIR =', INSTANCE_DIR)" 2>&1
+          Pop-Location
       - name: app HTTP readiness + auth gating (same cmd as Web task)
         shell: pwsh
         run: |

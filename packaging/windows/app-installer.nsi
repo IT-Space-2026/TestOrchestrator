@@ -55,20 +55,23 @@ Section "Install TestOrchestrator" SecMain
     FileWrite $0 "TO_PORT=$ORCH_PORT$\r$\n"
     FileClose $0
 
-    ; wire vendored site-packages into the embeddable runtime
+    ; wire vendored site-packages into the embeddable runtime —
+    ; ._pth entries resolve relative to the python dir, and wheels are
+    ; extracted to $INSTDIR\site-packages
     FileOpen $1 "$INSTDIR\python\python312._pth" a
     FileSeek $1 0 END
-    FileWrite $1 "site-packages$\r$\n"
+    FileWrite $1 "..\site-packages$\r$\n"
+    FileWrite $1 "..$\r$\n"
     FileClose $1
     ; git is not bundled: default backend is Dulwich (no executable);
     ; TO_GIT_BACKEND=cli needs a separately installed Git.
-    nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\testorchestrator\__main__.py" --bootstrap-check'
+    nsExec::ExecToLog '"$INSTDIR\python\python.exe" -m testorchestrator db-upgrade'
     Pop $0
 
     ; scheduled tasks for web + worker + dagu coordinator
     nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWeb" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python\python.exe\" \"$INSTDIR\wsgi.py\""'
     Pop $0
-    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python\python.exe\" -m flask worker"'
+    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python\python.exe\" \"$INSTDIR\run_worker.py\""'
     Pop $0
     nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorDagu" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\dagu\dagu.exe\" start-all --host 127.0.0.1"'
     Pop $0
