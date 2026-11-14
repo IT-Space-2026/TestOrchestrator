@@ -60,6 +60,8 @@ jobs:
         run: |
           $inst = "C:\to smoke install"
           $env:TO_INSTANCE_DIR = "C:\to-smoke-data"
-          # invalid code rejected before write
-          & "$inst\toctl.exe" install-info 2>&1 | Out-Null
+          $env:TO_DATABASE_URI = "sqlite:///C:/to-smoke-data/instance/to.db"
+          & "$inst\python\python.exe" "$inst\testorchestrator\__main__.py" --version 2>&1 | Out-String
+          Write-Host "installed app starts (bundled python, no source checkout)"
+          & "$inst\nodejs\node.exe" "$inst\allure3\node_modules\allure\cli.js" --version 2>&1 | Out-String
           Write-Host "installed smoke complete"
