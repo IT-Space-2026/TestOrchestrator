@@ -6,6 +6,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: provision gitignored deps
+        shell: bash
+        run: |
+          bash scripts/fetch_dagu.sh
+          if [ ! -d 3rdparty/allure3/node_modules ]; then
+            cd 3rdparty/allure3 && npm ci --omit=dev 2>&1 | tail -3 || \
+              npm install --omit=dev 2>&1 | tail -3; cd "$OLDPWD"
+          fi
       - name: build payload + compile installer
         shell: bash
         run: |
