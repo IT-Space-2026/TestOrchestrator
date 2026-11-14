@@ -33,7 +33,7 @@ cp -r "$REPO/testorchestrator" "$REPO/migrations" "$REPO/wsgi.py" \
       "$REPO/requirements.txt" "$REPO/release" "$REPO/deploy" app-payload/
 # python packages for win_amd64 — vendored, NOT a bootstrap download:
 # install-time wheels land in site-packages wired via python312._pth.
-"$REPO/.venv/bin/pip" download --platform win_amd64 --only-binary=:all: \
+${PIP:-python -m pip} download --platform win_amd64 --only-binary=:all: \
     --python-version 3.12 -r "$REPO/requirements.txt" \
     -d app-payload/wheels
 mkdir -p app-payload/site-packages
