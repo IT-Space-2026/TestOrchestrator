@@ -45,8 +45,7 @@ jobs:
         shell: pwsh
         run: |
           $inst = "C:\to smoke install"
-          $p = Start-Process ".\installer\testorchestrator-1.0.0-windows-amd64-setup-UNSIGNED.exe" \
-            -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          $p = Start-Process ".\installer\testorchestrator-1.0.0-windows-amd64-setup-UNSIGNED.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
           Write-Host "installer exit: $($p.ExitCode)"
           Test-Path $inst -ErrorAction Stop
           Get-ChildItem $inst -Recurse -Depth 1 | Select-Object -First 30 FullName
