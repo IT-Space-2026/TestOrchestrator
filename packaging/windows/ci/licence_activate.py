@@ -53,7 +53,7 @@ with app.app_context():
     ok, msg = L.add(make(priv, "ci", "2099-01-01T00:00:00+00:00"))
     assert ok, "valid ephemeral code rejected: " + msg
     print("PASS ephemeral valid licence activated")
-    st, _ = L.current_status()
+    st = L.current_status()[0]
     assert st == "valid", st
     print("PASS current_status = valid")
 

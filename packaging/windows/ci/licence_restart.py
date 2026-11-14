@@ -17,6 +17,6 @@ with app.app_context():
         password=None)
     L.register_key("ci", priv.public_key().public_bytes(
         Encoding.PEM, PublicFormat.SubjectPublicKeyInfo))
-    st, _ = L.current_status()
+    st = L.current_status()[0]
     assert st == "valid", "stored licence not valid after restart: " + st
     print("PASS persistence + re-verification after restart: status =", st)
