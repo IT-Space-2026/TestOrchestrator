@@ -77,7 +77,8 @@ jobs:
           $env:TO_DATABASE_URI = "sqlite:///C:/to-smoke-data/instance/to.db"
           $env:TO_SECURE_COOKIES = "0"
           New-Item -ItemType Directory -Force "C:\to-smoke-data\instance" | Out-Null
-          $app = Start-Process "$inst\python\python.exe" -ArgumentList "\"$inst\wsgi.py\"" -PassThru -WindowStyle Hidden -RedirectStandardError "C:\to-smoke-data\app.err" -RedirectStandardOutput "C:\to-smoke-data\app.out"
+          $warg = '"' + $inst + '\wsgi.py"'
+          $app = Start-Process "$inst\python\python.exe" -ArgumentList $warg -PassThru -WindowStyle Hidden -RedirectStandardError "C:\to-smoke-data\app.err" -RedirectStandardOutput "C:\to-smoke-data\app.out"
           try {
             $ok = $false
             for ($i=0; $i -lt 30; $i++) { try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:18080/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep 1 }
