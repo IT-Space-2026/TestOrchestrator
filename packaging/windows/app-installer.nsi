@@ -17,6 +17,8 @@ Var /GLOBAL ORCH_PORT
 Var /GLOBAL PUBLIC_ADDR
 
 !include "MUI2.nsh"
+!define MUI_ICON "it.ico"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "wizard.bmp"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_UNPAGE_CONFIRM

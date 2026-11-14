@@ -15,6 +15,8 @@ set -eu
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
+echo "IT-Space TestOrchestrator installer" >&2
+
 fail() { echo "install.sh: $*" >&2; exit "${2:-1}"; }
 
 [ "$(uname -s)" = "Linux" ] || fail "unsupported OS: $(uname -s) (package targets Linux)"
