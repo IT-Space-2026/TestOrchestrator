@@ -17,6 +17,9 @@ jobs:
             cd 3rdparty/allure3 && npm ci --omit=dev 2>&1 | tail -3 || \
               npm install --omit=dev 2>&1 | tail -3; cd "$OLDPWD"
           fi
+      - name: install nsis
+        shell: pwsh
+        run: choco install nsis -y --no-progress
       - name: build payload + compile installer
         shell: bash
         run: |
