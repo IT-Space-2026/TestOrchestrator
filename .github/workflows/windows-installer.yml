@@ -46,6 +46,8 @@ jobs:
         run: |
           $inst = "C:\to smoke install"
           & ".\installer\testorchestrator-1.0.0-windows-amd64-setup-UNSIGNED.exe" /S /D=$inst
+          Start-Sleep -Seconds 15
+          Get-ChildItem $inst -Recurse -Depth 1 | Select-Object -First 30 FullName
           Test-Path "$inst\toctl.exe" -ErrorAction Stop
           Test-Path "$inst\nodejs\node.exe" -ErrorAction Stop
           & "$inst\nodejs\node.exe" --version
