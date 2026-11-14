@@ -21,10 +21,10 @@ def b64(b):
     return base64.urlsafe_b64encode(b).decode().rstrip("=")
 
 
-def make(priv, kid, until):
+def make(priv, kid, until, start="2020-01-01T00:00:00+00:00"):
     p = {"version": 1, "key_id": kid, "licence_id": "ci-lic",
          "product": "TestOrchestrator", "customer": "CI",
-         "valid_from": "2020-01-01T00:00:00+00:00", "valid_until": until}
+         "valid_from": start, "valid_until": until}
     canon = json.dumps(p, sort_keys=True, separators=(",", ":")).encode()
     return "TO1." + b64(canon) + "." + b64(priv.sign(canon))
 
@@ -58,7 +58,7 @@ with app.app_context():
     print("PASS current_status = valid")
 
     # expired: signature ok but classified expired
-    pe = L.parse(make(priv, "ci", "2001-01-01T00:00:00+00:00"))
+    pe = L.parse(make(priv, "ci", "2021-01-01T00:00:00+00:00"))
     assert not isinstance(pe, str), "expired code failed signature/parse"
     s, _ = L.status([pe])
     assert s == "expired", s
