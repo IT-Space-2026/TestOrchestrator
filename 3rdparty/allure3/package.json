@@ -1,0 +1,2 @@
+{"name":"testorchestrator-allure3","version":"1.0.0","private":true,
+ "dependencies":{"allure":"3.33.0"}}
