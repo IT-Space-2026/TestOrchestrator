@@ -26,7 +26,7 @@ fetch "https://nodejs.org/dist/v26.13.1/node-v26.13.1-win-x64.zip" \
 unzip -q -o /tmp/node-win.zip -d app-payload/nodejs && \
     mv app-payload/nodejs/node-v26.13.1-win-x64/* app-payload/nodejs/ && \
     rmdir app-payload/nodejs/node-v26.13.1-win-x64
-fetch "https://github.com/caddyserver/caddy/releases/download/v2.9.1/caddy_2.11.9_windows_amd64.zip" \
+fetch "https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11.9_windows_amd64.zip" \
       "/tmp/caddy-win.zip" "$SHA_CAD"
 unzip -q -o /tmp/caddy-win.zip -d app-payload/caddy
 cp -r "$REPO/testorchestrator" "$REPO/migrations" "$REPO/wsgi.py" \
