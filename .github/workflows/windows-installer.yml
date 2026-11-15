@@ -257,4 +257,4 @@ jobs:
             throw "/PURGE left data dir behind"
           }
           Write-Host "PASS uninstall(purge): data dir removed"
-          Remove-Item "HKLM:\SOFTWARE\Microsoft\SystemCertificates\Root\Certificates\$($foreign.Thumbprint)" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "HKLM:\SOFTWARE\Microsoft\SystemCertificates\Root\Certificates\$($foreign.Thumbprint)" -Recurse -Force -ErrorAction Ignore
