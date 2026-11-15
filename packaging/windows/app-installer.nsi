@@ -81,11 +81,11 @@ Section "Install TestOrchestrator" SecMain
     ; appends output to $DATA_DIR\logs (the journald equivalent)
     FileOpen $0 "$DATA_DIR\run_web.cmd" w
     FileWrite $0 "@echo off$\r$\n"
-    FileWrite $0 '"$INSTDIR\python\python.exe" "$INSTDIR\wsgi.py" >> "$DATA_DIR\logs\web.log" 2>&1$\r$\n'
+    FileWrite $0 '"$INSTDIR\python\python.exe" -u "$INSTDIR\wsgi.py" >> "$DATA_DIR\logs\web.log" 2>&1$\r$\n'
     FileClose $0
     FileOpen $0 "$DATA_DIR\run_worker.cmd" w
     FileWrite $0 "@echo off$\r$\n"
-    FileWrite $0 '"$INSTDIR\python\python.exe" "$INSTDIR\run_worker.py" >> "$DATA_DIR\logs\worker.log" 2>&1$\r$\n'
+    FileWrite $0 '"$INSTDIR\python\python.exe" -u "$INSTDIR\run_worker.py" >> "$DATA_DIR\logs\worker.log" 2>&1$\r$\n'
     FileClose $0
     FileOpen $0 "$DATA_DIR\run_dagu.cmd" w
     FileWrite $0 "@echo off$\r$\n"
