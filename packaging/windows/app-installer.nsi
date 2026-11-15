@@ -126,14 +126,16 @@ Section "Install TestOrchestrator" SecMain
     ; uninstaller (temp-copy or _?=) silently no-ops in headless/Session-0
     ; contexts, so the wrapper performs the same steps deterministically.
     ; It first self-relocates to %TEMP%: PURGE must delete $DATA_DIR,
-    ; which cannot be removed while the running .cmd lives inside it.
+    ; which cannot be removed while the running .cmd lives inside it —
+    ; the temp copy then purges synchronously (detached 'start' is not
+    ; reliable in headless/Session-0 contexts).
     ; Interactive uninstall via uninstall.exe / Add-Remove remains the
     ; desktop path.
     FileOpen $0 "$DATA_DIR\uninstall_to.cmd" w
     FileWrite $0 "@echo off$\r$\n"
-    FileWrite $0 'if /i "%~f0"=="%TEMP%\to-uninstall.cmd" goto :run$\r$\n'
+    FileWrite $0 'if "%~1"=="/IN-TEMP" goto :run$\r$\n'
     FileWrite $0 'copy /y "%~f0" "%TEMP%\to-uninstall.cmd" >nul$\r$\n'
-    FileWrite $0 '"%TEMP%\to-uninstall.cmd" %*$\r$\n'
+    FileWrite $0 '"%TEMP%\to-uninstall.cmd" /IN-TEMP %*$\r$\n'
     FileWrite $0 "exit /b$\r$\n"
     FileWrite $0 ":run$\r$\n"
     FileWrite $0 'call "$DATA_DIR\untrust_caddy.cmd"$\r$\n'
@@ -143,7 +145,8 @@ Section "Install TestOrchestrator" SecMain
     FileWrite $0 'schtasks /Delete /TN "TestOrchestratorDagu" /F$\r$\n'
     FileWrite $0 'schtasks /Delete /TN "TestOrchestratorCaddy" /F$\r$\n'
     FileWrite $0 'rmdir /s /q "$INSTDIR"$\r$\n'
-    FileWrite $0 'if /i "%~1"=="/PURGEDATA=1" start "" cmd /c "ping -n 4 127.0.0.1 >nul & rmdir /s /q $DATA_DIR & ping -n 4 127.0.0.1 >nul & rmdir /s /q $DATA_DIR & del /f /q %TEMP%\to-uninstall.cmd"$\r$\n'
+    FileWrite $0 'if /i "%~2"=="/PURGEDATA=1" rmdir /s /q "$DATA_DIR"$\r$\n'
+    FileWrite $0 'del /f /q "%TEMP%\to-uninstall.cmd"$\r$\n'
     FileClose $0
     FileOpen $0 "$DATA_DIR\untrust_caddy.cmd" w
     FileWrite $0 "@echo off$\r$\n"
