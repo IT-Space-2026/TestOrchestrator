@@ -194,7 +194,12 @@ jobs:
           $data = "C:\ProgramData\TestOrchestrator"
           $setup = ".\installer\testorchestrator-1.0.0-windows-amd64-setup-UNSIGNED.exe"
           # foreign CA + stray python must survive OUR lifecycle operations
-          $foreign = New-SelfSignedCertificate -Subject "CN=Caddy Local Authority - foreign-test" -CertStoreLocation Cert:\LocalMachine\Root -KeyExportPolicy NonExportable
+          # self-signed certs generate in My (a key store); the public
+          # cert is then imported into Root as a foreign trusted CA
+          $f0 = New-SelfSignedCertificate -Subject "CN=Caddy Local Authority - foreign-test" -CertStoreLocation Cert:\LocalMachine\My -KeyExportPolicy NonExportable
+          Export-Certificate -Cert $f0 -FilePath .\foreign-ca.cer | Out-Null
+          Import-Certificate -FilePath .\foreign-ca.cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+          $foreign = Get-Item Cert:\LocalMachine\Root\$($f0.Thumbprint)
           $stray = Start-Process python -ArgumentList '-c','import time;time.sleep(600)' -PassThru -ErrorAction Stop
           $thumb1 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" -and $_.Thumbprint -ne $foreign.Thumbprint }).Thumbprint
           if (!$thumb1) { throw "our CA thumbprint not found pre-upgrade" }
