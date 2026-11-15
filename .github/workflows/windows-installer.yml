@@ -195,7 +195,7 @@ jobs:
           $setup = ".\installer\testorchestrator-1.0.0-windows-amd64-setup-UNSIGNED.exe"
           # registered uninstall entry points must exist and point at supported flows
           $arp = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator' -ErrorAction Stop
-          if ($arp.UninstallString -ne "$inst\uninstall.exe") { throw "UninstallString wrong: $($arp.UninstallString)" }
+          if ($arp.UninstallString -ne "`"$inst\uninstall.exe`"") { throw "UninstallString wrong: $($arp.UninstallString)" }
           if ($arp.QuietUninstallString -notlike "*uninstall_to.cmd*") { throw "QuietUninstallString wrong/missing: $($arp.QuietUninstallString)" }
           Write-Host "PASS ARP registration: UninstallString=$($arp.UninstallString) Quiet=$($arp.QuietUninstallString)"
           # foreign CA + stray python must survive OUR lifecycle operations
