@@ -1239,7 +1239,13 @@ def worker_once() -> int:
 
 def worker_loop(interval: float = 2.0) -> None:
     while True:
-        worker_once()
+        try:
+            worker_once()
+        finally:
+            # Release the session/transaction every cycle — a left-open
+            # transaction holds the SQLite write lock and starves the
+            # web app's request-time provisioning writes.
+            db.session.remove()
         time.sleep(interval)
 
 
