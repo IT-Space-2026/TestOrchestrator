@@ -55,10 +55,16 @@ jobs:
       - name: scheduled-task service registration
         shell: pwsh
         run: |
-          foreach ($t in @("TestOrchestratorWeb","TestOrchestratorWorker","TestOrchestratorDagu")) {
+          foreach ($t in @("TestOrchestratorWeb","TestOrchestratorWorker","TestOrchestratorDagu","TestOrchestratorCaddy")) {
             schtasks /Query /TN $t 2>$null | Out-Null
-            if ($LASTEXITCODE -ne 0) { Write-Host "task NOT registered: $t" } else { Write-Host "task registered: $t"; schtasks /Query /TN $t /V /FO LIST | Select-String "Task To Run|Status" }
+            if ($LASTEXITCODE -ne 0) { throw "task NOT registered: $t" }
+            Write-Host "task registered: $t"; schtasks /Query /TN $t /V /FO LIST | Select-String "Task To Run|Status|Last Result"
           }
+          # installer must have started the tasks (no reboot required)
+          $status = schtasks /Query /TN "TestOrchestratorWeb" /FO LIST | Select-String "Status:"
+          Write-Host "Web task status post-install: $status"
+          Test-Path "C:\ProgramData\TestOrchestrator\Caddyfile" -ErrorAction Stop
+          Test-Path "C:\ProgramData\TestOrchestrator\run_dagu.cmd" -ErrorAction Stop
       - name: env-file config loaded (TO_INSTANCE_DIR via %ProgramData%)
         shell: pwsh
         run: |
@@ -69,31 +75,28 @@ jobs:
           Push-Location $inst
           & "$inst\python\python.exe" -c "from testorchestrator.config import INSTANCE_DIR; print('INSTANCE_DIR =', INSTANCE_DIR)" 2>&1
           Pop-Location
-      - name: app HTTP readiness + auth gating (same cmd as Web task)
+      - name: task-run readiness via schtasks
         shell: pwsh
         run: |
-          $inst = "C:\to smoke install"
-          $env:TO_INSTANCE_DIR = "C:\to-smoke-data\instance"
-          $env:TO_DATABASE_URI = "sqlite:///C:/to-smoke-data/instance/to.db"
-          $env:TO_SECURE_COOKIES = "0"
-          New-Item -ItemType Directory -Force "C:\to-smoke-data\instance" | Out-Null
-          Push-Location $inst
-          & "$inst\python\python.exe" -m testorchestrator db-upgrade 2>&1 | Select-Object -Last 10
-          if ($LASTEXITCODE -ne 0) { throw "db-upgrade failed" }
-          Pop-Location
-          $warg = '"' + $inst + '\wsgi.py"'
-          $app = Start-Process "$inst\python\python.exe" -ArgumentList $warg -PassThru -WindowStyle Hidden -RedirectStandardError "C:\to-smoke-data\app.err" -RedirectStandardOutput "C:\to-smoke-data\app.out"
-          try {
-            $ok = $false
-            for ($i=0; $i -lt 30; $i++) { try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:18080/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep 1 }
-            if (!$ok) { try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:18080/login" -UseBasicParsing -TimeoutSec 3; $ok = ($r.StatusCode -eq 200) } catch {} }
-            if (!$ok) { Get-Content "C:\to-smoke-data\app.err" -ErrorAction SilentlyContinue | Select-Object -Last 30; throw "app did not become HTTP-ready" }
-            Write-Host "app HTTP-ready via bundled python wsgi.py (same command as TestOrchestratorWeb task)"
-            $resp = try { Invoke-WebRequest -Uri "http://127.0.0.1:18080/licence" -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop } catch { $_.Exception.Response }
-            $code = [int]$resp.StatusCode
-            Write-Host "unauth /licence -> $code"
-            if ($code -notin 301,302,303,307,308,401,403) { Write-Host "note: /licence unauth returned $code (licence gate may precede auth)" }
-          } finally { Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue }
+          # the installer already started the tasks; bounce Web via Task
+          # Scheduler to prove the real delivery mechanism (not a manual launch)
+          schtasks /End /TN "TestOrchestratorWeb" 2>$null | Out-Null; Start-Sleep 2
+          schtasks /Run /TN "TestOrchestratorWeb" | Out-Null
+          $ok = $false
+          for ($i=0; $i -lt 40; $i++) { try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:18080/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep 1 }
+          if (!$ok) { Get-Content "C:\ProgramData\TestOrchestrator\logs\*" -ErrorAction SilentlyContinue | Select-Object -Last 20; throw "web task did not become HTTP-ready" }
+          Write-Host "PASS Web task serves :18080 via schtasks (ProgramData env file, no manual env)"
+          # Dagu coordinator health on provisioned port 29877
+          $dok = $false
+          for ($i=0; $i -lt 20; $i++) { try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:29877/api/v1/dags" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; $dok=$true; break } catch {}; Start-Sleep 1 }
+          if (!$dok) { Write-Host "dagu health endpoint not yet reachable (auth may reject anonymous probe — checking port)"; $l = Get-NetTCPConnection -LocalPort 29877 -State Listen -ErrorAction SilentlyContinue; if (!$l) { throw "dagu task not listening on 29877" }; Write-Host "dagu listening on 29877 (auth-gated probe)" } else { Write-Host "PASS dagu API reachable on 29877" }
+          # Caddy HTTPS termination on :443 (internal CA — skip cert verify in CI)
+          $cok = $false
+          for ($i=0; $i -lt 20; $i++) { try { $r = Invoke-WebRequest -Uri "https://localhost/healthz" -UseBasicParsing -TimeoutSec 2 -SkipCertificateCheck -ErrorAction Stop; if ($r.StatusCode -eq 200) { $cok=$true; break } } catch {}; Start-Sleep 1 }
+          if (!$cok) { throw "caddy HTTPS not serving on :443" }
+          Write-Host "PASS caddy HTTPS :443 -> waitress (client-facing URL https://localhost/)"
+          $resp = try { Invoke-WebRequest -Uri "https://localhost/licence" -UseBasicParsing -MaximumRedirection 0 -SkipCertificateCheck -ErrorAction Stop } catch { $_.Exception.Response }
+          Write-Host "unauth /licence via caddy -> $([int]$resp.StatusCode)"
       - name: licence negative + ephemeral-positive + persistence
         shell: pwsh
         run: |

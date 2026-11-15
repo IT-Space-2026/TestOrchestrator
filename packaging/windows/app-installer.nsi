@@ -68,12 +68,41 @@ Section "Install TestOrchestrator" SecMain
     nsExec::ExecToLog '"$INSTDIR\python\python.exe" -m testorchestrator db-upgrade'
     Pop $0
 
-    ; scheduled tasks for web + worker + dagu coordinator
+    ; Caddy reverse proxy config (HTTPS :443, redirect-only HTTP :8080 —
+    ; env placeholders carry localhost + tls-internal defaults)
+    CopyFiles "$INSTDIR\deploy\Caddyfile" "$DATA_DIR\Caddyfile"
+
+    ; Dagu coordinator provisioning (dirs, basic-auth server.yaml,
+    ; workflow) — mirrors scripts/install.py on Linux
+    nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\provision_dagu.py" --home "$DATA_DIR\dagu" --config "$DATA_DIR\dagu-cfg" --binary "$INSTDIR\dagu\dagu.exe"'
+    Pop $0
+    ; task-friendly launcher: DAGU_HOME + flags (Task Scheduler sets
+    ; no env or working directory)
+    FileOpen $0 "$DATA_DIR\run_dagu.cmd" w
+    FileWrite $0 "@echo off$\r$\n"
+    FileWrite $0 "set DAGU_HOME=$DATA_DIR\dagu$\r$\n"
+    FileWrite $0 '"$INSTDIR\dagu\dagu.exe" start-all --port 29877 --config "$DATA_DIR\dagu-cfg\server.yaml" --dags "$DATA_DIR\dagu\dags"$\r$\n'
+    FileClose $0
+
+    ; scheduled tasks for web + worker + dagu + caddy (start at boot)
     nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWeb" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python\python.exe\" \"$INSTDIR\wsgi.py\""'
     Pop $0
     nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python\python.exe\" \"$INSTDIR\run_worker.py\""'
     Pop $0
-    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorDagu" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\dagu\dagu.exe\" start-all --host 127.0.0.1"'
+    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorDagu" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$DATA_DIR\run_dagu.cmd\""'
+    Pop $0
+    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorCaddy" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\caddy\caddy.exe\" run --config \"$DATA_DIR\Caddyfile\" --adapter caddyfile"'
+    Pop $0
+
+    ; start now — the app is usable immediately after install,
+    ; no reboot required
+    nsExec::ExecToLog 'schtasks /Run /TN "TestOrchestratorWeb"'
+    Pop $0
+    nsExec::ExecToLog 'schtasks /Run /TN "TestOrchestratorWorker"'
+    Pop $0
+    nsExec::ExecToLog 'schtasks /Run /TN "TestOrchestratorDagu"'
+    Pop $0
+    nsExec::ExecToLog 'schtasks /Run /TN "TestOrchestratorCaddy"'
     Pop $0
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -85,9 +114,11 @@ Section "Uninstall"
     nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorWeb"'
     nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorWorker"'
     nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorDagu"'
+    nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorCaddy"'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorWeb" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorWorker" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorDagu" /F'
+    nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorCaddy" /F'
     RMDir /r "$INSTDIR"
     MessageBox MB_YESNO "Also delete configuration, database, and workspaces in $DATA_DIR?" /SD IDNO IDNO keepData
         RMDir /r "$DATA_DIR"
