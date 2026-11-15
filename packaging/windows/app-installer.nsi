@@ -76,22 +76,35 @@ Section "Install TestOrchestrator" SecMain
     ; workflow) — mirrors scripts/install.py on Linux
     nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\provision_dagu.py" --home "$DATA_DIR\dagu" --config "$DATA_DIR\dagu-cfg" --binary "$INSTDIR\dagu\dagu.exe"'
     Pop $0
-    ; task-friendly launcher: DAGU_HOME + flags (Task Scheduler sets
-    ; no env or working directory)
+    ; task-friendly launchers: Task Scheduler sets no env, working
+    ; directory, or stdout capture — wrap each service in a .cmd that
+    ; appends output to $DATA_DIR\logs (the journald equivalent)
+    FileOpen $0 "$DATA_DIR\run_web.cmd" w
+    FileWrite $0 "@echo off$\r$\n"
+    FileWrite $0 '"$INSTDIR\python\python.exe" "$INSTDIR\wsgi.py" >> "$DATA_DIR\logs\web.log" 2>&1$\r$\n'
+    FileClose $0
+    FileOpen $0 "$DATA_DIR\run_worker.cmd" w
+    FileWrite $0 "@echo off$\r$\n"
+    FileWrite $0 '"$INSTDIR\python\python.exe" "$INSTDIR\run_worker.py" >> "$DATA_DIR\logs\worker.log" 2>&1$\r$\n'
+    FileClose $0
     FileOpen $0 "$DATA_DIR\run_dagu.cmd" w
     FileWrite $0 "@echo off$\r$\n"
     FileWrite $0 "set DAGU_HOME=$DATA_DIR\dagu$\r$\n"
-    FileWrite $0 '"$INSTDIR\dagu\dagu.exe" start-all --port 29877 --config "$DATA_DIR\dagu-cfg\server.yaml" --dags "$DATA_DIR\dagu\dags"$\r$\n'
+    FileWrite $0 '"$INSTDIR\dagu\dagu.exe" start-all --port 29877 --config "$DATA_DIR\dagu-cfg\server.yaml" --dags "$DATA_DIR\dagu\dags" >> "$DATA_DIR\logs\dagu.log" 2>&1$\r$\n'
+    FileClose $0
+    FileOpen $0 "$DATA_DIR\run_caddy.cmd" w
+    FileWrite $0 "@echo off$\r$\n"
+    FileWrite $0 '"$INSTDIR\caddy\caddy.exe" run --config "$DATA_DIR\Caddyfile" --adapter caddyfile >> "$DATA_DIR\logs\caddy.log" 2>&1$\r$\n'
     FileClose $0
 
     ; scheduled tasks for web + worker + dagu + caddy (start at boot)
-    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWeb" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python\python.exe\" \"$INSTDIR\wsgi.py\""'
+    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWeb" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$DATA_DIR\run_web.cmd\""'
     Pop $0
-    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python\python.exe\" \"$INSTDIR\run_worker.py\""'
+    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$DATA_DIR\run_worker.cmd\""'
     Pop $0
     nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorDagu" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$DATA_DIR\run_dagu.cmd\""'
     Pop $0
-    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorCaddy" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\caddy\caddy.exe\" run --config \"$DATA_DIR\Caddyfile\" --adapter caddyfile"'
+    nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorCaddy" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$DATA_DIR\run_caddy.cmd\""'
     Pop $0
 
     ; start now — the app is usable immediately after install,
