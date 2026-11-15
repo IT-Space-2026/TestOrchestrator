@@ -105,26 +105,38 @@ jobs:
             throw "installer-started web task never became HTTP-ready"
           }
           Write-Host "PASS Web task serves :18080 (started by installer, no reboot)"
-          schtasks /End /TN "TestOrchestratorWeb" 2>$null | Out-Null; Start-Sleep 3
-          # /End kills the .cmd wrapper; clear any orphaned child still bound
-          $cx = Get-NetTCPConnection -LocalPort 18080 -State Listen -ErrorAction SilentlyContinue
-          if ($cx) { Stop-Process -Id $cx[0].OwningProcess -Force -ErrorAction SilentlyContinue; Start-Sleep 2 }
+          # supported stop path: the product's own stop_to.cmd ends tasks
+          # AND reaps orphaned children (no harness-side reaping)
+          & "C:\ProgramData\TestOrchestrator\stop_to.cmd" 2>&1 | Out-Null; Start-Sleep 3
+          $still = Get-NetTCPConnection -LocalPort 18080 -State Listen -ErrorAction SilentlyContinue
+          if ($still) { throw "port 18080 still bound after product stop_to.cmd — orphaned child survived" }
+          Write-Host "PASS product stop_to.cmd reaps orphaned children"
+          # stop_to ends all four tasks — restart the full set for the
+          # remaining readiness checks
           schtasks /Run /TN "TestOrchestratorWeb" | Out-Null
+          schtasks /Run /TN "TestOrchestratorWorker" | Out-Null
+          schtasks /Run /TN "TestOrchestratorDagu" | Out-Null
+          schtasks /Run /TN "TestOrchestratorCaddy" | Out-Null
           $ok = $false
           for ($i=0; $i -lt 60; $i++) { try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:18080/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep 1 }
-          if (!$ok) { Get-Content "C:\ProgramData\TestOrchestrator\logs\web.log" -ErrorAction SilentlyContinue | Select-Object -Last 25; throw "web task did not recover after schtasks End/Run" }
-          Write-Host "PASS Web restart via schtasks /End + /Run"
+          if (!$ok) { Get-Content "C:\ProgramData\TestOrchestrator\logs\web.log" -ErrorAction SilentlyContinue | Select-Object -Last 25; throw "web task did not recover after stop_to.cmd + /Run" }
+          Write-Host "PASS Web restart via supported stop_to.cmd + schtasks /Run"
           # Dagu coordinator health on provisioned port 29877
           $dok = $false
           for ($i=0; $i -lt 20; $i++) { try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:29877/api/v1/dags" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; $dok=$true; break } catch {}; Start-Sleep 1 }
           if (!$dok) { Write-Host "dagu health endpoint not yet reachable (auth may reject anonymous probe — checking port)"; $l = Get-NetTCPConnection -LocalPort 29877 -State Listen -ErrorAction SilentlyContinue; if (!$l) { throw "dagu task not listening on 29877" }; Write-Host "dagu listening on 29877 (auth-gated probe)" } else { Write-Host "PASS dagu API reachable on 29877" }
-          # Caddy HTTPS termination on :443 (internal CA — skip cert verify in CI)
+          # Installer must have trusted the per-installation Caddy root CA
+          # in LocalMachine\Root — verify it landed, then validate HTTPS
+          # with REAL certificate trust (no -SkipCertificateCheck).
+          $ca = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" }
+          if (!$ca) { throw "Caddy root CA not in LocalMachine\Root — installer trust step failed" }
+          Write-Host "PASS installer trusted per-installation Caddy CA: $($ca.Subject) [$($ca.Thumbprint)]"
           $cok = $false
-          for ($i=0; $i -lt 20; $i++) { try { $r = Invoke-WebRequest -Uri "https://localhost/healthz" -UseBasicParsing -TimeoutSec 2 -SkipCertificateCheck -ErrorAction Stop; if ($r.StatusCode -eq 200) { $cok=$true; break } } catch {}; Start-Sleep 1 }
-          if (!$cok) { throw "caddy HTTPS not serving on :443" }
-          Write-Host "PASS caddy HTTPS :443 -> waitress (client-facing URL https://localhost/)"
-          $resp = try { Invoke-WebRequest -Uri "https://localhost/licence" -UseBasicParsing -MaximumRedirection 0 -SkipCertificateCheck -ErrorAction Stop } catch { $_.Exception.Response }
-          Write-Host "unauth /licence via caddy -> $([int]$resp.StatusCode)"
+          for ($i=0; $i -lt 20; $i++) { try { $r = Invoke-WebRequest -Uri "https://localhost/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $cok=$true; break } } catch {}; Start-Sleep 1 }
+          if (!$cok) { throw "caddy HTTPS on :443 did not pass REAL certificate validation" }
+          Write-Host "PASS caddy HTTPS :443 -> waitress, certificate-validated (https://localhost/)"
+          $resp = try { Invoke-WebRequest -Uri "https://localhost/licence" -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop } catch { $_.Exception.Response }
+          Write-Host "unauth /licence via caddy (cert-validated) -> $([int]$resp.StatusCode)"
       - name: licence negative + ephemeral-positive + persistence
         shell: pwsh
         run: |

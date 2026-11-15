@@ -94,7 +94,27 @@ Section "Install TestOrchestrator" SecMain
     FileClose $0
     FileOpen $0 "$DATA_DIR\run_caddy.cmd" w
     FileWrite $0 "@echo off$\r$\n"
+    ; pin Caddy storage under ProgramData — the per-installation local CA
+    ; then lives at a deterministic path for the SYSTEM-run instance
+    FileWrite $0 'set "APPDATA=$DATA_DIR\caddy-home"$\r$\n'
     FileWrite $0 '"$INSTDIR\caddy\caddy.exe" run --config "$DATA_DIR\Caddyfile" --adapter caddyfile >> "$DATA_DIR\logs\caddy.log" 2>&1$\r$\n'
+    FileClose $0
+    ; supported stop: end the tasks AND reap orphaned children —
+    ; schtasks /End alone kills only the .cmd host and leaves the
+    ; python/caddy/dagu children bound to their ports
+    FileOpen $0 "$DATA_DIR\stop_to.cmd" w
+    FileWrite $0 "@echo off$\r$\n"
+    FileWrite $0 'schtasks /End /TN "TestOrchestratorWeb"$\r$\n'
+    FileWrite $0 'schtasks /End /TN "TestOrchestratorWorker"$\r$\n'
+    FileWrite $0 'schtasks /End /TN "TestOrchestratorDagu"$\r$\n'
+    FileWrite $0 'schtasks /End /TN "TestOrchestratorCaddy"$\r$\n'
+    FileWrite $0 "powershell -NoProfile -Command $\"Get-CimInstance Win32_Process | Where-Object { $$_.CommandLine -and $$_.CommandLine.IndexOf('$INSTDIR',[StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }$\"$\r$\n"
+    FileClose $0
+    ; uninstall helper: untrust this installation's root CA by thumbprint
+    ; (the CA is unique per install — never a shared/distributed key)
+    FileOpen $0 "$DATA_DIR\untrust_caddy.cmd" w
+    FileWrite $0 "@echo off$\r$\n"
+    FileWrite $0 "powershell -NoProfile -Command $\"$$t=(New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt')).Thumbprint; certutil -delstore Root $$t$\"$\r$\n"
     FileClose $0
 
     ; scheduled tasks for web + worker + dagu + caddy (start at boot)
@@ -118,16 +138,46 @@ Section "Install TestOrchestrator" SecMain
     nsExec::ExecToLog 'schtasks /Run /TN "TestOrchestratorCaddy"'
     Pop $0
 
+    ; Trust this installation's generated Caddy root CA in the
+    ; LocalMachine store so client browsers accept https://localhost
+    ; without certificate-error bypasses. The CA is generated fresh per
+    ; installation by Caddy itself — no private CA key is distributed
+    ; in or shared across packages.
+    StrCpy $2 0
+    ${Do}
+        ${If} ${FileExists} "$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt"
+            ${ExitDo}
+        ${EndIf}
+        IntOp $2 $2 + 1
+        ${If} $2 >= 30
+            ${ExitDo}
+        ${EndIf}
+        Sleep 1000
+    ${Loop}
+    ${If} ${FileExists} "$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt"
+        nsExec::ExecToLog 'certutil -addstore -f Root "$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt"'
+        Pop $0
+    ${EndIf}
+
     WriteUninstaller "$INSTDIR\uninstall.exe"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayName" "${PRODUCT} ${VERSION}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "UninstallString" "$INSTDIR\uninstall.exe"
 SectionEnd
 
+Function un.onInit
+    ; $DATA_DIR is a runtime variable — it is NOT carried over from the
+    ; install process; re-derive it so untrust/RMDir act on real paths.
+    ReadEnvStr $DATA_DIR "ProgramData"
+    StrCpy $DATA_DIR "$DATA_DIR\TestOrchestrator"
+FunctionEnd
+
 Section "Uninstall"
-    nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorWeb"'
-    nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorWorker"'
-    nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorDagu"'
-    nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorCaddy"'
+    ; remove this installation's root CA from the machine trust store —
+    ; without this a deleted private CA would leave a stale trust entry
+    nsExec::ExecToLog '"$DATA_DIR\untrust_caddy.cmd"'
+    Pop $0
+    nsExec::ExecToLog '"$DATA_DIR\stop_to.cmd"'
+    Pop $0
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorWeb" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorWorker" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorDagu" /F'
