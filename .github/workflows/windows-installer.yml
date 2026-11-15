@@ -176,7 +176,8 @@ jobs:
           if (!(Test-Path $edge)) { Write-Host "SKIP: no Edge on runner — real-browser check deferred" } else {
             $dom = (& $edge --headless=new --disable-gpu --dump-dom "https://localhost/licence" 2>$null | Out-String)
             if ($dom -notmatch "licen") { throw "Edge headless did not render /licence (real-browser cert validation failed)" }
-            & $edge --headless=new --disable-gpu --window-size=1366,900 --screenshot="licence-page.png" "https://localhost/licence" 2>$null | Out-Null
+            & $edge --headless=new --disable-gpu --window-size=1366,900 "--screenshot=$PWD\licence-page.png" "https://localhost/licence" 2>$null | Out-Null
+            if (!(Test-Path "licence-page.png") -and (Test-Path "screenshot.png")) { Move-Item "screenshot.png" "licence-page.png" -Force }
             if (!(Test-Path "licence-page.png")) { throw "licence screenshot not produced" }
             Write-Host "PASS Edge headless rendered https://localhost/licence with real cert validation"
           }
