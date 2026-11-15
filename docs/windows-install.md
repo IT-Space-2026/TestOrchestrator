@@ -50,6 +50,10 @@ installed separately by the customer — never bundled.
 - Uninstall via Add/Remove Programs: untrusts the CA, stops services,
   deletes tasks and `%ProgramFiles%` payload, then asks before touching
   `%ProgramData%` data.
+- Headless/scripted uninstall: `%ProgramData%\TestOrchestrator\uninstall_to.cmd`
+  performs the same steps deterministically (the NSIS silent uninstaller
+  is unreliable in Session-0/headless contexts). Pass `/PURGE` to also
+  remove `%ProgramData%\TestOrchestrator`; omit it to retain data.
 
 ## Remote access — separate deployment mode
 

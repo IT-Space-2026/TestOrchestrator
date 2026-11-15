@@ -242,7 +242,7 @@ jobs:
           if (!$ok) { throw "app not healthy after reinstall" }
           Write-Host "PASS reinstall over retained data: same CA trusted, app healthy"
           # UNINSTALL with data removed
-          & "$data\uninstall_to.cmd" "/PURGEDATA=1" | Out-Null
+          & "$data\uninstall_to.cmd" "/PURGE" | Out-Null
           for ($i=0; $i -lt 120 -and (Test-Path "$inst"); $i++) { Start-Sleep 1 }
           if (Test-Path "$inst") { throw "purge uninstall left payload dir after 120s" }
           for ($i=0; $i -lt 60 -and (Test-Path $data); $i++) { Start-Sleep 1 }
@@ -254,7 +254,7 @@ jobs:
             Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($data) } | Format-Table Name,Id,Path | Out-Host
             cmd /c "rmdir /s /q `"$data`""
             cmd /c "dir /b /s `"$data`""
-            throw "PURGEDATA=1 left data dir behind"
+            throw "/PURGE left data dir behind"
           }
           Write-Host "PASS uninstall(purge): data dir removed"
           Remove-Item "HKLM:\SOFTWARE\Microsoft\SystemCertificates\Root\Certificates\$($foreign.Thumbprint)" -Recurse -Force -ErrorAction SilentlyContinue
