@@ -200,7 +200,7 @@ jobs:
           Export-Certificate -Cert $f0 -FilePath .\foreign-ca.cer | Out-Null
           Import-Certificate -FilePath .\foreign-ca.cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
           $foreign = Get-Item Cert:\LocalMachine\Root\$($f0.Thumbprint)
-          $stray = Start-Process python -ArgumentList '-c','import time;time.sleep(600)' -PassThru -ErrorAction Stop
+          $stray = Start-Process python -ArgumentList '-c "import time;time.sleep(600)"' -PassThru -ErrorAction Stop
           $thumb1 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" -and $_.Thumbprint -ne $foreign.Thumbprint }).Thumbprint
           if (!$thumb1) { throw "our CA thumbprint not found pre-upgrade" }
           # UPGRADE: same installer over existing install, data retained
