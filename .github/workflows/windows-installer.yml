@@ -214,8 +214,11 @@ jobs:
           if (!$ok) { throw "app not healthy after upgrade" }
           Write-Host "PASS app healthy after upgrade (cert-validated)"
           # UNINSTALL with data retained (silent → default keeps data)
-          $p = Start-Process "$inst\uninstall.exe" -ArgumentList "/S" -Wait -PassThru
-          Start-Sleep 8
+          Start-Process "$inst\uninstall.exe" -ArgumentList "/S" | Out-Null
+          # NSIS uninstaller re-executes a temp copy — the launcher exits
+          # immediately; wait for the self-deleting uninstall.exe to be
+          # gone (up to 3min for the large payload RMDir)
+          for ($i=0; $i -lt 180 -and (Test-Path "$inst\uninstall.exe"); $i++) { Start-Sleep 1 }
           if (Test-Path "$inst\wsgi.py") { throw "payload dir not removed on uninstall" }
           if (!(Test-Path "$data\instance")) { throw "uninstall deleted retained data dir" }
           $remain = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Thumbprint -eq $thumb1 }
@@ -234,8 +237,8 @@ jobs:
           if (!$ok) { throw "app not healthy after reinstall" }
           Write-Host "PASS reinstall over retained data: same CA trusted, app healthy"
           # UNINSTALL with data removed
-          $p = Start-Process "$inst\uninstall.exe" -ArgumentList "/S","/PURGEDATA=1" -Wait -PassThru
-          Start-Sleep 8
+          Start-Process "$inst\uninstall.exe" -ArgumentList "/S","/PURGEDATA=1" | Out-Null
+          for ($i=0; $i -lt 180 -and (Test-Path "$inst\uninstall.exe"); $i++) { Start-Sleep 1 }
           if (Test-Path $data) { throw "PURGEDATA=1 left data dir behind" }
           Write-Host "PASS uninstall(purge): data dir removed"
           Remove-Item Cert:\LocalMachine\Root\$($foreign.Thumbprint) -ErrorAction SilentlyContinue
