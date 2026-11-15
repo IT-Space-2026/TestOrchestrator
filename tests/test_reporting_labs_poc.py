@@ -243,6 +243,124 @@ def test_injection_in_names_and_messages(app, tmp_path):
         assert "<\\/script" in body or "&lt;script" in body
 
 
+def test_simultaneous_regeneration_consistent(app, tmp_path,
+                                              monkeypatch):
+    """Two REAL concurrent generate_for calls on the same execution:
+    each builds a complete report; last-writer-wins; DB ends in a
+    consistent state — never a half-written dir or mixed status."""
+    import threading
+    import time
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    orig = rl._emit
+
+    def slow(ex, out):
+        time.sleep(0.15)          # widen the publish race window
+        return orig(ex, out)
+    monkeypatch.setattr(rl, "_emit", slow)
+
+    outcomes = {}
+
+    def worker(i):
+        with app.app_context():
+            ex = db.session.get(Execution, ex_id)
+            outcomes[i] = rl.generate_for(ex)
+
+    threads = [threading.Thread(target=worker, args=(i,))
+               for i in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        for st in outcomes.values():
+            assert st["status"] in ("ready", "failed"), st
+        # whichever writer won, the published artifact is COMPLETE
+        html = Path(ex.report_dir) / "reporting-labs" / "index.html"
+        assert html.exists() and html.stat().st_size > 100_000
+        body = html.read_text(encoding="utf-8", errors="replace")
+        assert "pass" in body
+        assert ex.rl_status in ("ready", "failed")
+        assert not list(Path(ex.report_dir)
+                        .glob("reporting-labs.tmp.*"))
+
+
+def test_reader_never_sees_missing_or_partial_report(app, tmp_path):
+    """A reader racing regeneration: every open of index.html returns
+    either the complete previous report or the complete new one —
+    per-file os.replace makes the swap gap-free."""
+    import threading
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        assert rl.generate_for(ex)["status"] == "ready"
+        root = Path(ex.report_dir)
+        target = root / "reporting-labs" / "index.html"
+        problems, stop = [], threading.Event()
+
+        def reader():
+            while not stop.is_set():
+                try:
+                    body = target.read_text(encoding="utf-8",
+                                            errors="replace")
+                except FileNotFoundError:
+                    problems.append("missing index.html")
+                    continue
+                if len(body) < 50_000 or "<html" not in body.lower():
+                    problems.append("partial/corrupt read")
+
+        rt = threading.Thread(target=reader, daemon=True)
+        rt.start()
+        for _ in range(6):
+            ex2 = db.session.get(Execution, ex_id)
+            rl.generate_for(ex2)
+        stop.set()
+        rt.join(timeout=5)
+        assert not problems, problems[:5]
+
+
+def test_rlabs_project_scope_denial(client, login_as, app, tmp_path):
+    """Cross-project denial on every rlabs surface — the same
+    project_allowed() gate that covers Allure serving."""
+    import json as _j
+    from testorchestrator.models import User
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        rl.generate_for(ex)
+        ex.project_id = "denied-project"
+        u = User.query.filter_by(username="tester").first()
+        u.allowed_projects = _j.dumps(["other-project"])
+        db.session.commit()
+    login_as("tester")
+    assert client.get(f"/executions/{ex_id}/rlabs").status_code \
+        in (403, 404)
+    assert client.get(f"/executions/{ex_id}/rlabs.zip").status_code \
+        in (403, 404)
+    assert client.post(f"/executions/{ex_id}/rlabs/generate"
+                       ).status_code in (403, 404)
+
+
+def test_unresolved_banner_on_execution_page(client, login_as, app,
+                                             tmp_path):
+    """Unresolved results get a portal-level warning BEFORE the report
+    is opened — the count comes from canonical results, not the
+    report's own skipped bucket."""
+    ex_id = _mk(app, tmp_path, results=[
+        (("C.tc", "ok"), "passed"), (("C.tc", "bad"), "failed")])
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        for r in ex.results:
+            if r.case_name == "bad":
+                r.unresolved = True
+        db.session.commit()
+        rl.generate_for(ex)
+    login_as("admin")
+    body = client.get(f"/executions/{ex_id}").data.decode()
+    assert "1 unresolved" in body
+    assert "displayed as" in body and "skipped" in body
+
+
 def test_report_backend_setting_default_and_save(client, login_as, app):
     """Allure stays the default backend; the selection persists and
     rejects unknown values."""

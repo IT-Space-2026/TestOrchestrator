@@ -159,6 +159,13 @@
 
 {% if rl_enabled or ex.rl_status not in ('pending', 'missing') %}
 <h2>Reporting Labs <small class="muted">(2.0 migration backend{{ ' — preferred' if report_backend == 'reporting-labs' else '' }})</small></h2>
+{% if unresolved %}
+<p class="form-error"><strong>{{ unresolved }} unresolved
+  result{{ 's' if unresolved != 1 }}</strong> — displayed as
+  <em>skipped</em> by this reporting backend (reporting-labs has no
+  'unknown' status). Review the unresolved-result details above before
+  interpreting the report's skip/pass totals.</p>
+{% endif %}
 <p>Status: <strong>{{ ex.rl_status or 'pending' }}</strong>
   {% if ex.rl_version %}— reporting-labs {{ ex.rl_version }}{% endif %}</p>
 <p>

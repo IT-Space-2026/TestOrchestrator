@@ -1605,12 +1605,15 @@ def execution_detail(execution_id):
     can_edit = current_user.role.value in ("admin", "test_manager")
     ex = _execution_or_404(execution_id)
     counts = {}
+    unresolved = 0
     for r in ex.results:
         counts[r.status.value] = counts.get(r.status.value, 0) + 1
+        unresolved += 1 if getattr(r, "unresolved", False) else 0
     from .. import settings as settings_mod
     return render_template(
         "portal/execution_detail.html", ex=ex, counts=counts,
         plain_form=PlainForm(), can_edit=can_edit,
+        unresolved=unresolved,
         rl_enabled=settings_mod.get("reportinglabs_enabled", False),
         report_backend=settings_mod.get("report_backend", "allure"))
 

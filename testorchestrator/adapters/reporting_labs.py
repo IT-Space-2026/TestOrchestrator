@@ -188,9 +188,17 @@ def generate_for(ex: Execution) -> dict:
     from ..extensions import db
     ex.rl_version = version()
     if ok:
-        if out_dir.exists():
-            shutil.rmtree(out_dir)
-        tmp_dir.replace(out_dir)
+        # Gap-free publish: reporting-labs emits FIXED filenames, so
+        # publish per file with os.replace — a reader mid-swap always
+        # gets a complete (old or new) file, never a missing/partial
+        # one. Better than rmtree+swap, which leaves a gone-dir window.
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for f in tmp_dir.rglob("*"):
+            if f.is_file():
+                dest = out_dir / f.relative_to(tmp_dir)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                f.replace(dest)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         ex.rl_status = "ready"
         ex.rl_path = str((out_dir / "index.html").relative_to(root))
     else:
