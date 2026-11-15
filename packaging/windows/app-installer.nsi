@@ -122,13 +122,21 @@ Section "Install TestOrchestrator" SecMain
     FileClose $0
     ; uninstall helper: untrust this installation's root CA by thumbprint
     ; (the CA is unique per install — never a shared/distributed key)
-    ; supported headless uninstall: copies the uninstaller to %TEMP% and
-    ; runs it in-place (_?=) — the self-copy relaunch breaks under
-    ; Session-0/headless with spaced paths. One parsed line so PURGE
-    ; deleting this .cmd mid-run can't truncate the remaining steps.
+    ; supported headless uninstall — self-contained: the NSIS silent
+    ; uninstaller (temp-copy or _?=) silently no-ops in headless/Session-0
+    ; contexts, so the wrapper performs the same steps deterministically.
+    ; Interactive uninstall via uninstall.exe / Add-Remove remains the
+    ; desktop path.
     FileOpen $0 "$DATA_DIR\uninstall_to.cmd" w
     FileWrite $0 "@echo off$\r$\n"
-    FileWrite $0 'copy /y "$INSTDIR\uninstall.exe" "%TEMP%\to-uninstall.exe" >nul & "%TEMP%\to-uninstall.exe" /S %* _?="$INSTDIR" & rmdir /s /q "$INSTDIR" & del /f /q "%TEMP%\to-uninstall.exe"$\r$\n'
+    FileWrite $0 'call "$DATA_DIR\untrust_caddy.cmd"$\r$\n'
+    FileWrite $0 'call "$DATA_DIR\stop_to.cmd"$\r$\n'
+    FileWrite $0 'schtasks /Delete /TN "TestOrchestratorWeb" /F$\r$\n'
+    FileWrite $0 'schtasks /Delete /TN "TestOrchestratorWorker" /F$\r$\n'
+    FileWrite $0 'schtasks /Delete /TN "TestOrchestratorDagu" /F$\r$\n'
+    FileWrite $0 'schtasks /Delete /TN "TestOrchestratorCaddy" /F$\r$\n'
+    FileWrite $0 'rmdir /s /q "$INSTDIR"$\r$\n'
+    FileWrite $0 'if /i "%~1"=="/PURGEDATA=1" start "" cmd /c "timeout /t 3 >nul & rmdir /s /q $DATA_DIR"$\r$\n'
     FileClose $0
     FileOpen $0 "$DATA_DIR\untrust_caddy.cmd" w
     FileWrite $0 "@echo off$\r$\n"
