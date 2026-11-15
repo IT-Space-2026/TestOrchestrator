@@ -15,6 +15,7 @@ ShowInstDetails show
 Var /GLOBAL DATA_DIR
 Var /GLOBAL ORCH_PORT
 Var /GLOBAL PUBLIC_ADDR
+Var /GLOBAL PURGE_DATA
 
 !include "MUI2.nsh"
 !define MUI_ICON "it.ico"
@@ -36,6 +37,15 @@ Section "Install TestOrchestrator" SecMain
     CreateDirectory "$DATA_DIR\instance"
     CreateDirectory "$DATA_DIR\logs"
     CreateDirectory "$DATA_DIR\home"
+    CreateDirectory "$DATA_DIR\caddy-home"
+    CreateDirectory "$DATA_DIR\dagu"
+    CreateDirectory "$DATA_DIR\dagu-cfg"
+    ; private CA key, database/licence state, and dagu credentials are
+    ; not world-readable: strip inherited Users access on those dirs
+    nsExec::ExecToLog 'icacls "$DATA_DIR\caddy-home" /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"'
+    nsExec::ExecToLog 'icacls "$DATA_DIR\instance" /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"'
+    nsExec::ExecToLog 'icacls "$DATA_DIR\dagu" /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"'
+    nsExec::ExecToLog 'icacls "$DATA_DIR\dagu-cfg" /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"'
 
     ${GetOptions} $CMDLINE "/PORT=" $ORCH_PORT
     ${GetOptions} $CMDLINE "/ADDR=" $PUBLIC_ADDR
@@ -154,9 +164,24 @@ Section "Install TestOrchestrator" SecMain
         ${EndIf}
         Sleep 1000
     ${Loop}
-    ${If} ${FileExists} "$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt"
+    StrCpy $3 ""
+    ${IfNot} ${FileExists} "$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt"
+        StrCpy $3 "Caddy did not generate its local CA within 30s"
+    ${Else}
         nsExec::ExecToLog 'certutil -addstore -f Root "$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt"'
         Pop $0
+        ${If} $0 != 0
+            StrCpy $3 "certutil -addstore Root exited $0"
+        ${EndIf}
+    ${EndIf}
+    ${If} $3 != ""
+        DetailPrint "Certificate trust NOT configured: $3"
+        FileOpen $0 "$DATA_DIR\CERT-TRUST-NOT-INSTALLED.txt" w
+        FileWrite $0 "Automatic HTTPS trust failed: $3$\r$\n$\r$\nBrowsers will warn on https://localhost until the generated$\r$\nroot CA is trusted manually:$\r$\n  certutil -addstore -f Root $\"$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt$\"$\r$\n"
+        FileClose $0
+        ${IfNot} ${Silent}
+            MessageBox MB_ICONEXCLAMATION|MB_OK "HTTPS certificate trust was not configured ($3).$\r$\n$\r$\nSee $DATA_DIR\CERT-TRUST-NOT-INSTALLED.txt for the manual step."
+        ${EndIf}
     ${EndIf}
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -169,6 +194,8 @@ Function un.onInit
     ; install process; re-derive it so untrust/RMDir act on real paths.
     ReadEnvStr $DATA_DIR "ProgramData"
     StrCpy $DATA_DIR "$DATA_DIR\TestOrchestrator"
+    StrCpy $PURGE_DATA "0"
+    ${un.GetOptions} $CMDLINE "/PURGEDATA=" $PURGE_DATA
 FunctionEnd
 
 Section "Uninstall"
@@ -183,7 +210,11 @@ Section "Uninstall"
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorDagu" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorCaddy" /F'
     RMDir /r "$INSTDIR"
-    MessageBox MB_YESNO "Also delete configuration, database, and workspaces in $DATA_DIR?" /SD IDNO IDNO keepData
+    ${If} $PURGE_DATA == "1"
         RMDir /r "$DATA_DIR"
-    keepData:
+    ${Else}
+        MessageBox MB_YESNO "Also delete configuration, database, and workspaces in $DATA_DIR?" /SD IDNO IDNO keepData
+            RMDir /r "$DATA_DIR"
+        keepData:
+    ${EndIf}
 SectionEnd

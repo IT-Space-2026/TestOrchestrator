@@ -161,3 +161,75 @@ jobs:
           if (!(Test-Path "C:\to-allure\report\index.html")) { throw "no report index.html generated" }
           Write-Host "PASS Allure 3 generated report index.html via bundled node"
           Remove-Item -Recurse -Force "C:\to-allure" -ErrorAction SilentlyContinue
+      - name: private-data ACLs + Edge headless cert-validated browser render
+        shell: pwsh
+        run: |
+          $data = "C:\ProgramData\TestOrchestrator"
+          foreach ($d in @("$data\caddy-home","$data\instance","$data\dagu-cfg")) {
+            $bad = (Get-Acl $d).Access | Where-Object { $_.IdentityReference -match 'Users|Everyone' -and $_.AccessControlType -eq 'Allow' }
+            if ($bad) { throw "world-readable private dir: $d ($($bad.IdentityReference -join ','))" }
+          }
+          Write-Host "PASS caddy-home/instance/dagu-cfg ACLs exclude Users/Everyone"
+          if (Test-Path "$data\CERT-TRUST-NOT-INSTALLED.txt") { throw "cert-trust failure marker present — trust step failed silently" }
+          $edge = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+          if (!(Test-Path $edge)) { $edge = "C:\Program Files\Microsoft\Edge\Application\msedge.exe" }
+          if (!(Test-Path $edge)) { Write-Host "SKIP: no Edge on runner — real-browser check deferred" } else {
+            $dom = (& $edge --headless=new --disable-gpu --dump-dom "https://localhost/licence" 2>$null | Out-String)
+            if ($dom -notmatch "licen") { throw "Edge headless did not render /licence (real-browser cert validation failed)" }
+            & $edge --headless=new --disable-gpu --window-size=1366,900 --screenshot="licence-page.png" "https://localhost/licence" 2>$null | Out-Null
+            if (!(Test-Path "licence-page.png")) { throw "licence screenshot not produced" }
+            Write-Host "PASS Edge headless rendered https://localhost/licence with real cert validation"
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-screenshots
+          path: licence-page.png
+          if-no-files-found: ignore
+      - name: upgrade + uninstall/reinstall lifecycle matrix
+        shell: pwsh
+        run: |
+          $inst = "C:\to smoke install"
+          $data = "C:\ProgramData\TestOrchestrator"
+          $setup = ".\installer\testorchestrator-1.0.0-windows-amd64-setup-UNSIGNED.exe"
+          # foreign CA + stray python must survive OUR lifecycle operations
+          $foreign = New-SelfSignedCertificate -Subject "CN=Caddy Local Authority - foreign-test" -CertStoreLocation Cert:\LocalMachine\Root -KeyExportPolicy NonExportable
+          $stray = Start-Process python -ArgumentList '-c','import time;time.sleep(600)' -PassThru -ErrorAction Stop
+          $thumb1 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" -and $_.Thumbprint -ne $foreign.Thumbprint }).Thumbprint
+          if (!$thumb1) { throw "our CA thumbprint not found pre-upgrade" }
+          # UPGRADE: same installer over existing install, data retained
+          $p = Start-Process $setup -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "upgrade install exited $($p.ExitCode)" }
+          $thumb2 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" -and $_.Thumbprint -ne $foreign.Thumbprint }).Thumbprint
+          if ($thumb2 -ne $thumb1) { throw "upgrade replaced the trusted CA (was $thumb1 now $thumb2) — caddy-home not retained" }
+          Write-Host "PASS upgrade: CA thumbprint retained ($thumb1)"
+          $ok = $false
+          for ($i=0; $i -lt 60; $i++) { try { $r = Invoke-WebRequest -Uri "https://localhost/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep 1 }
+          if (!$ok) { throw "app not healthy after upgrade" }
+          Write-Host "PASS app healthy after upgrade (cert-validated)"
+          # UNINSTALL with data retained (silent → default keeps data)
+          $p = Start-Process "$inst\uninstall.exe" -ArgumentList "/S" -Wait -PassThru
+          Start-Sleep 8
+          if (Test-Path "$inst\wsgi.py") { throw "payload dir not removed on uninstall" }
+          if (!(Test-Path "$data\instance")) { throw "uninstall deleted retained data dir" }
+          $remain = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Thumbprint -eq $thumb1 }
+          if ($remain) { throw "uninstall left our CA trusted" }
+          if (!(Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Thumbprint -eq $foreign.Thumbprint })) { throw "uninstall removed UNRELATED Caddy CA" }
+          if (!(Get-Process -Id $stray.Id -ErrorAction SilentlyContinue)) { throw "stop_to.cmd killed unrelated python process" } else { Stop-Process -Id $stray.Id -Force }
+          if (Get-NetTCPConnection -LocalPort 18080 -State Listen -ErrorAction SilentlyContinue) { throw "port 18080 still bound after uninstall" }
+          Write-Host "PASS uninstall(retain): data kept, our CA untrusted, foreign CA + stray python survived"
+          # REINSTALL
+          $p = Start-Process $setup -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "reinstall exited $($p.ExitCode)" }
+          $thumb3 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" -and $_.Thumbprint -ne $foreign.Thumbprint }).Thumbprint
+          if ($thumb3 -ne $thumb1) { throw "reinstall after retained-data uninstall lost the CA (was $thumb1 now $thumb3)" }
+          $ok = $false
+          for ($i=0; $i -lt 60; $i++) { try { $r = Invoke-WebRequest -Uri "https://localhost/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep 1 }
+          if (!$ok) { throw "app not healthy after reinstall" }
+          Write-Host "PASS reinstall over retained data: same CA trusted, app healthy"
+          # UNINSTALL with data removed
+          $p = Start-Process "$inst\uninstall.exe" -ArgumentList "/S","/PURGEDATA=1" -Wait -PassThru
+          Start-Sleep 8
+          if (Test-Path $data) { throw "PURGEDATA=1 left data dir behind" }
+          Write-Host "PASS uninstall(purge): data dir removed"
+          Remove-Item Cert:\LocalMachine\Root\$($foreign.Thumbprint) -ErrorAction SilentlyContinue
