@@ -143,7 +143,7 @@ Section "Install TestOrchestrator" SecMain
     FileWrite $0 'schtasks /Delete /TN "TestOrchestratorDagu" /F$\r$\n'
     FileWrite $0 'schtasks /Delete /TN "TestOrchestratorCaddy" /F$\r$\n'
     FileWrite $0 'rmdir /s /q "$INSTDIR"$\r$\n'
-    FileWrite $0 'if /i "%~1"=="/PURGEDATA=1" start "" cmd /c "ping -n 4 127.0.0.1 >nul & rmdir /s /q $DATA_DIR & del /f /q %TEMP%\to-uninstall.cmd"$\r$\n'
+    FileWrite $0 'if /i "%~1"=="/PURGEDATA=1" start "" cmd /c "ping -n 4 127.0.0.1 >nul & rmdir /s /q $DATA_DIR & ping -n 4 127.0.0.1 >nul & rmdir /s /q $DATA_DIR & del /f /q %TEMP%\to-uninstall.cmd"$\r$\n'
     FileClose $0
     FileOpen $0 "$DATA_DIR\untrust_caddy.cmd" w
     FileWrite $0 "@echo off$\r$\n"

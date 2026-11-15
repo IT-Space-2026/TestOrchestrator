@@ -246,6 +246,15 @@ jobs:
           for ($i=0; $i -lt 120 -and (Test-Path "$inst"); $i++) { Start-Sleep 1 }
           if (Test-Path "$inst") { throw "purge uninstall left payload dir after 120s" }
           for ($i=0; $i -lt 60 -and (Test-Path $data); $i++) { Start-Sleep 1 }
-          if (Test-Path $data) { throw "PURGEDATA=1 left data dir behind" }
+          if (Test-Path $data) {
+            Write-Host "data dir contents after purge:"
+            cmd /c "dir /b /s `"$data`""
+            Write-Host "temp-copy present: $(Test-Path "$env:TEMP\to-uninstall.cmd")"
+            Write-Host "processes under data dir:"
+            Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($data) } | Format-Table Name,Id,Path | Out-Host
+            cmd /c "rmdir /s /q `"$data`""
+            cmd /c "dir /b /s `"$data`""
+            throw "PURGEDATA=1 left data dir behind"
+          }
           Write-Host "PASS uninstall(purge): data dir removed"
           Remove-Item "HKLM:\SOFTWARE\Microsoft\SystemCertificates\Root\Certificates\$($foreign.Thumbprint)" -Recurse -Force -ErrorAction SilentlyContinue
