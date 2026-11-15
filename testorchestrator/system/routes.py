@@ -364,9 +364,14 @@ def reporting_save():
     """Persist reporting config. Saving NEVER publishes — publication is
     a separate explicit action."""
     from flask import request
+    backend = request.form.get("report_backend", "allure")
+    if backend not in ("allure", "reporting-labs"):
+        backend = "allure"          # unknown values never win the default
     settings_mod.update({
         "allure_enabled": bool(request.form.get("allure_enabled")),
-
+        "reportinglabs_enabled":
+            bool(request.form.get("reportinglabs_enabled")),
+        "report_backend": backend,
     })
     record_audit(current_user.username, "reporting.config.saved",
                  "reporting settings updated (no values)")

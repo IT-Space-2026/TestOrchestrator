@@ -382,6 +382,12 @@ class Execution(db.Model):
                               default="pending")
     allure_path = db.Column(db.String(512), nullable=False, default="")
     allure_version = db.Column(db.String(32), nullable=False, default="")
+    # reporting-labs reporting — a fourth independent status (2.0
+    # migration backend; Allure remains default during migration).
+    rl_status = db.Column(db.String(16), nullable=False,
+                          default="pending")
+    rl_path = db.Column(db.String(512), nullable=False, default="")
+    rl_version = db.Column(db.String(32), nullable=False, default="")
     exit_status = db.Column(db.Integer, nullable=True)
     error_kind = db.Column(db.String(32), nullable=False, default="")
     error_text = db.Column(db.Text, nullable=False, default="")

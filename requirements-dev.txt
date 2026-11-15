@@ -4,3 +4,7 @@ iniconfig==2.3.1
 packaging==26.3
 pluggy==1.7.0
 Pygments==2.21.0
+# 2.0 reporting migration POC (feature/2.0-reporting-labs only —
+# dev/test dependency until the replacement passes acceptance; the
+# production requirement and installer changes are deferred)
+reporting-labs==0.1.14

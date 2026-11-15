@@ -14,3 +14,8 @@ packaging/windows/app-payload/
 3rdparty/nodejs/
 3rdparty/allure3/node_modules/
 allure-results/
+
+# reporting-labs plugin byproducts (dev envs where the plugin isn't
+# blocked by pytest.ini)
+reporting-labs/
+reporting-labs.history.json

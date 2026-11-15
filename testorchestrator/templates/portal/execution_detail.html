@@ -157,6 +157,24 @@
     Allure report</button>
 </form>
 
+{% if rl_enabled or ex.rl_status not in ('pending', 'missing') %}
+<h2>Reporting Labs <small class="muted">(2.0 migration backend{{ ' — preferred' if report_backend == 'reporting-labs' else '' }})</small></h2>
+<p>Status: <strong>{{ ex.rl_status or 'pending' }}</strong>
+  {% if ex.rl_version %}— reporting-labs {{ ex.rl_version }}{% endif %}</p>
+<p>
+  {% if ex.rl_status in ('ready', 'failed') and ex.rl_path %}
+    <a class="btn" href="{{ url_for('portal.view_rlabs', execution_id=ex.id) }}" target="_blank" rel="noopener noreferrer">Open reporting-labs report (new tab)</a>
+    <a class="btn" href="{{ url_for('portal.download_rlabs', execution_id=ex.id) }}">Download reporting-labs report (.zip)</a>
+  {% endif %}
+</p>
+<form method="post" action="{{ url_for('portal.generate_rlabs', execution_id=ex.id) }}">
+  {{ plain_form.csrf_token }}
+  <button class="btn" type="submit">
+    {% if ex.rl_status == 'ready' %}Regenerate{% else %}Generate{% endif %}
+    reporting-labs report</button>
+</form>
+{% endif %}
+
 <h2>Logs</h2>
 <ul class="notice-list">
   <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-invocation.log') }}">kre-invocation.log</a> (recorded argv)</li>

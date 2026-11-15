@@ -1,12 +1,16 @@
-"""reporting-labs 2.0 migration POC — offline regeneration from stored
-canonical results. Same fixtures/honesty as the Allure path; no live
-KRE. The reporting-labs pytest plugin is disabled for this suite to keep
-its own output out of the repo test logs."""
+"""reporting-labs 2.0 migration — offline regeneration from stored
+canonical results + authenticated portal integration.
+
+Same fixtures/honesty as the Allure path; no live KRE. The
+reporting-labs pytest plugin is blocked for this suite to keep its
+own report output out of the repo test logs."""
+import io
+import zipfile
 from pathlib import Path
 
 import pytest
 
-from testorchestrator import dispatch
+from testorchestrator import dispatch, settings as S
 from testorchestrator.adapters import reporting_labs as rl
 from testorchestrator.execution import (Artifact, Execution, ExecutionState,
                                         Outcome, Project, Suite, SuiteEntry,
@@ -65,6 +69,10 @@ def test_generate_single_file_report(app, tmp_path):
         body = html.read_text(encoding="utf-8", errors="replace")
         for needle in ("ok", "bad", "unmatched"):
             assert needle in body, needle
+        # persisted state independent of allure_status/report_status
+        assert ex.rl_status == "ready"
+        assert ex.rl_path == "reporting-labs/index.html"
+        assert ex.rl_version
 
 
 def test_regenerate_idempotent(app, tmp_path):
@@ -85,15 +93,173 @@ def test_missing_when_no_results(app, tmp_path):
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
         assert rl.generate_for(ex)["status"] == "missing"
+        assert ex.rl_status == "missing"
 
 
-def test_no_pdf_no_node(app, tmp_path):
+def test_no_pdf_no_node_no_tmp_residue(app, tmp_path):
     """POC contract: single index.html only — no pdf, no node, no
-    allure-results intermediate dir."""
+    leftover tmp dirs."""
     ex_id = _mk(app, tmp_path, shots=("pass.png",))
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
-        out = rl.generate_for(ex)
+        rl.generate_for(ex)
         root = Path(ex.report_dir)
         assert not (root / "reporting-labs" / "report.pdf").exists()
-        assert not (root / "reporting-labs.tmp").exists()
+        assert not list(root.glob("reporting-labs.tmp.*"))
+        assert not (root / "reporting-labs.history.json").exists()
+
+
+def test_failed_regen_preserves_previous_usable(app, tmp_path,
+                                              monkeypatch):
+    """A generation failure never destroys the last usable report and
+    never serves a half-written one — status=failed, path/file intact."""
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        assert rl.generate_for(ex)["status"] == "ready"
+        good = (Path(ex.report_dir) / "reporting-labs" /
+                "index.html").read_bytes()
+        monkeypatch.setattr(rl, "_emit",
+                            lambda *_a, **_k: 1 / 0)
+        out = rl.generate_for(ex)
+        assert out["status"] == "failed"
+        assert ex.rl_status == "failed"
+        # previous report intact and still referenced
+        assert ex.rl_path == "reporting-labs/index.html"
+        assert (Path(ex.report_dir) / "reporting-labs" /
+                "index.html").read_bytes() == good
+        # no tmp residue from the failed attempt
+        assert not list(Path(ex.report_dir).glob("reporting-labs.tmp.*"))
+
+
+def test_unique_tmp_dirs(app, tmp_path):
+    """Concurrent generations get distinct tmp dirs — a stale
+    reporting-labs.tmp.* from a crashed run is never clobbered or
+    mistaken for output."""
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        root = Path(ex.report_dir)
+        stale = root / "reporting-labs.tmp.crashed"
+        stale.mkdir()
+        (stale / "partial.json").write_text("{}")
+        assert rl.generate_for(ex)["status"] == "ready"
+        # the foreign tmp dir is left alone (operator evidence, not
+        # silently deleted by a later run)
+        assert (stale / "partial.json").exists()
+        assert (root / "reporting-labs" / "index.html").exists()
+
+
+def test_rlabs_routes_authz(client, login_as, app, tmp_path):
+    """Anonymous requests redirect to login; authenticated users get
+    report view/download/generate under existing portal authz."""
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    anon = app.test_client()
+    for url in (f"/executions/{ex_id}/rlabs",
+                f"/executions/{ex_id}/rlabs.zip"):
+        r = anon.get(url)
+        assert r.status_code == 302 and "/login" in r.headers["Location"]
+    r = anon.post(f"/executions/{ex_id}/rlabs/generate")
+    assert r.status_code == 302 and "/login" in r.headers["Location"]
+
+    login_as("admin")
+    # generate through the portal action
+    r = client.post(f"/executions/{ex_id}/rlabs/generate",
+                    follow_redirects=True)
+    assert r.status_code == 200
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        assert ex.rl_status == "ready"
+    # hosted view — sandboxed like the Allure app
+    r = client.get(f"/executions/{ex_id}/rlabs")
+    assert r.status_code == 200
+    assert r.headers["Content-Security-Policy"] == \
+        "sandbox allow-scripts allow-same-origin"
+    assert b"reporting" in r.data.lower()
+    # download bundle with manifest
+    z = client.get(f"/executions/{ex_id}/rlabs.zip")
+    assert z.status_code == 200
+    names = zipfile.ZipFile(io.BytesIO(z.data)).namelist()
+    assert "index.html" in names and "manifest.json" in names
+
+
+def test_rlabs_routes_invalid_and_missing(client, login_as, app,
+                                          tmp_path):
+    """Invalid execution ids and missing reports are safe 404s/redirects,
+    never tracebacks or empty pages."""
+    login_as("admin")
+    assert client.get("/executions/nonexistent/rlabs").status_code == 404
+    assert client.get("/executions/nonexistent/rlabs.zip").status_code == 404
+    ex_id = _mk(app, tmp_path)
+    # no report yet -> redirect back with a flash, zip -> 404
+    r = client.get(f"/executions/{ex_id}/rlabs", follow_redirects=False)
+    assert r.status_code == 302
+    assert client.get(f"/executions/{ex_id}/rlabs.zip").status_code == 404
+
+
+def test_rlabs_path_safety(client, login_as, app, tmp_path):
+    """A tampered rl_path cannot escape the report root."""
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        rl.generate_for(ex)
+        ex.rl_path = "../../../../etc/hostname"
+        db.session.commit()
+    login_as("admin")
+    assert client.get(f"/executions/{ex_id}/rlabs").status_code == 404
+
+
+def test_rlabs_failed_regen_still_serves_previous(client, login_as, app,
+                                                  tmp_path, monkeypatch):
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        rl.generate_for(ex)
+        monkeypatch.setattr(rl, "_emit", lambda *_a, **_k: 1 / 0)
+        assert rl.generate_for(ex)["status"] == "failed"
+    login_as("admin")
+    r = client.get(f"/executions/{ex_id}/rlabs")
+    assert r.status_code == 200   # previous usable report still served
+
+
+def test_injection_in_names_and_messages(app, tmp_path):
+    """Hostile case names/messages/attachment names land as inert data —
+    json.dumps with </script neutralised; never executable markup."""
+    evil = '<script>alert(1)</script>'
+    ex_id = _mk(
+        app, tmp_path,
+        shots=('<img src=x onerror=alert(1)>.png',),
+        results=[(("C.tc", evil), "failed")])
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        out = rl.generate_for(ex)
+        body = (Path(ex.report_dir) / "reporting-labs" /
+                "index.html").read_text(encoding="utf-8",
+                                        errors="replace")
+        assert out["status"] == "ready"
+        # the literal closing-script sequence must not appear raw —
+        # RL emits it as <\/script inside its JSON payload
+        assert "</script>alert" not in body
+        assert "<\\/script" in body or "&lt;script" in body
+
+
+def test_report_backend_setting_default_and_save(client, login_as, app):
+    """Allure stays the default backend; the selection persists and
+    rejects unknown values."""
+    with app.app_context():
+        assert S.get("report_backend") == "allure"
+        assert S.get("reportinglabs_enabled") is False
+    login_as("admin")
+    r = client.post("/system/reporting/save", data={
+        "allure_enabled": "1",
+        "reportinglabs_enabled": "1",
+        "report_backend": "reporting-labs"}, follow_redirects=True)
+    assert r.status_code == 200
+    with app.app_context():
+        assert S.get("report_backend") == "reporting-labs"
+        assert S.get("reportinglabs_enabled") is True
+    # unknown backend can never win the default
+    r = client.post("/system/reporting/save", data={
+        "report_backend": "bogus"}, follow_redirects=True)
+    with app.app_context():
+        assert S.get("report_backend") == "allure"

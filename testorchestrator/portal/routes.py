@@ -1607,9 +1607,12 @@ def execution_detail(execution_id):
     counts = {}
     for r in ex.results:
         counts[r.status.value] = counts.get(r.status.value, 0) + 1
+    from .. import settings as settings_mod
     return render_template(
         "portal/execution_detail.html", ex=ex, counts=counts,
-        plain_form=PlainForm(), can_edit=can_edit)
+        plain_form=PlainForm(), can_edit=can_edit,
+        rl_enabled=settings_mod.get("reportinglabs_enabled", False),
+        report_backend=settings_mod.get("report_backend", "allure"))
 
 
 @portal_bp.route("/executions/<execution_id>/cancel", methods=["POST"])
@@ -1912,6 +1915,91 @@ def generate_allure(execution_id):
     from ..adapters import allure as allure_adapter
     res = allure_adapter.generate_for(ex)
     flash(f"Allure generation: {res['status']}"
+          + (f" — {res.get('error')}" if res.get("error") else ""),
+          "info" if res["status"] == "ready" else "error")
+    return redirect(url_for("portal.execution_detail",
+                            execution_id=execution_id))
+
+
+@portal_bp.route("/executions/<execution_id>/rlabs")
+@login_required
+def view_rlabs(execution_id):
+    """Hosted reporting-labs report — a single self-contained index.html
+    (scripts embedded), served inside a CSP sandbox like the Allure app.
+    A failed regeneration keeps the PREVIOUS usable report viewable —
+    the failure is surfaced, never silently hidden."""
+    ex = _execution_or_404(execution_id)
+    if not ex.rl_path:
+        flash(f"No reporting-labs report for this run "
+              f"(status: {ex.rl_status}).", "info")
+        return redirect(url_for("portal.execution_detail",
+                                execution_id=execution_id))
+    from .. import reporting
+    try:
+        target = reporting.safe_under(reporting.report_root(ex),
+                                      ex.rl_path)
+    except ValueError:
+        abort(404)
+    if not target.is_file():
+        abort(404)
+    if ex.rl_status == "failed":
+        flash("Last reporting-labs generation failed — showing the "
+              "previous usable report.", "error")
+    elif ex.rl_status != "ready":
+        flash(f"reporting-labs report status: {ex.rl_status}", "info")
+    record_audit(current_user.username, "rlabs.view", execution_id)
+    resp = send_file(target, mimetype="text/html")
+    # reporting-labs is a single-file interactive app — same sandbox
+    # policy as the hosted Allure report.
+    resp.headers["Content-Security-Policy"] = \
+        "sandbox allow-scripts allow-same-origin"
+    return resp
+
+
+@portal_bp.route("/executions/<execution_id>/rlabs.zip")
+@login_required
+def download_rlabs(execution_id):
+    """Usable reporting-labs download — the self-contained index.html
+    plus report.json and a provenance manifest."""
+    import io
+    import zipfile
+    ex = _execution_or_404(execution_id)
+    if ex.rl_status not in ("ready", "failed") or not ex.rl_path:
+        abort(404)
+    from .. import reporting
+    target = reporting.safe_under(reporting.report_root(ex), ex.rl_path)
+    if not target.is_file():
+        abort(404)
+    rl_dir = reporting.safe_under(reporting.report_root(ex),
+                                  str(Path(ex.rl_path).parent))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(rl_dir.rglob("*")):
+            if f.is_file():
+                z.write(f, f.relative_to(rl_dir))
+        z.writestr("manifest.json", json.dumps({
+            "execution_id": ex.id, "format": "reporting-labs-single-file",
+            "rl_version": ex.rl_version,
+            "view": "open index.html — fully self-contained"}, indent=2))
+    buf.seek(0)
+    record_audit(current_user.username, "rlabs.download", execution_id)
+    return send_file(buf, mimetype="application/zip",
+                     as_attachment=True,
+                     download_name=f"rlabs-{execution_id[:8]}.zip")
+
+
+@portal_bp.route("/executions/<execution_id>/rlabs/generate",
+                 methods=["POST"])
+@login_required
+def generate_rlabs(execution_id):
+    """Regenerate the reporting-labs report from STORED results — never
+    reruns KRE. Independent of Allure and native-report status; a failed
+    regen preserves any previously usable report (status=failed)."""
+    ex = _execution_or_404(execution_id)
+    PlainForm().validate_on_submit()
+    from ..adapters import reporting_labs as rl_adapter
+    res = rl_adapter.generate_for(ex)
+    flash(f"reporting-labs generation: {res['status']}"
           + (f" — {res.get('error')}" if res.get("error") else ""),
           "info" if res["status"] == "ready" else "error")
     return redirect(url_for("portal.execution_detail",

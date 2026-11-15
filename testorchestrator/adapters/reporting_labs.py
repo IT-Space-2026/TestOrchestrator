@@ -1,5 +1,5 @@
 """reporting-labs adapter — canonical results -> single-file HTML report
-(2.0 migration POC; Allure 3 remains the shipping path for 1.0.1).
+(2.0 migration backend; Allure 3 remains the shipping default for 1.0.1).
 
 Mirrors ``adapters/allure.py`` semantics so behaviour is comparable:
 - Same status mapping (passed/failed/error->failed/skipped; unresolved
@@ -8,14 +8,19 @@ Mirrors ``adapters/allure.py`` semantics so behaviour is comparable:
 - Same attachment policy: result_id wins, else the documented
   unambiguous filename heuristic; unmatched evidence lands in a labelled
   run-level record — preserved, never dropped.
-- Same atomic publish: build into a .tmp dir, swap on success only.
+- Same atomic publish: build into a unique .tmp dir, swap in only on
+  success — a failed or concurrent regenerate never serves a
+  half-written report and never destroys the last usable one.
 - No Node/bundled runtime needed — the report is a single self-contained
   index.html built entirely in Python.
 
-POC scope: offline re-generation from stored Execution results/artifacts.
+Concurrency: each generation uses its OWN tmp dir (mkdtemp), so two
+concurrent regenerations can never clobber each other's in-progress
+output; the final swap is atomic (last writer wins with a complete
+report, never a corrupt one).
 """
-import json
 import shutil
+import tempfile
 from pathlib import Path
 
 from ..execution import Artifact, Execution, ExecutionState
@@ -23,6 +28,16 @@ from .allure import _case_attachments
 
 STATUS_MAP = {"passed": "passed", "failed": "failed",
               "error": "failed", "skipped": "skipped"}
+OUT_DIRNAME = "reporting-labs"
+
+
+def version() -> str:
+    try:
+        import reporting_labs
+        return getattr(reporting_labs, "__version__", "") or \
+            getattr(reporting_labs, "_version", "")
+    except Exception:
+        return ""
 
 
 def _options(out_dir: Path):
@@ -31,6 +46,8 @@ def _options(out_dir: Path):
     values["outputFolder"] = str(out_dir)
     values["pdf"] = False            # single HTML artifact — no chrome dep
     values["open"] = "never"
+    values["announce"] = False       # no stdout noise in the service log
+    values["history"] = {"enabled": False}  # no stray history file
     return Options(values, base=out_dir, root=out_dir)
 
 
@@ -102,6 +119,36 @@ def _emit(ex: Execution, out_dir: Path) -> dict:
             a.attach(art.rel_path, path=str(root / art.rel_path),
                      content_type=art.mime or "application/octet-stream")
         run.add_attempt(tid, a)
+    # Run-level logs (kre-*.log etc.): representable ONLY at run level —
+    # never attributed to a case. Text surfaces as labelled global
+    # output; the files are preserved as attachments on a separate
+    # run-level record distinct from "unmatched case evidence".
+    log_arts = [a for a in
+                Artifact.query.filter_by(execution_id=ex.id)
+                if a.kind == "log" and (root / a.rel_path).is_file()]
+    for art in log_arts:
+        try:
+            text = (root / art.rel_path).read_text(
+                encoding="utf-8", errors="replace")[:20000]
+        except OSError:
+            continue
+        run.output("log", f"--- {art.rel_path} ---\n{text}")
+    if log_arts:
+        tid = "run.logs"
+        run.test(tid, "[run-level logs — captured for the whole "
+                      "execution, not case evidence]",
+                 path=[ex.suite.name if ex.suite else ""], file="",
+                 line=0, project=ex.project.name if ex.project else "")
+        a = Attempt(tid)
+        a.start = a.end = 0
+        a.status = "skipped"
+        a.add_error(ErrorInfo(
+            message="Run logs apply to the whole execution; step/case "
+                    "attribution is not present in the evidence."))
+        for art in log_arts:
+            a.attach(art.rel_path, path=str(root / art.rel_path),
+                     content_type=art.mime or "text/plain")
+        run.add_attempt(tid, a)
     if ex.state in (ExecutionState.CANCELED, ExecutionState.UNKNOWN):
         run.global_error(ErrorInfo(
             message=f"interrupted run ({ex.state.value})"))
@@ -114,25 +161,40 @@ def _emit(ex: Execution, out_dir: Path) -> dict:
 
 
 def generate_for(ex: Execution) -> dict:
-    """Convert + generate + persist rl_status/path. Idempotent like the
-    Allure path: regenerates only this run's reporting-labs output dir;
-    original artifacts and Allure reports are untouched."""
+    """Convert + generate + persist rl_status/path/version. Idempotent
+    like the Allure path: regenerates only this run's reporting-labs
+    output dir; original artifacts and Allure reports are untouched."""
     root = Path(ex.report_dir or "")
     if not root.is_dir() or not ex.results:
+        ex.rl_status = "missing"
+        from ..extensions import db
+        db.session.commit()
         return {"status": "missing"}
-    out_dir = root / "reporting-labs"
-    tmp_dir = root / "reporting-labs.tmp"
-    if tmp_dir.exists():
-        shutil.rmtree(tmp_dir)
+    out_dir = root / OUT_DIRNAME
+    # Unique tmp per generation — concurrent regenerations never share
+    # an in-progress dir (the fixed-.tmp defect this fixes).
+    tmp_dir = Path(tempfile.mkdtemp(prefix=f"{OUT_DIRNAME}.tmp.",
+                                    dir=root))
     try:
         stats = _emit(ex, tmp_dir)
     except Exception as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        ex.rl_version = version()
+        ex.rl_status = "failed"
+        from ..extensions import db
+        db.session.commit()
         return {"status": "failed", "error": str(exc)}
     ok = (tmp_dir / "index.html").exists()
+    from ..extensions import db
+    ex.rl_version = version()
     if ok:
         if out_dir.exists():
             shutil.rmtree(out_dir)
         tmp_dir.replace(out_dir)
+        ex.rl_status = "ready"
+        ex.rl_path = str((out_dir / "index.html").relative_to(root))
     else:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-    return {"status": "ready" if ok else "failed", **stats}
+        ex.rl_status = "failed"
+    db.session.commit()
+    return {"status": ex.rl_status, **stats}

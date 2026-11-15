@@ -60,6 +60,11 @@ DEFAULTS = {
     # Reporting settings (Admin -> Reporting page). Enable flags gate the
     # optional backends; local native-KRE reporting is always on.
     "allure_enabled": False,
+    # 2.0 migration: reporting-labs is a second enhanced backend.
+    # report_backend selects the preferred enhanced backend — "allure"
+    # stays the default until the replacement passes acceptance.
+    "reportinglabs_enabled": False,
+    "report_backend": "allure",
     "logs_retention_days": 30,
     "logs_max_rows": 20000,
     "allure_probe": {},
