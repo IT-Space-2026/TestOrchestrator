@@ -99,7 +99,6 @@ jobs:
             Get-Content "C:\ProgramData\TestOrchestrator\logs\web.log" -ErrorAction SilentlyContinue | Select-Object -Last 25
             Write-Host "=== isolate: stop Worker task, retry web (sqlite lock contention?) ==="
             schtasks /End /TN "TestOrchestratorWorker" 2>$null | Out-Null; Start-Sleep 2
-            $w2 = Get-Process python -ErrorAction SilentlyContinue | Where-Object {$_.Id -ne ($cx[0].OwningProcess)}
             $c2 = $false
             for ($i=0; $i -lt 20; $i++) { try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:18080/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $c2=$true; break } } catch {}; Start-Sleep 1 }
             Write-Host "web healthy with Worker stopped: $c2"
