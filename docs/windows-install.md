@@ -54,7 +54,9 @@ installed separately by the customer — never bundled.
   - `QuietUninstallString` → `cmd /c "...uninstall_to.cmd"` — silent,
     deterministic (the NSIS silent uninstaller is unreliable in
     Session-0/headless contexts); requires elevation. **Retains data
-    by default.** Pass `/PURGE` for full removal.
+    by default.** Pass `/PURGE` (aliases `/PURGEDATA`,
+    `/PURGEDATA=1` also accepted) for full removal — matching the
+    interactive flag is deliberate to prevent operator mistakes.
 - Both flows do the same cleanup — untrust this installation's CA only,
   stop services and reap children, delete the four tasks, remove the
   payload, remove the ARP registry entry — and the same retention

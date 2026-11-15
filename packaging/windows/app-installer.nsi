@@ -146,7 +146,7 @@ Section "Install TestOrchestrator" SecMain
     FileWrite $0 'schtasks /Delete /TN "TestOrchestratorCaddy" /F$\r$\n'
     FileWrite $0 'reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" /f >nul 2>&1$\r$\n'
     FileWrite $0 'rmdir /s /q "$INSTDIR"$\r$\n'
-    FileWrite $0 'if /i "%~2"=="/PURGE" rmdir /s /q "$DATA_DIR"$\r$\n'
+    FileWrite $0 'echo %* | findstr /i /c:"/PURGE" >nul && rmdir /s /q "$DATA_DIR"$\r$\n'
     FileWrite $0 "exit /b 0$\r$\n"
     FileClose $0
     FileOpen $0 "$DATA_DIR\untrust_caddy.cmd" w
@@ -221,8 +221,9 @@ Section "Install TestOrchestrator" SecMain
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayIcon" "$INSTDIR\uninstall.exe"
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "NoModify" 1
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "NoRepair" 1
-    ; interactive desktop flow — pending real-host validation
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "UninstallString" "$INSTDIR\uninstall.exe"
+    ; interactive desktop flow — pending real-host validation (quoted:
+    ; $INSTDIR may contain spaces)
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "UninstallString" '"$INSTDIR\uninstall.exe"'
     ; silent/scripted flow — deterministic wrapper (data retained; /PURGE
     ; is an explicit admin choice, not a quiet default)
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "QuietUninstallString" 'cmd /c "$DATA_DIR\uninstall_to.cmd"'
