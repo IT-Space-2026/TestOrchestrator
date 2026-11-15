@@ -124,7 +124,7 @@ Section "Install TestOrchestrator" SecMain
     ; (the CA is unique per install — never a shared/distributed key)
     FileOpen $0 "$DATA_DIR\untrust_caddy.cmd" w
     FileWrite $0 "@echo off$\r$\n"
-    FileWrite $0 "powershell -NoProfile -Command $\"if(Test-Path '$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt'){$$t=(New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt')).Thumbprint; Remove-Item -Path ('Cert:\LocalMachine\Root\'+$$t) -Force -ErrorAction SilentlyContinue}$\"$\r$\n"
+    FileWrite $0 "powershell -NoProfile -Command $\"if(Test-Path '$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt'){$$t=(New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('$DATA_DIR\caddy-home\Caddy\pki\authorities\local\root.crt')).Thumbprint; Remove-Item -Path ('HKLM:\SOFTWARE\Microsoft\SystemCertificates\Root\Certificates\'+$$t) -Recurse -Force -ErrorAction SilentlyContinue}$\"$\r$\n"
     FileClose $0
 
     ; scheduled tasks for web + worker + dagu + caddy (start at boot)

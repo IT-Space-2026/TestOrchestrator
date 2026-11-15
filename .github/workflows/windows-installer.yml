@@ -214,6 +214,11 @@ jobs:
           if (!$ok) { throw "app not healthy after upgrade" }
           Write-Host "PASS app healthy after upgrade (cert-validated)"
           # UNINSTALL with data retained (silent → default keeps data)
+          # probe: each generated helper must terminate (stall isolation)
+          foreach ($h in @("$data\untrust_caddy.cmd","$data\stop_to.cmd")) {
+            $j = Start-Job { param($p) & $p *> $null } -ArgumentList $h
+            if (!(Wait-Job $j -Timeout 60)) { Write-Host "HANG: $h"; Get-Content $h; Stop-Job $j; Remove-Job $j -Force } else { Remove-Job $j -Force; Write-Host "helper ok: $h" }
+          }
           Start-Process "$inst\uninstall.exe" -ArgumentList "/S" | Out-Null
           # NSIS uninstaller re-executes a temp copy — the launcher exits
           # immediately; wait until the payload dir itself is gone
@@ -243,4 +248,4 @@ jobs:
           for ($i=0; $i -lt 60 -and (Test-Path $data); $i++) { Start-Sleep 1 }
           if (Test-Path $data) { throw "PURGEDATA=1 left data dir behind" }
           Write-Host "PASS uninstall(purge): data dir removed"
-          Remove-Item Cert:\LocalMachine\Root\$($foreign.Thumbprint) -ErrorAction SilentlyContinue
+          Remove-Item "HKLM:\SOFTWARE\Microsoft\SystemCertificates\Root\Certificates\$($foreign.Thumbprint)" -Recurse -Force -ErrorAction SilentlyContinue
