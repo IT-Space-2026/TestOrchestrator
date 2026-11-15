@@ -146,7 +146,8 @@ Section "Install TestOrchestrator" SecMain
     FileWrite $0 'schtasks /Delete /TN "TestOrchestratorCaddy" /F$\r$\n'
     FileWrite $0 'rmdir /s /q "$INSTDIR"$\r$\n'
     FileWrite $0 'if /i "%~2"=="/PURGE" rmdir /s /q "$DATA_DIR"$\r$\n'
-    FileWrite $0 'del /f /q "%TEMP%\to-uninstall.cmd"$\r$\n'
+    FileWrite $0 'del /f /q "%TEMP%\to-uninstall.cmd" 2>nul$\r$\n'
+    FileWrite $0 "exit /b 0$\r$\n"
     FileClose $0
     FileOpen $0 "$DATA_DIR\untrust_caddy.cmd" w
     FileWrite $0 "@echo off$\r$\n"
