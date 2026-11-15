@@ -47,13 +47,18 @@ installed separately by the customer — never bundled.
   dagu children bound to their ports — do not use it alone.
 - Logs: `%ProgramData%\TestOrchestrator\logs\{web,worker,dagu,caddy}.log`
   (Task Scheduler provides no stdout capture; wrappers append here).
-- Uninstall via Add/Remove Programs: untrusts the CA, stops services,
-  deletes tasks and `%ProgramFiles%` payload, then asks before touching
-  `%ProgramData%` data.
-- Headless/scripted uninstall: `%ProgramData%\TestOrchestrator\uninstall_to.cmd`
-  performs the same steps deterministically (the NSIS silent uninstaller
-  is unreliable in Session-0/headless contexts). Pass `/PURGE` to also
-  remove `%ProgramData%\TestOrchestrator`; omit it to retain data.
+- Uninstall entry points are registered under
+  `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator`:
+  - `UninstallString` → `uninstall.exe` (interactive NSIS flow: prompts
+    before deleting `%ProgramData%`; `/PURGEDATA=1` forces removal).
+  - `QuietUninstallString` → `cmd /c "...uninstall_to.cmd"` — silent,
+    deterministic (the NSIS silent uninstaller is unreliable in
+    Session-0/headless contexts); requires elevation. **Retains data
+    by default.** Pass `/PURGE` for full removal.
+- Both flows do the same cleanup — untrust this installation's CA only,
+  stop services and reap children, delete the four tasks, remove the
+  payload, remove the ARP registry entry — and the same retention
+  default (keep data unless purge is explicitly chosen).
 
 ## Remote access — separate deployment mode
 

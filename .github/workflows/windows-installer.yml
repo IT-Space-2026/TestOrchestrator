@@ -193,6 +193,11 @@ jobs:
           $inst = "C:\to smoke install"
           $data = "C:\ProgramData\TestOrchestrator"
           $setup = ".\installer\testorchestrator-1.0.0-windows-amd64-setup-UNSIGNED.exe"
+          # registered uninstall entry points must exist and point at supported flows
+          $arp = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator' -ErrorAction Stop
+          if ($arp.UninstallString -ne "$inst\uninstall.exe") { throw "UninstallString wrong: $($arp.UninstallString)" }
+          if ($arp.QuietUninstallString -notlike "*uninstall_to.cmd*") { throw "QuietUninstallString wrong/missing: $($arp.QuietUninstallString)" }
+          Write-Host "PASS ARP registration: UninstallString=$($arp.UninstallString) Quiet=$($arp.QuietUninstallString)"
           # foreign CA + stray python must survive OUR lifecycle operations
           # self-signed certs generate in My (a key store); the public
           # cert is then imported into Root as a foreign trusted CA
@@ -219,9 +224,10 @@ jobs:
             $j = Start-Job { param($p) & $p *> $null } -ArgumentList $h
             if (!(Wait-Job $j -Timeout 60)) { Write-Host "HANG: $h"; Get-Content $h; Stop-Job $j; Remove-Job $j -Force } else { Remove-Job $j -Force; Write-Host "helper ok: $h" }
           }
-          # supported headless uninstall via the shipped wrapper (temp-copy
-          # + in-place _?= — Session-0-safe with spaced paths)
-          & "$data\uninstall_to.cmd" | Out-Null
+          # silent uninstall via the REGISTERED QuietUninstallString — the
+          # actual customer-facing entry point, not a dev-side shortcut
+          $q = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator').QuietUninstallString
+          cmd /c "$q" | Out-Null
           for ($i=0; $i -lt 120 -and (Test-Path "$inst"); $i++) { Start-Sleep 1 }
           if (Test-Path "$inst") { Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'uninstall|Un_|_\?=' } | Select-Object ProcessId,Name,CommandLine | Format-Table -AutoSize | Out-String | Write-Host; schtasks /Query /TN "TestOrchestratorWeb" 2>&1 | Select-Object -Last 2; throw "uninstall did not remove payload dir within 480s — product defect, not masked" }
           Write-Host "PASS payload dir removed by uninstaller"
@@ -231,7 +237,8 @@ jobs:
           if (!(Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Thumbprint -eq $foreign.Thumbprint })) { throw "uninstall removed UNRELATED Caddy CA" }
           if (!(Get-Process -Id $stray.Id -ErrorAction SilentlyContinue)) { throw "stop_to.cmd killed unrelated python process" } else { Stop-Process -Id $stray.Id -Force }
           if (Get-NetTCPConnection -LocalPort 18080 -State Listen -ErrorAction SilentlyContinue) { throw "port 18080 still bound after uninstall" }
-          Write-Host "PASS uninstall(retain): data kept, our CA untrusted, foreign CA + stray python survived"
+          if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator') { throw "uninstall left stale ARP registry entry" }
+          Write-Host "PASS uninstall(retain): data kept, our CA untrusted, foreign CA + stray python survived, ARP cleaned"
           # REINSTALL
           $p = Start-Process $setup -ArgumentList "/S","/D=$inst" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "reinstall exited $($p.ExitCode)" }

@@ -144,6 +144,7 @@ Section "Install TestOrchestrator" SecMain
     FileWrite $0 'schtasks /Delete /TN "TestOrchestratorWorker" /F$\r$\n'
     FileWrite $0 'schtasks /Delete /TN "TestOrchestratorDagu" /F$\r$\n'
     FileWrite $0 'schtasks /Delete /TN "TestOrchestratorCaddy" /F$\r$\n'
+    FileWrite $0 'reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" /f >nul 2>&1$\r$\n'
     FileWrite $0 'rmdir /s /q "$INSTDIR"$\r$\n'
     FileWrite $0 'if /i "%~2"=="/PURGE" rmdir /s /q "$DATA_DIR"$\r$\n'
     FileWrite $0 "exit /b 0$\r$\n"
@@ -212,7 +213,16 @@ Section "Install TestOrchestrator" SecMain
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayName" "${PRODUCT} ${VERSION}"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayVersion" "${VERSION}"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "Publisher" "IT-Space"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayIcon" "$INSTDIR\uninstall.exe"
+    WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "NoModify" 1
+    WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "NoRepair" 1
+    ; interactive desktop flow — pending real-host validation
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "UninstallString" "$INSTDIR\uninstall.exe"
+    ; silent/scripted flow — deterministic wrapper (data retained; /PURGE
+    ; is an explicit admin choice, not a quiet default)
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "QuietUninstallString" 'cmd /c "$DATA_DIR\uninstall_to.cmd"'
 SectionEnd
 
 Function un.onInit
@@ -237,6 +247,7 @@ Section "Uninstall"
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorWorker" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorDagu" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorCaddy" /F'
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator"
     RMDir /r "$INSTDIR"
     ${If} $PURGE_DATA == "1"
         RMDir /r "$DATA_DIR"
