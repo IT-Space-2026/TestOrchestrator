@@ -212,6 +212,9 @@ Section "Install TestOrchestrator" SecMain
     ${EndIf}
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
+    ; NSIS is 32-bit: without SetRegView, HKLM\SOFTWARE writes land in
+    ; WOW6432Node — register ARP in the native 64-bit view
+    SetRegView 64
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayName" "${PRODUCT} ${VERSION}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayVersion" "${VERSION}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "Publisher" "IT-Space"
@@ -228,6 +231,7 @@ SectionEnd
 Function un.onInit
     ; $DATA_DIR is a runtime variable — it is NOT carried over from the
     ; install process; re-derive it so untrust/RMDir act on real paths.
+    SetRegView 64
     ReadEnvStr $DATA_DIR "ProgramData"
     StrCpy $DATA_DIR "$DATA_DIR\TestOrchestrator"
     StrCpy $PURGE_DATA "0"
