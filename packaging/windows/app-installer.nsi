@@ -118,7 +118,7 @@ Section "Install TestOrchestrator" SecMain
     FileWrite $0 'schtasks /End /TN "TestOrchestratorWorker"$\r$\n'
     FileWrite $0 'schtasks /End /TN "TestOrchestratorDagu"$\r$\n'
     FileWrite $0 'schtasks /End /TN "TestOrchestratorCaddy"$\r$\n'
-    FileWrite $0 "powershell -NoProfile -Command $\"Get-CimInstance Win32_Process | Where-Object { $$_.CommandLine -and $$_.CommandLine.IndexOf('$INSTDIR',[StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }$\"$\r$\n"
+    FileWrite $0 "powershell -NoProfile -Command $\"$$ps = Get-CimInstance Win32_Process | Where-Object { $$_.CommandLine -and $$_.CommandLine.IndexOf('$INSTDIR',[StringComparison]::OrdinalIgnoreCase) -ge 0 }; $$ps | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }; $$ps | ForEach-Object { Wait-Process -Id $$_.ProcessId -Timeout 20 -ErrorAction SilentlyContinue }$\"$\r$\n"
     FileClose $0
     ; uninstall helper: untrust this installation's root CA by thumbprint
     ; (the CA is unique per install — never a shared/distributed key)
@@ -213,6 +213,8 @@ Section "Uninstall"
     Pop $0
     nsExec::ExecToLog '"$DATA_DIR\stop_to.cmd"'
     Pop $0
+    ; give killed children a beat to release file locks before RMDir
+    Sleep 1500
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorWeb" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorWorker" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorDagu" /F'
