@@ -43,7 +43,7 @@ jobs:
         shell: pwsh
         run: |
           $inst = "C:\to smoke install"
-          $p = Start-Process (Get-Item ".\installer\*setup-UNSIGNED.exe" | Select-Object -First 1).FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          $p = Start-Process (Get-Item ".\installer\*windows-amd64-setup-UNSIGNED.exe" | Select-Object -First 1).FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
           Write-Host "installer exit: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
           foreach ($f in @("$inst\python\python.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem","$inst\run_worker.py")) {
@@ -194,7 +194,7 @@ jobs:
         run: |
           $inst = "C:\to smoke install"
           $data = "C:\ProgramData\TestOrchestrator"
-          $setup = (Get-Item ".\installer\*setup-UNSIGNED.exe" | Select-Object -First 1).FullName
+          $setup = (Get-Item ".\installer\*windows-amd64-setup-UNSIGNED.exe" | Select-Object -First 1).FullName
           # registered uninstall entry points must exist and point at supported flows
           $arp = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator' -ErrorAction Stop
           if ($arp.UninstallString -ne "`"$inst\uninstall.exe`"") { throw "UninstallString wrong: $($arp.UninstallString)" }
@@ -316,7 +316,7 @@ jobs:
         run: |
           $inst = "C:\to upgrade install"
           $thumb1 = Get-Content "$env:TEMP\thumb1.txt"
-          $setup = Get-Item ".\candidate\*setup-UNSIGNED.exe" | Select-Object -First 1
+          $setup = Get-Item ".\candidate\*windows-amd64-setup-UNSIGNED.exe" | Select-Object -First 1
           $p = Start-Process $setup.FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "upgrade install exited $($p.ExitCode)" }
           $thumb2 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" }).Thumbprint
