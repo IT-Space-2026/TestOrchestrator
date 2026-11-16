@@ -71,8 +71,10 @@ def test_generate_single_file_report(app, tmp_path):
             assert needle in body, needle
         # persisted state independent of allure_status/report_status
         assert ex.rl_status == "ready"
-        assert ex.rl_path.startswith("reporting-labs/gen-")
-        assert ex.rl_path.endswith("/index.html")
+        parts = Path(ex.rl_path).parts
+        assert parts[0] == "reporting-labs"
+        assert parts[-2].startswith("gen-")
+        assert parts[-1] == "index.html"
         assert ex.rl_version
 
 
@@ -123,8 +125,10 @@ def test_failed_regen_preserves_previous_usable(app, tmp_path,
         assert out["status"] == "failed"
         assert ex.rl_status == "failed"
         # previous report intact and still referenced
-        assert ex.rl_path.startswith("reporting-labs/gen-")
-        assert ex.rl_path.endswith("/index.html")
+        parts = Path(ex.rl_path).parts
+        assert parts[0] == "reporting-labs"
+        assert parts[-2].startswith("gen-")
+        assert parts[-1] == "index.html"
         assert (Path(ex.report_dir) / ex.rl_path).read_bytes() == good
         # no tmp residue from the failed attempt
         assert not list(Path(ex.report_dir).glob("reporting-labs.tmp.*"))
