@@ -64,7 +64,8 @@ jobs:
         run: |
           set -e
           cd packaging/windows
-          makensis -VERSION || export PATH="$ChocolateyInstall/bin:$PATH"
+          export PATH="/c/Program Files (x86)/NSIS:$PATH"
+          makensis -VERSION
           sed -e 's/!define VERSION "1.0.2"/!define VERSION "2.0.0-rlproto"/' \
               -e 's/testorchestrator-${VERSION}-windows-amd64-setup-UNSIGNED/testorchestrator-${VERSION}-windows-amd64-setup-PROTOTYPE/' \
               app-installer.nsi > proto-installer.nsi
