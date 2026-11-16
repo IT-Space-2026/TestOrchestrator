@@ -52,8 +52,19 @@ keeps the previous usable report).
 |---|---|---|---|
 | Windows setup `.exe` | 188,514,760 | **132,162,226** | −56,352,534 (**−29.9%**) |
 | Linux `.run` | 289,532,135 | **275,919,081** | −13,613,054 (**−4.7%**) |
-| Windows payload (7z-extracted NSIS) | 535,005,326 | **375,722,055** | −159,283,271 (**−29.8%**) |
-| Linux payload (extracted tar, pre-install) | 590,438,896 | **383,116,599** | −207,322,297 (**−35.1%**) |
+| Windows clean extracted payload (7z, pre-install) | 535,005,326 | **375,722,055** | −159,283,271 (**−29.8%**) |
+| Linux clean extracted payload (tar, pre-install) | 590,438,896 | **383,116,599** | −207,322,297 (**−35.1%**) |
+
+*Clean extracted payload* = the extracted installer payload counted
+pre-install: wheel caches and post-install Python runtime additions
+are excluded from both sides. The two packages use the same method
+but do not contain identical assets — the Linux 2.0 package adds the
+63,354,239-byte dagu-worker Windows installer download asset absent
+from the published 1.0.2 payload (see size accounting below).
+The eventual release build must be produced and validated from a
+single frozen commit; the Windows candidate artifact (`f47c5731`),
+the Windows validation build (`9208437`), and this documentation
+checkpoint (`9009f83`) are distinct identities.
 
 - Windows candidate artifact (run 43858825377, commit `f47c573`):
   `testorchestrator-2.0.0-windows-amd64-setup-PROTOTYPE.exe`,
@@ -382,10 +393,10 @@ with install verification remains a packaging-milestone task.
 | Package | v1.0.2 published | 2.0 prototype | Δ | % |
 |---|---|---|---|---|
 | Windows setup exe | 188,514,760 | **132,169,481 measured** (sha256 `6ca0894d…2b87c8d`) | −56,345,279 | −29.9% |
-| Windows installed footprint | 535,005,326 (extracted payload) | **388,939,347 measured on disk** | −146,065,979 | −27.3% |
+| Windows payload | 535,005,326 (extracted, pre-install) | **388,939,347** (real NSIS install measured on disk — incl. post-install runtime, so NOT like-for-like with the extracted figure; the clean-extracted comparison is in the candidate table above) | −146,065,979 | −27.3% |
 | Linux `.tar.gz` | 289,530,429 | **213,557,570 measured** (repacked archive) | −75,972,859 | −26.2% |
 | Linux `.run` | 289,532,135 | ~213,559,000 (archive + ~1.7 KB stub; **not yet a built installer**) | ~−75.97 MB | ~−26.2% |
-| Linux installed footprint | 590,438,896 | ~320.7 MB | ~−269.7 MB | ~−45.7% |
+| Linux clean extracted payload | 590,438,896 | ~320.7 MB | ~−269.7 MB | ~−45.7% |
 
 Removed payload (uncompressed → compressed contribution):
 `nodejs` 224.5 MB linux / 112.9 MB windows, `allure3` ~46.4 MB both —
