@@ -98,6 +98,12 @@ def seed():
         (rd / "kre" / "report.html").write_text(
             "<html><body>ci native KRE report</body></html>")
         (rd / "kre" / "screen.png").write_bytes(b"\x89PNG\x00ci")
+        # legacy 1.x-era report tree left on disk — 2.0 must not
+        # open it but must not delete it either
+        ad = rd / "allure"
+        (ad / "data").mkdir(parents=True, exist_ok=True)
+        (ad / "index.html").write_text("<html>legacy allure</html>")
+        (ad / "data" / "case.json").write_text("{}")
         gen = rd / "reporting-labs" / "gen-aaaaaaaaaaaa"
         (gen / "assets").mkdir(parents=True, exist_ok=True)
         (gen / "index.html").write_text(
@@ -189,6 +195,18 @@ def check():
         r = c.get(f"/executions/{EX_ID}/rlabs/..%2f..%2f/x")
         assert r.status_code in (404, 400), r.status_code
         print("PASS traversal + invalid generation rejected")
+
+        # breaking-change contract: legacy allure routes are gone,
+        # but the on-disk files are untouched
+        r = c.get(f"/executions/{EX_ID}/allure/")
+        assert r.status_code == 404, r.status_code
+        r = c.get(f"/executions/{EX_ID}/allure.zip")
+        assert r.status_code == 404, r.status_code
+        from testorchestrator.config import INSTANCE_DIR as _ID
+        legacy = Path(_ID) / "ci-evidence" / EX_ID / "allure"
+        assert (legacy / "index.html").is_file(), "allure file deleted"
+        assert (legacy / "data" / "case.json").is_file()
+        print("PASS legacy allure routes 404 + evidence files preserved")
 
         # expired generation: clear 404, never a substituted file
         r = c.get(f"/executions/{EX_ID}/rlabs/"

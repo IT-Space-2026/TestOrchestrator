@@ -333,6 +333,10 @@ jobs:
           if (!$ok) { throw "app not healthy after v1.0.1->candidate upgrade" }
           Write-Host "PASS app healthy after upgrade (cert-validated)"
           Push-Location $inst
+          # reseed: 1.x schema had no rl_* columns — wire the rlabs
+          # report onto the retained execution post-migration
+          & "$inst\python\python.exe" "$inst\report_serving_check.py" seed 2>&1
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw "post-upgrade reseed failed" }
           & "$inst\python\python.exe" "$inst\report_serving_check.py" check 2>&1
           $rc = $LASTEXITCODE
           Pop-Location

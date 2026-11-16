@@ -97,6 +97,11 @@ jobs:
           ./3rdparty/python-runtime/python/bin/python \
             -m testorchestrator db-upgrade
           cp "$GITHUB_WORKSPACE/packaging/ci/report_serving_check.py" .
+          # reseed: the 1.x schema had no rl_* columns — the retained
+          # execution gets the reporting-labs report wired up on the
+          # post-migration schema (seed is idempotent)
+          ./3rdparty/python-runtime/python/bin/python \
+            report_serving_check.py seed
           ./3rdparty/python-runtime/python/bin/python \
             report_serving_check.py check
           echo "PASS retained reports/licence/access after v1.0.1->candidate upgrade"
