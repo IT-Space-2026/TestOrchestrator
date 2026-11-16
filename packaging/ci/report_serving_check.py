@@ -98,13 +98,12 @@ def seed():
         (rd / "kre" / "report.html").write_text(
             "<html><body>ci native KRE report</body></html>")
         (rd / "kre" / "screen.png").write_bytes(b"\x89PNG\x00ci")
-        (rd / "allure" / "data").mkdir(parents=True, exist_ok=True)
-        (rd / "allure" / "index.html").write_text(
-            "<html><body>ci allure report"
-            "<script src='./app.js'></script></body></html>")
-        (rd / "allure" / "app.js").write_text("console.log('ci')")
-        (rd / "allure" / "data" / "case.json").write_text(
-            '{"name":"ci","status":"passed"}')
+        gen = rd / "reporting-labs" / "gen-aaaaaaaaaaaa"
+        (gen / "assets").mkdir(parents=True, exist_ok=True)
+        (gen / "index.html").write_text(
+            "<html><head></head><body>ci rlabs report</body></html>")
+        (gen / "report.json").write_text('{"name":"ci","status":"passed"}')
+        (gen / "assets" / "att.png").write_bytes(b"\x89PNG\x00ci")
         ex = db.session.get(Execution, EX_ID)
         if ex is None:
             ex = Execution(id=EX_ID, project_id="p1", created_by="ci")
@@ -112,9 +111,9 @@ def seed():
         ex.report_dir = str(rd)
         ex.report_status = "ready"
         ex.report_path = "kre/report.html"
-        ex.allure_status = "ready"
-        ex.allure_path = "allure/index.html"
-        ex.allure_version = "3.x"
+        ex.rl_status = "ready"
+        ex.rl_path = "reporting-labs/gen-aaaaaaaaaaaa/index.html"
+        ex.rl_version = "0.1.14"
         db.session.commit()
     print(f"PASS seeded sanitised execution {EX_ID} into {rd}")
 
@@ -142,9 +141,9 @@ def check():
 
         # anonymous: every report surface redirects to /login
         for rel in (f"/executions/{EX_ID}/report",
-                    f"/executions/{EX_ID}/allure/",
-                    f"/executions/{EX_ID}/allure/app.js",
-                    f"/executions/{EX_ID}/allure.zip",
+                    f"/executions/{EX_ID}/rlabs",
+                    f"/executions/{EX_ID}/rlabs/gen-aaaaaaaaaaaa/report.json",
+                    f"/executions/{EX_ID}/rlabs.zip",
                     f"/executions/{EX_ID}/report.zip"):
             r = anon.get(rel)
             assert r.status_code == 302 and \
@@ -168,30 +167,41 @@ def check():
         assert any(n.endswith("report.html") for n in names), names
         print("PASS native report page, asset, report.zip")
 
-        r = c.get(f"/executions/{EX_ID}/allure")
-        assert r.status_code == 302
-        idx = c.get(f"/executions/{EX_ID}/allure/")
-        assert idx.status_code == 200 and b"allure" in idx.data
-        for rel in ("app.js", "data/case.json"):
-            a = c.get(f"/executions/{EX_ID}/allure/{rel}")
-            assert a.status_code == 200, f"allure {rel} -> {a.status_code}"
-        z = c.get(f"/executions/{EX_ID}/allure.zip")
+        idx = c.get(f"/executions/{EX_ID}/rlabs")
+        assert idx.status_code == 200 and b"rlabs" in idx.data
+        assert b'<base href="/executions/%s/rlabs/gen-aaaaaaaaaaaa/">' \
+            % EX_ID.encode() in idx.data
+        for rel in ("report.json", "assets/att.png"):
+            a = c.get(f"/executions/{EX_ID}/rlabs/"
+                      f"gen-aaaaaaaaaaaa/{rel}")
+            assert a.status_code == 200, f"rlabs {rel} -> {a.status_code}"
+        z = c.get(f"/executions/{EX_ID}/rlabs.zip")
         assert z.status_code == 200
         names = zipfile.ZipFile(io.BytesIO(z.data)).namelist()
-        assert {"index.html", "app.js",
-                "data/case.json"} <= set(names), names
-        print("PASS allure page, nested assets, allure.zip")
+        assert {"index.html", "report.json",
+                "assets/att.png"} <= set(names), names
+        print("PASS rlabs page, generation-scoped assets, rlabs.zip")
 
-        # traversal in the served path stays contained
-        r = c.get(f"/executions/{EX_ID}/allure/..%2f..%2fx")
+        # traversal + bogus generation ids stay contained
+        r = c.get(f"/executions/{EX_ID}/rlabs/gen-aaaaaaaaaaaa/"
+                  "..%2f..%2fx")
         assert r.status_code in (404, 400), r.status_code
-        print("PASS traversal in report path rejected")
+        r = c.get(f"/executions/{EX_ID}/rlabs/..%2f..%2f/x")
+        assert r.status_code in (404, 400), r.status_code
+        print("PASS traversal + invalid generation rejected")
+
+        # expired generation: clear 404, never a substituted file
+        r = c.get(f"/executions/{EX_ID}/rlabs/"
+                  "gen-bbbbbbbbbbbb/report.json")
+        assert r.status_code == 404, r.status_code
+        print("PASS missing generation returns clear 404")
 
         # seeded execution metadata intact
         ex = db.session.get(Execution, EX_ID)
         assert ex.report_status == "ready"
-        assert ex.allure_status == "ready"
-        assert ex.allure_path == "allure/index.html"
+        assert ex.rl_status == "ready"
+        assert ex.rl_path == \
+            "reporting-labs/gen-aaaaaaaaaaaa/index.html"
         print("PASS execution metadata intact")
 
 

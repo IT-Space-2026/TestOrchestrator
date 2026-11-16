@@ -23,7 +23,7 @@ future operations; no restart is required.</p>
       evidence exports (non-force pushes). <strong>Not required for
       ordinary evidence retention or reporting</strong> — leaving it
       unset does not disable local artifact storage, log/screenshot
-      viewing, or Allure report generation/viewing; the local evidence
+      viewing, or report generation/viewing; the local evidence
       store is authoritative. Export credentials and write access are
       separate from source-repository access. Runs under the Dulwich
       backend; HTTPS uses a Secret with user:pass content, SSH uses
@@ -54,7 +54,7 @@ git_export_ref: main</pre></details>
   <p><button class="button" type="submit">Save integration settings</button></p>
 </form>
 
-<p class="muted">Allure is configured under
+<p class="muted">Reporting is configured under
 <a href="{{ url_for('system.reporting_page') }}">System → Reporting</a>;
 network/bind settings under
 <a href="{{ url_for('system.network') }}">System → Network</a>.</p>

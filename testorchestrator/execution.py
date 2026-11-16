@@ -376,14 +376,8 @@ class Execution(db.Model):
     report_status = db.Column(db.String(16), nullable=False,
                               default="pending")
     report_path = db.Column(db.String(512), nullable=False, default="")
-    # Allure reporting is a third independent status (besides execution
-    # and local-native report) — ready|partial|missing|failed.
-    allure_status = db.Column(db.String(16), nullable=False,
-                              default="pending")
-    allure_path = db.Column(db.String(512), nullable=False, default="")
-    allure_version = db.Column(db.String(32), nullable=False, default="")
-    # reporting-labs reporting — a fourth independent status (2.0
-    # migration backend; Allure remains default during migration).
+    # reporting-labs reporting — the sole enhanced-report backend (2.0;
+    # Allure columns removed by migration p6q7r8s9t0u1).
     rl_status = db.Column(db.String(16), nullable=False,
                           default="pending")
     rl_path = db.Column(db.String(512), nullable=False, default="")

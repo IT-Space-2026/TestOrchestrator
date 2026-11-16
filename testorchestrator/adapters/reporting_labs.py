@@ -1,7 +1,7 @@
 """reporting-labs adapter — canonical results -> single-file HTML report
-(2.0 migration backend; Allure 3 remains the shipping default for 1.0.1).
+(the sole enhanced-report backend in 2.0).
 
-Mirrors ``adapters/allure.py`` semantics so behaviour is comparable:
+Single-backend report generation semantics:
 - Same status mapping (passed/failed/error->failed/skipped; unresolved
   -> skipped with an explanatory message — reporting-labs has no
   'unknown' status, so unresolved cases surface as skipped+labelled).
@@ -26,10 +26,50 @@ import uuid
 from pathlib import Path
 
 from ..execution import Artifact, Execution, ExecutionState
-from .allure import _case_attachments
 
 STATUS_MAP = {"passed": "passed", "failed": "failed",
               "error": "failed", "skipped": "skipped"}
+def _stem_tokens(stem: str) -> set:
+    import re
+    return {t for t in re.split(r"[^a-z0-9]+", stem.lower()) if t}
+
+
+
+
+def _case_attachments(ex: Execution, root: Path) -> dict:
+    """Artifact -> test_result mapping. Authoritative `result_id` wins
+    when populated. The filename heuristic is an explicitly LIMITED
+    fallback: attach only when the artifact stem contains the case name
+    as a whole token AND that match is unambiguous (exactly one artifact
+    candidate and exactly one case). Duplicate case names, similar
+    filenames, or multiply-matching stems are NEVER guessed — they stay
+    unmatched and labelled."""
+    by_id = {}
+    ambiguous = set()
+    results = [r for r in ex.results]
+    for a in Artifact.query.filter_by(execution_id=ex.id).all():
+        if a.result_id:
+            by_id.setdefault(a.result_id, []).append(a)
+            continue
+        if a.kind not in ("screenshot", "video", "har"):
+            continue
+        stem = Path(a.rel_path).stem.lower()
+        tokens = _stem_tokens(stem)
+        names = [(r.case_name or "").lower() for r in results]
+        hits = {r.id for r in results
+                if (r.case_name or "").lower() in tokens
+                or (r.case_name or "").lower() == stem}
+        # Unambiguous only: one stem -> one case AND that case's name is
+        # unique among results (duplicate names can never be resolved).
+        dupes = len([n for n in names if n]) != len(set(n for n in names if n))
+        if len(hits) == 1 and not dupes:
+            by_id.setdefault(hits.pop(), []).append(a)
+        else:
+            ambiguous.add(a.id)
+    return by_id
+
+
+
 OUT_DIRNAME = "reporting-labs"
 # Generations retained per report. A reader holding generation N must
 # survive TWO newer publications, so the newest three are kept.
@@ -57,7 +97,7 @@ def _options(out_dir: Path):
     values["open"] = "never"
     values["announce"] = False       # no stdout noise in the service log
     values["history"] = {"enabled": False}  # no stray history file
-    # approved IT-Space branding, same asset the Allure report uses;
+    # approved IT-Space branding asset;
     # reporting-labs embeds it as a data URI so the report stays offline
     logo = (Path(__file__).resolve().parents[1]
             / "static" / "branding" / "iT-space-logo.png")
@@ -177,8 +217,8 @@ def _emit(ex: Execution, out_dir: Path) -> dict:
 
 def generate_for(ex: Execution) -> dict:
     """Convert + generate + persist rl_status/path/version. Idempotent
-    like the Allure path: regenerates only this run's reporting-labs
-    output dir; original artifacts and Allure reports are untouched."""
+    regenerates only this run's reporting-labs output dir;
+    original artifacts are untouched."""
     root = Path(ex.report_dir or "")
     if not root.is_dir() or not ex.results:
         ex.rl_status = "missing"

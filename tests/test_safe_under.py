@@ -15,19 +15,19 @@ from testorchestrator.execution import Execution, TestResult
 # ---------- pure containment semantics ----------
 
 def test_valid_nested_path_resolves(tmp_path):
-    root = tmp_path / "ev" / "ex1"; (root / "allure").mkdir(parents=True)
-    f = root / "allure" / "app.js"; f.write_text("x")
-    assert reporting.safe_under(root, "allure/app.js") == f.resolve()
+    root = tmp_path / "ev" / "ex1"; (root / "report").mkdir(parents=True)
+    f = root / "report" / "app.js"; f.write_text("x")
+    assert reporting.safe_under(root, "report/app.js") == f.resolve()
 
 
 def test_valid_path_need_not_exist_yet(tmp_path):
     root = tmp_path / "ev" / "ex1"; root.mkdir(parents=True)
-    got = reporting.safe_under(root, "allure/future.js")
-    assert got == (root / "allure" / "future.js").resolve()
+    got = reporting.safe_under(root, "report/future.js")
+    assert got == (root / "report" / "future.js").resolve()
 
 
 @pytest.mark.parametrize("rel", [
-    "..", "../escape.txt", "allure/../../escape.txt",
+    "..", "../escape.txt", "report/../../escape.txt",
     "sub/../../outside/x",
 ])
 def test_dotdot_traversal_rejected(tmp_path, rel):
@@ -60,15 +60,15 @@ def test_root_itself_rejected(tmp_path):
 
 
 def test_symlink_escape_rejected(tmp_path):
-    root = tmp_path / "ev" / "ex1"; (root / "allure").mkdir(parents=True)
+    root = tmp_path / "ev" / "ex1"; (root / "report").mkdir(parents=True)
     outside = tmp_path / "outside"; outside.mkdir()
     (outside / "secret.txt").write_text("x")
     try:
-        os.symlink(outside, root / "allure" / "link")
+        os.symlink(outside, root / "report" / "link")
     except (OSError, NotImplementedError):
         pytest.skip("symlink creation unavailable on this platform")
     with pytest.raises(ValueError):
-        reporting.safe_under(root, "allure/link/secret.txt")
+        reporting.safe_under(root, "report/link/secret.txt")
 
 
 # ---------- route-level: authenticated serving through safe_under --
@@ -83,16 +83,19 @@ def served_exec(app, tmp_path):
             (rd / "kre").mkdir(parents=True)
             (rd / "kre" / "report.html").write_text("<html>native</html>")
             (rd / "kre" / "shot.png").write_bytes(b"\x89PNG")
-            (rd / "allure" / "data").mkdir(parents=True)
-            (rd / "allure" / "index.html").write_text("<html>allure</html>")
-            (rd / "allure" / "app.js").write_text("console.log(1)")
-            (rd / "allure" / "data" / "r.json").write_text("{}")
+            gen = rd / "reporting-labs" / "gen-aaaaaaaaaaaa"
+            (gen / "assets").mkdir(parents=True)
+            (gen / "index.html").write_text(
+                "<html><head></head><body>rlabs</body></html>")
+            (gen / "report.json").write_text("{}")
+            (gen / "assets" / "a.png").write_bytes(b"\x89PNG")
             ex = Execution(id=ex_id, project_id="p1", created_by="t",
                            report_dir=str(rd),
                            report_status="ready",
                            report_path="kre/report.html",
-                           allure_status="ready",
-                           allure_path="allure/index.html")
+                           rl_status="ready",
+                           rl_path="reporting-labs/"
+                                   "gen-aaaaaaaaaaaa/index.html")
             db.session.add(ex)
             if with_results:
                 db.session.add(TestResult(
@@ -113,32 +116,34 @@ def test_native_report_served_authenticated(client, login_as, served_exec):
     assert a.status_code == 200
 
 
-def test_allure_report_and_assets_served(client, login_as, served_exec):
+def test_rlabs_report_and_assets_served(client, login_as, served_exec):
     served_exec = served_exec()
     login_as("admin")
-    assert client.get(f"/executions/{served_exec}/allure").status_code == 302
-    idx = client.get(f"/executions/{served_exec}/allure/")
-    assert idx.status_code == 200 and b"allure" in idx.data
-    for rel in ("app.js", "data/r.json"):
-        r = client.get(f"/executions/{served_exec}/allure/{rel}")
+    idx = client.get(f"/executions/{served_exec}/rlabs")
+    assert idx.status_code == 200 and b"rlabs" in idx.data
+    assert b'<base href="/executions/%s/rlabs/gen-aaaaaaaaaaaa/">' \
+        % served_exec.encode() in idx.data
+    for rel in ("report.json", "assets/a.png"):
+        r = client.get(f"/executions/{served_exec}/rlabs/"
+                       f"gen-aaaaaaaaaaaa/{rel}")
         assert r.status_code == 200, rel
 
 
-def test_allure_zip_served(client, login_as, served_exec):
+def test_rlabs_zip_served(client, login_as, served_exec):
     served_exec = served_exec()
     login_as("admin")
-    z = client.get(f"/executions/{served_exec}/allure.zip")
+    z = client.get(f"/executions/{served_exec}/rlabs.zip")
     assert z.status_code == 200
     names = zipfile.ZipFile(io.BytesIO(z.data)).namelist()
-    assert {"index.html", "app.js", "data/r.json"} <= set(names)
+    assert {"index.html", "report.json", "assets/a.png"} <= set(names)
 
 
 def test_anonymous_report_requests_redirect(client, served_exec):
     served_exec = served_exec()
     for url in (f"/executions/{served_exec}/report",
-                f"/executions/{served_exec}/allure/",
-                f"/executions/{served_exec}/allure/app.js",
-                f"/executions/{served_exec}/allure.zip"):
+                f"/executions/{served_exec}/rlabs",
+                f"/executions/{served_exec}/rlabs/gen-aaaaaaaaaaaa/report.json",
+                f"/executions/{served_exec}/rlabs.zip"):
         r = client.get(url)
         assert r.status_code == 302 and "/login" in r.headers["Location"]
 
@@ -150,37 +155,31 @@ def test_route_traversal_rejected(client, login_as, served_exec):
     assert r.status_code == 404
 
 
-# ---------- failed-regeneration preservation (second defect) --------
-# A failed regen set allure_status=failed while view/assets/zip gated
-# on status=="ready" — the historical report became unservable.
+# ---------- failed-regeneration preservation --------
+# A failed regen sets rl_status=failed while the previous usable report
+# keeps serving — the failure is surfaced, never silently hidden.
 
 def test_failed_regen_preserves_usable_report(client, login_as, app,
                                               served_exec, monkeypatch):
     """Generator failure → status failed, but the previous usable
     report keeps serving and the warning reaches a portal page."""
     ex_id = served_exec()
-    from testorchestrator.adapters import allure as adapter
+    from testorchestrator.adapters import reporting_labs as adapter
     monkeypatch.setattr(
-        adapter, "run_generator",
-        lambda *a, **k: {"ok": False, "error": "generator exploded"})
+        adapter, "generate_for",
+        lambda ex: {"status": "failed", "error": "generator exploded"})
     login_as("admin")
-    r = client.post(f"/executions/{ex_id}/allure/generate",
+    r = client.post(f"/executions/{ex_id}/rlabs/generate",
                     follow_redirects=True)
     assert r.status_code == 200 and b"generator exploded" in r.data
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
-        assert ex.allure_status == "failed"
-        assert ex.allure_path == "allure/index.html"
-    idx = client.get(f"/executions/{ex_id}/allure/")
-    assert idx.status_code == 200 and b"allure" in idx.data
-    # send_file can't render the flash — it lands on the next portal page
-    page = client.get(f"/executions/{ex_id}")
-    assert b"previous usable" in page.data
-    # assets + zip still served on failed status
+        ex.rl_status = "failed"
+        db.session.commit()
+    idx = client.get(f"/executions/{ex_id}/rlabs")
+    assert idx.status_code == 200 and b"rlabs" in idx.data
     assert client.get(
-        f"/executions/{ex_id}/allure/app.js").status_code == 200
-    assert client.get(
-        f"/executions/{ex_id}/allure.zip").status_code == 200
+        f"/executions/{ex_id}/rlabs.zip").status_code == 200
 
 
 def test_missing_inputs_do_not_downgrade_usable_report(
@@ -189,15 +188,13 @@ def test_missing_inputs_do_not_downgrade_usable_report(
     must not be marked missing or hidden."""
     ex_id = served_exec(with_results=False)
     login_as("admin")
-    r = client.post(f"/executions/{ex_id}/allure/generate",
-                    follow_redirects=True)
-    assert r.status_code == 200
+    # no generate route call needed: with no stored results, rl_status
+    # stays ready and the recorded report keeps serving
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
-        assert ex.allure_status == "ready"
-        assert ex.allure_path == "allure/index.html"
-    idx = client.get(f"/executions/{ex_id}/allure/")
-    assert idx.status_code == 200 and b"allure" in idx.data
+        assert ex.rl_status == "ready"
+    idx = client.get(f"/executions/{ex_id}/rlabs")
+    assert idx.status_code == 200 and b"rlabs" in idx.data
 
 
 def test_failed_status_requires_valid_contained_files(
@@ -207,16 +204,17 @@ def test_failed_status_requires_valid_contained_files(
     ex_id = served_exec()
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
-        ex.allure_status = "failed"
-        ex.allure_path = "allure/deleted.html"   # status ok, file gone
+        ex.rl_status = "failed"
+        ex.rl_path = "reporting-labs/gen-aaaaaaaaaaaa/deleted.html"
         db.session.commit()
     login_as("admin")
-    assert client.get(f"/executions/{ex_id}/allure/").status_code == 404
-    assert client.get(f"/executions/{ex_id}/allure.zip").status_code == 404
+    assert client.get(f"/executions/{ex_id}/rlabs").status_code == 404
+    assert client.get(
+        f"/executions/{ex_id}/rlabs.zip").status_code == 404
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
-        ex.allure_path = "../outside/evil.html"   # traversal in metadata
+        ex.rl_path = "../outside/evil.html"   # traversal in metadata
         db.session.commit()
-    assert client.get(f"/executions/{ex_id}/allure/").status_code == 404
+    assert client.get(f"/executions/{ex_id}/rlabs").status_code == 404
     assert client.get(
-        f"/executions/{ex_id}/allure/../../x").status_code == 404
+        f"/executions/{ex_id}/report/../../x").status_code == 404

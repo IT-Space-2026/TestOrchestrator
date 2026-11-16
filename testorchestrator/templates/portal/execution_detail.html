@@ -141,24 +141,8 @@
   <button class="btn" type="submit">Refresh report collection</button>
 </form>
 
-<h2>Allure</h2>
-<p>Status: <strong>{{ ex.allure_status or 'pending' }}</strong>
-  {% if ex.allure_version %}— allure {{ ex.allure_version }}{% endif %}</p>
-<p>
-  {% if ex.allure_status == 'ready' %}
-    <a class="btn" href="{{ url_for('portal.view_allure', execution_id=ex.id) }}" target="_blank" rel="noopener noreferrer">Open Allure report (new tab)</a>
-    <a class="btn" href="{{ url_for('portal.download_allure', execution_id=ex.id) }}">Download Allure report (.zip)</a>
-  {% endif %}
-</p>
-<form method="post" action="{{ url_for('portal.generate_allure', execution_id=ex.id) }}">
-  {{ plain_form.csrf_token }}
-  <button class="btn" type="submit">
-    {% if ex.allure_status == 'ready' %}Regenerate{% else %}Generate{% endif %}
-    Allure report</button>
-</form>
-
 {% if rl_enabled or ex.rl_status not in ('pending', 'missing') %}
-<h2>Reporting Labs <small class="muted">(2.0 migration backend{{ ' — preferred' if report_backend == 'reporting-labs' else '' }})</small></h2>
+<h2>Report <small class="muted">(reporting-labs)</small></h2>
 {% if unresolved %}
 <p class="form-error"><strong>{{ unresolved }} unresolved
   result{{ 's' if unresolved != 1 }}</strong> — displayed as

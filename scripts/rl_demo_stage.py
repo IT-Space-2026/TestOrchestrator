@@ -2,7 +2,7 @@
 
 Spins up a disposable TestOrchestrator instance (mkdtemp instance dir +
 sqlite), seeds a sanitised execution with mixed outcomes + evidence,
-generates the Allure and reporting-labs reports, serves the portal, and
+generates the reporting-labs report, serves the portal, and
 captures screenshots + rendered-DOM security checks via headless
 Chromium (Playwright).
 
@@ -151,11 +151,8 @@ def main() -> None:
 
     with app.app_context():
         from testorchestrator.execution import Execution
-        from testorchestrator.adapters import allure as allure_adapter
         from testorchestrator.adapters import reporting_labs as rl_adapter
         ex = db.session.get(Execution, ex_id)
-        a = allure_adapter.generate_for(ex)
-        print("allure:", a)
         r = rl_adapter.generate_for(ex)
         print("rlabs:", r)
 

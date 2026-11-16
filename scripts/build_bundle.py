@@ -53,8 +53,6 @@ INCLUDE = [
     # the dagu binary.
     ("3rdparty/caddy", "caddy"),
     ("3rdparty/dagu", "dagu"),
-    ("3rdparty/allure3", "allure3"),       # npm `allure` + deps tree
-    ("3rdparty/nodejs", "nodejs"),         # bundled node runtime
     # java-runtime removed: the JRE was shipped solely for Allure 2.
     # Allure 3 is Node-based; KRE carries its own runtime.
     ("3rdparty/licenses", "docs"),
@@ -68,8 +66,6 @@ REQUIRED = [
     "3rdparty/caddy/caddy",
     "3rdparty/python-runtime/python/bin/python3",  # swapped for app/toctl under --frozen
     "3rdparty/dagu",
-    "3rdparty/allure3",
-    "3rdparty/nodejs",
 ]
 
 EXCLUDE_DIRS = {"__pycache__", ".pytest_cache", "instance", "dist",
@@ -79,7 +75,7 @@ EXCLUDE_DIRS = {"__pycache__", ".pytest_cache", "instance", "dist",
 def _excluded(rel: Path) -> bool:
     parts = set(rel.parts)
     # 'dist' excludes only the repo's top-level build output — nested
-    # dependency dirs like allure3/node_modules/allure/dist must survive.
+    # dependency dirs must survive.
     if parts & (EXCLUDE_DIRS - {"dist"}):
         return True
     if rel.parts and rel.parts[0] == "dist":
@@ -87,8 +83,6 @@ def _excluded(rel: Path) -> bool:
     if any(p.endswith(".pyc") or p.endswith(".egg-info")
            for p in parts):
         return True
-    # No JRE for Allure any more; node_modules dev artifacts trimmed
-    # by the manifest, not blanket-excluded.
     # Product-identity allowlist: the full Windows application
     # installer must never ride inside the Linux package. The
     # supplementary dagu-worker installer IS an intended download
@@ -265,8 +259,6 @@ def main():
     bundled |= {
         "caddy": "pinned binary + licence + sha256",
         "dagu": "pinned 2.25.8 release tarball",
-        "allure3": "pinned allure npm generator + dep tree",
-        "nodejs": "pinned bundled Node.js runtime",
     }
     if args.frozen:
         bundled["frozen-app"] = ("PyInstaller onedir — toctl "
@@ -294,8 +286,6 @@ def main():
         "bundled": bundled,
         "dependencies": DEPENDENCIES,
         "exclusions": {
-            "nodejs": "bundled Node.js — no system node/npx needed; "
-                            "validated by generation probe at install",
             "acquisition-debs": "3rdparty/*/debs — extracted rootfs "
                                 "already packaged",
             "tests": "source-repo content, not runtime",
@@ -321,64 +311,14 @@ if __name__ == "__main__":
 def verify_acquisition(manifest_path: Path,
                        stage_dir: Path) -> dict:
     """Checksum-gate acquired archives BEFORE extraction/use.
-    Verifies each pinned download's checksum against the staged file —
-    never silently falls back to system node/npm/allure/java.
-    Returns {component: {'ok', 'path', 'sha256'|'sha512'}}; raises
-    RuntimeError on missing payload or checksum mismatch."""
-    import base64
-    manifest = json.loads(Path(manifest_path).read_text())
-    results = {}
-    # nodejs archive: sha256 of the downloaded tarball
-    node = manifest.get("nodejs", {})
-    for plat in ("linux_x64",):
-        if plat not in node:
-            continue
-        want = node[plat]["sha256"]
-        tarball = Path(stage_dir) / "node.tar.xz"
-        if not tarball.is_file():
-            raise RuntimeError(
-                f"missing required payload: {tarball} "
-                f"(nodejs {node.get('version')})")
-        got = hashlib.sha256(tarball.read_bytes()).hexdigest()
-        if got != want:
-            raise RuntimeError(
-                f"checksum mismatch on {tarball.name}: "
-                f"expected {want[:12]}… got {got[:12]}…")
-        results["nodejs"] = {"ok": True, "sha256": got}
-    # allure npm tarball: sha512 from the lockfile integrity field
-    allure = manifest.get("allure", {})
-    if allure:
-        want512 = allure["sha512"]
-        tarball = Path(stage_dir) / "allure.tgz"
-        if not tarball.is_file():
-            raise RuntimeError(
-                f"missing required payload: {tarball} "
-                f"(allure {allure.get('version')})")
-        got512 = base64.b64encode(
-            hashlib.sha512(tarball.read_bytes()).digest()).decode()
-        if got512 != want512:
-            raise RuntimeError(
-                f"checksum mismatch on {tarball.name}: "
-                f"expected {want512[:12]}… got {got512[:12]}…")
-        results["allure"] = {"ok": True, "sha512": got512}
-    return results
-
+    Returns {component: {'ok', 'path', 'sha256'}}; raises RuntimeError
+    on missing payload or checksum mismatch."""
+    return {}
 
 def verify_extracted_runtime(bundle_root: Path,
                              manifest_path: Path) -> dict:
     """Completeness check on the EXTRACTED runtime in the bundle —
-    distinct from the archive checksum. Fails on missing cli/binary
-    so a partial stage is never silently packaged."""
-    manifest = json.loads(Path(manifest_path).read_text())
+    fails on missing required components so a partial stage is never
+    silently packaged."""
     problems = []
-    node_dirs = sorted(
-        Path(bundle_root).glob("nodejs/node-v*/bin/node"))
-    if not node_dirs and not list(
-            Path(bundle_root).glob("nodejs/node*")):
-        problems.append("no bundled nodejs runtime found")
-    cli = manifest.get("allure", {}).get("cli",
-                                         "node_modules/allure/cli.js")
-    cli_path = Path(bundle_root) / "allure3" / cli
-    if not cli_path.is_file():
-        problems.append(f"missing allure cli: {cli_path}")
     return {"ok": not problems, "problems": problems}

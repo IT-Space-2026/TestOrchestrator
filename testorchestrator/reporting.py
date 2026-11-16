@@ -1,7 +1,7 @@
 """Local Orchestrator reporting (§3–§5 of consolidated direction).
 
 Native-KRE-report path (selected: KRE's own HTML report + JUnit +
-screenshots; Allure deferred — no concrete gap identified). Responsibilities:
+screenshots). Responsibilities:
 
 - Assess what a run actually produced against the stable run dir
   (``Execution.report_dir`` — evidence already lives under the immutable

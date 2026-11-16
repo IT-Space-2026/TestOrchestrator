@@ -21,10 +21,10 @@ exists inside an Allure report or a ReportPortal instance.
 | Run history & filtering | PARTIAL | Portal → Executions list + detail | route tests | Rich filtering/search/pagination = remaining work |
 | Summaries & case drill-down | DONE | execution detail: outcome, per-case results (TestResult), logs | results parser tests | — |
 | Native KRE reporting | DONE | report assess ready/partial/missing/failed; view (CSP sandbox), `report.zip`, refresh idempotent (`reporting.py`) | test_reporting | never re-runs KRE for a report |
-| Allure reports | DONE | adapter convert+generate, atomic publish, single-file, view+zip+regen (`adapters/allure.py`, `allure_runtime.py`) | test_allure_reporting: real generation via host Java 21 | requires external validated Java (new prerequisite model) |
+| reporting-labs reports | DONE (2.0 sole backend) | adapter convert+generate, atomic publish, generation-scoped assets, view+zip+regen (`adapters/reporting_labs.py`) | test_reporting_labs_poc | Allure 3 + Node removed; historical Allure files preserved but unsupported |
 | Screenshots/logs/artifacts | DONE | `Artifact` registry, evidence manifest sha256+MIME, `artifacts.zip`, per-artifact download | test_reporting, test_results_parser | — |
 | Original-artifact downloads | DONE | `artifacts.zip` = original evidence + checksum manifest | test_reporting | distinguished from regenerated reports |
-| ~~ReportPortal~~ | REMOVED (scope change) | Allure is the sole enhanced backend; adapter/UI/settings/tests/compose removed; forward migration `8b9c0d1e2f3a` drops columns + rp_* settings | removal verified by suite | shared credentials/infrastructure preserved |
+| ~~ReportPortal~~ | REMOVED (scope change) | reporting-labs is the sole enhanced backend (2.0); adapter/UI/settings/tests/compose removed; forward migration `8b9c0d1e2f3a` drops columns + rp_* settings | removal verified by suite | shared credentials/infrastructure preserved |
 
 ## Report/export formats (generated vs retained)
 

@@ -15,8 +15,9 @@
     git revision `687f541` identifies its source tree. Both are recorded
     here — the stamp is an identifier, not independently-verified
     reproducibility evidence.
-- Bundled: allure3 + node_modules (10.3MB), node 182MB, dagu_2.25.8
-  (linux+windows), caddy, python-runtime 101MB, vendored py-deps.
+- Bundled: dagu_2.25.8 (linux+windows), caddy, python-runtime
+  101MB, vendored py-deps incl. reporting-labs 0.1.14. Allure 3 +
+  bundled Node.js were removed in 2.0.
 
 ## Wrapper (self-extracting installer)
 - File: dist/testorchestrator-1.0.0-pre.7-linux-x86_64.run

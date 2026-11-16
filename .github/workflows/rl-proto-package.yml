@@ -22,39 +22,13 @@ jobs:
         shell: bash
         run: bash scripts/fetch_dagu.sh
 
-      - name: stage prototype payload (no nodejs/allure3, +reporting-labs)
+      - name: stage payload via normal build script (2.0, no node or allure)
         shell: bash
         run: |
           set -e
           cd packaging/windows
-          SHA_PY="0d57bb6cb078b74d23dbfe91f77d6780d45bed328911609f1f7ee2ba1606bf44"
-          SHA_CAD="ad93112d335ee687100c4c9f11bced16ca590377976b7fe7883882b9e797e472"
-          fetch() { [ -f "$2" ] || curl -fsSL -o "$2" "$1"; echo "$3  $2" | sha256sum -c; }
-          REPO="$(cd ../.. && pwd)"
-          rm -rf app-payload && mkdir -p app-payload/{python,dagu,caddy}
-          fetch "https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip" \
-                "/tmp/python-3.12.7-embed-amd64.zip" "$SHA_PY"
-          unzip -q -o /tmp/python-3.12.7-embed-amd64.zip -d app-payload/python
-          tar xzf "$REPO/3rdparty/dagu/dagu_2.25.8_windows_amd64.tar.gz" \
-              -C app-payload/dagu dagu.exe LICENSE
-          fetch "https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11.9_windows_amd64.zip" \
-                "/tmp/caddy-win.zip" "$SHA_CAD"
-          unzip -q -o /tmp/caddy-win.zip -d app-payload/caddy
-          cp -r "$REPO/testorchestrator" "$REPO/migrations" "$REPO/wsgi.py" \
-                "$REPO/run_worker.py" "$REPO/requirements.txt" "$REPO/release" \
-                "$REPO/deploy" "$REPO/scripts/provision_dagu.py" app-payload/
-          python -m pip download --platform win_amd64 --only-binary=:all: \
-              --python-version 3.12 -r "$REPO/requirements.txt" \
-              reporting-labs==0.1.14 -d app-payload/wheels
-          mkdir -p app-payload/site-packages
-          for w in app-payload/wheels/*.whl; do unzip -q -o "$w" -d app-payload/site-packages; done
-          # prototype completeness gate (check_payload minus node/allure)
-          for f in python/python.exe dagu/dagu.exe caddy/caddy.exe \
-                   testorchestrator/templates testorchestrator/static \
-                   migrations wsgi.py requirements.txt release/release.json \
-                   dagu/LICENSE; do
-            [ -e "app-payload/$f" ] || { echo "MISSING $f"; exit 1; }
-          done
+          bash build_app_installer.sh
+          bash check_payload.sh
           ls app-payload/site-packages | grep -qi "^reporting_labs" || {
             echo "MISSING reporting_labs"; exit 1; }
           echo "payload staged: $(du -sh app-payload | cut -f1)"

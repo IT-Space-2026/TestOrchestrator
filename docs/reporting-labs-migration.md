@@ -1,9 +1,42 @@
 # Reporting migration — Allure 3 → reporting-labs (2.0)
 
-Branch: `feature/2.0-reporting-labs` only. Released v1.0.1 and `main`
-ship Allure 3 unchanged. The reporting-labs backend is an optional
-second enhanced reporter — Allure remains the default
-(`report_backend=allure`) until parity acceptance below.
+Branch: `feature/2.0-reporting-labs` only. Released v1.0.x and `main`
+ship Allure 3 + bundled Node unchanged.
+
+## 2.0 decision — reporting-labs is the SOLE backend (BREAKING)
+
+As of this milestone Allure 3 and the bundled Node.js runtime are
+removed throughout the application and packaging. reporting-labs
+`0.1.14` is the only enhanced report backend, pinned in
+`requirements.txt` as a production dependency.
+
+**Upgrade impact (read before installing 2.0):**
+
+- Historical Allure reports are **no longer opened or regenerated**
+  by the 2.0 interface. There is no importer, fallback backend, or
+  compatibility viewer.
+- Stored report files, execution records, attachments, and evidence
+  are **preserved untouched** on disk and in the database — they are
+  simply unsupported by the UI. Downgrade to 1.0.x to view them.
+- The `allure_status`, `allure_path`, `allure_version` columns are
+  dropped by migration `p6q7r8s9t0u1`. Canonical execution / results /
+  artifact rows are unaffected.
+- Installers remove ONLY the application-owned runtime dirs of a
+  previous install (`<payload>/3rdparty/nodejs`,
+  `<payload>/3rdparty/allure3` on Linux; `$INSTDIR\nodejs`,
+  `$INSTDIR\allure3` on Windows). System-wide Node.js and unrelated
+  software are never touched.
+
+Removed: `allure_runtime.py`, `adapters/allure.py`, `/allure*` portal
+routes (view/assets/zip/regenerate), `allure-probe`/`--no-allure`,
+Allure settings + diagnostics, Node/Allure provisioning, payloads,
+installer checks and manifests, and the historical-serving tests that
+existed solely to keep those routes green.
+
+Preserved: IT-Space logo (embedded data URI), offline/downloaded
+reports, authenticated access, generation-scoped assets, bounded
+three-generation retention, explicit failure handling (failed regen
+keeps the previous usable report).
 
 ## Status (as of the portal-integration milestone)
 

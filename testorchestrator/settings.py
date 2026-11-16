@@ -57,17 +57,11 @@ DEFAULTS = {
     # worker-facing coordinator transport (gRPC) — distinct from the
     # portal-side HTTP api dagu_endpoint. Backend-managed.
     "dagu_coordinator_url": "",
-    # Reporting settings (Admin -> Reporting page). Enable flags gate the
-    # optional backends; local native-KRE reporting is always on.
-    "allure_enabled": False,
-    # 2.0 migration: reporting-labs is a second enhanced backend.
-    # report_backend selects the preferred enhanced backend — "allure"
-    # stays the default until the replacement passes acceptance.
+    # Reporting settings (Admin -> Reporting page). reporting-labs is
+    # the sole enhanced backend in 2.0; native-KRE reporting always on.
     "reportinglabs_enabled": False,
-    "report_backend": "allure",
     "logs_retention_days": 30,
     "logs_max_rows": 20000,
-    "allure_probe": {},
     "git_export_repo": "",
     "git_export_credential_ref": "",
     "git_export_ref": "main",

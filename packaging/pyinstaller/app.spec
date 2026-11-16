@@ -34,7 +34,8 @@ a = Analysis([os.path.join(ROOT, "toctl.py")], pathex=[ROOT], binaries=binaries,
              datas=datas, hiddenimports=hiddenimports +
              ["testorchestrator.main.routes","testorchestrator.portal.routes",
               "testorchestrator.system.routes","testorchestrator.agent_api",
-              "testorchestrator.adapters.allure","testorchestrator.adapters.kre",
+              "testorchestrator.adapters.reporting_labs",
+              "testorchestrator.adapters.kre",
               "testorchestrator.adapters.dagu",
               "logging.config","logging.handlers","sqlite3"],
              excludes=["tkinter","matplotlib","numpy","pandas","PyQt5","PyQt6","PySide2","PySide6","IPython","notebook","pytest"])

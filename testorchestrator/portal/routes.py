@@ -1614,8 +1614,7 @@ def execution_detail(execution_id):
         "portal/execution_detail.html", ex=ex, counts=counts,
         plain_form=PlainForm(), can_edit=can_edit,
         unresolved=unresolved,
-        rl_enabled=settings_mod.get("reportinglabs_enabled", False),
-        report_backend=settings_mod.get("report_backend", "allure"))
+        rl_enabled=settings_mod.get("reportinglabs_enabled", False))
 
 
 @portal_bp.route("/executions/<execution_id>/cancel", methods=["POST"])
@@ -1817,123 +1816,11 @@ def download_artifacts(execution_id):
                      download_name=f"artifacts-{execution_id[:8]}.zip")
 
 
-@portal_bp.route("/executions/<execution_id>/allure")
-@login_required
-def allure_redirect(execution_id):
-    # Trailing slash so ./app-*.js ./data/… resolve under /allure/
-    return redirect(
-        url_for("portal.view_allure", execution_id=execution_id))
-
-
-@portal_bp.route("/executions/<execution_id>/allure/")
-@login_required
-def view_allure(execution_id):
-    """Hosted Allure 3 report — sandboxed multi-file app."""
-    ex = _execution_or_404(execution_id)
-    if not ex.allure_path or \
-            ex.allure_status not in ("ready", "failed"):
-        flash(f"No Allure report for this run "
-              f"(status: {ex.allure_status}).", "info")
-        return redirect(url_for("portal.execution_detail",
-                                execution_id=execution_id))
-    from .. import reporting
-    try:
-        target = reporting.safe_under(reporting.report_root(ex),
-                                      ex.allure_path)
-    except ValueError:
-        abort(404)
-    if not target.is_file():
-        abort(404)
-    if ex.allure_status == "failed":
-        flash("Last Allure generation failed — showing the previous "
-              "usable report.", "error")
-    record_audit(current_user.username, "allure.view", execution_id)
-    resp = send_file(target, mimetype="text/html")
-    # Allure 3 is a multi-file interactive app — sandbox it (no portal
-    # session/API reach) but allow its scripts + same-origin asset
-    # fetches. Bare 'sandbox' made the page an inert loading screen.
-    resp.headers["Content-Security-Policy"] =         "sandbox allow-scripts allow-same-origin"
-    return resp
-
-
-@portal_bp.route("/executions/<execution_id>/allure/<path:rel>")
-@login_required
-def allure_asset(execution_id, rel):
-    """Allure 3 report assets — js/css/data/plugins under the allure
-    subtree. Served inline so the hosted report actually renders."""
-    ex = _execution_or_404(execution_id)
-    if not ex.allure_path or \
-            ex.allure_status not in ("ready", "failed"):
-        abort(404)
-    from .. import reporting
-    try:
-        allure_dir = (reporting.report_root(ex)
-                      / Path(ex.allure_path).parent)
-        target = reporting.safe_under(allure_dir.resolve(), rel)
-    except ValueError:
-        abort(404)
-    if not target.is_file():
-        abort(404)
-    mime, _ = mimetypes.guess_type(target.name)
-    return send_file(target, mimetype=mime or "application/octet-stream")
-
-
-@portal_bp.route("/executions/<execution_id>/allure.zip")
-@login_required
-def download_allure(execution_id):
-    """Usable Allure download — the self-contained single-file report
-    (index.html embeds assets) plus a provenance manifest."""
-    import io
-    import zipfile
-    ex = _execution_or_404(execution_id)
-    from .. import reporting
-    if ex.allure_status not in ("ready", "failed"):
-        abort(404)
-    target = reporting.safe_under(reporting.report_root(ex),
-                                  ex.allure_path)
-    if not target.is_file():
-        abort(404)
-    allure_dir = reporting.safe_under(reporting.report_root(ex),
-                                      str(Path(ex.allure_path).parent))
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for f in sorted(allure_dir.rglob("*")):
-            if f.is_file():
-                z.write(f, f.relative_to(allure_dir))
-        z.writestr("manifest.json", json.dumps({
-            "execution_id": ex.id, "format": "allure-multi-file",
-            "allure_version": ex.allure_version,
-            "view": "extract, then open index.html — assets are "
-                    "separate files"}, indent=2))
-    buf.seek(0)
-    record_audit(current_user.username, "allure.download", execution_id)
-    return send_file(buf, mimetype="application/zip",
-                     as_attachment=True,
-                     download_name=f"allure-{execution_id[:8]}.zip")
-
-
-@portal_bp.route("/executions/<execution_id>/allure/generate",
-                 methods=["POST"])
-@login_required
-def generate_allure(execution_id):
-    """Regenerate Allure from STORED results — never reruns KRE, never
-    duplicates the run. Independent of RP and native-report status."""
-    ex = _execution_or_404(execution_id)
-    PlainForm().validate_on_submit()
-    from ..adapters import allure as allure_adapter
-    res = allure_adapter.generate_for(ex)
-    flash(f"Allure generation: {res['status']}"
-          + (f" — {res.get('error')}" if res.get("error") else ""),
-          "info" if res["status"] == "ready" else "error")
-    return redirect(url_for("portal.execution_detail",
-                            execution_id=execution_id))
-
-
 @portal_bp.route("/executions/<execution_id>/rlabs")
 @login_required
 def view_rlabs(execution_id):
     """Hosted reporting-labs report — a single self-contained index.html
-    (scripts embedded), served inside a CSP sandbox like the Allure app.
+    (scripts embedded), served inside a CSP sandbox.
     A failed regeneration keeps the PREVIOUS usable report viewable —
     the failure is surfaced, never silently hidden."""
     ex = _execution_or_404(execution_id)
@@ -1967,8 +1854,7 @@ def view_rlabs(execution_id):
     html = target.read_text(encoding="utf-8")
     html = html.replace("<head>", f'<head><base href="{base}">', 1)
     resp = Response(html, mimetype="text/html")
-    # reporting-labs is a single-file interactive app — same sandbox
-    # policy as the hosted Allure report.
+    # reporting-labs is a single-file interactive app — sandboxed.
     resp.headers["Content-Security-Policy"] = \
         "sandbox allow-scripts allow-same-origin"
     return resp
@@ -2041,7 +1927,7 @@ def download_rlabs(execution_id):
 @login_required
 def generate_rlabs(execution_id):
     """Regenerate the reporting-labs report from STORED results — never
-    reruns KRE. Independent of Allure and native-report status; a failed
+    reruns KRE. A failed
     regen preserves any previously usable report (status=failed)."""
     ex = _execution_or_404(execution_id)
     PlainForm().validate_on_submit()

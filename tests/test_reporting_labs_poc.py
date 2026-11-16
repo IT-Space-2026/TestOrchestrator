@@ -1,7 +1,7 @@
 """reporting-labs 2.0 migration — offline regeneration from stored
 canonical results + authenticated portal integration.
 
-Same fixtures/honesty as the Allure path; no live KRE. The
+The sole enhanced-report backend (2.0). The
 reporting-labs pytest plugin is blocked for this suite to keep its
 own report output out of the repo test logs."""
 import io
@@ -69,7 +69,7 @@ def test_generate_single_file_report(app, tmp_path):
         body = html.read_text(encoding="utf-8", errors="replace")
         for needle in ("ok", "bad", "unmatched"):
             assert needle in body, needle
-        # persisted state independent of allure_status/report_status
+        # persisted state independent of rl_status/report_status
         assert ex.rl_status == "ready"
         parts = Path(ex.rl_path).parts
         assert parts[0] == "reporting-labs"
@@ -191,7 +191,7 @@ def test_rlabs_routes_authz(client, login_as, app, tmp_path):
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
         assert ex.rl_status == "ready"
-    # hosted view — sandboxed like the Allure app
+    # hosted view — sandboxed single-file app
     r = client.get(f"/executions/{ex_id}/rlabs")
     assert r.status_code == 200
     assert r.headers["Content-Security-Policy"] == \
@@ -415,7 +415,7 @@ def test_reader_never_sees_missing_or_partial_report(app, tmp_path):
 
 def test_rlabs_project_scope_denial(client, login_as, app, tmp_path):
     """Cross-project denial on every rlabs surface — the same
-    project_allowed() gate that covers Allure serving."""
+    project_allowed() gate that covers report serving."""
     import json as _j
     from testorchestrator.models import User
     ex_id = _mk(app, tmp_path, shots=("pass.png",))
@@ -528,150 +528,3 @@ def test_publish_failure_midway_keeps_last_generation(app, tmp_path,
         gens = [d.name for d in
                 (root / "reporting-labs").glob("gen-*")]
         assert cur in gens and len(gens) <= 2
-
-
-def test_historical_allure_serving_needs_no_generator(client, login_as,
-                                                    app, tmp_path,
-                                                    monkeypatch):
-    """Acceptance check: a RETAINED Allure report (index.html + assets)
-    stays viewable/downloadable with the generator runtime absent —
-    the serving path is file I/O, not a Node dependency."""
-    from testorchestrator import allure_runtime
-    ex_id = _mk(app, tmp_path)
-    with app.app_context():
-        ex = db.session.get(Execution, ex_id)
-        adir = Path(ex.report_dir) / "allure"
-        adir.mkdir(parents=True)
-        (adir / "index.html").write_text("<html>allure app</html>")
-        (adir / "app.js").write_text("console.log(1)")
-        ex.allure_status = "ready"
-        ex.allure_path = "allure/index.html"
-        db.session.commit()
-        # simulate an installed package with Node/Allure REMOVED
-        monkeypatch.setattr(allure_runtime, "_allure_cmd",
-                            lambda: None)
-        monkeypatch.setattr(allure_runtime, "available",
-                            lambda: False)
-    login_as("admin")
-    assert client.get(f"/executions/{ex_id}/allure").status_code == 302
-    r = client.get(f"/executions/{ex_id}/allure/")
-    assert r.status_code == 200 and b"allure app" in r.data
-    assert client.get(
-        f"/executions/{ex_id}/allure/app.js").status_code == 200
-    z = client.get(f"/executions/{ex_id}/allure.zip")
-    assert z.status_code == 200
-
-
-def test_previous_generation_files_survive_regen(app, tmp_path):
-    """A page opened from generation N keeps loading report.json and
-    attachments from gen N while TWO newer generations publish — the
-    bounded-retention prune keeps the newest three. Three regens stale
-    is the boundary."""
-    ex_id = _mk(app, tmp_path, shots=("pass.png",))
-    with app.app_context():
-        ex = db.session.get(Execution, ex_id)
-        _mk_big_asset(ex)
-        rl.generate_for(ex)
-        root = Path(ex.report_dir)
-        g1_dir = Path(ex.rl_path).parent
-        g1_json = root / g1_dir / "report.json"
-        g1_assets = list((root / g1_dir / "assets").iterdir())
-        assert g1_assets, "large attachment should externalise to assets/"
-        rl.generate_for(ex)
-        rl.generate_for(ex)
-        # in-flight reader of gen1 through TWO newer publications:
-        # every file still resolves
-        assert (root / g1_dir / "index.html").exists()
-        assert g1_json.exists()
-        for a in g1_assets:
-            assert a.exists(), a
-        rl.generate_for(ex)
-        # THREE regens stale -> oldest pruned; newest three remain
-        assert not (root / g1_dir / "index.html").exists()
-        gens = sorted((root / "reporting-labs").glob("gen-*"))
-        assert len(gens) == 3
-
-
-def test_db_crash_after_publish_leaves_servable_state(app, tmp_path,
-                                                      monkeypatch):
-    """Interruption between filesystem publish and the DB update: the
-    previous rl_path still serves a complete report, and the next
-    generation run restores full consistency."""
-    ex_id = _mk(app, tmp_path, shots=("pass.png",))
-    with app.app_context():
-        ex = db.session.get(Execution, ex_id)
-        assert rl.generate_for(ex)["status"] == "ready"
-        root = Path(ex.report_dir)
-        old_path = ex.rl_path
-        real_commit = db.session.commit
-        calls = {"n": 0}
-
-        def flaky_commit():
-            calls["n"] += 1
-            if calls["n"] == 1:
-                raise RuntimeError("simulated crash after pointer flip")
-            return real_commit()
-        monkeypatch.setattr(db.session, "commit", flaky_commit)
-        import pytest as _pt
-        with _pt.raises(RuntimeError):
-            rl.generate_for(ex)
-        # DB state is stale (old path) — still servable, complete
-        db.session.rollback()
-        ex = db.session.get(Execution, ex_id)
-        assert (root / old_path).exists()
-        # next generation succeeds and re-syncs everything
-        assert rl.generate_for(ex)["status"] == "ready"
-        assert ex.rl_status == "ready"
-        assert (root / ex.rl_path).exists()
-
-
-def test_windows_locking_branch(app, tmp_path, monkeypatch):
-    """The msvcrt (Windows) lock path is exercised — fcntl absent."""
-    import sys
-    import types
-    fake_msvcrt = types.ModuleType("msvcrt")
-    fake_msvcrt.LK_LOCK = 1
-    fake_msvcrt.locking = lambda *a, **k: None
-    monkeypatch.setitem(sys.modules, "fcntl", None)   # ImportError
-    monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
-    ex_id = _mk(app, tmp_path, shots=("pass.png",))
-    with app.app_context():
-        ex = db.session.get(Execution, ex_id)
-        assert rl.generate_for(ex)["status"] == "ready"
-        assert (Path(ex.report_dir) / ex.rl_path).exists()
-
-
-def test_reporting_page_diagnostics_accurate(client, login_as, app):
-    """Admin reporting page describes the CURRENT backends — bundled
-    Node.js for Allure (no external Java requirement) + the optional
-    reporting-labs backend."""
-    login_as("admin")
-    body = client.get("/system/reporting").data.decode()
-    assert "external Java" not in body
-    assert "Java runtime" not in body
-    assert "bundled Node.js" in body
-    assert "reporting-labs" in body
-    assert "report_backend" in body or "Preferred enhanced backend" \
-        in body
-
-
-def test_report_backend_setting_default_and_save(client, login_as, app):
-    """Allure stays the default backend; the selection persists and
-    rejects unknown values."""
-    with app.app_context():
-        assert S.get("report_backend") == "allure"
-        assert S.get("reportinglabs_enabled") is False
-    login_as("admin")
-    r = client.post("/system/reporting/save", data={
-        "allure_enabled": "1",
-        "reportinglabs_enabled": "1",
-        "report_backend": "reporting-labs"}, follow_redirects=True)
-    assert r.status_code == 200
-    with app.app_context():
-        assert S.get("report_backend") == "reporting-labs"
-        assert S.get("reportinglabs_enabled") is True
-    # unknown backend can never win the default
-    r = client.post("/system/reporting/save", data={
-        "report_backend": "bogus"}, follow_redirects=True)
-    with app.app_context():
-        assert S.get("report_backend") == "allure"

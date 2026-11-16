@@ -13,18 +13,13 @@ jobs:
         shell: bash
         run: |
           bash scripts/fetch_dagu.sh
-          if [ ! -d 3rdparty/allure3/node_modules ]; then
-            cd 3rdparty/allure3 && npm ci --omit=dev 2>&1 | tail -3 || \
-              npm install --omit=dev 2>&1 | tail -3; cd "$OLDPWD"
-          fi
       - name: report-serving tests on Windows
         shell: bash
-        # safe_under + failed-regen preservation: the defects this PR
-        # fixes are Windows-specific — run the focused tests on the
-        # target OS, with and without the provisioned generator.
+        # safe_under + generation-scoped serving: Windows-specific
+        # path checks run on the target OS.
         run: |
           pip install -r requirements-dev.txt -q
-          python -m pytest tests/test_safe_under.py tests/test_historical_no_runtime.py -x -q
+          python -m pytest tests/test_safe_under.py tests/test_reporting_labs_poc.py -x -q
       - name: install nsis
         shell: pwsh
         run: choco install nsis -y --no-progress
@@ -56,7 +51,7 @@ jobs:
           $p = Start-Process ".\installer\testorchestrator-1.0.2-windows-amd64-setup-UNSIGNED.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
           Write-Host "installer exit: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
-          foreach ($f in @("$inst\python\python.exe","$inst\nodejs\node.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\allure3\node_modules\allure\cli.js","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem","$inst\run_worker.py")) {
+          foreach ($f in @("$inst\python\python.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem","$inst\run_worker.py")) {
             if (!(Test-Path $f)) { throw "MISSING: $f" }
             Write-Host "present: $f"
           }
@@ -159,16 +154,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "licence restart/persistence failed" }
           Remove-Item "$inst\licence_activate.py","$inst\licence_restart.py" -Force
           Remove-Item -Recurse -Force "C:\to-smoke-lic" -ErrorAction SilentlyContinue
-      - name: actual Allure 3 report generation (bundled node)
-        shell: pwsh
-        run: |
-          $inst = "C:\to smoke install"
-          New-Item -ItemType Directory -Force "C:\to-allure\results" | Out-Null
-          Set-Content "C:\to-allure\results\t-result.json" -Value '{"uuid":"u1","name":"smoke","status":"passed","stage":"finished","steps":[],"attachments":[],"labels":[]}'
-          & "$inst\nodejs\node.exe" "$inst\allure3\node_modules\allure\cli.js" generate "C:\to-allure\results" --output "C:\to-allure\report" 2>&1 | Out-String
-          if (!(Test-Path "C:\to-allure\report\index.html")) { throw "no report index.html generated" }
-          Write-Host "PASS Allure 3 generated report index.html via bundled node"
-          Remove-Item -Recurse -Force "C:\to-allure" -ErrorAction SilentlyContinue
       - name: authenticated report serving on installed package
         shell: pwsh
         run: |
