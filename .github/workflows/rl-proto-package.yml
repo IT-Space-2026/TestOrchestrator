@@ -1,0 +1,97 @@
+name: rl-proto-package
+# DISPOSABLE packaging measurement — workflow_dispatch only, never a
+# release build. Stages the SAME Windows payload as app-installer.nsi
+# minus 3rdparty Node/Allure3 plus reporting-labs==0.1.14, to measure
+# real 2.0 candidate installer size/footprint. Produces a -PROTOTYPE
+# exe; nothing here is published or distributed.
+on:
+  workflow_dispatch:
+
+jobs:
+  windows-proto:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: stage prototype payload (no nodejs/allure3, +reporting-labs)
+        shell: bash
+        run: |
+          set -e
+          cd packaging/windows
+          SHA_PY="0d57bb6cb078b74d23dbfe91f77d6780d45bed328911609f1f7ee2ba1606bf44"
+          SHA_CAD="ad93112d335ee687100c4c9f11bced16ca590377976b7fe7883882b9e797e472"
+          fetch() { [ -f "$2" ] || curl -fsSL -o "$2" "$1"; echo "$3  $2" | sha256sum -c; }
+          REPO="$(cd ../.. && pwd)"
+          rm -rf app-payload && mkdir -p app-payload/{python,dagu,caddy}
+          fetch "https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip" \
+                "/tmp/python-3.12.7-embed-amd64.zip" "$SHA_PY"
+          unzip -q -o /tmp/python-3.12.7-embed-amd64.zip -d app-payload/python
+          tar xzf "$REPO/3rdparty/dagu/dagu_2.25.8_windows_amd64.tar.gz" \
+              -C app-payload/dagu dagu.exe LICENSE
+          fetch "https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11.9_windows_amd64.zip" \
+                "/tmp/caddy-win.zip" "$SHA_CAD"
+          unzip -q -o /tmp/caddy-win.zip -d app-payload/caddy
+          cp -r "$REPO/testorchestrator" "$REPO/migrations" "$REPO/wsgi.py" \
+                "$REPO/run_worker.py" "$REPO/requirements.txt" "$REPO/release" \
+                "$REPO/deploy" "$REPO/scripts/provision_dagu.py" app-payload/
+          python -m pip download --platform win_amd64 --only-binary=:all: \
+              --python-version 3.12 -r "$REPO/requirements.txt" \
+              reporting-labs==0.1.14 -d app-payload/wheels
+          mkdir -p app-payload/site-packages
+          for w in app-payload/wheels/*.whl; do unzip -q -o "$w" -d app-payload/site-packages; done
+          # prototype completeness gate (check_payload minus node/allure)
+          for f in python/python.exe dagu/dagu.exe caddy/caddy.exe \
+                   testorchestrator/templates testorchestrator/static \
+                   migrations wsgi.py requirements.txt release/release.json \
+                   dagu/LICENSE; do
+            [ -e "app-payload/$f" ] || { echo "MISSING $f"; exit 1; }
+          done
+          ls app-payload/site-packages | grep -qi "^reporting_labs" || {
+            echo "MISSING reporting_labs"; exit 1; }
+          echo "payload staged: $(du -sh app-payload | cut -f1)"
+
+      - name: compile prototype installer (same NSIS settings)
+        shell: bash
+        run: |
+          set -e
+          cd packaging/windows
+          makensis -VERSION || export PATH="$ChocolateyInstall/bin:$PATH"
+          sed -e 's/!define VERSION "1.0.2"/!define VERSION "2.0.0-rlproto"/' \
+              -e 's/testorchestrator-${VERSION}-windows-amd64-setup-UNSIGNED/testorchestrator-${VERSION}-windows-amd64-setup-PROTOTYPE/' \
+              app-installer.nsi > proto-installer.nsi
+          grep -n "VERSION\|OutFile" proto-installer.nsi | head -4
+          makensis proto-installer.nsi
+          ls -la *.exe
+          sha256sum *.exe
+
+      - name: record size + hash
+        shell: bash
+        run: |
+          cd packaging/windows
+          EXE=$(ls testorchestrator-*-PROTOTYPE.exe)
+          echo "proto_installer=$EXE" >> "$GITHUB_OUTPUT" || true
+          stat -c "%s %n" "$EXE"
+          sha256sum "$EXE"
+        id: size
+
+      - name: smoke install (spaced path) + rl dependency check
+        shell: pwsh
+        run: |
+          $exe = Get-Item ".\packaging\windows\testorchestrator-*-PROTOTYPE.exe" | Select-Object -First 1
+          $inst = "C:\to proto install"
+          $p = Start-Process $exe.FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "proto install exited $($p.ExitCode)" }
+          $size = (Get-ChildItem $inst -Recurse | Measure-Object Length -Sum).Sum
+          Write-Host "installed footprint: $size bytes"
+          if (Test-Path "$inst\nodejs") { throw "nodejs leaked into payload" }
+          if (Test-Path "$inst\allure3") { throw "allure3 leaked into payload" }
+          & "$inst\python\python.exe" -c "import reporting_labs, sys; print('reporting_labs OK', getattr(reporting_labs,'__version__','?'))"
+          if ($LASTEXITCODE -ne 0) { throw "reporting_labs not importable in installed runtime" }
+          Write-Host "PASS proto install + rl dependency available"
+
+      - name: upload prototype (measurement artifact only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rl-proto-windows-setup
+          path: packaging/windows/testorchestrator-*-PROTOTYPE.exe
+          retention-days: 7
