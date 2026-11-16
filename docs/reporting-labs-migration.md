@@ -65,6 +65,13 @@ keeps the previous usable report).
   + upgrade-from-v1.0.2) does not run on this branch — PR-required.
 - Upgrade cleanup verified in code: installers remove ONLY
   `3rdparty/{nodejs,allure3}` under the app payload/install dir.
+- **Real upgrade e2e (local, published 1.0.2 `.run` payload →
+  2.0.0)**: seeded 1.0.2 execution (allure fields + files), licence,
+  then 2.0.0 payload overlay + stale-dir cleanup + `db-upgrade`.
+  Verified: app-owned `3rdparty/{nodejs,allure3}` removed;
+  `allure_*` columns dropped by migration; execution row,
+  licence validity, and ALL on-disk evidence (incl. historical
+  allure/ files) preserved; `/allure*` routes now 404.
 
 ## Status (as of the portal-integration milestone)
 
