@@ -276,7 +276,7 @@ def _extract_nsis_debs(log: Log) -> None:
         log.write(f"  user-space makensis ready: {_local_makensis()}")
 
 
-def stage_worker_payload(build_dir: Path, log: Log) -> Path:
+def stage_worker_payload(log: Log) -> Path:
     """Extract dagu.exe + LICENSE + README.md from the pinned windows
     dagu archive into packaging/windows/worker-payload/ — the payload
     for the NSIS worker installer (replaces build_worker_installer.sh's
@@ -306,7 +306,7 @@ def build_worker_installer(log: Log, dagu_version: str) -> Path:
     """makensis the dagu-worker NSIS installer. Output:
     packaging/windows/testorchestrator-dagu-worker-<v>-setup-UNSIGNED.exe"""
     makensis = ensure_makensis(log)
-    stage_worker_payload(REPO / "build", log)
+    stage_worker_payload(log)
     win_dir = REPO / "packaging" / "windows"
     for stale in win_dir.glob("testorchestrator-dagu-worker-*.exe"):
         stale.unlink()        # never keep an older build's exe
