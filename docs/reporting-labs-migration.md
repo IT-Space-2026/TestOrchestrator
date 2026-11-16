@@ -41,33 +41,42 @@ reports, authenticated access, generation-scoped assets, bounded
 three-generation retention, explicit failure handling (failed regen
 keeps the previous usable report).
 
-## 2.0 removal-candidate evidence (source `f47c573`)
+## 2.0 removal-candidate evidence (source `f47c573`/`011e8da`)
 
-- Full regression on the removal tree: **590 passed / 1 skipped**.
-- **Linux `.run` candidate** (real `build_bundle.py` +
-  `build_linux_installer.py`): 275,919,081 B, sha256
-  `86457c868871c92eee1fe202f62078369d6d3bed2185f589270b4b326adafc1f`.
-  Includes the dagu-worker Windows installer download asset (~63 MB)
-  that the earlier repack-based estimate lacked — installer size is
-  therefore above the 213.6 MB prototype figure even though the
-  *installed* footprint still drops by ~270 MB uncompressed.
-  Verified: `reporting_labs` 0.1.14 imports in the installed runtime,
-  `db-upgrade` runs the drop migration, rlabs generation-scoped
-  serving/zip/traversal/expiry all pass; `3rdparty/` contains no
+- Full regression on the removal tree: **590 passed / 1 skipped**
+  (`883d0a7`).
+
+### Installer comparison vs published v1.0.2 (measured)
+
+| Artifact | 1.0.2 published | 2.0.0 candidate | Δ |
+|---|---|---|---|
+| Windows setup `.exe` | 188,514,760 | **132,162,226** | −56,352,534 (**−29.9%**) |
+| Linux `.run` | 289,532,135 | **275,919,081** | −13,613,054 (**−4.7%**) |
+| Windows payload (7z-extracted NSIS) | 535,005,326 | **375,722,055** | −159,283,271 (**−29.8%**) |
+| Linux payload (extracted tar, pre-install) | 590,438,896 | **383,116,599** | −207,322,297 (**−35.1%**) |
+
+- Windows candidate artifact (run 43858825377, commit `f47c573`):
+  `testorchestrator-2.0.0-windows-amd64-setup-PROTOTYPE.exe`,
+  132,162,226 B, sha256
+  `600e66a4c4a81ef25e68c6509fa67bd45c37843791f293221fbf2bf3866113b4`.
+  Extracted payload verified: `reporting_labs` 0.1.14 present, no
   nodejs/allure3.
+- Linux candidate sha256:
+  `86457c868871c92eee1fe202f62078369d6d3bed2185f589270b4b326adafc1f`.
+
+**Size accounting** — the headline Linux installer reduction is only
+4.7% (vs ~26% for the repack estimate) because the complete bundle
+also carries the **dagu-worker Windows installer download asset**
+(`packaging/windows/testorchestrator-dagu-worker-2.25.8-setup-UNSIGNED.exe`,
+63,354,239 B) staged locally at build time — the published 1.0.2
+payload did not include it. Without that asset the removal-only
+comparison is ~212.6 MB (−26.6%), matching the earlier prototype.
+Component deltas: −224.5 MB nodejs, −46.5 MB allure3,
++63.4 MB worker-exe asset, +0.25 MB reporting-labs wheel.
+
 - `.run` stub defect fixed: `install.sh` is located inside the
   nested tarball layout (the 1.0.2 published `.run` had the same
   latent bug).
-- **Windows `.exe` candidate**: `rl-proto-package` workflow (now
-  driving the normal `build_app_installer.sh` + `check_payload.sh`)
-  green on `f47c573` — payload gates confirm reporting_labs staged
-  and nodejs/allure3 absent. Exact installer bytes/SHA256 pending
-  artifact pull; prior identical-payload proto measured
-  132,169,481 B.
-- Windows full acceptance (`windows-installer.yml` installed-validate
-  + upgrade-from-v1.0.2) does not run on this branch — PR-required.
-- Upgrade cleanup verified in code: installers remove ONLY
-  `3rdparty/{nodejs,allure3}` under the app payload/install dir.
 - **Real upgrade e2e (local, published 1.0.2 `.run` payload →
   2.0.0)**: seeded 1.0.2 execution (allure fields + files), licence,
   then 2.0.0 payload overlay + stale-dir cleanup + `db-upgrade`.
@@ -75,6 +84,9 @@ keeps the previous usable report).
   `allure_*` columns dropped by migration; execution row,
   licence validity, and ALL on-disk evidence (incl. historical
   allure/ files) preserved; `/allure*` routes now 404.
+- Fresh-install verification on the 2.0.0 `.run` payload:
+  `reporting_labs` 0.1.14 imports, `db-upgrade` to head, rlabs
+  generation-scoped serving/zip/traversal/expiry all pass.
 
 ## Status (as of the portal-integration milestone)
 
