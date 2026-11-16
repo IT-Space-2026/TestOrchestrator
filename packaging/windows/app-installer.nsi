@@ -4,7 +4,7 @@
 ; redistributed; the installer registers the user's installation.
 ; UNSIGNED build — labelled clearly.
 !define PRODUCT "TestOrchestrator"
-!define VERSION "1.0.2"
+!define VERSION "2.0.0"
 !define PAYLOAD_DIR "app-payload"
 
 Name "${PRODUCT} ${VERSION} (unsigned)"
