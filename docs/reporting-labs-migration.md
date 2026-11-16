@@ -256,7 +256,33 @@ limitation — empty steps are not demonstrated parity.
 ## Provisional measurements (fixture scale only — NOT corpus numbers)
 
 - Generation: ~30 ms per execution on the 4–7-case test fixtures.
-- Candidate payload removal: `3rdparty/allure3` (~58 MB) + bundled
-  Node (~230 MB) — potential, not measured in packages.
 - reporting-labs package + generated embedded evidence still occupy
   space; single-file `index.html` ~300–700 KB in fixtures.
+
+### Package-size measurements (provisional prototype builds — NOT release artifacts)
+
+Measured against the published v1.0.2 installers; the prototype stages
+the SAME payload contents/architecture/compression minus
+`3rdparty/nodejs` + `3rdparty/allure3` (incl. `node_modules`), plus
+`reporting-labs==0.1.14` (wheel 246,730 B; ~1.25 MB installed; zero
+dependencies). Windows prototype produced by
+`.github/workflows/rl-proto-package.yml` (commit `d34980f`, run
+43852510982): real NSIS build + silent install to a spaced path +
+installed-runtime `import reporting_labs` check. Linux prototype is a
+repacked archive — a full `.run` rebuild through the normal build path
+with install verification remains a packaging-milestone task.
+
+| Package | v1.0.2 published | 2.0 prototype | Δ | % |
+|---|---|---|---|---|
+| Windows setup exe | 188,514,760 | **132,169,481 measured** (sha256 `6ca0894d…2b87c8d`) | −56,345,279 | −29.9% |
+| Windows installed footprint | 535,005,326 (extracted payload) | **388,939,347 measured on disk** | −146,065,979 | −27.3% |
+| Linux `.tar.gz` | 289,530,429 | **213,557,570 measured** (repacked archive) | −75,972,859 | −26.2% |
+| Linux `.run` | 289,532,135 | ~213,559,000 (archive + ~1.7 KB stub; **not yet a built installer**) | ~−75.97 MB | ~−26.2% |
+| Linux installed footprint | 590,438,896 | ~320.7 MB | ~−269.7 MB | ~−45.7% |
+
+Removed payload (uncompressed → compressed contribution):
+`nodejs` 224.5 MB linux / 112.9 MB windows, `allure3` ~46.4 MB both —
+the ~270 MB uncompressed removal compresses to ~72.5 MB (linux) /
+~53.7 MB (windows) of actual installer savings because node_modules is
+mostly JS/text. The ±3 MB Windows estimate bracketed the real build
+(132.2 MB actual vs ~133 MB estimated).
