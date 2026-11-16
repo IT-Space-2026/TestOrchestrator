@@ -1824,7 +1824,8 @@ def allure_redirect(execution_id):
 def view_allure(execution_id):
     """Hosted Allure 3 report — sandboxed multi-file app."""
     ex = _execution_or_404(execution_id)
-    if ex.allure_status != "ready" or not ex.allure_path:
+    if not ex.allure_path or \
+            ex.allure_status not in ("ready", "failed"):
         flash(f"No Allure report for this run "
               f"(status: {ex.allure_status}).", "info")
         return redirect(url_for("portal.execution_detail",
@@ -1837,6 +1838,9 @@ def view_allure(execution_id):
         abort(404)
     if not target.is_file():
         abort(404)
+    if ex.allure_status == "failed":
+        flash("Last Allure generation failed — showing the previous "
+              "usable report.", "error")
     record_audit(current_user.username, "allure.view", execution_id)
     resp = send_file(target, mimetype="text/html")
     # Allure 3 is a multi-file interactive app — sandbox it (no portal
@@ -1852,7 +1856,8 @@ def allure_asset(execution_id, rel):
     """Allure 3 report assets — js/css/data/plugins under the allure
     subtree. Served inline so the hosted report actually renders."""
     ex = _execution_or_404(execution_id)
-    if ex.allure_status != "ready" or not ex.allure_path:
+    if not ex.allure_path or \
+            ex.allure_status not in ("ready", "failed"):
         abort(404)
     from .. import reporting
     try:
@@ -1876,7 +1881,7 @@ def download_allure(execution_id):
     import zipfile
     ex = _execution_or_404(execution_id)
     from .. import reporting
-    if ex.allure_status != "ready":
+    if ex.allure_status not in ("ready", "failed"):
         abort(404)
     target = reporting.safe_under(reporting.report_root(ex),
                                   ex.allure_path)

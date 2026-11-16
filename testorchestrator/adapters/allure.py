@@ -168,9 +168,12 @@ def generate_for(ex: Execution) -> dict:
     dirs of THIS run; original artifacts are untouched."""
     root = Path(ex.report_dir or "")
     if not root.is_dir() or not ex.results:
-        ex.allure_status = "missing"
-        from ..extensions import db
-        db.session.commit()
+        # Nothing to regenerate from — but do not downgrade a usable
+        # historical report; it must stay servable.
+        if not ex.allure_path or not (root / ex.allure_path).is_file():
+            ex.allure_status = "missing"
+            from ..extensions import db
+            db.session.commit()
         return {"status": "missing"}
     results_dir = root / "allure-results"
     if results_dir.exists():
