@@ -404,3 +404,56 @@ the ~270 MB uncompressed removal compresses to ~72.5 MB (linux) /
 ~53.7 MB (windows) of actual installer savings because node_modules is
 mostly JS/text. The ±3 MB Windows estimate bracketed the real build
 (132.2 MB actual vs ~133 MB estimated).
+
+## Checkpoint — packaging & automated upgrade validation (accepted `5756768`)
+
+Owner accepted the packaging/automated-validation milestone at
+documentation head `9009f83` (wording checkpoint `5756768`). The
+migration remains **unmerged and unpublished**; "all items closed"
+applies only to that task list — not overall 2.0 release acceptance.
+
+Accepted:
+- Allure/Node removal complete across active application and
+  packaging, with no historical compatibility layer.
+- Windows + Linux automated install and real 1.0.2 → 2.0 upgrade
+  checks passed on the removal tree (`9208437`, runs 43864229706 /
+  43863372518) — execution, licence, and on-disk evidence
+  preservation, DB migration, scoped runtime cleanup.
+- Exact candidate sizes and full checksums recorded (above).
+- Obsolete Linux estimate and unsafe downgrade guidance superseded.
+
+Provenance separation: measured Windows artifact = commit
+`f47c5731` (run 43858825377); Windows validation build = `9208437`;
+checkpoint head = `9009f83`/`5756768`. These are distinct
+identities — the release build must be produced and revalidated from
+a single frozen commit with its own checksums.
+
+### Remaining acceptance gates (all open — none passed here)
+
+1. **Windows interactive GUI acceptance** — manual, owner-side.
+   Blocked: no interactive Windows session available in CI.
+2. **Full application E2E (Windows + Linux)** — real installer →
+   first launch → licence activation + restart persistence →
+   project/execution config via the supported UI → **real KRE
+   execution** through TestOrchestrator (worker dispatch, completion,
+   accurate status/result ingestion) → automatic reportingLabs
+   generation, authenticated view, attachments, embedded IT-Space
+   logo, ZIP + offline viewing → regeneration semantics
+   (generation-scoped assets, failed-regen preservation,
+   3-generation retention, explicit expiry) → app/worker restart
+   persistence → seeded 1.0.2 → candidate upgrade then new execution
+   → failure/recovery paths (failed, interrupted, report-generation
+   failure, retry) with accurate UI states and no evidence loss.
+   Recorded per scenario: source commit, installer SHA256s,
+   OS/KRE/worker versions, expected vs actual, logs/screenshots,
+   automated vs manual distinction.
+   **Blocked** on a real KRE environment — blocked, not substituted.
+3. **Sanitised real KRE corpus** — result/evidence parity,
+   generation performance, report-output size. **Blocked** on the
+   corpus handoff (see OWNER ACTION above).
+4. **Final candidate** — after gates 1–3 and any resulting fixes:
+   rebuild from one frozen commit, full regression, then request
+   merge/release approval.
+
+No merge, tag, or publish until all gates complete and explicit
+approval is given.
