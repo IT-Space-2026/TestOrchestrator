@@ -61,6 +61,12 @@ def _options(out_dir: Path):
     values["open"] = "never"
     values["announce"] = False       # no stdout noise in the service log
     values["history"] = {"enabled": False}  # no stray history file
+    # approved IT-Space branding, same asset the Allure report uses;
+    # reporting-labs embeds it as a data URI so the report stays offline
+    logo = (Path(__file__).resolve().parents[1]
+            / "static" / "branding" / "iT-space-logo.png")
+    if logo.is_file():
+        values["logo"] = str(logo)
     return Options(values, base=out_dir, root=out_dir)
 
 

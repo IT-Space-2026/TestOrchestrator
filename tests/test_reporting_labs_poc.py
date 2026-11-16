@@ -78,6 +78,25 @@ def test_generate_single_file_report(app, tmp_path):
         assert ex.rl_version
 
 
+def test_it_space_logo_embedded_offline(app, tmp_path):
+    ex_id = _mk(app, tmp_path, shots=(),
+                results=[(("C.tc", "ok"), "passed")])
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        out = rl.generate_for(ex)
+        assert out["status"] == "ready", out
+        body = (Path(ex.report_dir) / ex.rl_path).read_text(
+            encoding="utf-8", errors="replace")
+        # logo travels inside the report as a data URI — no external ref
+        assert '"logo":"data:image/png;base64,' in body
+        assert "iT-space-logo.png" not in body  # not a file/URL reference
+        # regeneration keeps the branding
+        rl.generate_for(ex)
+        body2 = (Path(ex.report_dir) / ex.rl_path).read_text(
+            encoding="utf-8", errors="replace")
+        assert '"logo":"data:image/png;base64,' in body2
+
+
 def test_regenerate_idempotent(app, tmp_path):
     ex_id = _mk(app, tmp_path, shots=("pass.png",))
     with app.app_context():

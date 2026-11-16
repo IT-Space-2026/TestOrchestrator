@@ -217,7 +217,18 @@ limitation — empty steps are not demonstrated parity.
 4. **Measurements** — generation time, single-report size, installed
    footprint, and actual Windows/Linux package sizes compared; audit
    whether anything besides Allure needs bundled Node before removal.
-5. **Only then**: promote `reporting-labs` to `requirements.txt`,
+5. **Branding** — the generated report must display the approved
+   IT-Space logo (same asset as the Allure report,
+   `static/branding/iT-space-logo.png`), embedded inside the report
+   itself (reporting-labs `logo` option → data URI) so downloaded /
+   offline viewing keeps it with no external image dependency.
+   Verified in authenticated portal viewing and downloaded reports,
+   survives regeneration, does not interfere with navigation or
+   security controls. Implemented in `adapters/reporting_labs.py`
+   `_options()`; regression coverage in
+   `test_it_space_logo_embedded_offline`; demo screenshot
+   `02-rlabs-report.png` shows the rendered brand tile.
+6. **Only then**: promote `reporting-labs` to `requirements.txt`,
    update packaging/installers, consider default switch, remove
    `3rdparty/allure3` + `3rdparty/nodejs` if unneeded.
 
