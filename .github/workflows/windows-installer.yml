@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           $inst = "C:\to smoke install"
-          $p = Start-Process ".\installer\testorchestrator-1.0.2-windows-amd64-setup-UNSIGNED.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          $p = Start-Process (Get-Item ".\installer\*setup-UNSIGNED.exe" | Select-Object -First 1).FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
           Write-Host "installer exit: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
           foreach ($f in @("$inst\python\python.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem","$inst\run_worker.py")) {
@@ -199,7 +199,7 @@ jobs:
         run: |
           $inst = "C:\to smoke install"
           $data = "C:\ProgramData\TestOrchestrator"
-          $setup = ".\installer\testorchestrator-1.0.2-windows-amd64-setup-UNSIGNED.exe"
+          $setup = (Get-Item ".\installer\*setup-UNSIGNED.exe" | Select-Object -First 1).FullName
           # registered uninstall entry points must exist and point at supported flows
           $arp = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator' -ErrorAction Stop
           if ($arp.UninstallString -ne "`"$inst\uninstall.exe`"") { throw "UninstallString wrong: $($arp.UninstallString)" }
