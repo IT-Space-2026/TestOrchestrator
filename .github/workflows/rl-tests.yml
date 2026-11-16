@@ -49,3 +49,23 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: publication locking + serving on Windows
         run: python -m pytest tests/test_reporting_labs_poc.py -x -q
+
+  historical-no-runtime:
+    # The checkout has NO 3rdparty/nodejs or allure3/node_modules —
+    # they are provisioned only at package-build time — so this is a
+    # genuine generators-physically-absent state on BOTH platforms:
+    # historical Allure/native serving must work, regeneration must
+    # report the explicit unavailable-generator message.
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r requirements-dev.txt
+      - name: historical serving without generators
+        run: python -m pytest tests/test_historical_no_runtime.py -x -q

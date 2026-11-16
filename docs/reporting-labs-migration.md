@@ -100,10 +100,41 @@ file-atomic:
 | Reader never sees missing/partial report | `test_reader_never_sees_missing_or_partial_report` | green — resolves `current` like the route resolves `rl_path` |
 | Whole-generation consistency (no mixed files) | `test_generations_are_distinguishable_and_not_mixed` | green — marker content proves single-gen bundles |
 | Mid-publish failure keeps last generation | `test_publish_failure_midway_keeps_last_generation` | green — pointer swap failure simulated |
-| In-flight page from gen N during regen N+1 | `test_previous_generation_files_survive_regen` | green — prune keeps current+prev; >1 regen stale may 404 (documented boundary) |
+| In-flight page from gen N during regen N+1 | `test_previous_generation_files_survive_regen` | green — prune keeps current+prev; **N-2 readers can 404 — OPEN, see below** |
 | Crash between FS publish and DB update | `test_db_crash_after_publish_leaves_servable_state` | green — old rl_path still serves; next regen resyncs |
-| Windows lock path (`msvcrt`) | `test_windows_locking_branch` (stub) + `windows-locking` CI job on windows-latest | code path green; packaged-Windows check pending |
-| Historical Allure serving w/o generator | `test_historical_allure_serving_needs_no_generator` | green — code path; packaged check pending |
+| Windows lock path (`msvcrt`) | `windows-locking` CI job on windows-latest | green on real Windows (flock→msvcrt branch, atomic rename + `os.replace` pointer flip) |
+| Historical Allure serving w/o generator | `test_historical_no_runtime.py` + `historical-no-runtime` CI job (ubuntu+windows) | green — generator physically absent (CI checkouts ship no 3rdparty payloads) |
+
+### OPEN — active-reader retention (N-2) limitation
+
+Pruning keeps only **current + previous** generations. A reader whose
+page was opened from generation N, once generations N+1 **and** N+2 have
+been published, can receive 404s for `report.json`/attachments — the
+cleanup-safety boundary is **not fully closed**.
+
+Before reportingLabs may become the default, a retention policy must be
+chosen and tested — e.g. bounded age/count-based retention combined with
+generation-specific asset URLs. The acceptance test must hold a browser
+page open on generation N while at least two newer generations publish,
+then confirm the page still loads its `report.json` and attachments.
+Until that policy passes, this boundary is documented-but-unsolved and
+Allure remains the default backend.
+
+### Historical-serving correction (found by installed-package check)
+
+Two latent defects in the **Allure** path were found while building this
+check — present on v1.0.1, fixed on this branch only:
+
+1. `safe_under()` used a POSIX-only `str(root) + "/"` prefix check — on
+   Windows EVERY report-serving route (native, Allure, zips) 404'd.
+   Separately fixed for the released line in PR
+   `fix/safe-under-windows` → **v1.0.2 warranted** (publication pending
+   owner approval; v1.0.1 tag/assets unchanged).
+2. A failed regeneration set `allure_status=failed` while
+   `view_allure`/assets/zip gated on `status=="ready"` — the historical
+   report became unservable. Now mirrors reporting-labs: `failed` keeps
+   serving the previous usable report with a warning flash, and the
+   missing-inputs path no longer downgrades a usable report.
 
 Remaining open boundaries for acceptance: a packaged install
 (Windows+Linux) demonstrating retained Allure reports work with no
