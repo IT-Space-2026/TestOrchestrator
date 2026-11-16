@@ -6,6 +6,8 @@ name: rl-proto-package
 # exe; nothing here is published or distributed.
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/2.0-reporting-labs]
 
 jobs:
   windows-proto:
