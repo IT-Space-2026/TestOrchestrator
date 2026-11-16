@@ -230,7 +230,8 @@ def test_injection_in_names_and_messages(app, tmp_path):
     evil = '<script>alert(1)</script>'
     ex_id = _mk(
         app, tmp_path,
-        shots=('<img src=x onerror=alert(1)>.png',),
+        # filesystem-legal on Windows (no <>"\) yet still hostile markup
+        shots=("x' onerror='alert(1).png",),
         results=[(("C.tc", evil), "failed")])
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
