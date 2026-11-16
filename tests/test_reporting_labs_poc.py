@@ -204,6 +204,76 @@ def test_rlabs_routes_authz(client, login_as, app, tmp_path):
     assert "index.html" in names and "manifest.json" in names
 
 
+def _mk_big_asset(ex):
+    """Attach a >2MB evidence file so the next generation externalises
+    it into gen-*/assets/ instead of inlining it."""
+    root = Path(ex.report_dir)
+    big = root / "big-evidence.png"
+    big.write_bytes(b"\x89PNG" + b"\0" * (2 * 1024 * 1024))
+    db.session.add(Artifact(
+        execution_id=ex.id, kind="screenshot",
+        rel_path="big-evidence.png",
+        sha256=sha256_file(big), size=big.stat().st_size,
+        mime="image/png"))
+    db.session.commit()
+
+
+def test_rlabs_serving_is_generation_scoped(client, login_as, app,
+                                            tmp_path):
+    """Hosted view injects a generation-scoped <base>; report.json and
+    externalised assets are fetched through /rlabs/<gen>/<path> — a
+    stale reader keeps loading ITS generation while it is retained and
+    gets a clear 404 once it expires. Non-gen paths never resolve."""
+    ex_id = _mk(app, tmp_path, shots=())
+    with app.app_context():
+        _mk_big_asset(db.session.get(Execution, ex_id))
+    login_as("admin")
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        assert rl.generate_for(ex)["status"] == "ready"
+        g1 = Path(ex.rl_path).parent.name
+        g1_assets = [a.name for a in
+                     (Path(ex.report_dir) / "reporting-labs" / g1
+                      / "assets").iterdir()]
+        assert g1_assets, "large attachment must externalise to assets/"
+    # hosted view: base href pinned to the recorded generation
+    r = client.get(f"/executions/{ex_id}/rlabs")
+    assert r.status_code == 200
+    assert f'<base href="/executions/{ex_id}/rlabs/{g1}/">'.encode() \
+        in r.data
+    # generation-scoped fetches: report.json + externalised asset
+    assert client.get(
+        f"/executions/{ex_id}/rlabs/{g1}/report.json"
+    ).status_code == 200
+    assert client.get(
+        f"/executions/{ex_id}/rlabs/{g1}/assets/{g1_assets[0]}"
+    ).status_code == 200
+    # hostile/invalid gen segments never resolve
+    for bad in ("..", "current", "gen-../x", "gen-nothex",
+                "report.json"):
+        assert client.get(
+            f"/executions/{ex_id}/rlabs/{bad}/report.json"
+        ).status_code == 404, bad
+    # two newer publications: gen1 files still serve (retention)
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        rl.generate_for(ex)
+        rl.generate_for(ex)
+        assert Path(ex.rl_path).parent.name != g1
+    assert client.get(
+        f"/executions/{ex_id}/rlabs/{g1}/report.json"
+    ).status_code == 200
+    # third newer publication: gen1 expired — clear 404, no silent
+    # substitution of a different generation's file
+    with app.app_context():
+        rl.generate_for(db.session.get(Execution, ex_id))
+    r = client.get(f"/executions/{ex_id}/rlabs/{g1}/report.json")
+    assert r.status_code == 404
+    assert b"expired" in r.data
+    # the recorded (current) generation still serves fine
+    assert client.get(f"/executions/{ex_id}/rlabs").status_code == 200
+
+
 def test_rlabs_routes_invalid_and_missing(client, login_as, app,
                                           tmp_path):
     """Invalid execution ids and missing reports are safe 404s/redirects,
@@ -500,16 +570,7 @@ def test_previous_generation_files_survive_regen(app, tmp_path):
     ex_id = _mk(app, tmp_path, shots=("pass.png",))
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
-        # >2MB attachment externalises to assets/ — exercises the
-        # generation-specific asset file a stale reader still fetches
-        root0 = Path(ex.report_dir)
-        big = root0 / "big-evidence.png"
-        big.write_bytes(b"\x89PNG" + b"\0" * (2 * 1024 * 1024))
-        db.session.add(Artifact(
-            execution_id=ex.id, kind="screenshot", rel_path="big-evidence.png",
-            sha256=sha256_file(big), size=big.stat().st_size,
-            mime="image/png"))
-        db.session.commit()
+        _mk_big_asset(ex)
         rl.generate_for(ex)
         root = Path(ex.report_dir)
         g1_dir = Path(ex.rl_path).parent

@@ -88,7 +88,18 @@ file-atomic:
 - Bounded retention keeps the newest **three** generations
   (`_RETAIN_GENERATIONS`), so a reader holding generation N still
   resolves its `report.json` + `assets/` while TWO newer generations
-  publish; it is pruned on the third.
+  publish; it is pruned on the third. This is bounded continuity, not
+  unlimited active-reader protection.
+- Hosted serving is **generation-scoped**: `view_rlabs` injects
+  `<base href=".../rlabs/<gen>/">` into the served `index.html`, and
+  `/rlabs/<gen>/<path>` only resolves files inside an exact
+  `gen-[0-9a-f]{12}` dir (contained via `safe_under`; `..`, `current`,
+  and malformed segments 404). A stale reader therefore always loads
+  files from ITS OWN generation — never silently substituted with a
+  newer generation's file. Once the generation is pruned (N+3), the
+  route returns a plain-text 404 telling the reader to reopen the
+  report page for the current version; reopening serves `rl_path`,
+  which always points at the recorded (retained) generation.
 - A failed emit or a failed publish leaves `rl_status=failed` with
   `rl_path`/`current` untouched: the last complete generation remains
   referenced, servable, and never orphaned.
@@ -103,6 +114,7 @@ file-atomic:
 | Whole-generation consistency (no mixed files) | `test_generations_are_distinguishable_and_not_mixed` | green — marker content proves single-gen bundles |
 | Mid-publish failure keeps last generation | `test_publish_failure_midway_keeps_last_generation` | green — pointer swap failure simulated |
 | In-flight page from gen N through TWO newer publications | `test_previous_generation_files_survive_regen` | green — newest-three retention; gen-N `index.html`/`report.json`/`assets/` still resolve; pruned at N+3 |
+| Stale reader never served another generation's files; expired gen gets clear 404 | `test_rlabs_serving_is_generation_scoped` | green — base-href scoped to recorded gen; gen-scoped file route; expiry message |
 | Crash between FS publish and DB update | `test_db_crash_after_publish_leaves_servable_state` | green — old rl_path still serves; next regen resyncs |
 | Windows lock path (`msvcrt`) | `windows-locking` CI job on windows-latest | green on real Windows (flock→msvcrt branch, atomic rename + `os.replace` pointer flip) |
 | Historical Allure serving w/o generator | `test_historical_no_runtime.py` + `historical-no-runtime` CI job (ubuntu+windows) | green — generator physically absent (CI checkouts ship no 3rdparty payloads) |
@@ -116,14 +128,18 @@ asset paths already exist: every generation is a self-contained
 `gen-*/` dir (`index.html` + `report.json` + `assets/`), so a stale
 reader fetches only files inside its own generation.
 
-Acceptance covered by `test_previous_generation_files_survive_regen`:
-a reader holding generation N — verified on disk including a >2MB
-externalised `assets/` attachment — still resolves `index.html`,
-`report.json`, and its asset files while generations N+1 **and** N+2
-publish; the files are pruned only at N+3. Bounded trade-off: a reader
-three-or-more generations stale can 404 and must reload (the portal
-serves `current` on reload). Full regression on the final candidate
-before merge remains a standing gate.
+Acceptance covered by `test_previous_generation_files_survive_regen`
+and `test_rlabs_serving_is_generation_scoped`: a reader holding
+generation N — verified on disk including a >2MB externalised
+`assets/` attachment — still resolves `index.html`, `report.json`,
+and its asset files while generations N+1 **and** N+2 publish; the
+files are pruned only at N+3. Serving is generation-scoped end to end
+(injected `<base>` + gen-locked file route), so a stale reader can
+never receive a different generation's files; an expired generation
+returns an explicit "reopen the report page" 404. Bounded trade-off:
+a reader three-or-more generations stale must reopen — this is
+bounded continuity, not unlimited protection. Full regression on the
+final candidate before merge remains a standing gate.
 
 ### Historical-serving correction (found by installed-package check)
 

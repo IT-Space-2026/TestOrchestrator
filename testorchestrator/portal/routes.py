@@ -17,7 +17,7 @@ from pathlib import Path
 
 import os
 from flask import (abort, flash, redirect, render_template, request,
-                   send_file, session, url_for)
+                   Response, send_file, session, url_for)
 from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
@@ -1956,12 +1956,52 @@ def view_rlabs(execution_id):
     elif ex.rl_status != "ready":
         flash(f"reporting-labs report status: {ex.rl_status}", "info")
     record_audit(current_user.username, "rlabs.view", execution_id)
-    resp = send_file(target, mimetype="text/html")
+    # Inject a generation-scoped <base>: the single-file app fetches
+    # report.json / assets/* relative to the page URL, so scoping the
+    # base to the RECORDED generation means the hosted reader only ever
+    # loads files from that same generation — never silently mixed with
+    # a newer one. An expired generation's files 404 via rlabs_file.
+    gen = target.parent.name
+    base = (url_for("portal.view_rlabs", execution_id=ex.id)
+            + f"/{gen}/")
+    html = target.read_text(encoding="utf-8")
+    html = html.replace("<head>", f'<head><base href="{base}">', 1)
+    resp = Response(html, mimetype="text/html")
     # reporting-labs is a single-file interactive app — same sandbox
     # policy as the hosted Allure report.
     resp.headers["Content-Security-Policy"] = \
         "sandbox allow-scripts allow-same-origin"
     return resp
+
+
+@portal_bp.route("/executions/<execution_id>/rlabs/<gen>/<path:subpath>")
+@login_required
+def rlabs_file(execution_id, gen, subpath):
+    """Generation-scoped reporting-labs files (report.json, assets/*).
+
+    Only exact `gen-<id>` directories under reporting-labs/ are valid
+    — no traversal, no `current`/tmp aliases. An expired (pruned)
+    generation returns a clear 404 telling the reader to reopen the
+    report page, which serves the current generation."""
+    ex = _execution_or_404(execution_id)
+    import re as _re
+    if not _re.fullmatch(r"gen-[0-9a-f]{12}", gen):
+        abort(404)
+    from .. import reporting
+    root = reporting.report_root(ex)
+    try:
+        target = reporting.safe_under(
+            root, f"reporting-labs/{gen}/{subpath}")
+    except ValueError:
+        abort(404)
+    if not target.is_file():
+        # expired/pruned generation — give the stale reader a clear
+        # reload path instead of a bare 404 or a substituted file
+        return Response(
+            "This report generation has expired. Reopen the report "
+            "page to load the current version.",
+            status=404, mimetype="text/plain")
+    return send_file(target)
 
 
 @portal_bp.route("/executions/<execution_id>/rlabs.zip")
