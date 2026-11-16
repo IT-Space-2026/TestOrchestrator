@@ -38,6 +38,34 @@ reports, authenticated access, generation-scoped assets, bounded
 three-generation retention, explicit failure handling (failed regen
 keeps the previous usable report).
 
+## 2.0 removal-candidate evidence (source `f47c573`)
+
+- Full regression on the removal tree: **590 passed / 1 skipped**.
+- **Linux `.run` candidate** (real `build_bundle.py` +
+  `build_linux_installer.py`): 275,919,081 B, sha256
+  `86457c868871c92eee1fe202f62078369d6d3bed2185f589270b4b326adafc1f`.
+  Includes the dagu-worker Windows installer download asset (~63 MB)
+  that the earlier repack-based estimate lacked — installer size is
+  therefore above the 213.6 MB prototype figure even though the
+  *installed* footprint still drops by ~270 MB uncompressed.
+  Verified: `reporting_labs` 0.1.14 imports in the installed runtime,
+  `db-upgrade` runs the drop migration, rlabs generation-scoped
+  serving/zip/traversal/expiry all pass; `3rdparty/` contains no
+  nodejs/allure3.
+- `.run` stub defect fixed: `install.sh` is located inside the
+  nested tarball layout (the 1.0.2 published `.run` had the same
+  latent bug).
+- **Windows `.exe` candidate**: `rl-proto-package` workflow (now
+  driving the normal `build_app_installer.sh` + `check_payload.sh`)
+  green on `f47c573` — payload gates confirm reporting_labs staged
+  and nodejs/allure3 absent. Exact installer bytes/SHA256 pending
+  artifact pull; prior identical-payload proto measured
+  132,169,481 B.
+- Windows full acceptance (`windows-installer.yml` installed-validate
+  + upgrade-from-v1.0.2) does not run on this branch — PR-required.
+- Upgrade cleanup verified in code: installers remove ONLY
+  `3rdparty/{nodejs,allure3}` under the app payload/install dir.
+
 ## Status (as of the portal-integration milestone)
 
 - `reporting-labs==0.1.14` — dev/test dependency ONLY
