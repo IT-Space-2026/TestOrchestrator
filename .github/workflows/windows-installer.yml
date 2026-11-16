@@ -1,5 +1,5 @@
 name: windows-installer
-on: {push: {branches: [main]}, pull_request: {}, workflow_dispatch: {}}
+on: {push: {branches: [main, "feature/2.0.1"]}, pull_request: {}, workflow_dispatch: {}}
 permissions: {contents: read}
 jobs:
   compile:
@@ -9,10 +9,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: provision gitignored deps
-        shell: bash
-        run: |
-          bash scripts/fetch_dagu.sh
       - name: report-serving tests on Windows
         shell: bash
         # safe_under + generation-scoped serving: Windows-specific
@@ -20,19 +16,18 @@ jobs:
         run: |
           pip install -r requirements-dev.txt -q
           python -m pytest tests/test_safe_under.py tests/test_reporting_labs_poc.py -x -q
-      - name: install nsis
+      - name: nsis (system prerequisite)
         shell: pwsh
         run: choco install nsis -y --no-progress
-      - name: build payload + compile installer
-        shell: bash
-        run: |
-          export PATH="/c/Program Files (x86)/NSIS:$PATH"
-          makensis -VERSION || export PATH="$ChocolateyInstall/bin:$PATH"
-          bash packaging/windows/build_app_installer.sh
+      - name: one-command release build
+        run: python build-scripts/build_windows.py
       - uses: actions/upload-artifact@v4
         with:
           name: testorchestrator-windows-setup
-          path: packaging/windows/testorchestrator-*-setup-UNSIGNED.exe
+          path: |
+            dist/release/windows/*-setup-UNSIGNED.exe
+            dist/release/windows/SHA256SUMS.txt
+            dist/release/windows/build-manifest.json
           retention-days: 14
 
   installed-validate:

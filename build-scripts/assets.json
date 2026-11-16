@@ -1,0 +1,32 @@
+{
+  "comment": "Pinned downloadable assets for the one-command release builds. Digests for assets that already ship a *.sha256 pin file (dagu archives, linux caddy, linux python-runtime) stay authoritative in those files; this table holds URLs/versions plus sha256 for assets that had pins only inline in legacy build scripts.",
+  "dagu": {
+    "version": "2.27.0",
+    "release_url_base": "https://github.com/dagucloud/dagu/releases/download/v2.27.0",
+    "archives": {
+      "linux_amd64": "dagu_2.27.0_linux_amd64.tar.gz",
+      "windows_amd64": "dagu_2.27.0_windows_amd64.tar.gz"
+    },
+    "sha256_file": "3rdparty/dagu/dagu.sha256"
+  },
+  "caddy_windows": {
+    "version": "2.11.9",
+    "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11.9_windows_amd64.zip",
+    "sha256": "ad93112d335ee687100c4c9f11bced16ca590377976b7fe7883882b9e797e472"
+  },
+  "caddy_linux": {
+    "version": "2.11.9",
+    "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11.9_linux_amd64.tar.gz",
+    "sha256_file": "3rdparty/caddy/caddy.sha256"
+  },
+  "python_embed_windows": {
+    "version": "3.12.7",
+    "url": "https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip",
+    "sha256": "0d57bb6cb078b74d23dbfe91f77d6780d45bed328911609f1f7ee2ba1606bf44"
+  },
+  "get_pip": {
+    "version": "pip 25.x bootstrap (pinned 2026-11-16; only used when ensurepip is absent)",
+    "url": "https://bootstrap.pypa.io/get-pip.py",
+    "sha256": "356e0d0de21cdc348c3394084d90939b85e4246c4d14c76aee6ca4f46646ea98"
+  }
+}

@@ -11,7 +11,12 @@
 # Missing resource for full verification: a Windows amd64 host (or VM)
 # to run the produced .exe, confirm the task registers, the worker
 # reaches a coordinator, and uninstall cleans up. makensis builds the
-# .exe on Linux but cannot execute it.
+# .exe on Linux but cannot execute it.#
+# SUPERSEDED for release builds — use build-scripts/build_linux.py
+# or build-scripts/build_windows.py (one-command, verified path).
+# Retained as a manual/debug helper; pins may drift from
+# build-scripts/assets.json.
+
 set -eu
 cd "$(dirname "$0")"
 REPO="$(cd ../.. && pwd)"

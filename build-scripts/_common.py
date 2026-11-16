@@ -1,0 +1,418 @@
+"""Shared helpers for the one-command release builds.
+
+Used by build_linux.py and build_windows.py — never run directly.
+Everything here is stdlib-only: the scripts must work on a bare host
+with just a supported Python interpreter.
+
+Conventions:
+  REPO          repository root (parent of build-scripts/)
+  BUILD_ROOT    <repo>/build/          — transient staging (gitignored)
+  RELEASE_DIR   <repo>/dist/release/   — final deliverables (gitignored)
+"""
+from __future__ import annotations
+
+import datetime
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import urllib.request
+import venv
+import zipfile
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+BUILD_ROOT = REPO / "build"
+RELEASE_DIR = REPO / "dist" / "release"
+ASSETS = json.loads((Path(__file__).parent / "assets.json").read_text())
+
+
+class BuildError(RuntimeError):
+    """Actionable build failure — message is shown to the user."""
+
+
+class Log:
+    """Tee stdout into a persistent log file under dist/release/logs/."""
+
+    def __init__(self, platform_name: str):
+        log_dir = RELEASE_DIR / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.path = log_dir / f"build-{platform_name}-{ts}.log"
+        self._fh = self.path.open("w", encoding="utf-8")
+
+    def write(self, msg: str = "") -> None:
+        print(msg, flush=True)
+        self._fh.write(msg + "\n")
+        self._fh.flush()
+
+    def step(self, msg: str) -> None:
+        self.write(f"\n=== {msg} ===")
+
+    def close(self) -> None:
+        self._fh.close()
+
+
+def run(cmd: list[str], log: Log, cwd: Path | None = None,
+        env: dict | None = None, capture: bool = False) -> str:
+    """Run a subprocess; log the command; raise BuildError on failure."""
+    log.write(f"$ {' '.join(str(c) for c in cmd)}")
+    merged_env = {**os.environ, **(env or {})}
+    r = subprocess.run([str(c) for c in cmd], cwd=cwd or REPO,
+                       env=merged_env, capture_output=True, text=True)
+    out = (r.stdout or "") + (r.stderr or "")
+    log._fh.write(out)
+    log._fh.flush()
+    if r.returncode != 0:
+        tail = "\n".join(out.strip().splitlines()[-15:])
+        raise BuildError(
+            f"command failed (exit {r.returncode}): {cmd[0]}\n{tail}")
+    return r.stdout if capture else out
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def fetch(url: str, dest: Path, expected_sha256: str, log: Log) -> Path:
+    """Download url to dest with integrity verification. Reuses an
+    existing dest only when it already verifies — otherwise refetches."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_file():
+        if sha256_file(dest) == expected_sha256:
+            log.write(f"  cached, sha256 ok: {dest.name}")
+            return dest
+        log.write(f"  stale/incorrect {dest.name} — refetching")
+        dest.unlink()
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    log.write(f"  downloading {url}")
+    try:
+        with urllib.request.urlopen(url, timeout=300) as resp, \
+                tmp.open("wb") as f:
+            shutil.copyfileobj(resp, f, 1 << 20)
+    except Exception as e:
+        tmp.unlink(missing_ok=True)
+        raise BuildError(f"download failed: {url}\n  {e}")
+    actual = sha256_file(tmp)
+    if actual != expected_sha256:
+        tmp.unlink(missing_ok=True)
+        raise BuildError(
+            f"checksum mismatch for {dest.name}\n"
+            f"  expected {expected_sha256}\n  got      {actual}")
+    tmp.replace(dest)
+    log.write(f"  verified {dest.name} ({dest.stat().st_size:,} B)")
+    return dest
+
+
+def read_pin_file(path: Path) -> dict[str, str]:
+    """Parse a `<sha256>  <name>` pin file into {name: sha256}."""
+    pins = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) == 2:
+            pins[parts[1]] = parts[0]
+        elif len(parts) == 1:  # bare digest — single-file pin
+            pins[path.stem] = parts[0]
+    return pins
+
+
+def fetch_dagu(arch: str, log: Log) -> Path:
+    """Materialise a pinned dagu release archive into 3rdparty/dagu/.
+    Digest source: 3rdparty/dagu/dagu.sha256 (authoritative, read by
+    validate_package.py inside the shipped package)."""
+    spec = ASSETS["dagu"]
+    name = spec["archives"][arch]
+    pins = read_pin_file(REPO / spec["sha256_file"])
+    if name not in pins:
+        raise BuildError(f"{spec['sha256_file']} has no pin for {name}")
+    dest = REPO / "3rdparty" / "dagu" / name
+    return fetch(f"{spec['release_url_base']}/{name}", dest,
+                 pins[name], log)
+
+
+def fetch_all_dagu(log: Log) -> None:
+    for arch in ASSETS["dagu"]["archives"]:
+        fetch_dagu(arch, log)
+
+
+def git_info() -> dict:
+    def g(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=REPO, capture_output=True,
+                              text=True).stdout.strip()
+    commit = g("rev-parse", "HEAD") or "unknown"
+    dirty = bool(subprocess.run(["git", "status", "--porcelain"],
+                                cwd=REPO, capture_output=True,
+                                text=True).stdout.strip())
+    return {"commit": commit, "short": commit[:12], "dirty": dirty,
+            "branch": g("rev-parse", "--abbrev-ref", "HEAD")}
+
+
+def release_version() -> str:
+    """Single authoritative version source: release/release.json."""
+    return json.loads(
+        (REPO / "release" / "release.json").read_text())["version"]
+
+
+def venv_python(build_dir: Path, log: Log) -> Path:
+    """Isolated build venv — created once per build dir, reused on
+    repeat runs. Hosts without ensurepip (Debian python3-venv absent)
+    get a pip-less venv; callers needing pip use ensure_pip()."""
+    vp = build_dir / "venv"
+    py = vp / ("Scripts/python.exe" if os.name == "nt"
+               else "bin/python")
+    if not py.is_file():
+        log.write(f"  creating build venv at {vp}")
+        try:
+            venv.EnvBuilder(with_pip=True, clear=False).create(vp)
+        except (Exception, SystemExit):
+            # Debian/Ubuntu without python3-venv: the patched ensurepip
+            # calls sys.exit(1) — SystemExit, not Exception.
+            log.write("  ensurepip unavailable — venv without pip "
+                      "(pip bootstrapped on demand)")
+            shutil.rmtree(vp, ignore_errors=True)
+            venv.EnvBuilder(with_pip=False, clear=False).create(vp)
+    return py
+
+
+def ensure_pip(vpy: Path, log: Log) -> None:
+    """Guarantee pip inside the build venv — bootstrap via the pinned
+    get-pip.py when ensurepip was unavailable."""
+    r = subprocess.run([str(vpy), "-m", "pip", "--version"],
+                       capture_output=True, text=True)
+    if r.returncode == 0:
+        return
+    spec = ASSETS.get("get_pip")
+    if not spec:
+        raise BuildError(
+            "venv has no pip and no get-pip pin in assets.json")
+    gp = fetch(spec["url"], BUILD_ROOT / "downloads" / "get-pip.py",
+               spec["sha256"], log)
+    run([str(vpy), str(gp)], log)
+
+
+_LOCAL_NSIS = BUILD_ROOT / "tools" / "nsis"
+
+
+def _extracted_makensis() -> str | None:
+    """makensis previously extracted into build/tools (no-sudo path)."""
+    p = _LOCAL_NSIS / "usr" / "bin" / "makensis"
+    return str(p) if p.is_file() else None
+
+
+def _local_makensis() -> str | None:
+    """Extracted copy or a Windows default-install location choco
+    doesn't PATH-export."""
+    p = _extracted_makensis()
+    if p:
+        return p
+    for d in ("C:/Program Files (x86)/NSIS", "C:/Program Files/NSIS"):
+        q = Path(d) / "makensis.exe"
+        if q.is_file():
+            return str(q)
+    return None
+
+
+def ensure_makensis(log: Log) -> str:
+    """Locate makensis. Order: PATH → local build/tools copy → package
+    manager (apt via sudo, choco) → user-space deb extraction
+    (apt-get download, no root) → actionable failure."""
+    found = shutil.which("makensis") or _local_makensis()
+    if found:
+        if found == _extracted_makensis():
+            os.environ["NSISDIR"] = str(
+                _LOCAL_NSIS / "usr" / "share" / "nsis")
+        return found
+    log.write("  makensis not on PATH — attempting system install")
+    if sys.platform.startswith("linux") and shutil.which("apt-get"):
+        try:
+            run(["sudo", "-n", "apt-get", "install", "-y",
+                 "--no-install-recommends", "nsis"], log)
+        except BuildError:
+            log.write("  sudo install unavailable — extracting NSIS "
+                      "into build/tools (no root needed)")
+            _extract_nsis_debs(log)
+    elif sys.platform == "win32" and shutil.which("choco"):
+        run(["choco", "install", "nsis", "-y", "--no-progress"], log)
+    found = shutil.which("makensis") or _local_makensis()
+    if not found:
+        raise BuildError(
+            "makensis (NSIS) is required and could not be installed.\n"
+            "  Debian/Ubuntu: sudo apt-get install nsis\n"
+            "  Windows:       choco install nsis   (or the NSIS "
+            "installer from nsis.sourceforge.io)")
+    if found == _extracted_makensis():
+        os.environ["NSISDIR"] = str(_LOCAL_NSIS / "usr" / "share" / "nsis")
+    return found
+
+
+def _extract_nsis_debs(log: Log) -> None:
+    """Fetch nsis + nsis-common .debs and extract into build/tools/nsis.
+    Works without root — Debian/Ubuntu only; no-op failure leaves the
+    actionable error in ensure_makensis."""
+    if not (shutil.which("apt-get") and shutil.which("dpkg")):
+        return
+    dl = BUILD_ROOT / "tools" / "debs"
+    dl.mkdir(parents=True, exist_ok=True)
+    try:
+        run(["apt-get", "download", "nsis", "nsis-common"], log, cwd=dl)
+    except BuildError:
+        log.write("  apt-get download failed — cannot provision NSIS")
+        return
+    _LOCAL_NSIS.mkdir(parents=True, exist_ok=True)
+    for deb in sorted(dl.glob("*.deb")):
+        run(["dpkg", "-x", str(deb), str(_LOCAL_NSIS)], log)
+    if _local_makensis():
+        log.write(f"  user-space makensis ready: {_local_makensis()}")
+
+
+def stage_worker_payload(build_dir: Path, log: Log) -> Path:
+    """Extract dagu.exe + LICENSE + README.md from the pinned windows
+    dagu archive into packaging/windows/worker-payload/ — the payload
+    for the NSIS worker installer (replaces build_worker_installer.sh's
+    tar/sha256sum steps so Windows hosts need no git-bash)."""
+    archive = fetch_dagu("windows_amd64", log)
+    pins = read_pin_file(REPO / "3rdparty" / "dagu" / "dagu.sha256")
+    assert sha256_file(archive) == pins[archive.name]
+    out = REPO / "packaging" / "windows" / "worker-payload"
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    want = {"dagu.exe", "LICENSE", "README.md"}
+    with tarfile.open(archive, "r:gz") as tar:
+        for m in tar.getmembers():
+            if Path(m.name).name in want and m.isfile():
+                m.name = Path(m.name).name          # strip any dirs
+                tar.extract(m, out, filter="data")
+    missing = want - {p.name for p in out.iterdir()}
+    if missing:
+        raise BuildError(f"worker payload incomplete: {missing} "
+                         f"not found in {archive.name}")
+    log.write(f"  worker payload staged: {sorted(p.name for p in out.iterdir())}")
+    return out
+
+
+def build_worker_installer(log: Log, dagu_version: str) -> Path:
+    """makensis the dagu-worker NSIS installer. Output:
+    packaging/windows/testorchestrator-dagu-worker-<v>-setup-UNSIGNED.exe"""
+    makensis = ensure_makensis(log)
+    stage_worker_payload(REPO / "build", log)
+    win_dir = REPO / "packaging" / "windows"
+    for stale in win_dir.glob("testorchestrator-dagu-worker-*.exe"):
+        stale.unlink()        # never keep an older build's exe
+    run([makensis, "-V2", f"-DVERSION={dagu_version}",
+         "worker-installer.nsi"], log, cwd=win_dir)
+    exes = sorted(win_dir.glob(
+        f"testorchestrator-dagu-worker-{dagu_version}-setup-UNSIGNED.exe"))
+    if not exes:
+        raise BuildError("makensis produced no worker installer")
+    log.write(f"  built {exes[0].name} ({exes[0].stat().st_size:,} B, unsigned)")
+    return exes[0]
+
+
+def safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
+    """Extract with traversal protection (py3.12 'data' filter)."""
+    tar.extractall(dest, filter="data")
+
+
+def unzip_safely(archive: Path, dest: Path) -> None:
+    """zipfile extract with explicit traversal checks."""
+    dest.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive) as z:
+        for info in z.infolist():
+            target = (dest / info.filename).resolve()
+            if not str(target).startswith(str(dest.resolve())):
+                raise BuildError(f"unsafe path in {archive.name}: "
+                                 f"{info.filename}")
+        z.extractall(dest)
+
+
+def write_checksums(artifacts: list[Path], dest: Path, log: Log) -> dict:
+    """SHA256SUMS.txt + {name: (sha256,size)} map for the manifest."""
+    sums = {}
+    lines = []
+    for p in artifacts:
+        h = sha256_file(p)
+        sums[p.name] = {"sha256": h, "size": p.stat().st_size}
+        lines.append(f"{h}  {p.name}")
+    dest.write_text("\n".join(lines) + "\n")
+    log.write(f"  wrote {dest.name} ({len(artifacts)} artifacts)")
+    return sums
+
+
+def clean_release_dir(platform_name: str) -> None:
+    """Repeat-safe: drop previous deliverables for this platform only —
+    never the source tree, never other platforms, never the logs."""
+    out = RELEASE_DIR / platform_name
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+
+
+def finalise(log: Log, platform_name: str, gi: dict,
+             artifacts: list[Path], extra_meta: dict,
+             validations: list[dict]) -> Path:
+    """Copy deliverables into dist/release/, emit SHA256SUMS +
+    build-manifest.json, print the summary."""
+    out = RELEASE_DIR / f"{platform_name}"
+    out.mkdir(parents=True, exist_ok=True)   # created by clean_release_dir
+    placed = []
+    for a in artifacts:
+        tgt = out / a.name
+        if a.resolve() != tgt.resolve():
+            shutil.copy2(a, tgt)
+        placed.append(tgt)
+    sums = write_checksums(placed, out / "SHA256SUMS.txt", log)
+    manifest = {
+        "version": release_version(),
+        "platform": platform_name,
+        "source": {**gi,
+                   "note": "built from the current checkout; dirty "
+                           "tree means uncommitted content is included"},
+        "built_at": datetime.datetime.now(
+            datetime.timezone.utc).isoformat(),
+        "tools": tool_versions(),
+        "artifacts": sums,
+        "validations": validations,
+        **extra_meta,
+    }
+    (out / "build-manifest.json").write_text(json.dumps(manifest,
+                                                      indent=2))
+    log.step("release output")
+    for name, s in sums.items():
+        log.write(f"  {s['size']:>13,} B  {name}\n"
+                  f"                  sha256 {s['sha256']}")
+    log.write(f"\n  output dir: {out}\n  log: {log.path}")
+    return out
+
+
+def tool_versions() -> dict:
+    def _v(cmd: list[str]) -> str:
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=30).stdout.strip().splitlines()[0]
+        except Exception:
+            return "unavailable"
+    mk = shutil.which("makensis") or _local_makensis()
+    return {
+        "python": sys.version.split()[0],
+        "makensis": _v([mk, "-VERSION"]) if mk else "absent",
+        "dagu": ASSETS["dagu"]["version"],
+        "caddy": ASSETS["caddy_linux"]["version"],
+        "python_embed_windows": ASSETS["python_embed_windows"]["version"],
+    }
+
+
+def require(cond: bool, msg: str) -> None:
+    if not cond:
+        raise BuildError(msg)
