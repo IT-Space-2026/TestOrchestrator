@@ -447,14 +447,46 @@ a single frozen commit with its own checksums.
    lifecycle (bounded continuity, 3-gen retention, explicit-expiry
    404, failed-regen preservation); restart persistence; no
    Node/Allure in payload, `/allure*` routes 404.
-   **Defect found & fixed live:** `retry_execution` dropped
+   **Defect 1 found & fixed live:** `retry_execution` dropped
    `source_item` and the `requested_runner`/`requested_runtime`
    binding — pre-fix retries degraded to the local dag path and
    reconciled to UNKNOWN without evidence (executions `084f5b77`,
-   `044dd578`); post-fix retry `53efa5e3` dispatched remotely to an
-   accurate FAILED terminal. Fix `7adba39` + 3 regression tests;
-   full suite **593 passed / 1 skipped**. Record:
-   `/tmp/to-e2e/evidence/E2E-REPORT.md`.
+   `044dd578` — retained in the record as defect evidence, not
+   relabelled); post-fix retry `53efa5e3` dispatched remotely to an
+   accurate FAILED terminal. Fix `7adba39` + 3 regression tests
+   covering source-item preservation, `requested_*` → `runner_id`/
+   `runtime_id` translation, and `dagu-worker` transport retention;
+   full suite **593 passed / 1 skipped**.
+
+   **Defect 2 found & fixed live:** KRE collection selector —
+   `build_args` stripped only `.tsc`, but Katalon saves suite
+   collections as `.ts` (discovery classifies on the XML root tag),
+   so `-testSuiteCollectionPath` kept the extension → KRE exit 4
+   "not found" (execution `02a390a4`). Fix `f4c8c14` + regression
+   coverage; verified live via retry `ebaa2203` → collection
+   resolved, COMPLETED with honest FAILED outcome (26 results,
+   23 artifacts — member-case failures are real KRE outcomes).
+
+   **Failure classification:** Desktop suite failures (`3c4093f0`,
+   `53efa5e3`) are a **test-project defect** — `Desktop.ts` carries
+   committed unresolved merge-conflict markers (the only such file
+   in the repo), so KRE cannot parse it. Execution `9647abd5` failed
+   pre-dispatch on a **test-harness** misconfiguration (restart
+   exported `TO_SECRET_KEY_FILE`; the app reads `TO_SECRET_KEY` →
+   ephemeral Fernet key → stored credential undecryptable, recorded
+   accurately as `infrastructure`). Neither is a product defect;
+   no scenario needs reopening beyond defect 2, which was fixed and
+   re-verified in place.
+
+   **Evidence (durable, access-controlled):**
+   `/home/szefi/Documents/testorchestrator-e2e-evidence/linux-2a64e0e/`
+   (mode 0700) — `E2E-REPORT.md`, web/worker logs, served report
+   captures (`rlabs-page.html`, `rlabs.zip` 879,411 B, `report.zip`
+   607,368 B), `full-regression.log`, `remote-runs/` per-execution
+   KRE logs+artifacts. Credentials, licence material, and the
+   throwaway keypair were excluded; the KRE apiKey is masked in all
+   retained logs. Temporary workspace `/tmp/to-e2e` may be removed;
+   the record above survives.
    **Windows leg: BLOCKED** — no Windows host/KRE/worker available;
    not substituted.
 3. **Sanitised real KRE corpus** — result/evidence parity,
