@@ -537,5 +537,18 @@ a single frozen commit with its own checksums.
    rebuild from one frozen commit, full regression, then request
    merge/release approval.
 
-No merge, tag, or publish until all gates complete and explicit
-approval is given.
+### Owner waivers for merge (2026-11-16)
+
+Explicit waivers granted for the gates that could not be completed in
+this environment; each is recorded as an accepted limitation, not as
+passed:
+
+1. **Windows E2E** — owner-deferred: the owner will perform Windows
+   validation themselves post-merge.
+2. **Windows interactive GUI acceptance** — waived (manual,
+   owner-side, deferred).
+3. **Sanitised real-corpus parity / generation performance /
+   report-output size** — waived pending corpus handoff.
+
+Merge to `main` approved by owner on 2026-11-16 against frozen
+candidate `93709ee`.
