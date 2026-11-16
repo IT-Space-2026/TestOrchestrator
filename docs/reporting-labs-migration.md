@@ -489,6 +489,45 @@ a single frozen commit with its own checksums.
    throwaway keypair were excluded; the KRE apiKey is masked in all
    retained logs. Temporary workspace `/tmp/to-e2e` may be removed;
    the record above survives.
+
+   **Linux re-run on the upgraded stack (Dagu 2.27.0 + vendored
+   reporting_labs 0.1.14): PASSED (automated, 2026-11-16,
+   `/tmp/to-e2e-227`).** The 2.25.2 acceptance above is preserved as
+   historical evidence only — it does not validate the upgrade.
+   Fresh isolated install → licence activation (throwaway test
+   licence, `kid=prod`) → project + binding (112 items) → real KRE
+   execution via portal → isolated Dagu 2.27.0 coordinator
+   (:30877/:51055) → worker `to-worker-227-1` label `kre=e2e-227` →
+   KRE 11.7.0. Results: API-TS retry `4fe56af3`
+   **completed/passed** (2 results, 12 artifacts — the retry path
+   itself exercised defect-1's fix); collection v1 `bd881ce5`
+   COMPLETED/FAILED — collection resolved with `.ts` selector
+   stripped (defect-2 fix re-verified), 26 results; Wiki `212d912d`
+   **canceled mid-flight** CANCEL_REQUESTED→CANCELED with reason
+   (worker log: `context canceled`); Desktop `a28e1543`
+   FAILED/incomplete (same test-project defect). First attempt
+   `d46e1e2c` failed pre-dispatch on an **environment collision** —
+   a stray 196 MB regular file at `/tmp/dagu` blocked Dagu 2.27.0's
+   default temp-dir creation; resolved with a dedicated `TMPDIR`;
+   retained as evidence, not an app defect.
+   reportingLabs (vendored source, MIT): generation → ready;
+   gen-scoped base; embedded 346,414 B IT-Space logo; traversal/
+   unknown-gen 404; anonymous → login; 879,440 B self-contained ZIP;
+   4 regens → exactly 3 gens retained; pruned gen → explicit
+   expired-404; forced PermissionError on `.publish.lock` → last-good
+   generation still served (failed-regen preservation); restart →
+   licence `valid`, 5 executions + report intact. Payload: 3rdparty =
+   caddy/dagu/licenses/python-runtime/python-wheels only — no Node,
+   no Allure; `/allure` 404; reporting_labs ships as vendored source
+   with LICENSE; Dagu binary reports 2.27.0 (GPLv3 notice retained).
+   Full regression on the vendored+2.27.0 tree: **593 passed /
+   1 skipped**.
+   **Evidence (durable, access-controlled):**
+   `/home/szefi/Documents/testorchestrator-e2e-evidence/linux-dagu227/`
+   (mode 0700) — `E2E-REPORT.md`, coordinator/worker logs, `rlabs.zip`
+   capture, `remote-runs/` per-execution logs+artifacts, dagu-side
+   cancel run record. apiKey masked; no credentials/licence material.
+
    **Windows leg: BLOCKED** — no Windows host/KRE/worker available;
    not substituted.
 3. **Sanitised real KRE corpus** — result/evidence parity,
