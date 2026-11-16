@@ -41,7 +41,7 @@ reports, authenticated access, generation-scoped assets, bounded
 three-generation retention, explicit failure handling (failed regen
 keeps the previous usable report).
 
-## 2.0 removal-candidate evidence (source `f47c573`/`011e8da`)
+## 2.0 removal-candidate evidence (source `011e8da`–`9208437`)
 
 - Full regression on the removal tree: **590 passed / 1 skipped**
   (`883d0a7`).
@@ -87,6 +87,30 @@ Component deltas: −224.5 MB nodejs, −46.5 MB allure3,
 - Fresh-install verification on the 2.0.0 `.run` payload:
   `reporting_labs` 0.1.14 imports, `db-upgrade` to head, rlabs
   generation-scoped serving/zip/traversal/expiry all pass.
+
+### CI validation on the removal tree (`98ccb49`/`9208437`)
+
+- `linux-package` run 43863372518 (`98ccb49`): **success** —
+  build, installed-validate, and the real 1.0.2 → 2.0 upgrade job
+  (payload overlay, scoped `3rdparty/{nodejs,allure3}` cleanup,
+  `db-upgrade`, post-migration reportingLabs reseed, execution /
+  licence / evidence preservation, rlabs view/zip, legacy `/allure*`
+  404).
+- `windows-installer` run 43864229706 (`9208437`): **success** —
+  compile (`testorchestrator-2.0.0-windows-amd64-setup-UNSIGNED.exe`),
+  silent installed-validate to a spaced path, licence activation and
+  restart persistence, report-serving checks, and the real
+  `upgrade-from-v101` job (published 1.0.2 → 2.0 candidate) with the
+  same preservation/migration/cleanup assertions.
+- `rl-tests` 43864230921, `rl-proto-package` 43864230820
+  (`9208437`): **success**.
+- Earlier Windows run on `98ccb49` (43863398206): compile and
+  upgrade jobs passed; installed-validate failed on a workflow defect
+  (hardcoded 1.0.2 installer filename — fixed at `9208437`). An
+  earlier Linux run on `0208f49` (43862586570) failed on a CI seed
+  defect (licence_id de-dup on reseed — fixed at `98ccb49`). Both
+  were CI harness bugs, not product failures; the corrected tree
+  passes end to end.
 
 ## Status (as of the portal-integration milestone)
 
