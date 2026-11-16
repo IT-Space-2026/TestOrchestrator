@@ -432,22 +432,31 @@ a single frozen commit with its own checksums.
 
 1. **Windows interactive GUI acceptance** — manual, owner-side.
    Blocked: no interactive Windows session available in CI.
-2. **Full application E2E (Windows + Linux)** — real installer →
-   first launch → licence activation + restart persistence →
-   project/execution config via the supported UI → **real KRE
-   execution** through TestOrchestrator (worker dispatch, completion,
-   accurate status/result ingestion) → automatic reportingLabs
-   generation, authenticated view, attachments, embedded IT-Space
-   logo, ZIP + offline viewing → regeneration semantics
-   (generation-scoped assets, failed-regen preservation,
-   3-generation retention, explicit expiry) → app/worker restart
-   persistence → seeded 1.0.2 → candidate upgrade then new execution
-   → failure/recovery paths (failed, interrupted, report-generation
-   failure, retry) with accurate UI states and no evidence loss.
-   Recorded per scenario: source commit, installer SHA256s,
-   OS/KRE/worker versions, expected vs actual, logs/screenshots,
-   automated vs manual distinction.
-   **Blocked** on a real KRE environment — blocked, not substituted.
+2. **Full application E2E (Windows + Linux)** —
+   **Linux leg: PASSED (automated, 2026-11-16, `/tmp/to-e2e`).**
+   Fresh-isolated install → first launch → licence activation via
+   `/licence-activate` → restart persistence → project + git binding
+   via portal (112 discovered items) → **real KRE execution**
+   (portal → dagu coordinator 2.25.2 → remote worker
+   `to-worker-e2e-1` label `kre=e2e-kre` → KRE 11.7.0 `katalonc`):
+   API-TS **completed/passed**, 2 JUnit results + 12 artifacts
+   ingested; failed run (Desktop suite, headless) → FAILED/incomplete
+   with evidence; mid-flight cancel → CANCEL_REQUESTED → CANCELED;
+   reportingLabs generation/view/ZIP/offline + embedded IT-Space logo
+   + authenticated access + traversal rejection; regeneration
+   lifecycle (bounded continuity, 3-gen retention, explicit-expiry
+   404, failed-regen preservation); restart persistence; no
+   Node/Allure in payload, `/allure*` routes 404.
+   **Defect found & fixed live:** `retry_execution` dropped
+   `source_item` and the `requested_runner`/`requested_runtime`
+   binding — pre-fix retries degraded to the local dag path and
+   reconciled to UNKNOWN without evidence (executions `084f5b77`,
+   `044dd578`); post-fix retry `53efa5e3` dispatched remotely to an
+   accurate FAILED terminal. Fix `7adba39` + 3 regression tests;
+   full suite **593 passed / 1 skipped**. Record:
+   `/tmp/to-e2e/evidence/E2E-REPORT.md`.
+   **Windows leg: BLOCKED** — no Windows host/KRE/worker available;
+   not substituted.
 3. **Sanitised real KRE corpus** — result/evidence parity,
    generation performance, report-output size. **Blocked** on the
    corpus handoff (see OWNER ACTION above).
