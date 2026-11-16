@@ -55,23 +55,25 @@ jobs:
         with:
           name: testorchestrator-linux-package
           path: candidate
-      - name: fetch released v1.0.1 package
+      - name: fetch released v1.0.2 package
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v1.0.1" \
-            | python3 -c "import json,sys; print([a['id'] for a in json.load(sys.stdin)['assets'] if 'linux' in a['name'] and a['name'].endswith('.tar.gz')][0])")
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v1.0.2" \
+            | python3 -c "import json,sys; print([a['id'] for a in json.load(sys.stdin)['assets'] if 'linux' in a['name'] and a['name'].endswith('.run')][0])")
           curl -sL -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/octet-stream" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id" \
-            -o v101.tar.gz
-          ls -la v101.tar.gz
-      - name: install released v1.0.1 payload + seed
+            -o v102.run
+          ls -la v102.run
+      - name: install released v1.0.2 payload + seed
         run: |
           set -e
-          mkdir -p /tmp/v101 && tar -xzf v101.tar.gz -C /tmp/v101
-          P=$(echo /tmp/v101/testorchestrator-*-linux-x86_64)
+          mkdir -p /tmp/v102
+          LINE=$(grep -an -m1 "^__TO_ARCHIVE_BELOW__$" v102.run | cut -d: -f1)
+          tail -n +$((LINE + 1)) v102.run | tar -xzf - -C /tmp/v102
+          P=$(echo /tmp/v102/testorchestrator-*-linux-x86_64)
           cd "$P"
           export TO_INSTANCE_DIR=/tmp/to-inst TO_SECURE_COOKIES=0
           ./3rdparty/python-runtime/python/bin/python -m pip install \
@@ -104,4 +106,4 @@ jobs:
             report_serving_check.py seed
           ./3rdparty/python-runtime/python/bin/python \
             report_serving_check.py check
-          echo "PASS retained reports/licence/access after v1.0.1->candidate upgrade"
+          echo "PASS retained reports/licence/access after v1.0.2->candidate upgrade"
