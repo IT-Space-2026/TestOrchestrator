@@ -331,6 +331,7 @@ jobs:
             Write-Host "CONFIRMED: report serving broken on released v1.0.1 (expected defect)"
           }
           Pop-Location
+          exit 0   # expected-failure above leaves LASTEXITCODE=1
       - name: upgrade to maintenance candidate + verify retained data
         shell: pwsh
         run: |
