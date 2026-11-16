@@ -1,6 +1,11 @@
 # Decision: enhanced reporting backend (v1.9.0)
 
-**Decision:** Retain **Allure** as the only shipped enhanced reporting
+> **Superseded for 2.0** — see `docs/reporting-labs-migration.md`:
+> reporting-labs `0.1.14` is the sole enhanced backend; Allure 3 +
+> bundled Node.js are removed. Historical Allure report files are
+> preserved on disk but not openable in the 2.0 interface.
+
+**Decision (v1.9.0):** Retain **Allure** as the only shipped enhanced reporting
 backend. **pyrept 1.3.3 is NOT integrated** and is not a replacement at
 this time.
 

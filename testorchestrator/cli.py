@@ -214,17 +214,36 @@ def _write_unit(path, body: str) -> None:
     path.write_text(body)
 
 
-def cmd_allure_probe(args) -> int:
-    from . import allure_runtime
-    import json
-    r = allure_runtime.probe()
-    print(json.dumps(r))
-    return 0 if r.get("ok") else 1
+def cmd_install_info(args) -> int:
+    import json, os
+    app = _app()
+    print(json.dumps({"instance": app.instance_path,
+                      "db": app.config["SQLALCHEMY_DATABASE_URI"],
+                      "cert_dir": str(app.config["CERT_DIR"]),
+                      "frozen": bool(getattr(sys, "frozen", False)),
+                      "python": sys.executable}, indent=2))
+    return 0
+
+
+# ---------- frozen-package installation (no external python) ----------
+
+def _app_dir() -> "Path":
+    """The application payload dir — the onedir containing toctl when
+    frozen, else the repo app dir."""
+    from pathlib import Path
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent / "app"
+
+
+def _write_unit(path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
 
 
 def cmd_install(args) -> int:
     """Install the frozen package — payload copy, dirs, web.env,
-    migrations, Java probe, unit staging/enable, readiness.
+    migrations, unit staging/enable, readiness.
 
     NO external python, pip, flask CLI, or venv anywhere in this path.
     """
@@ -255,6 +274,13 @@ def cmd_install(args) -> int:
             src = pkg / item
             if src.is_dir():
                 _copy_tree(src, payload / item)
+        if args.upgrade:
+            # 2.0 removes Allure/Node — delete ONLY the app-owned
+            # runtime dirs the old payload staged. Never touch
+            # system-wide node or stored customer reports.
+            for stale in (payload / "3rdparty" / "nodejs",
+                          payload / "3rdparty" / "allure3"):
+                shutil.rmtree(stale, ignore_errors=True)
         data.mkdir(parents=True, exist_ok=True)
         config.mkdir(parents=True, exist_ok=True)
         shutil.copy2(pkg / "deploy" / "Caddyfile",
@@ -282,7 +308,7 @@ def cmd_install(args) -> int:
         env_file.write_text("\n".join(env_lines) + "\n")
         os.chmod(env_file, 0o640)
 
-    # 3+4) migrations + bundled-Allure probe — as CHILD toctl
+    # 3+4) migrations — as CHILD toctl
     #      processes so env (TO_INSTANCE_DIR) resolves at import.
     if not args.dry_run:
         env = dict(os.environ,
@@ -296,20 +322,6 @@ def cmd_install(args) -> int:
         if res.stderr.strip():
             sys.stderr.write(res.stderr)
 
-        if not args.no_allure:
-            jr = _run_toctl(["allure-probe"], env, timeout=600)
-            try:
-                jrec = json.loads(jr.stdout.strip().splitlines()[-1])
-            except (json.JSONDecodeError, IndexError):
-                jrec = {"ok": False,
-                        "error": jr.stderr.strip()[:200] or
-                                 "probe produced no output"}
-            if jrec.get("ok"):
-                print("[install] bundled Allure 3 — validated by "
-                      "generation probe")
-            else:
-                print(f"[install] Allure probe: {jrec.get('error','')} "
-                      "— continuing with reporting disabled")
 
     # 5) systemd units — ExecStart on the frozen binary, never flask
     #    CLI or a venv.
@@ -408,8 +420,6 @@ def main(argv=None) -> int:
                                                 required=True)
     p.add_argument("--into", required=True)
     sub.add_parser("install-info")
-    p = sub.add_parser("allure-probe",
-                       help="validate bundled Allure 3 (JSON)")
     p = sub.add_parser(
         "install",
         help="install the frozen package — payload, config, "
@@ -420,7 +430,6 @@ def main(argv=None) -> int:
     p.add_argument("--https-port", type=int, default=443)
     p.add_argument("--service-user", default="testorchestrator")
     p.add_argument("--secret-key", default="")
-    p.add_argument("--no-allure", action="store_true")
     p.add_argument("--no-service-start", action="store_true")
     p.add_argument("--upgrade", action="store_true",
                    help="in-place upgrade: an occupied app port is "

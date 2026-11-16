@@ -226,10 +226,28 @@ def retry_execution(username: str, ex: Execution) -> Execution:
     snap = ex.snapshot()
     binding = (db.session.get(GitBinding, ex.binding_id)
                if ex.binding_id else None)
+    source_item = None
+    if ex.suite is None:
+        source_item = (db.session.get(DiscoveredItem, ex.source_item_id)
+                       if ex.source_item_id else None)
+        if source_item is None:
+            raise DispatchError(
+                "the repository item this execution ran is no longer "
+                "present in discovery — re-run it from the Discovered "
+                "page instead of retrying")
+    rc = dict(snap.get("run_config") or {})
+    # The snapshot stores normalized keys; create_execution consumes
+    # the raw request keys — translate back so the retried execution
+    # keeps its requested runner/runtime (and thus its transport).
+    if rc.get("requested_runtime") and not rc.get("runtime_id"):
+        rc["runtime_id"] = rc["requested_runtime"]
+    if rc.get("requested_runner") and not rc.get("runner_id"):
+        rc["runner_id"] = rc["requested_runner"]
     new_ex = create_execution(
         username, ex.suite, binding=binding, source_sha=ex.source_sha,
+        source_item=source_item,
         plan_id=snap.get("plan_id") or "",
-        run_config=snap.get("run_config") or {},
+        run_config=rc,
         extra_snapshot={
             "plan_run_id": snap.get("plan_run_id") or "",
             "retry_of": ex.id,

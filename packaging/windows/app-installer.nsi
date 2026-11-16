@@ -4,7 +4,7 @@
 ; redistributed; the installer registers the user's installation.
 ; UNSIGNED build — labelled clearly.
 !define PRODUCT "TestOrchestrator"
-!define VERSION "1.0.1"
+!define VERSION "2.0.0"
 !define PAYLOAD_DIR "app-payload"
 
 Name "${PRODUCT} ${VERSION} (unsigned)"
@@ -31,6 +31,12 @@ Var /GLOBAL PURGE_DATA
 Section "Install TestOrchestrator" SecMain
     SetOutPath "$INSTDIR"
     File /r "${PAYLOAD_DIR}\*.*"
+
+    ; Upgrade cleanup: 2.0 dropped bundled Allure/Node. Remove ONLY
+    ; application-owned runtime dirs from a previous install —
+    ; system-wide Node.js and other software are never touched.
+    RMDir /r "$INSTDIR\nodejs"
+    RMDir /r "$INSTDIR\allure3"
     ReadEnvStr $DATA_DIR "ProgramData"
     StrCpy $DATA_DIR "$DATA_DIR\TestOrchestrator"
     CreateDirectory "$DATA_DIR"

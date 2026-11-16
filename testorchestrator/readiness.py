@@ -124,14 +124,10 @@ def _pub_fp() -> str:
 
 
 def _reporting_state() -> str:
-    from . import allure_runtime
     try:
-        if allure_runtime.available():
-            return "verified"
-        if allure_runtime._allure() is not None:
-            return "configured"
-        return "missing"
-    except Exception:
+        import reporting_labs  # noqa: F401
+        return "verified"
+    except ImportError:
         return "missing"
 
 
@@ -198,9 +194,9 @@ def components() -> list:
          "detail": "write probe bound to repo+credential" if pub_url
                   else "required — local-only is not a ready system",
          "link": "system.reporting_page"},
-        {"key": "reporting", "label": "Reporting (Allure + JRE)",
+        {"key": "reporting", "label": "Reporting (reporting-labs)",
          "status": _reporting_state(),
-         "detail": "bundled JRE + report pipeline",
+         "detail": "reporting-labs report pipeline",
          "link": "system.reporting_page"},
         {"key": "storage", "label": "Storage",
          "status": _storage_state(),

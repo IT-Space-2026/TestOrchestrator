@@ -6,7 +6,7 @@ Architecture notes (v1.0–v1.6 foundation + v1.7 About/branding):
 - Waitress is the production WSGI server bound to 127.0.0.1:8080; Caddy is
   the public HTTPS reverse proxy. The Flask development server is never used
   in production.
-- Integrations (Dagu, Allure, KRE, runner agent, updater) live behind
+- Integrations (Dagu, reporting-labs, KRE, runner agent, updater) live behind
   adapters in ``testorchestrator.adapters`` and run outside request handlers.
 """
 

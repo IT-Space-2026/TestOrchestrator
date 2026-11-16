@@ -22,8 +22,8 @@ cd /opt/testorchestrator-1.0.0-pre.5
 2. `systemctl start testorchestrator-web` → `systemctl is-active` = active.
 3. `curl -sf http://127.0.0.1:<port>/login` → 200 (schema migrated, bootstrap Admin created).
 4. `python -c "import dulwich"` inside the bundled runtime → 1.2.20, no git on PATH needed.
-5. Bundled Node.js + Allure 3 resolves reporting; the generation probe produces a report.
-6. Download route lists `dagu_2.25.8_*_amd64.tar.gz` + worker installer, checksums match.
+5. `import reporting_labs` resolves to the vendored in-repo source (`./reporting_labs`, MIT) → 0.1.14; a report generates with no Node/Java and no PyPI download.
+6. Download route lists `dagu_2.27.0_*_amd64.tar.gz` + worker installer, checksums match.
 7. `ldd` sweep of every bundled executable → no `not found` outside libc/glibc-2.39+.
 8. `TO_GIT_BACKEND=dulwich` clone of a local `file://` repo succeeds with no git binary.
 
@@ -37,7 +37,7 @@ cd /opt/testorchestrator-1.0.0-pre.5
 # SmartScreen warning expected — unsigned build.
 # Then VERIFY-WINDOWS.md checklist:
 # 1. pythonw/python.exe imports flask, sqlalchemy, dulwich, waitress
-# 2. Allure 3 via bundled node.exe + allure3 generates a report
+# 2. reporting-labs (site-packages) generates a report — no node.exe
 # 3. schtasks tasks created (Web/Worker/Dagu); UI restart round-trips
 # 4. Upgrade over an existing install preserves %ProgramData% config+db
 # 5. Uninstall leaves %ProgramData% unless opted-in removal

@@ -306,19 +306,6 @@ def test_pubkey_shipped_in_package():
     assert "PUBLIC KEY" in body and "PRIVATE" not in body
 
 
-def test_allure_probe_args(tmp_path):
-    """Allure 3 generate uses --output (not --single-file) — the flag
-    that broke the bundled probe must not reappear."""
-    import re
-    src = open("testorchestrator/allure_runtime.py").read()
-    # the flag may appear in a comment documenting its removal — but
-    # it must not be part of any actual subprocess argument list
-    uses = [l for l in src.splitlines()
-            if "--single-file" in l and not l.strip().startswith("#")]
-    assert not uses, f"--single-file still invoked: {uses}"
-    assert '"--output"' in src or "'--output'" in src
-
-
 def test_forged_stored_row_rejected(tmp_path, monkeypatch):
     """A row written directly into the settings store — no valid
     code/signature — must NOT satisfy usable(). Closes the

@@ -223,6 +223,15 @@ def test_kre_selector_strips_ts_tsc_extensions(app):
     assert "-testSuiteCollectionPath=Test Suites/Coll 1" in a
     assert not any(x.startswith("-testSuiteCollectionPath=")
                    and x.endswith(".tsc") for x in a)
+    # Katalon saves collections as .ts too (entity tag decides the
+    # kind) — a .ts collection must be stripped identically, else KRE
+    # reports the selector "not found" (E2E regression).
+    a = build_args("k", "/p",
+                   "Test Suites/Test Suite Collection v1.ts", "/r",
+                   "default", collection=True)
+    assert "-testSuiteCollectionPath=Test Suites/Test Suite Collection v1" in a
+    assert not any(x.startswith("-testSuiteCollectionPath=")
+                   and x.endswith((".ts", ".tsc")) for x in a)
     # Extensionless paths pass through unchanged.
     a = build_args("k", "/p", "Test Suites/S1", "/r", "default")
     assert "-testSuitePath=Test Suites/S1" in a
@@ -364,5 +373,73 @@ def test_bundle_exclusion_scopes():
     assert _excluded(Path("testorchestrator/__pycache__/x.py"))
     assert _excluded(Path("instance/x"))
     assert not _excluded(Path(
-        "3rdparty/allure3/node_modules/allure/dist/index.js"))
+        "3rdparty/dagu/dist/index.js"))
     assert not _excluded(Path("testorchestrator/dist/x"))
+
+
+def test_retry_of_discovered_item_execution(app):
+    """Retry of a repo-def run resolves source_item — the same durable
+    target is re-queued as a new immutable attempt (regression: retry
+    used to drop the item link and DispatchError out)."""
+    with app.app_context():
+        p, b, item = _env(app)
+        ex = dispatch.create_execution("m", source_item=item,
+                                       binding=b, source_sha="sha1")
+        ex.state = ExecutionState.FAILED
+        db.session.commit()
+
+        retry = dispatch.retry_execution("m", ex)
+        assert retry.id != ex.id
+        assert retry.source_item_id == item.id
+        snap = retry.snapshot()
+        assert snap["source_target"]["item_id"] == item.id
+        assert snap["retry_of"] == ex.id and snap["attempt"] == 2
+
+
+def test_retry_preserves_requested_runtime_and_transport(app):
+    """Snapshot run_config stores requested_* keys; retry must feed
+    back the raw runtime_id/runner_id so the new execution keeps its
+    transport binding (remote dagu-worker runs used to silently
+    degrade to the local agent path -> UNKNOWN)."""
+    from testorchestrator import settings
+    from testorchestrator.execution import RuntimeConnection
+    with app.app_context():
+        settings.update({"dagu_endpoint": "http://127.0.0.1:1"})
+        p, b, item = _env(app)
+        runner = Runner(name="w", connection_mode="remote",
+                        os_arch="linux/amd64", max_slots=2)
+        db.session.add(runner); db.session.flush()
+        rt = RuntimeConnection(
+            name="kre-remote", runner_id=runner.id,
+            workspace_root="/tmp/kre-ws",
+            executable_path="/opt/kre/katalonc",
+            worker_label="kre-1", enabled=True)
+        db.session.add(rt); db.session.commit()
+        ex = dispatch.create_execution(
+            "m", source_item=item, binding=b, source_sha="sha1",
+            run_config={"runner_id": runner.id, "runtime_id": rt.id})
+        assert ex.snapshot()["dispatch_transport"] == "dagu-worker"
+        ex.state = ExecutionState.FAILED
+        db.session.commit()
+
+        retry = dispatch.retry_execution("m", ex)
+        rsnap = retry.snapshot()
+        assert rsnap["run_config"]["requested_runtime"] == rt.id
+        assert rsnap["run_config"]["requested_runner"] == runner.id
+        assert rsnap["dispatch_transport"] == "dagu-worker"
+
+
+def test_retry_of_removed_discovered_item_errors(app):
+    """If the item vanished from discovery, retry fails loudly —
+    it must not silently degrade into a suite-less execution."""
+    import pytest
+    with app.app_context():
+        p, b, item = _env(app)
+        ex = dispatch.create_execution("m", source_item=item,
+                                       binding=b, source_sha="sha1")
+        ex.state = ExecutionState.FAILED
+        ex.source_item_id = None          # inventory replaced
+        db.session.commit()
+        with pytest.raises(dispatch.DispatchError,
+                           match="no longer present in discovery"):
+            dispatch.retry_execution("m", ex)

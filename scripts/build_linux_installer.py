@@ -53,7 +53,11 @@ _killtree() {{
   sleep 0.2 2>/dev/null || :
   kill -KILL $TREE_PIDS 2>/dev/null || :
 }}
-"$WORK/install.sh" "$@" & CHILD=$!
+# the tarball nests one top-level <name>-<ver>-<plat> dir — locate
+# install.sh wherever it landed rather than assuming a flat layout
+INSTALL_SH=$(find "$WORK" -name install.sh -type f | head -1)
+[ -n "$INSTALL_SH" ] || {{ echo "corrupt installer: install.sh missing" >&2; rm -rf -- "$WORK"; exit 1; }}
+"$INSTALL_SH" "$@" & CHILD=$!
 trap 'rc=$?; _killtree "$CHILD"; rm -rf -- "$WORK"; exit "$rc"' INT TERM
 wait "$CHILD"; rc=$?
 rm -rf -- "$WORK"

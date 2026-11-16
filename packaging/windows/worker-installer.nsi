@@ -1,7 +1,7 @@
 ; TestOrchestrator Dagu Worker installer — Windows amd64 (KRE host role)
 ; Build: build_worker_installer.sh stages worker-payload/ then makensis.
 ;
-; The worker payload is the pinned, checksum-verified Dagu 2.25.8
+; The worker payload is the pinned, checksum-verified Dagu 2.27.0
 ; Windows binary — self-contained, no Python or other runtime required
 ; on the KRE machine. This installer lays it down, writes a worker
 ; config, and registers a boot-time scheduled task running
@@ -13,7 +13,7 @@
 ; signing identity exists.
 
 !define PRODUCT "TestOrchestrator Dagu Worker"
-!define VERSION "2.25.8"
+!define VERSION "2.27.0"
 !define PAYLOAD_DIR "worker-payload"
 
 Name "${PRODUCT} ${VERSION} (unsigned)"

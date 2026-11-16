@@ -299,13 +299,11 @@ def download_ca():
 @system_bp.route("/reporting")
 @role_required(Role.ADMIN)
 def reporting_page():
-    """Admin -> Reporting settings (consolidated §2). Configures the
-    OPTIONAL Allure backend only — Java path, probe, readiness."""
-    from .. import allure_runtime
+    """Admin -> Reporting settings. reporting-labs is the sole
+    report backend in 2.0 — enable/disable toggle only."""
     return render_template(
         "system/reporting.html",
         settings=settings_mod.all_settings(),
-        allure=allure_runtime.status(),
     )
 
 
@@ -365,31 +363,12 @@ def reporting_save():
     a separate explicit action."""
     from flask import request
     settings_mod.update({
-        "allure_enabled": bool(request.form.get("allure_enabled")),
-
+        "reportinglabs_enabled":
+            bool(request.form.get("reportinglabs_enabled")),
     })
     record_audit(current_user.username, "reporting.config.saved",
                  "reporting settings updated (no values)")
     flash("Reporting settings saved. No runs were published.", "info")
-    # No Java selection: the bundled Node.js runtime is validated via
-    # the separate Check action — not by storing a path.
-    return redirect(url_for("system.reporting_page"))
-
-
-@system_bp.route("/reporting/check", methods=["POST"])
-@role_required(Role.ADMIN)
-def reporting_check():
-    """Readiness checks, reported verbatim — never a fabricated ready.
-    The Java check is a REAL generation probe with the pinned bundled
-    Allure, run as the service account would run it."""
-    from .. import allure_runtime
-    rec = allure_runtime.select_and_validate()
-    a = allure_runtime.status()
-    if a["ready"]:
-        flash(f"Allure: ready — Allure {a['version']} on bundled "
-              f"Node.js (probe {rec.get('checked_at', '')})", "info")
-    else:
-        flash(f"Allure: NOT ready — {a['reason']}", "error")
     return redirect(url_for("system.reporting_page"))
 
 

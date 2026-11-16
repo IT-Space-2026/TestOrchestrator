@@ -1,4 +1,4 @@
-"""Dagu-worker remote dispatch: wiring tests around the verified 2.25.8
+"""Dagu-worker remote dispatch: wiring tests around the verified 2.27.0
 mechanism (enqueue spec + workerSelector + artifacts store). The Dagu
 HTTP boundary is stubbed — the live coordinator/worker fixture is the
 separate approved demonstration."""

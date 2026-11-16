@@ -15,7 +15,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     home, cfg = Path(a.home), Path(a.config)
     user = "testorchestrator"
-    # auth.mode: basic (verified vs bundled 2.25.8 — builtin's token.secret
+    # auth.mode: basic (verified vs bundled 2.27.0 — builtin's token.secret
     # is a JWT signing secret, not a static bearer credential).
     # Source the credential the portal adapter already provisioned so the
     # coordinator validates the SAME secret Orchestrator will send —

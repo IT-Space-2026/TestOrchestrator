@@ -91,7 +91,7 @@ limitations.
 | Path | Contents | Lifecycle |
 |---|---|---|
 | `/opt/testorchestrator` | payload: code, venv, `3rdparty/caddy/caddy`, `release/release.json` | replaced on upgrade/rollback |
-| `/etc/testorchestrator` | Caddyfile (rendered), `web.env` (`TO_SECRET_KEY`, `TO_DATABASE_URI`, `TO_ADMIN_PASSWORD` at install only, `TO_ALLURE_JAVA_HOME`/`TO_ALLURE_JAVA_RECORD` when Allure Java validated), `allure-java.json` | persistent |
+| `/etc/testorchestrator` | Caddyfile (rendered), `web.env` (`TO_SECRET_KEY`, `TO_DATABASE_URI`, `TO_ADMIN_PASSWORD` at install only) | persistent |
 | `/var/lib/testorchestrator` | SQLite DB (users incl. bootstrap state, settings), `certs/` (keys 0600), instance data, logs | persistent |
 
 Persistent configuration, certificates, and application data stay outside

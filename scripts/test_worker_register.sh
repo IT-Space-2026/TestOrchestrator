@@ -16,7 +16,7 @@ for v in $(env | grep -oE '^(TO_|DAGU_|GIT_|SSH_|FLASK_|XDG_)[A-Z_]*'); do unset
 export GIT_CONFIG_NOSYSTEM=1 HOME="$ROOT/home"
 mkdir -p "$ROOT"/{home,coord/{bin,home/dags},worker}
 for t in tar curl ss python3 setsid jq; do command -v "$t" >/dev/null || { echo "missing: $t"; exit 1; }; done
-[ -f "$REPO/3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz" ] || { echo "archive missing"; exit 1; }
+[ -f "$REPO/3rdparty/dagu/dagu_2.27.0_linux_amd64.tar.gz" ] || { echo "archive missing"; exit 1; }
 ss -tln | grep -qE ":(29987|50055) " && { echo COLLISION; exit 1; }
 spawn() { local n="$1"; shift; setsid env "TO_RUN=$RUN" "$@" & echo "$! $n" >> "$EVID/processes.txt"; }
 owned() { for pid in $(pgrep -g "$1" 2>/dev/null); do tr '\0' '\n' </proc/$pid/environ 2>/dev/null | grep -qx "TO_RUN=$RUN" && echo "$pid"; done; }
@@ -47,7 +47,7 @@ coordinator:
   advertise: 127.0.0.1
 host: 127.0.0.1
 YAML
-tar xzf "$REPO/3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz" -C "$ROOT/coord/bin" dagu
+tar xzf "$REPO/3rdparty/dagu/dagu_2.27.0_linux_amd64.tar.gz" -C "$ROOT/coord/bin" dagu
 "$ROOT/coord/bin/dagu" version | tee "$EVID/dagu-version.txt"
 spawn coordinator env DAGU_HOME="$ROOT/coord/home" "$ROOT/coord/bin/dagu" start-all --port $HTTP_PORT --host 127.0.0.1 --config "$ROOT/coord/server.yaml" --dags "$ROOT/coord/home/dags" >>"$ROOT/coord/coord.log" 2>&1
 for i in $(seq 1 15); do curl -sf --max-time 2 "http://127.0.0.1:$HTTP_PORT/api/v2/health" -o /dev/null && break; sleep 1; [ $SECONDS -ge $DEADLINE ] && { echo timeout; exit 1; }; done

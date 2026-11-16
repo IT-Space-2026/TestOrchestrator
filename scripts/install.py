@@ -9,16 +9,7 @@ an explicit validated alternative is required).
 Not claimed for Windows/SLES until separately validated (compatibility.md).
 
 Usage: sudo python3 scripts/install.py --payload /opt/testorchestrator \
-         [--data /var/lib/testorchestrator] [--config /etc/testorchestrator] \
-         [--no-allure]
-
-Allure 3 reporting runs on the bundled Node.js runtime — no Java or
-validated by an actual report-generation probe executed as the service
-account. The validated path is persisted in web.env scoped to the app —
-no global Java changes, KRE untouched. Without a compatible runtime the
-installer offers recheck/selection interactively, or continues with
-Allure disabled via --no-allure (clear warning; native KRE reports and
-artifacts unaffected).
+         [--data /var/lib/testorchestrator] [--config /etc/testorchestrator]
 """
 
 import argparse
@@ -49,10 +40,6 @@ def main() -> None:
     parser.add_argument("--config", default="/etc/testorchestrator")
     parser.add_argument("--https-port", type=int, default=443)
     parser.add_argument("--http-port", type=int, default=8080)
-    parser.add_argument("--no-allure", action="store_true",
-                        help="continue installation with Allure "
-                             "reporting disabled when no compatible "
-                             "Java runtime is found")
     parser.add_argument("--service-user", default=SERVICE_USER)
     parser.add_argument("--no-service-start", action="store_true",
                         help="provision files/units but do not enable "
@@ -149,6 +136,16 @@ def main() -> None:
                 shutil.copy2(src, dst)
         os.chmod(data / "certs", 0o700)
 
+        # Upgrade cleanup: 2.0 dropped bundled Allure/Node. The copy
+        # above merges into an existing payload, so remove ONLY the
+        # application-owned runtime dirs left over from a previous
+        # install. System-wide node installations are untouched.
+        for _stale in ("nodejs", "allure3"):
+            _d = payload / "3rdparty" / _stale
+            if _d.is_dir():
+                shutil.rmtree(_d, ignore_errors=True)
+                print(f"[install] removed stale {_d}")
+
         # Offline venv from the bundled runtime + vendored wheels —
         # no host python/pip and no network required.
         try:
@@ -160,7 +157,7 @@ def main() -> None:
         # Tested Dagu provisioning path (scripts/provision_dagu.py):
         # binary, basic-auth server.yaml, 0600 credentials, workflow,
         # systemd unit — into the persistent config/data areas.
-        dagu_bin = REPO / "3rdparty" / "dagu" / "dagu_2.25.8_linux_amd64.tar.gz"
+        dagu_bin = REPO / "3rdparty" / "dagu" / "dagu_2.27.0_linux_amd64.tar.gz"
         if dagu_bin.exists():
             import tarfile, tempfile
             with tempfile.TemporaryDirectory() as td:
@@ -176,9 +173,6 @@ def main() -> None:
         else:
             print("[install] WARNING: bundled dagu tarball missing — "
                   "orchestration not provisioned")
-
-        # Allure 3 uses the bundled Node.js runtime — no operator
-        # Java configuration is needed or offered.
 
         # Service units: web, worker, dagu, caddy — full lifecycle wiring,
         # activation needs root on the target host.
@@ -329,8 +323,6 @@ def copy_payload_tree(src: Path, dst: Path) -> None:
             shutil.copy2(member, target)
 
 
-# --- Java prerequisite for Allure (external runtime, scoped) ----------
-
 def ensure_service_user(user: str, data: Path) -> None:
     """The service units run as this account — create it when absent.
     Skipped silently off-root (dev/dry installs keep their user)."""
@@ -389,9 +381,6 @@ def under_user_home(path: str) -> bool:
         str(p).startswith("/root/") or str(p).startswith("/users/")
 
 
-def _allure_version(payload: Path) -> str:
-    dirs = sorted((payload / "3rdparty" / "allure3").glob("allure*"))
-    return dirs[-1].name.split("-", 1)[1] if dirs else ""
 
 
 def create_venv_offline(payload: Path) -> Path:

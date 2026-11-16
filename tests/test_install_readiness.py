@@ -37,10 +37,10 @@ def test_foreign_listener_blocks_fresh_install(tmp_path, monkeypatch):
                                            "stdout": "{}", "stderr": ""})())
         monkeypatch.setattr(cli, "_app_dir",
                             lambda: tmp_path / "nosuch")
-        for k in ("secret_key", "java_home", "no_allure",
+        for k in ("secret_key", "java_home",
                   "no_service_start", "https_port", "service_user",
                   "yes"):
-            setattr(args, k, True if k == "no_allure" or k ==
+            setattr(args, k, True if k ==
                     "no_service_start" or k == "yes"
                     else (443 if k == "https_port" else
                           ("testorchestrator" if k == "service_user"

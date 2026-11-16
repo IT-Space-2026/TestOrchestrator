@@ -115,12 +115,15 @@ def build_args(
     collection: bool = False,
 ) -> list:
     # KRE console selectors want the project-relative path WITHOUT the
-    # file extension (.ts / .tsc) — the discovered inventory path keeps
-    # it, so it is stripped at the adapter boundary (Katalon docs:
-    # "test suite file (without extension .ts/.tsc)").
-    ext = ".tsc" if collection else ".ts"
-    selector = (suite_path[:-len(ext)]
-                if suite_path.lower().endswith(ext) else suite_path)
+    # file extension — the discovered inventory path keeps it, so it is
+    # stripped at the adapter boundary. Katalon saves BOTH suites and
+    # suite collections as .ts (the entity tag, not the filename, is
+    # what discovery classifies on); .tsc spellings are tolerated too.
+    selector = suite_path
+    for ext in (".ts", ".tsc") if collection else (".ts",):
+        if suite_path.lower().endswith(ext):
+            selector = suite_path[:-len(ext)]
+            break
     args = [
         executable,
         "-noSplash",

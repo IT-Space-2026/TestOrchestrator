@@ -2,7 +2,33 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [Unreleased — 2.0]
+
+### Changed — reporting-labs is the sole report backend (BREAKING)
+
+- **Allure 3 + bundled Node.js removed** throughout the application
+  and packaging: `allure_runtime.py`, `adapters/allure.py`, `/allure*`
+  routes (view/assets/zip/regenerate), `allure-probe`/`--no-allure`,
+  Allure settings/diagnostics, Node/Allure provisioning, payloads,
+  installer checks, and historical-serving tests.
+- **reporting-labs `0.1.14` is a pinned production dependency** —
+  pure Python, no Java/Node/npm. Generation-scoped assets, bounded
+  three-generation retention, embedded IT-Space logo (data URI),
+  offline/downloaded reports, authenticated access, failed-regen
+  preservation.
+- **Historical Allure reports are no longer opened or regenerated.**
+  No importer, fallback, or compatibility viewer. Files, execution
+  records, attachments, and evidence remain untouched on disk —
+  unsupported by the interface. In-place downgrade compatibility has
+  not been validated — the 2.0 migration drops database columns, so
+  preserved files alone do not establish that an older application
+  can safely reuse the upgraded database.
+- Migration `p6q7r8s9t0u1` drops `allure_status`, `allure_path`,
+  `allure_version`. Canonical execution/results/artifact data
+  preserved.
+- Upgrade removes ONLY application-owned runtime dirs
+  (`3rdparty/nodejs`, `3rdparty/allure3` under the payload/install
+  dir). System-wide Node.js is never touched.
 
 ### Added — dashboards, reporting, operational logs, Allure 3
 

@@ -4,10 +4,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent / "3rdparty" / "dagu"
 EXPECTED = {
-    "dagu_2.25.8_linux_amd64.tar.gz":
-        "f5ab106c186c698fb203191c0b041e3fac9e1e491bf2e5047e521fada7dc4593",
-    "dagu_2.25.8_windows_amd64.tar.gz":
-        "aa6ce7d1b4190bd3289f15d3b7a8bf2fe2fa0554a62b722fe505220f3cd083ea",
+    "dagu_2.27.0_linux_amd64.tar.gz":
+        "a9045768c9777d0b938585696e0491bc0ce46fbeb0419989b34fde63a0cc6f85",
+    "dagu_2.27.0_windows_amd64.tar.gz":
+        "23324e6589e64a47f51bf8a2727b18e912ec64a2eec49d4b0ed52a511f80ad46",
 }
 
 
@@ -30,7 +30,7 @@ def _ensure_archives():
 
 def test_bundled_dagu_archives_checksum():
     """Both the Linux and Windows archives are fetched at the pinned
-    2.25.8 digests — a remote Dagu worker needs a real binary on the
+    2.27.0 digests — a remote Dagu worker needs a real binary on the
     target OS, not a download link."""
     _ensure_archives()
     for name, want in EXPECTED.items():

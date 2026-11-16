@@ -9,9 +9,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - name: provision gitignored deps
         run: |
           set -e
@@ -22,15 +19,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends dpkg-dev ubuntu-keyring gpgv
           python3 scripts/acquire_git.py --suite resolute --arch amd64 \
             --acquire --verify-runtime
-          # bundled node runtime — verified against upstream SHASUMS256
-          NODE_VER=26.13.1
-          curl -fsSLO "https://nodejs.org/dist/v${NODE_VER}/node-v${NODE_VER}-linux-x64.tar.xz"
-          curl -fsSLO "https://nodejs.org/dist/v${NODE_VER}/SHASUMS256.txt"
-          grep " node-v${NODE_VER}-linux-x64.tar.xz\$" SHASUMS256.txt | sha256sum -c -
-          mkdir -p 3rdparty/nodejs
-          tar -xJf "node-v${NODE_VER}-linux-x64.tar.xz" -C 3rdparty/nodejs/
-          # bundled allure 3 generator + dependency tree
-          cd 3rdparty/allure3 && npm ci --omit=dev
       - name: build bundle + self-extracting installer
         run: |
           set -e
@@ -57,3 +45,63 @@ jobs:
             dist/SHA256SUMS.txt
             dist/testorchestrator-*-linux-x86_64.manifest.json
           retention-days: 14
+
+  installed-validate:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: testorchestrator-linux-package
+          path: candidate
+      - name: fetch released v1.0.1 package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v1.0.1" \
+            | python3 -c "import json,sys; print([a['id'] for a in json.load(sys.stdin)['assets'] if 'linux' in a['name'] and a['name'].endswith('.tar.gz')][0])")
+          curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id" \
+            -o v101.tar.gz
+          ls -la v101.tar.gz
+      - name: install released v1.0.1 payload + seed
+        run: |
+          set -e
+          mkdir -p /tmp/v101 && tar -xzf v101.tar.gz -C /tmp/v101
+          P=$(echo /tmp/v101/testorchestrator-*-linux-x86_64)
+          cd "$P"
+          export TO_INSTANCE_DIR=/tmp/to-inst TO_SECURE_COOKIES=0
+          ./3rdparty/python-runtime/python/bin/python -m pip install \
+            --no-index --find-links 3rdparty/python-wheels \
+            -r requirements.txt -q
+          ./3rdparty/python-runtime/python/bin/python \
+            -m testorchestrator db-upgrade
+          cp "$GITHUB_WORKSPACE/packaging/ci/report_serving_check.py" .
+          ./3rdparty/python-runtime/python/bin/python \
+            report_serving_check.py seed
+      - name: candidate upgrade over retained instance + checks
+        run: |
+          set -e
+          TB=$(ls candidate/testorchestrator-*-linux-x86_64.tar.gz)
+          mkdir -p /tmp/cand && tar -xzf "$TB" -C /tmp/cand
+          C=$(echo /tmp/cand/testorchestrator-*-linux-x86_64)
+          cd "$C"
+          export TO_INSTANCE_DIR=/tmp/to-inst TO_SECURE_COOKIES=0
+          ./3rdparty/python-runtime/python/bin/python -m pip install \
+            --no-index --find-links 3rdparty/python-wheels \
+            -r requirements.txt -q
+          # payload replaced; schema migrations run over retained data
+          ./3rdparty/python-runtime/python/bin/python \
+            -m testorchestrator db-upgrade
+          cp "$GITHUB_WORKSPACE/packaging/ci/report_serving_check.py" .
+          # reseed: the 1.x schema had no rl_* columns — the retained
+          # execution gets the reporting-labs report wired up on the
+          # post-migration schema (seed is idempotent)
+          ./3rdparty/python-runtime/python/bin/python \
+            report_serving_check.py seed
+          ./3rdparty/python-runtime/python/bin/python \
+            report_serving_check.py check
+          echo "PASS retained reports/licence/access after v1.0.1->candidate upgrade"

@@ -7,14 +7,13 @@
 | Vendored wheels | per 3rdparty/python-wheels | pinned downloads | per wheel |
 | Git (cli backend, opt-in) | host / acquire_git.py re-stage | not vendored — rootfs removed from repo | GPL-2.0 |
 | Caddy | 2.9.1 | 3rdparty/caddy, fetch_caddy.sh | Apache-2.0 |
-| Dagu (linux+win amd64) | 2.25.8 | 3rdparty/dagu, fetch_dagu.sh, upstream checksums | GPL-3.0-or-later? (see 3rdparty/dagu/LICENSE) |
-| Allure commandline | 2.46.1 | 3rdparty/allure | Apache-2.0 |
-| Windows Dagu worker installer | 2.25.8 (NSIS build of dagu.exe) | packaging/windows | as Dagu |
+| Dagu (linux+win amd64) | 2.27.0 | 3rdparty/dagu, fetch_dagu.sh, upstream checksums | GPL-3.0-or-later? (see 3rdparty/dagu/LICENSE) |
+| Windows Dagu worker installer | 2.27.0 (NSIS build of dagu.exe) | packaging/windows | as Dagu |
 
 ## References / download instructions (NOT included)
 | Component | Status | Notes |
 |---|---|---|
-| Node.js (bundled, for Allure 3 reports) | `3rdparty/nodejs` | **Bundled** — no customer Node/npm/Java required. |
+| reporting-labs (sole report backend) | `reporting-labs==0.1.14` | **Bundled** — MIT-licensed source vendored in-repo at `./reporting_labs`; no PyPI download, no customer Node/npm/Java required. |
 | Windows embeddable Python | not staged | would be needed for a full Windows app installer |
 
 ## External prerequisites

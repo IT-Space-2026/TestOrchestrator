@@ -14,17 +14,17 @@ exists inside an Allure report or a ReportPortal instance.
 | Git sync (clone/push/export/restore/conflict) | DONE | `gitsync.py`, `git_runtime.py` (vendored git, child-scoped env) | test_gitsync_remote: roundtrip, conflict no-force-push, secret exclusion | Remote-provider behaviour = GATE |
 | Suite/profile selection & execution config | DONE | Portal → Suites/Plans (`Suite`, `SuiteEntry`, `Plan`, run profiles) | suite CRUD, immutable snapshots, entry add bumps version | Rich builder UI (ordering UX, hooks) PARTIAL |
 | Immediate execution | DONE | Execution dispatch (`dispatch.py`, adapters/kre.py) | test_pipeline, fixture-KRE chain proven | **Real KRE = GATE** (connect-only adapter is fixture-verified) |
-| Recurring schedules & schedule mgmt | PARTIAL | Dagu orchestration supports scheduling; no dedicated schedule CRUD UI | dagu contract test vs bundled 2.25.8 | Schedule create/pause/edit UI + evidence needed |
+| Recurring schedules & schedule mgmt | PARTIAL | Dagu orchestration supports scheduling; no dedicated schedule CRUD UI | dagu contract test vs bundled 2.27.0 | Schedule create/pause/edit UI + evidence needed |
 | Worker registration/readiness/dispatch | DONE | Admin → Infrastructure: Runner, RuntimeConnection, probe, drain, agent token issue (`system/routes.py`, `agent_api.py`) | token sha256-persisted, probe, drain tests | Remote agent on a real second host = GATE (API is in-process tested) |
 | Cancellation | DONE | POST `/executions/<id>/cancel` → process-tree kill → CANCELED | test_pipeline cancel tests | — |
 | Reconnect/restart recovery | PARTIAL | lease expiry → UNKNOWN, never re-dispatch; reconcile loop | dagu reconcile tests | Live disconnect/reconnect on real hosts = GATE |
 | Run history & filtering | PARTIAL | Portal → Executions list + detail | route tests | Rich filtering/search/pagination = remaining work |
 | Summaries & case drill-down | DONE | execution detail: outcome, per-case results (TestResult), logs | results parser tests | — |
 | Native KRE reporting | DONE | report assess ready/partial/missing/failed; view (CSP sandbox), `report.zip`, refresh idempotent (`reporting.py`) | test_reporting | never re-runs KRE for a report |
-| Allure reports | DONE | adapter convert+generate, atomic publish, single-file, view+zip+regen (`adapters/allure.py`, `allure_runtime.py`) | test_allure_reporting: real generation via host Java 21 | requires external validated Java (new prerequisite model) |
+| reporting-labs reports | DONE (2.0 sole backend) | adapter convert+generate, atomic publish, generation-scoped assets, view+zip+regen (`adapters/reporting_labs.py`) | test_reporting_labs_poc | Allure 3 + Node removed; historical Allure files preserved but unsupported |
 | Screenshots/logs/artifacts | DONE | `Artifact` registry, evidence manifest sha256+MIME, `artifacts.zip`, per-artifact download | test_reporting, test_results_parser | — |
 | Original-artifact downloads | DONE | `artifacts.zip` = original evidence + checksum manifest | test_reporting | distinguished from regenerated reports |
-| ~~ReportPortal~~ | REMOVED (scope change) | Allure is the sole enhanced backend; adapter/UI/settings/tests/compose removed; forward migration `8b9c0d1e2f3a` drops columns + rp_* settings | removal verified by suite | shared credentials/infrastructure preserved |
+| ~~ReportPortal~~ | REMOVED (scope change) | reporting-labs is the sole enhanced backend (2.0); adapter/UI/settings/tests/compose removed; forward migration `8b9c0d1e2f3a` drops columns + rp_* settings | removal verified by suite | shared credentials/infrastructure preserved |
 
 ## Report/export formats (generated vs retained)
 

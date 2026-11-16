@@ -1,0 +1,51 @@
+name: rl-tests
+on:
+  push:
+    branches: [feature/2.0-reporting-labs]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps (incl. pinned reporting-labs dev dep)
+        run: pip install -r requirements-dev.txt
+      - name: reporting-labs migration tests
+        run: python -m pytest tests/test_reporting_labs_poc.py -x -q
+      - name: reporting pipeline regression
+        run: python -m pytest tests/test_reporting.py -q
+
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps + Playwright
+        run: |
+          pip install -r requirements-dev.txt playwright
+          python -m playwright install --with-deps chromium
+      - name: Stage synthetic demo + capture screenshots
+        run: python scripts/rl_demo_stage.py shots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rl-demo-shots
+          path: shots/
+          retention-days: 30
+
+  windows-locking:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps (incl. pinned reporting-labs dev dep)
+        run: pip install -r requirements-dev.txt
+      - name: publication locking + serving on Windows
+        run: python -m pytest tests/test_reporting_labs_poc.py -x -q
