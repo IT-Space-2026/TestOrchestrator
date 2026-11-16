@@ -83,8 +83,12 @@ def seed():
         # persist the PUBKEY so the check process can verify the licence
         (Path(INSTANCE_DIR) / KEY_FILE).write_bytes(pub_pem)
 
+        import uuid as _uuid
+        # unique id per seed run — add() de-dupes on licence_id, and a
+        # repeated seed (e.g. post-upgrade reseed) uses a new keypair
+        lid = "ci-serve-" + _uuid.uuid4().hex[:8]
         payload = {"version": 1, "key_id": "ci-serve",
-                   "licence_id": "ci-serve", "product": "TestOrchestrator",
+                   "licence_id": lid, "product": "TestOrchestrator",
                    "customer": "CI",
                    "valid_from": "2020-01-01T00:00:00+00:00",
                    "valid_until": "2099-01-01T00:00:00+00:00"}
