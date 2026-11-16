@@ -31,6 +31,94 @@ second enhanced reporter — Allure remains the default
 - Run-level evidence: `kre-*.log` artifacts surface as labelled
   global output + a distinct run-level record; never case-attributed.
 
+## Consumer audit — bundled Node.js + Allure 3
+
+**Generation vs serving**: every Node/Allure dependency exists ONLY to
+produce NEW reports. Serving a stored report (`allure/` subtree) is
+static file I/O — no runtime needed. Removing the runtime therefore
+never breaks historical report viewing; it only removes generation.
+
+| File / location | Purpose | Needs Node/Allure | Action on removal |
+|---|---|---|---|
+| `testorchestrator/allure_runtime.py` | bundled node+allure discovery, probe, `generate()` subprocess | yes — generation | delete with the backend |
+| `testorchestrator/adapters/allure.py` | canonical results → allure-results → cli.js | yes — generation | delete with the backend |
+| `testorchestrator/readiness.py` (~L127) | allure availability in readiness status | generation probe | drop Allure section |
+| `testorchestrator/cli.py` `allure-probe`, `--no-allure` | install/diag probe | generation probe | drop/swap commands |
+| `testorchestrator/system/routes.py` reporting page + `/reporting/check` | admin diagnostics + probe | generation probe | repoint at reporting-labs check |
+| `testorchestrator/settings.py` `allure_enabled`, `allure_probe` | backend flag + probe record | n/a — settings rows | keep (harmless) or migrate |
+| `testorchestrator/execution.py` `allure_status/path/version` | per-run report state | **serving** — keeps historical reports addressable | KEEP columns forever |
+| `portal/routes.py` `/allure*` view/asset/zip routes | hosted + downloaded historical reports | **serving** — pure file I/O | KEEP forever |
+| `portal/routes.py` `/allure/generate` | regen action | generation | gate on backend or remove |
+| `templates/execution_detail.html`, `system/reporting.html` | UI | n/a | keep view links; update settings |
+| `scripts/build_bundle.py` | provisions `3rdparty/{nodejs,allure3}` + checksums | packaging | drop components after acceptance |
+| `packaging/windows/build_app_installer.sh`, `check_payload.sh` | node zip download, payload asserts | packaging | drop |
+| `packaging/pyinstaller/app.spec` | hiddenimports `adapters.allure` | packaging | swap for reporting_labs |
+| `scripts/install.py --no-allure`, `_allure_version` | install gate + version record | packaging | drop |
+| `scripts/validate_package.py` | real node+allure generate probe | packaging | swap probe for RL generation |
+| `.github/workflows/{windows-installer,linux-package}.yml` | npm ci, node download, generation checks | packaging/CI | update checks |
+| `docs/{DEPLOYMENT,component-manifest,artifact-manifest,install-verification}.md` | docs | docs | update (some already stale) |
+| `tests/test_allure_serving.py` | serving authz/traversal/zip | **serving** — keep green | KEEP forever |
+| `tests/test_allure_reporting.py` | generation tests | generation | retire with backend |
+
+**Non-reporting Node consumers: none found.** git (git_backend/
+git_runtime), caddy, dagu, kre, authoring use their own tooling —
+Node is exclusively the Allure generator engine.
+
+## Report publication semantics
+
+Output is **not** a single file in general: `index.html` + `report.json`
++ optional `assets/` (attachments above the 2 MB embed limit are
+externalised). Publication is therefore generation-atomic, not
+file-atomic:
+
+- Each generation builds in a unique `reporting-labs.tmp.*` dir, then
+  lands as one complete `reporting-labs/gen-<id>/` via atomic rename.
+- `reporting-labs/current` flips to the new generation via atomic
+  `os.replace` — the visible report changes in ONE step.
+- `rl_path` always references one complete generation dir
+  (`reporting-labs/gen-<id>/index.html`); the zip download bundles
+  exactly that dir — never a cross-generation blend.
+- The whole publish (rename, pointer flip, prune, DB commit) runs under
+  a per-evidence-dir `.publish.lock`: concurrent regenerations are
+  serialised, last writer wins whole — a slower writer cannot prune or
+  overwrite the winner's generation (defect found + fixed by test).
+- Pruning keeps current + previous generation so in-flight readers
+  holding an old path still resolve complete files.
+- A failed emit or a failed publish leaves `rl_status=failed` with
+  `rl_path`/`current` untouched: the last complete generation remains
+  referenced, servable, and never orphaned.
+
+## Count reconciliation
+
+Canonical results and report headline totals are DIFFERENT sets:
+
+- **Canonical test-case outcomes** come from `test_results` rows
+  (JUnit-normalised): the demo's 7 cases → 2P/3F/1E→F/1S in RL terms.
+- **Unresolved cases** (`unresolved=True`) are displayed as skipped
+  with an explanatory error — never counted as passed. The portal
+  banner reports their canonical count separately.
+- **Synthetic evidence records** (no test-case counterpart):
+  `[unmatched run-level artifacts]` and `[run-level logs]` appear as
+  skipped test entries purely to carry evidence — they inflate the
+  report's Tests/Skipped tabs.
+
+Demo reconciliation: 7 canonical cases → RL "Tests: 9" (7 + 2
+synthetic records), "Skipped: 4" (1 genuine skip + 1 unresolved + 2
+synthetic). Headline totals are the report's own accounting — use the
+portal Results table + unresolved banner for canonical counts.
+
+## Reproducible demo evidence
+
+`scripts/rl_demo_stage.py` stages a disposable instance (mkdtemp +
+sqlite + test-key licence), seeds a synthetic 7-case execution with
+mixed outcomes/evidence, generates BOTH reports, and captures
+Playwright screenshots + a rendered-DOM injection check
+(`window.__pwned` must be None). The `rl-tests` workflow `demo` job
+runs it on every branch push and uploads `rl-demo-shots` as a workflow
+artifact (30-day retention). Local runs produce the same shots under
+`/tmp/rl-demo-shots*` — none of this touches real KRE evidence and the
+disposable DB/licence never enters source or packages.
+
 ## Step/log coverage (evidence-based, not assumed)
 
 KRE JUnit is test-case granularity — **no per-step data exists in the

@@ -61,7 +61,7 @@ def test_generate_single_file_report(app, tmp_path):
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
         out = rl.generate_for(ex)
-        html = Path(ex.report_dir) / "reporting-labs" / "index.html"
+        html = Path(ex.report_dir) / ex.rl_path
         assert out["status"] == "ready", out
         assert out["cases"] == 4 and out["attached"] == 1
         assert out["unmapped"] == 1
@@ -71,7 +71,8 @@ def test_generate_single_file_report(app, tmp_path):
             assert needle in body, needle
         # persisted state independent of allure_status/report_status
         assert ex.rl_status == "ready"
-        assert ex.rl_path == "reporting-labs/index.html"
+        assert ex.rl_path.startswith("reporting-labs/gen-")
+        assert ex.rl_path.endswith("/index.html")
         assert ex.rl_version
 
 
@@ -80,11 +81,9 @@ def test_regenerate_idempotent(app, tmp_path):
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
         assert rl.generate_for(ex)["status"] == "ready"
-        first = (Path(ex.report_dir) / "reporting-labs" /
-                 "index.html").read_bytes()
+        first = (Path(ex.report_dir) / ex.rl_path).read_bytes()
         assert rl.generate_for(ex)["status"] == "ready"
-        again = (Path(ex.report_dir) / "reporting-labs" /
-                 "index.html").read_bytes()
+        again = (Path(ex.report_dir) / ex.rl_path).read_bytes()
         assert len(again) > 100_000 and len(first) > 100_000
 
 
@@ -117,17 +116,16 @@ def test_failed_regen_preserves_previous_usable(app, tmp_path,
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
         assert rl.generate_for(ex)["status"] == "ready"
-        good = (Path(ex.report_dir) / "reporting-labs" /
-                "index.html").read_bytes()
+        good = (Path(ex.report_dir) / ex.rl_path).read_bytes()
         monkeypatch.setattr(rl, "_emit",
                             lambda *_a, **_k: 1 / 0)
         out = rl.generate_for(ex)
         assert out["status"] == "failed"
         assert ex.rl_status == "failed"
         # previous report intact and still referenced
-        assert ex.rl_path == "reporting-labs/index.html"
-        assert (Path(ex.report_dir) / "reporting-labs" /
-                "index.html").read_bytes() == good
+        assert ex.rl_path.startswith("reporting-labs/gen-")
+        assert ex.rl_path.endswith("/index.html")
+        assert (Path(ex.report_dir) / ex.rl_path).read_bytes() == good
         # no tmp residue from the failed attempt
         assert not list(Path(ex.report_dir).glob("reporting-labs.tmp.*"))
 
@@ -147,7 +145,7 @@ def test_unique_tmp_dirs(app, tmp_path):
         # the foreign tmp dir is left alone (operator evidence, not
         # silently deleted by a later run)
         assert (stale / "partial.json").exists()
-        assert (root / "reporting-labs" / "index.html").exists()
+        assert (root / ex.rl_path).exists()
 
 
 def test_rlabs_routes_authz(client, login_as, app, tmp_path):
@@ -233,8 +231,8 @@ def test_injection_in_names_and_messages(app, tmp_path):
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
         out = rl.generate_for(ex)
-        body = (Path(ex.report_dir) / "reporting-labs" /
-                "index.html").read_text(encoding="utf-8",
+        body = (Path(ex.report_dir) / ex.rl_path
+                ).read_text(encoding="utf-8",
                                         errors="replace")
         assert out["status"] == "ready"
         # the literal closing-script sequence must not appear raw —
@@ -276,7 +274,7 @@ def test_simultaneous_regeneration_consistent(app, tmp_path,
         for st in outcomes.values():
             assert st["status"] in ("ready", "failed"), st
         # whichever writer won, the published artifact is COMPLETE
-        html = Path(ex.report_dir) / "reporting-labs" / "index.html"
+        html = Path(ex.report_dir) / ex.rl_path
         assert html.exists() and html.stat().st_size > 100_000
         body = html.read_text(encoding="utf-8", errors="replace")
         assert "pass" in body
@@ -286,23 +284,25 @@ def test_simultaneous_regeneration_consistent(app, tmp_path,
 
 
 def test_reader_never_sees_missing_or_partial_report(app, tmp_path):
-    """A reader racing regeneration: every open of index.html returns
-    either the complete previous report or the complete new one —
-    per-file os.replace makes the swap gap-free."""
+    """A reader racing regeneration resolves the `current` pointer per
+    request (as the portal resolves rl_path): every read lands on ONE
+    complete generation — old or new, never missing/partial/mixed."""
     import threading
     ex_id = _mk(app, tmp_path, shots=("pass.png",))
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
         assert rl.generate_for(ex)["status"] == "ready"
         root = Path(ex.report_dir)
-        target = root / "reporting-labs" / "index.html"
         problems, stop = [], threading.Event()
 
         def reader():
             while not stop.is_set():
                 try:
-                    body = target.read_text(encoding="utf-8",
-                                            errors="replace")
+                    gen = (root / "reporting-labs" / "current"
+                           ).read_text().strip()
+                    body = (root / "reporting-labs" / gen /
+                            "index.html").read_text(
+                                encoding="utf-8", errors="replace")
                 except FileNotFoundError:
                     problems.append("missing index.html")
                     continue
@@ -359,6 +359,92 @@ def test_unresolved_banner_on_execution_page(client, login_as, app,
     body = client.get(f"/executions/{ex_id}").data.decode()
     assert "1 unresolved" in body
     assert "displayed as" in body and "skipped" in body
+
+
+def test_generations_are_distinguishable_and_not_mixed(app, tmp_path,
+                                                       monkeypatch):
+    """Two generations carry different marker content; the published
+    bundle referenced by rl_path is always ONE generation — never a
+    blend of old and new files."""
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    orig = rl._emit
+    counter = {"n": 0}
+
+    def marked(ex, out):
+        res = orig(ex, out)
+        counter["n"] += 1
+        html = Path(out) / "index.html"
+        html.write_text(html.read_text() +
+                        f"<!-- GENMARK-{counter['n']} -->")
+        (Path(out) / "report.json").write_text(
+            f'{{"genmark": {counter["n"]}}}')
+        return res
+    monkeypatch.setattr(rl, "_emit", marked)
+
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        rl.generate_for(ex)
+        root = Path(ex.report_dir)
+        g1 = Path(ex.rl_path).parent.name
+        body1 = (root / ex.rl_path).read_text()
+        assert "GENMARK-1" in body1 and g1.startswith("gen-")
+        rl.generate_for(ex)
+        g2 = Path(ex.rl_path).parent.name
+        assert g2 != g1
+        body2 = (root / ex.rl_path).read_text()
+        assert "GENMARK-2" in body2
+        # the served generation is internally consistent: report.json
+        # in the SAME dir belongs to the same generation
+        meta2 = (root / ex.rl_path).parent.joinpath(
+            "report.json").read_text()
+        assert '"genmark": 2' in meta2
+        # current pointer agrees with rl_path
+        assert (root / "reporting-labs" / "current"
+                ).read_text().strip() == g2
+
+
+def test_publish_failure_midway_keeps_last_generation(app, tmp_path,
+                                                      monkeypatch):
+    """Failure after the gen dir lands but before the pointer flip:
+    current/rl_path keep referencing the last complete generation and
+    the orphan gen dir is removed — no partial publication."""
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        assert rl.generate_for(ex)["status"] == "ready"
+        root = Path(ex.report_dir)
+        good_path, good_bytes = ex.rl_path, \
+            (root / ex.rl_path).read_bytes()
+        cur = (root / "reporting-labs" / "current").read_text().strip()
+
+        def boom(*a, **k):
+            raise OSError("simulated pointer-swap failure")
+        monkeypatch.setattr(rl.os, "replace", boom)
+        out = rl.generate_for(ex)
+        assert out["status"] == "failed" and "publish" in out["error"]
+        # nothing visible changed
+        assert ex.rl_path == good_path
+        assert (root / ex.rl_path).read_bytes() == good_bytes
+        assert (root / "reporting-labs" / "current"
+                ).read_text().strip() == cur
+        # no orphan gen dirs beyond current+previous retention policy
+        gens = [d.name for d in
+                (root / "reporting-labs").glob("gen-*")]
+        assert cur in gens and len(gens) <= 2
+
+
+def test_reporting_page_diagnostics_accurate(client, login_as, app):
+    """Admin reporting page describes the CURRENT backends — bundled
+    Node.js for Allure (no external Java requirement) + the optional
+    reporting-labs backend."""
+    login_as("admin")
+    body = client.get("/system/reporting").data.decode()
+    assert "external Java" not in body
+    assert "Java runtime" not in body
+    assert "bundled Node.js" in body
+    assert "reporting-labs" in body
+    assert "report_backend" in body or "Preferred enhanced backend" \
+        in body
 
 
 def test_report_backend_setting_default_and_save(client, login_as, app):

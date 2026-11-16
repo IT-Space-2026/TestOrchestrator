@@ -19,8 +19,10 @@ concurrent regenerations can never clobber each other's in-progress
 output; the final swap is atomic (last writer wins with a complete
 report, never a corrupt one).
 """
+import os
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 
 from ..execution import Artifact, Execution, ExecutionState
@@ -29,6 +31,17 @@ from .allure import _case_attachments
 STATUS_MAP = {"passed": "passed", "failed": "failed",
               "error": "failed", "skipped": "skipped"}
 OUT_DIRNAME = "reporting-labs"
+
+
+def _gen_dirs(out_dir: Path) -> list:
+    return sorted(out_dir.glob("gen-*"))
+
+
+def _current_gen(out_dir: Path) -> str:
+    try:
+        return (out_dir / "current").read_text().strip()
+    except OSError:
+        return ""
 
 
 def version() -> str:
@@ -187,22 +200,61 @@ def generate_for(ex: Execution) -> dict:
     ok = (tmp_dir / "index.html").exists()
     from ..extensions import db
     ex.rl_version = version()
-    if ok:
-        # Gap-free publish: reporting-labs emits FIXED filenames, so
-        # publish per file with os.replace — a reader mid-swap always
-        # gets a complete (old or new) file, never a missing/partial
-        # one. Better than rmtree+swap, which leaves a gone-dir window.
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for f in tmp_dir.rglob("*"):
-            if f.is_file():
-                dest = out_dir / f.relative_to(tmp_dir)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                f.replace(dest)
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        ex.rl_status = "ready"
-        ex.rl_path = str((out_dir / "index.html").relative_to(root))
-    else:
+    if not ok:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         ex.rl_status = "failed"
-    db.session.commit()
+        db.session.commit()
+        return {"status": ex.rl_status, **stats}
+    # Atomic WHOLE-GENERATION publish under a per-evidence-dir lock.
+    # reporting-labs output is NOT a single file in general (index.html
+    # + report.json + optional assets/ for attachments over the 2MB
+    # embed limit), so per-file replace could mix generations. Each
+    # generation instead lands as ONE complete gen-* dir, and the
+    # `current` pointer flips via os.replace. The lock serialises
+    # concurrent publishes so a slower writer can never prune or
+    # overwrite the winner's published generation — rl_path, rl_status,
+    # and `current` stay mutually consistent (last writer wins whole).
+    out_dir.mkdir(parents=True, exist_ok=True)
+    lock_fh = open(out_dir / ".publish.lock", "a+b")
+    try:
+        try:
+            import fcntl
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+        except ImportError:                            # Windows
+            import msvcrt
+            lock_fh.seek(0)
+            msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
+        prev_gen = _current_gen(out_dir)
+        gen = f"gen-{uuid.uuid4().hex[:12]}"
+        gen_dir = out_dir / gen
+        try:
+            tmp_dir.replace(gen_dir)                   # atomic rename
+            tmp_ptr = out_dir / "current.tmp"
+            tmp_ptr.write_text(gen)
+            os.replace(tmp_ptr, out_dir / "current")   # atomic flip
+        except OSError as exc:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            if gen_dir.exists():
+                shutil.rmtree(gen_dir, ignore_errors=True)
+            ex.rl_status = "failed"
+            db.session.commit()
+            return {"status": "failed",
+                    "error": f"publish failed: {exc}"}
+        # Prune old generations but keep the newly current one AND the
+        # previous (in-flight readers holding its path still resolve).
+        for d in _gen_dirs(out_dir):
+            if d.name not in (gen, prev_gen):
+                shutil.rmtree(d, ignore_errors=True)
+        ex.rl_status = "ready"
+        ex.rl_path = str((gen_dir / "index.html").relative_to(root))
+        # Commit INSIDE the lock — a loser's stale rl_path can never
+        # land after the winner's consistent publish.
+        db.session.commit()
+    finally:
+        try:
+            import fcntl
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
+        except ImportError:
+            pass
+        lock_fh.close()
     return {"status": ex.rl_status, **stats}
