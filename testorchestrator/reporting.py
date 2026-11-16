@@ -40,8 +40,13 @@ def report_root(ex: Execution) -> Path:
 
 def safe_under(root: Path, rel: str) -> Path:
     """Resolve rel under root; rejects traversal outright."""
+    root = root.resolve()
     target = (root / rel).resolve()
-    if not str(target).startswith(str(root) + "/"):
+    if target == root:
+        raise ValueError("path escapes evidence root")
+    try:
+        target.relative_to(root)
+    except ValueError:
         raise ValueError("path escapes evidence root")
     return target
 
