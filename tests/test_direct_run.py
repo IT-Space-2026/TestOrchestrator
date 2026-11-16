@@ -223,6 +223,15 @@ def test_kre_selector_strips_ts_tsc_extensions(app):
     assert "-testSuiteCollectionPath=Test Suites/Coll 1" in a
     assert not any(x.startswith("-testSuiteCollectionPath=")
                    and x.endswith(".tsc") for x in a)
+    # Katalon saves collections as .ts too (entity tag decides the
+    # kind) — a .ts collection must be stripped identically, else KRE
+    # reports the selector "not found" (E2E regression).
+    a = build_args("k", "/p",
+                   "Test Suites/Test Suite Collection v1.ts", "/r",
+                   "default", collection=True)
+    assert "-testSuiteCollectionPath=Test Suites/Test Suite Collection v1" in a
+    assert not any(x.startswith("-testSuiteCollectionPath=")
+                   and x.endswith((".ts", ".tsc")) for x in a)
     # Extensionless paths pass through unchanged.
     a = build_args("k", "/p", "Test Suites/S1", "/r", "default")
     assert "-testSuitePath=Test Suites/S1" in a
