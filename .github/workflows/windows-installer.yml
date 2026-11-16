@@ -17,6 +17,14 @@ jobs:
             cd 3rdparty/allure3 && npm ci --omit=dev 2>&1 | tail -3 || \
               npm install --omit=dev 2>&1 | tail -3; cd "$OLDPWD"
           fi
+      - name: report-serving tests on Windows
+        shell: bash
+        # safe_under + failed-regen preservation: the defects this PR
+        # fixes are Windows-specific — run the focused tests on the
+        # target OS, with and without the provisioned generator.
+        run: |
+          pip install -r requirements-dev.txt -q
+          python -m pytest tests/test_safe_under.py tests/test_historical_no_runtime.py -x -q
       - name: install nsis
         shell: pwsh
         run: choco install nsis -y --no-progress
