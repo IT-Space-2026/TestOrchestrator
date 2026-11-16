@@ -19,6 +19,16 @@ jobs:
           sudo apt-get install -y --no-install-recommends dpkg-dev ubuntu-keyring gpgv
           python3 scripts/acquire_git.py --suite resolute --arch amd64 \
             --acquire --verify-runtime
+      - name: build dagu-worker Windows installer asset
+        run: |
+          set -e
+          # The NSIS worker installer rides inside the linux package as
+          # the intended downloadable worker asset — a clean checkout
+          # has no staged exe, so it must be built here (makensis runs
+          # on Linux; payload = checksum-verified pinned archive).
+          sudo apt-get install -y --no-install-recommends nsis
+          bash packaging/windows/build_worker_installer.sh
+          ls -la packaging/windows/testorchestrator-dagu-worker-*-setup-UNSIGNED.exe
       - name: build bundle + self-extracting installer
         run: |
           set -e
