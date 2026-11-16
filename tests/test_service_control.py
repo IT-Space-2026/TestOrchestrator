@@ -282,7 +282,8 @@ def test_generated_helper_uses_path_for_marker(app, client, login_as,
                         lambda hp, scope: "h.service")
     login_as("admin")
     client.post("/system/services/restart")
-    helper = (pathlib.Path(app.instance_path) / "restart-helper.py")
+    helper = tmp_path / "restart-helper.py"   # marker.parent, not
+    # instance_path — the old path passed only via a stale leftover
     src = helper.read_text()
     assert "from pathlib import Path" in src
     assert "m=Path(" in src

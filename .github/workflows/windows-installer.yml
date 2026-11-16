@@ -17,6 +17,14 @@ jobs:
             cd 3rdparty/allure3 && npm ci --omit=dev 2>&1 | tail -3 || \
               npm install --omit=dev 2>&1 | tail -3; cd "$OLDPWD"
           fi
+      - name: report-serving tests on Windows
+        shell: bash
+        # safe_under + failed-regen preservation: the defects this PR
+        # fixes are Windows-specific — run the focused tests on the
+        # target OS, with and without the provisioned generator.
+        run: |
+          pip install -r requirements-dev.txt -q
+          python -m pytest tests/test_safe_under.py tests/test_historical_no_runtime.py -x -q
       - name: install nsis
         shell: pwsh
         run: choco install nsis -y --no-progress
@@ -45,7 +53,7 @@ jobs:
         shell: pwsh
         run: |
           $inst = "C:\to smoke install"
-          $p = Start-Process ".\installer\testorchestrator-1.0.1-windows-amd64-setup-UNSIGNED.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          $p = Start-Process ".\installer\testorchestrator-1.0.2-windows-amd64-setup-UNSIGNED.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
           Write-Host "installer exit: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
           foreach ($f in @("$inst\python\python.exe","$inst\nodejs\node.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\allure3\node_modules\allure\cli.js","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem","$inst\run_worker.py")) {
@@ -161,6 +169,20 @@ jobs:
           if (!(Test-Path "C:\to-allure\report\index.html")) { throw "no report index.html generated" }
           Write-Host "PASS Allure 3 generated report index.html via bundled node"
           Remove-Item -Recurse -Force "C:\to-allure" -ErrorAction SilentlyContinue
+      - name: authenticated report serving on installed package
+        shell: pwsh
+        run: |
+          # in-process check via the INSTALLED payload's own python —
+          # same technique as the licence CI scripts: real shipped route
+          # code + real ProgramData instance DB, seeded sanitised data.
+          $inst = "C:\to smoke install"
+          Copy-Item ".\packaging\ci\report_serving_check.py" "$inst\"
+          Push-Location $inst
+          & "$inst\python\python.exe" "$inst\report_serving_check.py" 2>&1
+          $rc = $LASTEXITCODE
+          Pop-Location
+          Remove-Item "$inst\report_serving_check.py" -Force
+          if ($rc -ne 0) { throw "authenticated report-serving check failed" }
       - name: private-data ACLs + Edge headless cert-validated browser render
         shell: pwsh
         run: |
@@ -192,7 +214,7 @@ jobs:
         run: |
           $inst = "C:\to smoke install"
           $data = "C:\ProgramData\TestOrchestrator"
-          $setup = ".\installer\testorchestrator-1.0.1-windows-amd64-setup-UNSIGNED.exe"
+          $setup = ".\installer\testorchestrator-1.0.2-windows-amd64-setup-UNSIGNED.exe"
           # registered uninstall entry points must exist and point at supported flows
           $arp = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator' -ErrorAction Stop
           if ($arp.UninstallString -ne "`"$inst\uninstall.exe`"") { throw "UninstallString wrong: $($arp.UninstallString)" }
@@ -265,3 +287,69 @@ jobs:
           }
           Write-Host "PASS uninstall(purge): data dir removed"
           Remove-Item "HKLM:\SOFTWARE\Microsoft\SystemCertificates\Root\Certificates\$($foreign.Thumbprint)" -Recurse -Force -ErrorAction Ignore
+
+  upgrade-from-v101:
+    needs: compile
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: testorchestrator-windows-setup
+          path: candidate
+      - name: fetch released v1.0.1 installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v1.0.1" \
+            | python -c "import json,sys; print([a['id'] for a in json.load(sys.stdin)['assets'] if 'windows' in a['name'] and a['name'].endswith('.exe')][0])")
+          curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id" \
+            -o v101-setup.exe
+          ls -la v101-setup.exe
+      - name: install released v1.0.1 + seed sanitised report
+        shell: pwsh
+        run: |
+          $inst = "C:\to upgrade install"
+          $p = Start-Process ".\v101-setup.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "v1.0.1 install exited $($p.ExitCode)" }
+          $thumb1 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" }).Thumbprint
+          Write-Host "v1.0.1 installed; CA thumbprint: $thumb1"
+          Set-Content "$env:TEMP\thumb1.txt" $thumb1
+          Copy-Item ".\packaging\ci\report_serving_check.py" "$inst\"
+          Push-Location $inst
+          & "$inst\python\python.exe" "$inst\report_serving_check.py" seed 2>&1
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw "seed on v1.0.1 failed" }
+          # the defect this PR fixes should reproduce on released v1.0.1
+          & "$inst\python\python.exe" "$inst\report_serving_check.py" check 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "NOTE: serving check unexpectedly PASSED on v1.0.1"
+          } else {
+            Write-Host "CONFIRMED: report serving broken on released v1.0.1 (expected defect)"
+          }
+          Pop-Location
+          exit 0   # expected-failure above leaves LASTEXITCODE=1
+      - name: upgrade to maintenance candidate + verify retained data
+        shell: pwsh
+        run: |
+          $inst = "C:\to upgrade install"
+          $thumb1 = Get-Content "$env:TEMP\thumb1.txt"
+          $setup = Get-Item ".\candidate\*setup-UNSIGNED.exe" | Select-Object -First 1
+          $p = Start-Process $setup.FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "upgrade install exited $($p.ExitCode)" }
+          $thumb2 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" }).Thumbprint
+          if ($thumb2 -ne $thumb1) { throw "upgrade replaced trusted CA ($thumb1 -> $thumb2)" }
+          Write-Host "PASS upgrade: CA thumbprint retained ($thumb1)"
+          $ok = $false
+          for ($i=0; $i -lt 60; $i++) { try { $r = Invoke-WebRequest -Uri "https://localhost/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep 1 }
+          if (!$ok) { throw "app not healthy after v1.0.1->candidate upgrade" }
+          Write-Host "PASS app healthy after upgrade (cert-validated)"
+          Push-Location $inst
+          & "$inst\python\python.exe" "$inst\report_serving_check.py" check 2>&1
+          $rc = $LASTEXITCODE
+          Pop-Location
+          if ($rc -ne 0) { throw "post-upgrade report-serving check failed" }
+          Write-Host "PASS retained reports/licence/verified access after v1.0.1->candidate upgrade"
