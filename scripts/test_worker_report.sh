@@ -30,7 +30,7 @@ for t in tar curl ss unzip python3 setsid env; do
 done
 [ -x "$REPO/.venv/bin/waitress-serve" ] && [ -x "$REPO/.venv/bin/flask" ] \
   && [ -x "$REPO/.venv/bin/python" ] || { echo "venv missing"; exit 1; }
-[ -f "$REPO/3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz" ] \
+[ -f "$REPO/3rdparty/dagu/dagu_2.27.0_linux_amd64.tar.gz" ] \
   || { echo "dagu archive missing"; exit 1; }
 ss -tln | grep -qE ":(29987|50055|39992) " \
   && { echo "COLLISION: fixture port in use"; exit 1; }
@@ -101,7 +101,7 @@ coordinator:
   worker_wait_timeout: "30s"
 host: 127.0.0.1
 YAML
-tar xzf "$REPO/3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz" \
+tar xzf "$REPO/3rdparty/dagu/dagu_2.27.0_linux_amd64.tar.gz" \
   -C "$ROOT/coord/bin" dagu
 spawn coordinator "$ROOT/coord" env DAGU_HOME="$ROOT/coord/home" \
   "$ROOT/coord/bin/dagu" start-all --port $HTTP_PORT \

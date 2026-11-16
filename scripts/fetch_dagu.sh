@@ -5,14 +5,14 @@
 # payload or running the Dagu contract tests.
 set -euo pipefail
 
-VERSION="2.25.8"
+VERSION="2.27.0"
 DEST="$(cd "$(dirname "$0")/../3rdparty/dagu" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 for arch in linux_amd64 windows_amd64; do
     name="dagu_${VERSION}_${arch}.tar.gz"
-    url="https://github.com/dagu-org/dagu/releases/download/v${VERSION}/${name}"
+    url="https://github.com/dagucloud/dagu/releases/download/v${VERSION}/${name}"
     curl -fsSL -o "$TMP/$name" "$url"
     expected="$(grep " $name\$" "$DEST/dagu.sha256" | awk '{print $1}')"
     actual="$(sha256sum "$TMP/$name" | awk '{print $1}')"

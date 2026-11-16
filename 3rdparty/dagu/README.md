@@ -118,10 +118,21 @@ brew install dagu
 npm install -g --ignore-scripts=false @dagucloud/dagu
 ```
 
+**Windows (installer):**
+
+Download and run [dagu-windows-amd64-setup.exe](https://github.com/dagucloud/dagu/releases/latest/download/dagu-windows-amd64-setup.exe).
+
 **Windows (PowerShell):**
 
 ```powershell
 irm https://raw.githubusercontent.com/dagucloud/dagu/main/scripts/installer.ps1 | iex
+```
+
+**Windows (Scoop):**
+
+```powershell
+scoop bucket add dagu https://github.com/dagucloud/scoop-bucket
+scoop install dagu
 ```
 
 **Docker:**
@@ -145,7 +156,7 @@ helm install dagu dagu/dagu --set persistence.storageClass=<your-rwx-storage-cla
 
 > Replace `<your-rwx-storage-class>` with a StorageClass that supports `ReadWriteMany`. See [charts/dagu/README.md](./charts/dagu/README.md) for chart configuration.
 
-The script installers run a guided wizard that can add Dagu to your PATH, set it up as a background service, and create the initial admin account. Homebrew, npm, Docker, and Helm install without the wizard. See the [Installation documentation](https://docs.dagu.sh/getting-started/installation/) for all options.
+The script installers run a guided wizard that can add Dagu to your PATH, set it up as a background service, and create the initial admin account. The Windows installer can add Dagu to your PATH and run it as a Windows service. Homebrew, npm, Scoop, Docker, and Helm install without a wizard. See the [Installation documentation](https://docs.dagu.sh/getting-started/installation/) for all options.
 
 ### Create and run a workflow
 
@@ -171,9 +182,9 @@ From that folder, run:
 dagu start-all --dags .
 ```
 
-Open http://localhost:8080. On first launch, create the admin account unless the installer wizard already created one.
+Open http://localhost:8080. On first launch, create the admin account unless a script installer already created one.
 
-If a script installer set Dagu up as a background service, it is already running on port 8080, so add workflows from the UI or put `hello.yaml` in the DAGs directory the installer printed.
+If an installer set Dagu up as a background service, it is already running (on port 8080 by default), so add workflows from the UI or put `hello.yaml` in its DAGs directory: the one the script installer printed, or `C:\ProgramData\Dagu\dags` for the Windows installer.
 
 ## How You Run Dagu
 
@@ -618,6 +629,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `ssh.run` | Remote command execution over SSH |
 | `sftp.upload` / `sftp.download` | File transfer over SFTP |
 | `http.request` | HTTP requests with headers, auth, and request bodies |
+| `mcp.call` | Call a tool on a remote MCP server over Streamable HTTP |
 | `chat.completion` | Run an LLM chat completion step |
 | `harness.run` | Run external coding-agent CLIs such as Claude Code, Codex, Gemini CLI, Cursor, and DeepSeek Harness, or [managed OpenCode sessions](./skills/dagu/references/harnesses.md#managed-opencode-sessions) |
 | `browser.extract` / `browser.run` | Automate websites in a local Chrome with natural-language actions, structured extraction, and human input |
@@ -905,6 +917,8 @@ ip_access:
 Forwarded addresses are used only when the direct peer matches
 `trusted_proxies`. The proxy must remove client-supplied forwarding headers and
 set or append the verified client address. Keep trusted proxy ranges narrow.
+Proxy authentication (`auth.proxy`) accepts identity headers only from
+`trusted_proxies`, or only from loopback peers when the list is empty.
 
 ### Paths
 
@@ -914,6 +928,7 @@ set or append the verified client address. Keep trusted proxy ranges narrow.
 | `DAGU_DAGS_DIR` | `~/.config/dagu/dags` | DAG definitions directory |
 | `DAGU_DAG_DISCOVERY_RECURSIVE` | `false` | Discover DAGs in subdirectories |
 | `DAGU_DAG_DISCOVERY_SYMLINKS` | `false` | Include recursive file symlinks and allow external targets |
+| `DAGU_DAG_DISCOVERY_SKIP_DIRECTORIES` | - | Comma-separated directories directly under the DAGs directory that recursive discovery skips |
 | `DAGU_LOG_DIR` | `~/.local/share/dagu/logs` | Log files |
 | `DAGU_DATA_DIR` | `~/.local/share/dagu/data` | Application state |
 | `DAGU_SUSPEND_FLAGS_DIR` | `{DAGU_DATA_DIR}/suspend` | DAG suspension flags |
@@ -973,6 +988,18 @@ can be viewed, scheduled, and run, but cannot be updated, deleted, or renamed
 through Dagu. Without the opt-in, top-level YAML file symlinks whose targets
 remain inside `paths.dags_dir` continue to work. A symlink configured as
 `paths.dags_dir` itself is also supported.
+
+Set `dag_discovery.skip_directories` to keep directories directly under
+`paths.dags_dir` out of recursive discovery, such as a tree of child DAGs or
+build output. Their DAGs are not listed, scheduled, or watched, but a parent
+DAG can still run one by path. Entries are case-sensitive directory names, so
+`jobs` skips `jobs/` but not `team/jobs/`.
+
+```yaml
+dag_discovery:
+  recursive: true
+  skip_directories: [jobs, build]
+```
 
 ### Authentication
 

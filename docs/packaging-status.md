@@ -15,7 +15,7 @@ requirements, and installation instructions.
 | Caddy 2.9.1 + LICENSE + sha256 | yes | binary verified | per-OS config test |
 | Runner connector (`testorchestrator/agent.py` + API) | yes (source) | in-process tests | live remote-host run |
 | Git runtime | not bundled | Dulwich default; `TO_GIT_BACKEND=cli` uses host git or `acquire_git.py` re-stage (rootfs not tracked in repo) | — |
-| Dagu 2.25.8 | yes | contract test + fixture chain green | — |
+| Dagu 2.27.0 | yes | contract test + fixture chain green | — |
 | reporting-labs 0.1.14 (sole enhanced backend, 2.0) | yes — vendored in-repo source (`./reporting_labs`, MIT) | pure-Python, no external runtime | — |
 | ReportPortal stack/images/config | **no** | — | container backend + pinned images |
 | KRE | **no** (external by requirement) | — | operator-installed |

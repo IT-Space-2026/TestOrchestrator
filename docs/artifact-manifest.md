@@ -15,7 +15,7 @@
     git revision `687f541` identifies its source tree. Both are recorded
     here — the stamp is an identifier, not independently-verified
     reproducibility evidence.
-- Bundled: dagu_2.25.8 (linux+windows), caddy, python-runtime
+- Bundled: dagu_2.27.0 (linux+windows), caddy, python-runtime
   101MB, vendored py-deps; reporting-labs 0.1.14 ships as in-repo source. Allure 3 +
   bundled Node.js were removed in 2.0.
 

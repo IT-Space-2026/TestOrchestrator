@@ -1,8 +1,14 @@
-# Dagu 2.25.8 API — verified against the bundled binary
+# Dagu API — verified against the bundled binary (pin now 2.27.0)
 
 Originally verified 2026-11-03 vs bundled 2.25.2; re-verified
 2026-11-06 vs bundled 2.25.8 — `/api/v1/health` reports
 `{"status":"healthy","version":"2.25.8"}`, `/api/v1/version` still 404,
+
+**Pin updated to 2.27.0 (2026-11-16):** contract suite re-run against
+the bundled 2.27.0 binary — provision + basic-auth roundtrip
+(`/health` reports `version: 2.27.0`, unauth/wrong-cred → 401) and
+submit → status → cancel all pass. Endpoint behaviour below is
+unchanged; remote-worker path re-verified live in the 2.0 E2E rerun.
 and the contract tests (submit → dagRunId → status → CLI stop →
 aborted, plus provision→basic-auth roundtrip) pass against the new
 archive unchanged.

@@ -47,7 +47,7 @@ class DaguAdapter:
         if ref:
             secret = read_secret(current_app._get_current_object(), ref)
         if username:
-            # auth.mode: basic — verified against bundled Dagu 2.25.8.
+            # auth.mode: basic — verified against bundled Dagu 2.27.0.
             return cls(endpoint, username=username, password=secret)
         # auth.mode: builtin — Bearer API key/JWT issued by Dagu.
         return cls(endpoint, token=secret)
@@ -67,7 +67,7 @@ class DaguAdapter:
     def health(self) -> dict:
         """Health probe — verifies reachability, authentication, version,
         AND that the orchestration workflow is installed (verified paths
-        on bundled Dagu 2.25.8)."""
+        on bundled Dagu 2.27.0)."""
         resp = requests.get(
             self._url("/health"), headers=self._headers(),
             auth=self._auth(), timeout=self.timeout,
@@ -104,7 +104,7 @@ class DaguAdapter:
         data = resp.json() if resp.content else {}
         return str(data.get("dagRunId") or data.get("requestId") or "submitted")
 
-    # ---------- remote-worker dispatch (verified vs bundled 2.25.8) ----------
+    # ---------- remote-worker dispatch (verified vs bundled 2.27.0) ----------
 
     def workers(self) -> list:
         """Connected workers with their labels (coordinator service).
@@ -156,7 +156,7 @@ class DaguAdapter:
 
     def list_artifacts(self, name: str, dag_run_id: str) -> list:
         """Recursive artifact tree for a run — workers upload run
-        artifacts to the coordinator (verified 2.25.8)."""
+        artifacts to the coordinator (verified 2.27.0)."""
         resp = requests.get(
             self._url(f"/dag-runs/{name}/{dag_run_id}/artifacts"),
             params={"recursive": "true"},
@@ -178,7 +178,7 @@ class DaguAdapter:
         return resp.content
 
     def stop(self, name: str, dag_run_id: str) -> bool:
-        """HTTP stop for a submitted run (verified on 2.25.8 —
+        """HTTP stop for a submitted run (verified on 2.27.0 —
         POST /dag-runs/{name}/{id}/stop). The coordinator signals the
         worker; process-tree termination is the worker's job."""
         try:
@@ -234,7 +234,7 @@ class DaguAdapter:
 
     def cancel(self, dispatch_id: str) -> bool:
         """Verified mechanism: `dagu stop <dag> --run-id <id>` via the
-        bundled binary (HTTP cancel path unresolved on 2.25.8)."""
+        bundled binary (HTTP cancel path unresolved on 2.27.0)."""
         import os
         import shutil
         import subprocess
@@ -266,7 +266,7 @@ class DaguAdapter:
         never a broad label that could reach a different host). The
         label matches the worker's ``--worker.labels kre=<tag>``.
 
-        Mechanism verified end-to-end against bundled 2.25.8 (local run,
+        Mechanism verified end-to-end against bundled 2.27.0 (local run,
         fixture repo + fixture KRE, artifacts listed/downloaded via the
         REST surface):
 

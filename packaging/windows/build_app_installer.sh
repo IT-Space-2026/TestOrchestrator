@@ -18,7 +18,7 @@ rm -rf app-payload && mkdir -p app-payload/{python,dagu,caddy}
 fetch "https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip" \
       "/tmp/python-3.12.7-embed-amd64.zip" "$SHA_PY"
 unzip -q -o /tmp/python-3.12.7-embed-amd64.zip -d app-payload/python
-tar xzf "$REPO/3rdparty/dagu/dagu_2.25.8_windows_amd64.tar.gz" \
+tar xzf "$REPO/3rdparty/dagu/dagu_2.27.0_windows_amd64.tar.gz" \
     -C app-payload/dagu dagu.exe LICENSE
 fetch "https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11.9_windows_amd64.zip" \
       "/tmp/caddy-win.zip" "$SHA_CAD"

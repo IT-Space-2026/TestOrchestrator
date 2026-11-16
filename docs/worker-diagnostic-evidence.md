@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Binary | `dagu 2.25.8` (pinned `3rdparty/dagu/dagu_2.25.8_linux_amd64.tar.gz`) |
+| Binary | `dagu 2.27.0` (pinned `3rdparty/dagu/dagu_2.27.0_linux_amd64.tar.gz`) |
 | Coordinator | `start-all` loopback HTTP `29987`, gRPC `50055`, `auth.mode:none` |
 | Worker | `--worker.coordinators=127.0.0.1:50055 --worker.labels kre=$RUN --worker.id wr-$RUN --worker.health-port 0` |
 | Endpoint | `GET /api/v1/workers` (v1; `/api/v2/workers` does not exist) — polled read, not a POST |

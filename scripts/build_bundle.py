@@ -259,7 +259,7 @@ def main():
         bundled["git"] = "vendored ubuntu-resolute-amd64 rootfs (cli-backend fallback)"
     bundled |= {
         "caddy": "pinned binary + licence + sha256",
-        "dagu": "pinned 2.25.8 release tarball",
+        "dagu": "pinned 2.27.0 release tarball",
     }
     if args.frozen:
         bundled["frozen-app"] = ("PyInstaller onedir — toctl "
