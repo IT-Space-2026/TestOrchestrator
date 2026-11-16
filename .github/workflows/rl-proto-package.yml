@@ -29,8 +29,8 @@ jobs:
           cd packaging/windows
           export PATH="/c/Program Files (x86)/NSIS:$PATH"
           bash build_app_installer.sh
-          ls app-payload/site-packages | grep -qi "^reporting_labs" || {
-            echo "MISSING reporting_labs"; exit 1; }
+          ls app-payload | grep -qi "^reporting_labs$" || {
+            echo "MISSING vendored reporting_labs"; exit 1; }
           echo "payload staged: $(du -sh app-payload | cut -f1)"
 
       - name: compile prototype installer (same NSIS settings)

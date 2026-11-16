@@ -13,7 +13,7 @@
 ## References / download instructions (NOT included)
 | Component | Status | Notes |
 |---|---|---|
-| reporting-labs (sole report backend) | `reporting-labs==0.1.14` wheel | **Bundled** via vendored wheels — no customer Node/npm/Java required. |
+| reporting-labs (sole report backend) | `reporting-labs==0.1.14` | **Bundled** — MIT-licensed source vendored in-repo at `./reporting_labs`; no PyPI download, no customer Node/npm/Java required. |
 | Windows embeddable Python | not staged | would be needed for a full Windows app installer |
 
 ## External prerequisites

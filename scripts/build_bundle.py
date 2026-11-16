@@ -32,6 +32,7 @@ OUT = REPO / "dist"
 # (repo path, category) — the complete inclusion policy.
 INCLUDE = [
     ("testorchestrator", "app"),
+    ("reporting_labs", "app"),   # vendored reporting-labs 0.1.14 (MIT)
     ("wsgi.py", "app"),
     ("install.sh", "install"),
     ("requirements.txt", "app"),

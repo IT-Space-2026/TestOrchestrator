@@ -16,7 +16,7 @@
     here — the stamp is an identifier, not independently-verified
     reproducibility evidence.
 - Bundled: dagu_2.25.8 (linux+windows), caddy, python-runtime
-  101MB, vendored py-deps incl. reporting-labs 0.1.14. Allure 3 +
+  101MB, vendored py-deps; reporting-labs 0.1.14 ships as in-repo source. Allure 3 +
   bundled Node.js were removed in 2.0.
 
 ## Wrapper (self-extracting installer)
