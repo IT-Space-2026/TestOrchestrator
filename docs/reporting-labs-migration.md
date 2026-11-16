@@ -17,7 +17,10 @@ removed throughout the application and packaging. reporting-labs
   compatibility viewer.
 - Stored report files, execution records, attachments, and evidence
   are **preserved untouched** on disk and in the database — they are
-  simply unsupported by the UI. Downgrade to 1.0.x to view them.
+  simply unsupported by the UI. **In-place downgrade compatibility
+  has not been validated** — the 2.0 migration drops database
+  columns, so preserved files alone do not establish that an older
+  application can safely reuse the upgraded database.
 - The `allure_status`, `allure_path`, `allure_version` columns are
   dropped by migration `p6q7r8s9t0u1`. Canonical execution / results /
   artifact rows are unaffected.

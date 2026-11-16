@@ -19,7 +19,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Historical Allure reports are no longer opened or regenerated.**
   No importer, fallback, or compatibility viewer. Files, execution
   records, attachments, and evidence remain untouched on disk —
-  unsupported by the interface; downgrade to 1.0.x to view them.
+  unsupported by the interface. In-place downgrade compatibility has
+  not been validated — the 2.0 migration drops database columns, so
+  preserved files alone do not establish that an older application
+  can safely reuse the upgraded database.
 - Migration `p6q7r8s9t0u1` drops `allure_status`, `allure_path`,
   `allure_version`. Canonical execution/results/artifact data
   preserved.
