@@ -379,24 +379,27 @@ def test_generations_are_distinguishable_and_not_mixed(app, tmp_path,
         res = orig(ex, out)
         counter["n"] += 1
         html = Path(out) / "index.html"
-        html.write_text(html.read_text() +
-                        f"<!-- GENMARK-{counter['n']} -->")
+        html.write_text(html.read_text(encoding="utf-8") +
+                        f"<!-- GENMARK-{counter['n']} -->",
+                        encoding="utf-8")
         (Path(out) / "report.json").write_text(
-            f'{{"genmark": {counter["n"]}}}')
+            f'{{"genmark": {counter["n"]}}}', encoding="utf-8")
         return res
     monkeypatch.setattr(rl, "_emit", marked)
 
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
-        rl.generate_for(ex)
+        out1 = rl.generate_for(ex)
+        assert out1["status"] == "ready", out1
         root = Path(ex.report_dir)
         g1 = Path(ex.rl_path).parent.name
-        body1 = (root / ex.rl_path).read_text()
+        body1 = (root / ex.rl_path).read_text(encoding="utf-8")
         assert "GENMARK-1" in body1 and g1.startswith("gen-")
-        rl.generate_for(ex)
+        out2 = rl.generate_for(ex)
+        assert out2["status"] == "ready", out2
         g2 = Path(ex.rl_path).parent.name
         assert g2 != g1
-        body2 = (root / ex.rl_path).read_text()
+        body2 = (root / ex.rl_path).read_text(encoding="utf-8")
         assert "GENMARK-2" in body2
         # the served generation is internally consistent: report.json
         # in the SAME dir belongs to the same generation
