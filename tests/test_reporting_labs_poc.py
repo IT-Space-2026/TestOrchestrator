@@ -433,6 +433,109 @@ def test_publish_failure_midway_keeps_last_generation(app, tmp_path,
         assert cur in gens and len(gens) <= 2
 
 
+def test_historical_allure_serving_needs_no_generator(client, login_as,
+                                                    app, tmp_path,
+                                                    monkeypatch):
+    """Acceptance check: a RETAINED Allure report (index.html + assets)
+    stays viewable/downloadable with the generator runtime absent —
+    the serving path is file I/O, not a Node dependency."""
+    from testorchestrator import allure_runtime
+    ex_id = _mk(app, tmp_path)
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        adir = Path(ex.report_dir) / "allure"
+        adir.mkdir(parents=True)
+        (adir / "index.html").write_text("<html>allure app</html>")
+        (adir / "app.js").write_text("console.log(1)")
+        ex.allure_status = "ready"
+        ex.allure_path = "allure/index.html"
+        db.session.commit()
+        # simulate an installed package with Node/Allure REMOVED
+        monkeypatch.setattr(allure_runtime, "_allure_cmd",
+                            lambda: None)
+        monkeypatch.setattr(allure_runtime, "available",
+                            lambda: False)
+    login_as("admin")
+    assert client.get(f"/executions/{ex_id}/allure").status_code == 302
+    r = client.get(f"/executions/{ex_id}/allure/")
+    assert r.status_code == 200 and b"allure app" in r.data
+    assert client.get(
+        f"/executions/{ex_id}/allure/app.js").status_code == 200
+    z = client.get(f"/executions/{ex_id}/allure.zip")
+    assert z.status_code == 200
+
+
+def test_previous_generation_files_survive_regen(app, tmp_path):
+    """A page opened from generation N keeps loading report.json and
+    attachments from gen N while a NEWER generation publishes — the
+    prune keeps current+previous. One regen stale is the boundary."""
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        rl.generate_for(ex)
+        root = Path(ex.report_dir)
+        g1_dir = Path(ex.rl_path).parent
+        g1_json = root / g1_dir / "report.json"
+        rl.generate_for(ex)
+        # in-flight reader of gen1: every file still resolves
+        assert (root / g1_dir / "index.html").exists()
+        assert g1_json.exists()
+        rl.generate_for(ex)
+        # TWO regens stale -> oldest pruned; only current+prev remain
+        assert not (root / g1_dir / "index.html").exists()
+        gens = sorted((root / "reporting-labs").glob("gen-*"))
+        assert len(gens) == 2
+
+
+def test_db_crash_after_publish_leaves_servable_state(app, tmp_path,
+                                                      monkeypatch):
+    """Interruption between filesystem publish and the DB update: the
+    previous rl_path still serves a complete report, and the next
+    generation run restores full consistency."""
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        assert rl.generate_for(ex)["status"] == "ready"
+        root = Path(ex.report_dir)
+        old_path = ex.rl_path
+        real_commit = db.session.commit
+        calls = {"n": 0}
+
+        def flaky_commit():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("simulated crash after pointer flip")
+            return real_commit()
+        monkeypatch.setattr(db.session, "commit", flaky_commit)
+        import pytest as _pt
+        with _pt.raises(RuntimeError):
+            rl.generate_for(ex)
+        # DB state is stale (old path) — still servable, complete
+        db.session.rollback()
+        ex = db.session.get(Execution, ex_id)
+        assert (root / old_path).exists()
+        # next generation succeeds and re-syncs everything
+        assert rl.generate_for(ex)["status"] == "ready"
+        assert ex.rl_status == "ready"
+        assert (root / ex.rl_path).exists()
+
+
+def test_windows_locking_branch(app, tmp_path, monkeypatch):
+    """The msvcrt (Windows) lock path is exercised — fcntl absent."""
+    import sys
+    import types
+    fake_msvcrt = types.ModuleType("msvcrt")
+    fake_msvcrt.LK_LOCK = 1
+    fake_msvcrt.locking = lambda *a, **k: None
+    monkeypatch.setitem(sys.modules, "fcntl", None)   # ImportError
+    monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+    ex_id = _mk(app, tmp_path, shots=("pass.png",))
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        assert rl.generate_for(ex)["status"] == "ready"
+        assert (Path(ex.report_dir) / ex.rl_path).exists()
+
+
 def test_reporting_page_diagnostics_accurate(client, login_as, app):
     """Admin reporting page describes the CURRENT backends — bundled
     Node.js for Allure (no external Java requirement) + the optional

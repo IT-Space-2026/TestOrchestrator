@@ -33,10 +33,13 @@ second enhanced reporter — Allure remains the default
 
 ## Consumer audit — bundled Node.js + Allure 3
 
-**Generation vs serving**: every Node/Allure dependency exists ONLY to
-produce NEW reports. Serving a stored report (`allure/` subtree) is
-static file I/O — no runtime needed. Removing the runtime therefore
-never breaks historical report viewing; it only removes generation.
+**Generation vs serving**: every Node/Allure dependency identified in
+this audit exists ONLY to produce NEW reports. **No Node dependency
+was found in the historical report-serving path** — the serving routes
+are static file I/O. A packaged-install check (retained reports +
+assets served with Node/Allure absent) is still required before
+removal; `test_historical_allure_serving_needs_no_generator` covers
+the code path, not the packaged artifact.
 
 | File / location | Purpose | Needs Node/Allure | Action on removal |
 |---|---|---|---|
@@ -87,6 +90,25 @@ file-atomic:
 - A failed emit or a failed publish leaves `rl_status=failed` with
   `rl_path`/`current` untouched: the last complete generation remains
   referenced, servable, and never orphaned.
+
+### Boundary coverage (test → guarantee)
+
+| Boundary | Test | Status |
+|---|---|---|
+| Unique tmp dirs / no clobber | `test_unique_tmp_dirs` | green |
+| Simultaneous regen, consistent end state | `test_simultaneous_regeneration_consistent` | green — found+fixed a real interleaved-writer defect (publish lock added) |
+| Reader never sees missing/partial report | `test_reader_never_sees_missing_or_partial_report` | green — resolves `current` like the route resolves `rl_path` |
+| Whole-generation consistency (no mixed files) | `test_generations_are_distinguishable_and_not_mixed` | green — marker content proves single-gen bundles |
+| Mid-publish failure keeps last generation | `test_publish_failure_midway_keeps_last_generation` | green — pointer swap failure simulated |
+| In-flight page from gen N during regen N+1 | `test_previous_generation_files_survive_regen` | green — prune keeps current+prev; >1 regen stale may 404 (documented boundary) |
+| Crash between FS publish and DB update | `test_db_crash_after_publish_leaves_servable_state` | green — old rl_path still serves; next regen resyncs |
+| Windows lock path (`msvcrt`) | `test_windows_locking_branch` (stub) + `windows-locking` CI job on windows-latest | code path green; packaged-Windows check pending |
+| Historical Allure serving w/o generator | `test_historical_allure_serving_needs_no_generator` | green — code path; packaged check pending |
+
+Remaining open boundaries for acceptance: a packaged install
+(Windows+Linux) demonstrating retained Allure reports work with no
+Node/Allure payload, and the same publication guarantees under the
+installed Windows service account — pending corpus acceptance.
 
 ## Count reconciliation
 
