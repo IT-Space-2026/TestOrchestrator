@@ -57,15 +57,46 @@ no Node runtime.
 
 Artifacts are tied to the commit they were built from. Do not relabel.
 
-**Main-lineage CI builds** (`9410cbd` — merge + CI retarget; runs
-43911631632 linux / 43911631616 windows, both green incl.
-`installed-validate` and `upgrade-from-v102`):
+**Final release builds** (`7c8181f` — runs 43922613571 linux /
+43922613386 windows, both green incl. `installed-validate` and
+`upgrade-from-v102`; worker-asset gate active):
 
 | Artifact | Source commit | Size | SHA256 |
 |---|---|---|---|
-| `testorchestrator-2.0.0-linux-x86_64.tar.gz` | `9410cbd8950390fd883cb1b28754110a5518c224` | 214,877,931 B (extracted 321,996,852 B) | `8fb41da09007d6c1027231f98703817bffbad5cd3053b05770ff11bb90ec263e` |
-| `testorchestrator-2.0.0-linux-x86_64.run` | `9410cbd` | 214,879,935 B | `2685e3c093246e8ef5d04e04455697cf89a908a768b8b50515cb0dd313fd5e31` |
-| `testorchestrator-2.0.0-windows-amd64-setup-UNSIGNED.exe` | `9410cbd` | 133,284,560 B | `0f2b87e893253722031ecf55a934b316ffe24c20f9af2febef480e0400e414f3` |
+| `testorchestrator-2.0.0-linux-x86_64.tar.gz` | `7c8181f1c65baed853fc9afc81662b6df25f2ae5` | 278,769,344 B (extracted 386,345,086 B) | `2544557e97f7dcf403476dd0155a1b98efdd6f8ad8b4db794b2981c0a0788107` |
+| `testorchestrator-2.0.0-linux-x86_64.run` | `7c8181f` | 278,771,348 B | `cd61fc29754f00b9574d84a752a8d2ee902e24c16902d2bb240ae2c918701602` |
+| `testorchestrator-2.0.0-windows-amd64-setup-UNSIGNED.exe` | `7c8181f` | 133,284,593 B | `f566f3de69e2187965717e2114a7fe46b0603e30b4377b0f15da59e1c7e56245` |
+| `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` | `7c8181f` (payload: pinned `dagu_2.27.0_windows_amd64.tar.gz`) | 64,339,800 B | `24fe2ca70ba02cde44e509046bf25cabacd89f74019782637664e20029a6398c` |
+
+### Worker-asset accounting
+
+The Linux package carries three downloadable worker assets, all
+served by the installed app (admin-gated):
+
+- `packaging/windows/testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe`
+  — the Windows worker installer (63,354,239→64,339,800 B across the
+  Dagu bump); built via `makensis` in `linux-package` CI from the
+  checksum-verified pinned windows archive. **This was the ~63 MB
+  local-vs-CI gap**: local builds picked up a stale untracked 2.25.8
+  exe in `packaging/windows/`; clean CI checkouts silently had none.
+  Fixed by building it in CI + a `validate_package` gate.
+- `3rdparty/dagu/dagu_2.27.0_linux_amd64.tar.gz` (sha256
+  `a9045768c9777d0b938585696e0491bc0ce46fbeb0419989b34fde63a0cc6f85`)
+- `3rdparty/dagu/dagu_2.27.0_windows_amd64.tar.gz` (sha256
+  `23324e6589e64a47f51bf8a2727b18e912ec64a2eec49d4b0ed52a511f80ad46`)
+
+Coordinator and worker versions aligned at **2.27.0**.
+
+**Release-asset verification (2026-11-16, this machine):** the
+`7c8181f` tarball was extracted and installed; the app served all
+three worker assets over `/system/infrastructure/` (200, checksums
+matched); a Dagu worker started **from the release asset's linux
+archive** registered with a coordinator (`to-worker-rel-1`,
+`kre=e2e-227`, reported v2.27.0) and executed a real dispatched KRE
+job end-to-end — execution `28d1aa79` **COMPLETED/PASSED** (2
+results, 12 artifacts). The Windows worker `.exe` is verified as
+served + checksum-matched but not executed (no Windows host —
+recorded under limitations).
 
 **Frozen-candidate validation build** (local, `93709ee` — the tree the
 2.27.0/vendored-rl E2E and 593/1 regression ran against):
@@ -108,8 +139,11 @@ it was built from one.
 - **Sanitised real-corpus parity / generation performance /
   report-output-size** — deferred pending corpus handoff.
 - Linux worker-asset composition differs from the app bundle
-  (worker installer ships the dagu worker subset, not the full
-  coordinator payload) — measured sizes recorded separately.
+  (worker installer ships only `dagu.exe` + licence/readme — no
+  coordinator, scheduler, or UI components) — accounted above.
+- Windows worker installer verified as served + checksum-matched but
+  not executed — no Windows host available (covered by the deferred
+  Windows validation waiver).
 
 ## Deferred to 2.0.1 (out of 2.0.0 scope)
 
