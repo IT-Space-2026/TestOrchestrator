@@ -31,17 +31,13 @@ from .allure import _case_attachments
 STATUS_MAP = {"passed": "passed", "failed": "failed",
               "error": "failed", "skipped": "skipped"}
 OUT_DIRNAME = "reporting-labs"
+# Generations retained per report. A reader holding generation N must
+# survive TWO newer publications, so the newest three are kept.
+_RETAIN_GENERATIONS = 3
 
 
 def _gen_dirs(out_dir: Path) -> list:
     return sorted(out_dir.glob("gen-*"))
-
-
-def _current_gen(out_dir: Path) -> str:
-    try:
-        return (out_dir / "current").read_text().strip()
-    except OSError:
-        return ""
 
 
 def version() -> str:
@@ -230,7 +226,6 @@ def generate_for(ex: Execution) -> dict:
             import msvcrt
             lock_fh.seek(0)
             msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
-        prev_gen = _current_gen(out_dir)
         gen = f"gen-{uuid.uuid4().hex[:12]}"
         gen_dir = out_dir / gen
         try:
@@ -246,10 +241,17 @@ def generate_for(ex: Execution) -> dict:
             db.session.commit()
             return {"status": "failed",
                     "error": f"publish failed: {exc}"}
-        # Prune old generations but keep the newly current one AND the
-        # previous (in-flight readers holding its path still resolve).
+        # Bounded retention: keep the newest _RETAIN_GENERATIONS gen
+        # dirs so a reader holding generation N still resolves its
+        # report.json + attachments while TWO newer generations publish
+        # (it is pruned on the third). mtimes order the atomic-renamed
+        # dirs; `gen` is kept unconditionally regardless of clock skew.
+        keep = {d.name for d in sorted(
+            _gen_dirs(out_dir), key=lambda d: d.stat().st_mtime,
+            reverse=True)[:_RETAIN_GENERATIONS]}
+        keep.add(gen)
         for d in _gen_dirs(out_dir):
-            if d.name not in (gen, prev_gen):
+            if d.name not in keep:
                 shutil.rmtree(d, ignore_errors=True)
         ex.rl_status = "ready"
         ex.rl_path = str((gen_dir / "index.html").relative_to(root))

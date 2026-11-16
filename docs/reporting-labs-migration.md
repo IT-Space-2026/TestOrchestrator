@@ -85,8 +85,10 @@ file-atomic:
   a per-evidence-dir `.publish.lock`: concurrent regenerations are
   serialised, last writer wins whole — a slower writer cannot prune or
   overwrite the winner's generation (defect found + fixed by test).
-- Pruning keeps current + previous generation so in-flight readers
-  holding an old path still resolve complete files.
+- Bounded retention keeps the newest **three** generations
+  (`_RETAIN_GENERATIONS`), so a reader holding generation N still
+  resolves its `report.json` + `assets/` while TWO newer generations
+  publish; it is pruned on the third.
 - A failed emit or a failed publish leaves `rl_status=failed` with
   `rl_path`/`current` untouched: the last complete generation remains
   referenced, servable, and never orphaned.
@@ -100,25 +102,28 @@ file-atomic:
 | Reader never sees missing/partial report | `test_reader_never_sees_missing_or_partial_report` | green — resolves `current` like the route resolves `rl_path` |
 | Whole-generation consistency (no mixed files) | `test_generations_are_distinguishable_and_not_mixed` | green — marker content proves single-gen bundles |
 | Mid-publish failure keeps last generation | `test_publish_failure_midway_keeps_last_generation` | green — pointer swap failure simulated |
-| In-flight page from gen N during regen N+1 | `test_previous_generation_files_survive_regen` | green — prune keeps current+prev; **N-2 readers can 404 — OPEN, see below** |
+| In-flight page from gen N through TWO newer publications | `test_previous_generation_files_survive_regen` | green — newest-three retention; gen-N `index.html`/`report.json`/`assets/` still resolve; pruned at N+3 |
 | Crash between FS publish and DB update | `test_db_crash_after_publish_leaves_servable_state` | green — old rl_path still serves; next regen resyncs |
 | Windows lock path (`msvcrt`) | `windows-locking` CI job on windows-latest | green on real Windows (flock→msvcrt branch, atomic rename + `os.replace` pointer flip) |
 | Historical Allure serving w/o generator | `test_historical_no_runtime.py` + `historical-no-runtime` CI job (ubuntu+windows) | green — generator physically absent (CI checkouts ship no 3rdparty payloads) |
 
-### OPEN — active-reader retention (N-2) limitation
+### RESOLVED — active-reader retention policy
 
-Pruning keeps only **current + previous** generations. A reader whose
-page was opened from generation N, once generations N+1 **and** N+2 have
-been published, can receive 404s for `report.json`/attachments — the
-cleanup-safety boundary is **not fully closed**.
+Chosen policy: **bounded count retention** — `_RETAIN_GENERATIONS = 3`,
+the newest three generations per report are kept (mtime-ordered; the
+just-published generation is kept unconditionally). Generation-specific
+asset paths already exist: every generation is a self-contained
+`gen-*/` dir (`index.html` + `report.json` + `assets/`), so a stale
+reader fetches only files inside its own generation.
 
-Before reportingLabs may become the default, a retention policy must be
-chosen and tested — e.g. bounded age/count-based retention combined with
-generation-specific asset URLs. The acceptance test must hold a browser
-page open on generation N while at least two newer generations publish,
-then confirm the page still loads its `report.json` and attachments.
-Until that policy passes, this boundary is documented-but-unsolved and
-Allure remains the default backend.
+Acceptance covered by `test_previous_generation_files_survive_regen`:
+a reader holding generation N — verified on disk including a >2MB
+externalised `assets/` attachment — still resolves `index.html`,
+`report.json`, and its asset files while generations N+1 **and** N+2
+publish; the files are pruned only at N+3. Bounded trade-off: a reader
+three-or-more generations stale can 404 and must reload (the portal
+serves `current` on reload). Full regression on the final candidate
+before merge remains a standing gate.
 
 ### Historical-serving correction (found by installed-package check)
 

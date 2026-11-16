@@ -494,24 +494,41 @@ def test_historical_allure_serving_needs_no_generator(client, login_as,
 
 def test_previous_generation_files_survive_regen(app, tmp_path):
     """A page opened from generation N keeps loading report.json and
-    attachments from gen N while a NEWER generation publishes — the
-    prune keeps current+previous. One regen stale is the boundary."""
+    attachments from gen N while TWO newer generations publish — the
+    bounded-retention prune keeps the newest three. Three regens stale
+    is the boundary."""
     ex_id = _mk(app, tmp_path, shots=("pass.png",))
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
+        # >2MB attachment externalises to assets/ — exercises the
+        # generation-specific asset file a stale reader still fetches
+        root0 = Path(ex.report_dir)
+        big = root0 / "big-evidence.png"
+        big.write_bytes(b"\x89PNG" + b"\0" * (2 * 1024 * 1024))
+        db.session.add(Artifact(
+            execution_id=ex.id, kind="screenshot", rel_path="big-evidence.png",
+            sha256=sha256_file(big), size=big.stat().st_size,
+            mime="image/png"))
+        db.session.commit()
         rl.generate_for(ex)
         root = Path(ex.report_dir)
         g1_dir = Path(ex.rl_path).parent
         g1_json = root / g1_dir / "report.json"
+        g1_assets = list((root / g1_dir / "assets").iterdir())
+        assert g1_assets, "large attachment should externalise to assets/"
         rl.generate_for(ex)
-        # in-flight reader of gen1: every file still resolves
+        rl.generate_for(ex)
+        # in-flight reader of gen1 through TWO newer publications:
+        # every file still resolves
         assert (root / g1_dir / "index.html").exists()
         assert g1_json.exists()
+        for a in g1_assets:
+            assert a.exists(), a
         rl.generate_for(ex)
-        # TWO regens stale -> oldest pruned; only current+prev remain
+        # THREE regens stale -> oldest pruned; newest three remain
         assert not (root / g1_dir / "index.html").exists()
         gens = sorted((root / "reporting-labs").glob("gen-*"))
-        assert len(gens) == 2
+        assert len(gens) == 3
 
 
 def test_db_crash_after_publish_leaves_servable_state(app, tmp_path,
