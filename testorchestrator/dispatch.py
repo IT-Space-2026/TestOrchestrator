@@ -843,6 +843,31 @@ def _normalize(ex: Execution) -> None:
     ex.outcome = Outcome(
         aggregate_outcome([c[0] for c in cases], completed=completed)
     )
+    # 2.0.1: stamp dedup fingerprints so repository imports match this
+    # live run — same canonicalisation the importer applies.
+    try:
+        from . import importer as _imp
+        _uuid_f = Path(ex.report_dir or "") / "execution.uuid"
+        if _uuid_f.is_file() and not ex.run_uuid:
+            ex.run_uuid = _uuid_f.read_text().strip()[:64]
+        if not ex.content_hash and cases:
+            suite_keys, timestamps, totals = [], [], 0
+            for artifact in junit_artifacts:
+                path = Path(ex.report_dir) / artifact.rel_path
+                try:
+                    parsed = parse_junit(path)
+                except Exception:
+                    continue
+                for s in parsed.suites:
+                    suite_keys.append((s["id"] or s["name"],
+                                       s["timestamp"]))
+                    if s["timestamp"]:
+                        timestamps.append(s["timestamp"])
+                totals += parsed.producer_tests
+            ex.content_hash = _imp.content_fingerprint(
+                suite_keys, timestamps, [c[0] for c in cases], totals)
+    except Exception:
+        pass                        # fingerprinting never breaks normalize
     db.session.commit()
 
 

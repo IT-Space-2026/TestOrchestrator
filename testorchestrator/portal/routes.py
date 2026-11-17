@@ -1048,6 +1048,10 @@ def executions():
         q = q.filter(Execution.runner_id == args["runner_id"])
     if args.get("schedule_id", ""):
         q = q.filter(Execution.schedule_id == args["schedule_id"])
+    if args.get("origin", "") in ("live", "imported"):
+        q = q.filter(Execution.origin == args["origin"])
+    if args.get("framework", ""):
+        q = q.filter(Execution.framework == args["framework"])
     if args.get("from_date", ""):
         try:
             q = q.filter(Execution.created_at >=
@@ -1079,6 +1083,9 @@ def executions():
         page_args=page_args,
         states=[s.value for s in ExecutionState],
         outcomes=[o.value for o in Outcome],
+        frameworks=sorted({e.framework for e in
+                           Execution.query.with_entities(
+                               Execution.framework).distinct()}),
         projects=Project.query.order_by(Project.name).all(),
         runners=_R.query.order_by(_R.name).all(),
         schedules=Schedule.query.order_by(Schedule.name).all(),
@@ -2245,3 +2252,94 @@ def _discovery_summary(project_id: str) -> dict:
     warns = [i for i in items if i.warnings]
     return {"binding": b, "counts": counts, "rows": items,
             "warnings": warns}
+
+
+# ---------- repository-result import (2.0.1) ----------
+
+@portal_bp.route("/projects/<project_id>/imports/new")
+@role_required(*EDIT_ROLES)
+def import_new(project_id):
+    project = _project_or_404(project_id)
+    bindings = [b for b in project.bindings if b.worktree_path]
+    return render_template("portal/import_new.html", project=project,
+                           bindings=bindings, form=PlainForm())
+
+
+@portal_bp.route("/projects/<project_id>/imports/preview",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def import_preview(project_id):
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    from .. import importer
+    binding = db.session.get(GitBinding,
+                             request.form.get("binding_id", ""))
+    if binding is None or binding.project_id != project.id:
+        flash("Unknown binding for this project.", "error")
+        return redirect(url_for("portal.import_new",
+                                project_id=project.id))
+    try:
+        session = importer.create_preview(
+            project, binding,
+            request.form.get("revision", "").strip(),
+            request.form.get("result_dir", "").strip(),
+            current_user.username)
+    except importer.ImportError_ as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("portal.import_new",
+                                project_id=project.id))
+    record_audit(current_user.username, "import.preview", session.id)
+    return redirect(url_for("portal.import_session",
+                            project_id=project.id, session_id=session.id))
+
+
+@portal_bp.route("/projects/<project_id>/imports/<session_id>")
+@role_required(*EDIT_ROLES)
+def import_session(project_id, session_id):
+    project = _project_or_404(project_id)
+    from ..execution import ImportSession
+    session = db.session.get(ImportSession, session_id)
+    if session is None or session.project_id != project.id:
+        abort(404)
+    matched = {c.match_execution_id: db.session.get(
+        Execution, c.match_execution_id)
+        for c in session.candidates if c.match_execution_id}
+    return render_template("portal/import_preview.html",
+                           project=project, session=session,
+                           matched=matched, form=PlainForm())
+
+
+@portal_bp.route("/projects/<project_id>/imports/<session_id>/confirm",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def import_confirm(project_id, session_id):
+    project = _project_or_404(project_id)
+    from ..execution import ImportSession
+    PlainForm().validate_on_submit()
+    session = db.session.get(ImportSession, session_id)
+    if session is None or session.project_id != project.id:
+        abort(404)
+    selected = request.form.getlist("cand")
+    force = request.form.getlist("force_new")
+    from .. import importer
+    try:
+        summary = importer.confirm_import(
+            session, selected, force, current_user.username)
+    except importer.ImportError_ as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("portal.import_session",
+                                project_id=project.id,
+                                session_id=session.id))
+    record_audit(current_user.username, "import.confirm",
+                 f"{session.id}: "
+                 f"{len(summary['imported'])} imported, "
+                 f"{len(summary['skipped'])} duplicates")
+    return render_template("portal/import_summary.html",
+                           project=project, session=session,
+                           summary=summary,
+                           resolved={eid: db.session.get(Execution, eid)
+                                     for _c, eid in
+                                     summary["imported"] +
+                                     summary["skipped"] +
+                                     [(c, e) for c, e, _f in
+                                      summary["supplemented"]]})

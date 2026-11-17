@@ -46,6 +46,10 @@ class ParsedRun:
     producer_skipped: int = 0
     partial: bool = False          # parse problems encountered
     discrepant: bool = False       # producer totals ≠ counted cases
+    # Suite identity metadata (2.0.1) — one entry per <testsuite>
+    # element: {id, name, timestamp, hostname}. Katalon writes exactly
+    # one suite per JUnit_Report.xml; generic junit may carry several.
+    suites: list = field(default_factory=list)
 
 
 def _text_of(element) -> str:
@@ -84,6 +88,12 @@ def parse_junit(path: Path) -> ParsedRun:
 
     suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
     for suite in suites:
+        run.suites.append({
+            "id": suite.get("id", "") or "",
+            "name": suite.get("name", "") or "",
+            "timestamp": suite.get("timestamp", "") or "",
+            "hostname": suite.get("hostname", "") or "",
+        })
         for key, attr in (("producer_tests", "tests"),
                           ("producer_failures", "failures"),
                           ("producer_errors", "errors"),

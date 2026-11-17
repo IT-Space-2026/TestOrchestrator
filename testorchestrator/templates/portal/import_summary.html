@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Import complete · {{ project.name }}{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=project.id) }}">← Back to project</a></p>
+<h1>Import summary — {{ project.name }}</h1>
+<dl class="meta">
+  <dt>Commit</dt><dd><code>{{ session.resolved_sha }}</code></dd>
+  <dt>Imported</dt><dd>{{ summary["imported"] | length }}</dd>
+  <dt>Duplicates skipped</dt><dd>{{ summary["skipped"] | length }}</dd>
+  <dt>Supplemented</dt><dd>{{ summary["supplemented"] | length }}</dd>
+  <dt>Ambiguous (not imported)</dt><dd>{{ summary["ambiguous"] | length }}</dd>
+  <dt>Failed</dt><dd>{{ summary["failed"] | length }}</dd>
+</dl>
+{% if summary["imported"] or summary["supplemented"] %}
+<h2>History entries</h2>
+<ul>
+{% for _c, eid in summary["imported"] %}
+  <li><a href="{{ url_for('portal.execution_detail', execution_id=eid) }}"><code>{{ eid[:8] }}</code></a>
+    — imported ({{ resolved[eid].outcome.value if resolved[eid] }})</li>
+{% endfor %}
+{% for _c, eid, filled in summary["supplemented"] %}
+  <li><a href="{{ url_for('portal.execution_detail', execution_id=eid) }}"><code>{{ eid[:8] }}</code></a>
+    — supplemented missing data: {{ filled | join(", ") }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if summary["skipped"] %}
+<h2>Duplicates — already in history</h2>
+<ul>
+{% for _c, eid in summary["skipped"] %}
+  <li><a href="{{ url_for('portal.execution_detail', execution_id=eid) }}"><code>{{ eid[:8] }}</code></a></li>
+{% endfor %}
+</ul>
+{% endif %}
+<p><a class="button secondary" href="{{ url_for('portal.executions', project_id=project.id, origin='imported') }}">View imported history</a></p>
+{% endblock %}

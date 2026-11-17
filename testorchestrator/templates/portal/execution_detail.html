@@ -65,12 +65,27 @@
   <dt>Finished</dt><dd>{{ ex.finished_at or "—" }}</dd>
   <dt>Exit status</dt><dd>{{ ex.exit_status if ex.exit_status is not none else "—" }}</dd>
   <dt>Git sync</dt><dd>{{ ex.git_state.value }}</dd>
+  {% if ex.origin == "imported" %}
+  {% set imp = ex.snapshot().get('import', {}) %}
+  <dt>Origin</dt><dd><span class="badge imported">imported</span>
+    by {{ ex.imported_by }} at {{ (ex.imported_at|string)[:19] }}</dd>
+  <dt>Source repository</dt><dd><code>{{ ex.source_repo or "—" }}</code></dd>
+  <dt>Source commit</dt><dd><code>{{ ex.source_commit or "—" }}</code></dd>
+  <dt>Source path</dt><dd><code>{{ ex.source_path or "—" }}</code></dd>
+  <dt>Parser</dt><dd><code>{{ imp.get('parser') or "—" }}</code></dd>
+  {% if imp.get('warnings') %}
+  <dt>Import warnings</dt><dd>
+    {% for w in imp.warnings %}<small class="muted">{{ w }}</small><br>{% endfor %}
+  </dd>
+  {% endif %}
+  {% endif %}
   {% if ex.error_kind %}
   <dt>Error</dt><dd>{{ ex.error_kind }} — {{ ex.error_text }}</dd>
   {% endif %}
 </dl>
 
 {% if ex.state.value not in ("completed", "failed", "canceled")
+   and ex.origin != "imported"
    and current_user.role.value != "po" %}
 <form method="post" action="{{ url_for('portal.cancel_execution', execution_id=ex.id) }}" class="inline">
   {{ plain_form.csrf_token }}
@@ -95,7 +110,8 @@
 {% endif %}
 
 {% if ex.state.value in ("completed", "failed", "canceled", "unknown")
-   and ex.outcome.value != "passed" and current_user.role.value != "po" %}
+   and ex.outcome.value != "passed" and ex.origin != "imported"
+   and current_user.role.value != "po" %}
 <form method="post" action="{{ url_for('portal.retry_execution', execution_id=ex.id) }}" class="inline">
   {{ plain_form.csrf_token }}
   <button type="submit" class="button secondary">Retry (new attempt)</button>

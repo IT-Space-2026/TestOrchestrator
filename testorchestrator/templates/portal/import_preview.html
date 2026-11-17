@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Import preview · {{ project.name }}{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=project.id) }}">← Back to project</a></p>
+<h1>Import preview — {{ project.name }}</h1>
+<dl class="meta">
+  <dt>Resolved commit</dt><dd><code>{{ session.resolved_sha }}</code>
+    (requested: {{ session.revision_input or "HEAD" }})</dd>
+  <dt>Result directory</dt><dd><code>{{ session.result_dir or "." }}</code></dd>
+  <dt>Preview by</dt><dd>{{ session.created_by }} —
+    {{ (session.created_at|string)[:19] }}</dd>
+</dl>
+<p class="muted">Preview only — no execution-history records exist yet.
+Select the runs to import; duplicates and ambiguous matches are shown
+with their matched execution.</p>
+
+{% set importable = session.candidates | selectattr("decision", "in", ["new", "supplement"]) | list %}
+<form method="post" action="{{ url_for('portal.import_confirm', project_id=project.id, session_id=session.id) }}">
+  {{ form.csrf_token }}
+<table class="data-table">
+  <thead><tr><th></th><th>Run directory</th><th>Suite</th><th>Started</th>
+    <th>Cases</th><th>Decision</th><th>Matched / warnings</th></tr></thead>
+  <tbody>
+  {% for c in session.candidates %}
+  <tr>
+    <td>
+      {% if c.status == "imported" %}<span class="badge imported">imported</span>
+      {% elif c.status == "skipped" %}<span class="badge">skipped</span>
+      {% elif c.decision in ("new", "supplement") %}
+        <input type="checkbox" name="cand" value="{{ c.id }}" checked>
+      {% elif c.decision == "ambiguous" %}
+        <input type="checkbox" name="force_new" value="{{ c.id }}">
+      {% else %}—{% endif %}
+    </td>
+    <td><code>{{ c.run_dir }}</code></td>
+    <td>{{ c.suite_name or "—" }}</td>
+    <td>{{ (c.started_at|string)[:19] if c.started_at else "unknown" }}</td>
+    <td>{{ c.case_count }}</td>
+    <td><span class="badge decision-{{ c.decision }}">{{ c.decision }}</span>
+      {% if c.status == "failed" %}<br><span class="warn">{{ c.error }}</span>{% endif %}
+    </td>
+    <td>
+      {% if c.match_execution_id and matched.get(c.match_execution_id) %}
+        <a href="{{ url_for('portal.execution_detail', execution_id=c.match_execution_id) }}"><code>{{ c.match_execution_id[:8] }}</code></a>
+        {% if c.decision == "ambiguous" %}— check box to import as a
+        <b>new</b> execution anyway{% endif %}
+      {% endif %}
+      {% if c.imported_execution_id %}
+        → <a href="{{ url_for('portal.execution_detail', execution_id=c.imported_execution_id) }}"><code>{{ c.imported_execution_id[:8] }}</code></a>
+      {% endif %}
+      {% for w in c.warnings() %}<br><small class="muted">{{ w }}</small>{% endfor %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<div class="form-actions">
+  <button type="submit" class="button">Import selected</button>
+  <small class="muted">Duplicates are re-checked at commit; ambiguous
+  rows import only when explicitly ticked (imported as new runs).</small>
+</div>
+</form>
+{% endblock %}

@@ -5,37 +5,77 @@ implementation on branch `feature/2.0.1` (from tag `v2.0.0`/`cdc4a91`).
 
 ## Implementation plan (updated during build)
 
-### A. Repository-result import
+### A. Repository-result import — design (post-inspection)
 
-Real KRE output inspected (live remote-run evidence):
-`Reports/<YYYYMMDD_HHMMSS>/<Suite>/<ts>/` containing
-`JUnit_Report.xml` (structured results + properties: suite id,
-timestamp, host, katalonVersion, projectName), `execution0.log`,
-`console0.log`, `execution.properties` (run metadata),
-`execution.uuid` (KRE-side run identifier — primary dedup key),
-`testCaseBinding`, `<ts>.html`, `<ts>.csv`, `tsc_id.txt`, `requests/`.
+Existing surface reused, never forked: `Execution`/`TestResult`/
+`Artifact` (already framework-agnostic), `results.parse_junit`,
+`aggregate_outcome`, `build_evidence_manifest`, artifact serving
+routes, and the reporting-labs adapter (needs only `ex.results` +
+`ex.report_dir` — works unchanged for imported runs).
 
-- **Supported inputs**: KRE report directories (the layout above) and
-  bare JUnit XML matching the Katalon schema. HTML/CSV are evidence
-  artifacts only — never parsed for results (no structured data).
-- **Grouping**: one `Reports/<ts>/<Suite>/<ts>/` tree = one execution
-  per suite; a multi-suite collection run is one execution with N
-  suite results sharing the outer timestamp dir.
-- **Identifiers/dedup**: `execution.uuid` when present; else
-  content-hash key over the suite's JUnit XML + properties
-  (project, suite id, start timestamp, per-case identity) — never
-  filename/commit/test-count alone. Cross-checked against live
-  executions via their stored remote-run report hash/uuid.
-- **Schema**: `executions.origin` (live|imported), `imported_at`,
-  `imported_by`, `source_repo`, `source_commit`, `source_path`,
-  `content_hash`, `run_uuid`; results unchanged; `import_warnings`/
-  provenance table for parser version + per-input status.
-  Alembic migration, additive only.
-- **rlabs rendering**: outcomes, durations, suite/case names,
-  failure text from JUnit `<system-out>`; artifacts (logs, html,
-  screenshots under `requests/`) as evidence links. Missing pieces
-  (env, runner, snapshot) shown as unavailable — report generation
-  explains gaps rather than inventing them.
+**Inspected real inputs** (live remote-run evidence):
+`Reports/<YYYYMMDD_HHMMSS>/[<Suite>/]<ts>/` containing
+`JUnit_Report.xml` (testsuite `@id`, `@timestamp`, `@hostname`,
+properties: katalonVersion, projectName, os), `execution0.log`,
+`console0.log`, `execution.properties`, `execution.uuid` (KRE run
+identity — the primary dedup key), `testCaseBinding`, `<ts>.html`,
+`<ts>.csv`, `tsc_id.txt`, `requests/` (response captures).
+
+- **Supported inputs**: a run directory = any directory containing
+  ≥1 parseable JUnit XML (`JUnit_Report.xml`, else any `*.xml` that
+  parses via `parse_junit`). Everything else in the dir is evidence.
+  HTML/CSV/properties alone NEVER reconstruct a run — a dir without
+  parseable JUnit is an `unsupported`/`malformed` candidate, never an
+  execution. Generic (non-Katalon) JUnit accepted with reduced
+  metadata — documented as best-effort.
+- **Grouping**: one run dir → one execution. A multi-suite Katalon
+  collection produces one dir per suite → separate executions (KRE
+  writes separate JUnit per suite; suite identity is preserved).
+- **Identifiers & dedup** (project-scoped, evaluated in order):
+  1. `run_uuid` — `execution.uuid` content, exact match → **duplicate**
+     (skip, link to existing).
+  2. `content_hash` — sha256 over canonical
+     `{suite_key, timestamp, [classname,name,status,duration_s], totals}`
+     exact match → **duplicate** (covers copied/renamed dirs; a rerun
+     has a different timestamp → different hash → retained as new).
+  3. same `suite_key`+`timestamp` but a strict subset/superset of
+     cases → **ambiguous** — requires explicit "import as new"
+     review, never silently merged or created.
+  4. uuid/hash match where the existing row is missing data the input
+     demonstrates (unfinished_at, missing artifacts) → **supplement** —
+     fills only empty fields, existing values/provenance preserved.
+  5. everything else → **new**.
+  Live executions get `run_uuid`/`content_hash` stamped at `_normalize`
+  (same canonicalisation); historical live rows are fingerprinted
+  lazily from their `report_dir` at match time. Constraint-backed:
+  partial unique indexes on `(project_id, run_uuid)` and
+  `(project_id, content_hash)` make concurrent imports transactional —
+  a race between preview and confirm resolves via recheck +
+  IntegrityError→duplicate, never a second row.
+- **Schema** (migration `q7r8s9t0u1v2`, additive):
+  `executions.origin` (live|imported), `.framework` (default
+  `katalon`), `.imported_at`, `.imported_by`, `.run_uuid`,
+  `.content_hash`, `.source_repo`, `.source_commit`, `.source_path`;
+  new `import_sessions` (durable preview: binding, requested rev,
+  resolved sha, result dir, user, status, summary) and
+  `import_candidates` (per-detected-run decision, fingerprints,
+  warnings, match, outcome) — preview persists bookkeeping only,
+  never history rows.
+- **Timestamps**: `started_at`/`finished_at` = original JUnit
+  timestamps; `created_at` = import time (history ordering is honest:
+  the row appeared when imported); `imported_at`/`imported_by` audit.
+- **Missing data**: suite binding best-effort (link by suite identity
+  when a project suite matches, else NULL + name in snapshot);
+  runner/runtime/environment stay NULL — never invented.
+- **rlabs**: generated via the existing route; imported executions
+  carry results + evidence so generation works; insufficient data
+  yields the adapter's honest `missing`/`failed` statuses.
+- **Safety**: staging = isolated checkout (`git_backend.checkout` at
+  resolved sha into `instance/import-staging/<session>/`); safe_relpath
+  on every artifact; symlinks/traversal rejected; file-count/size/XML
+  limits; evidence copied to `instance/imported-evidence/<exec_id>/`
+  (durable, outside the transient checkout); ElementTree-only XML
+  (no DTD/entities — same as `parse_junit`).
 
 ### B. One-command builds (`build-scripts/`)
 
@@ -112,3 +152,81 @@ duplicate TestResult/artifact rows.
 - pyrept adoption — still gated on the re-evaluation triggers in
   `docs/decisions/reporting-backend.md` (attachment import,
   per-attempt retry detail).
+
+## Implementation record — repository-result import (deliverable 1)
+
+**Status:** implemented on `feature/2.0.1`, all automated checks green.
+
+### What was built
+
+- `testorchestrator/importer.py` — detection → parse → fingerprint →
+  classify → preview → transactional confirm. Parsers are separate
+  from repository access and dispatch.
+- Schema (additive, migration `q7r8s9t0u1v2`):
+  `executions` gains `origin`, `framework`, `run_uuid`,
+  `content_hash`, `imported_at`, `imported_by`, `source_repo`,
+  `source_commit`, `source_path`; new bookkeeping tables
+  `import_sessions`/`import_candidates` (workflow state only — never
+  history records). Partial unique indexes on
+  `(project_id, run_uuid)` and `(project_id, content_hash)` make
+  concurrent imports transactional.
+- `results.parse_junit` now exposes per-`<testsuite>` metadata
+  (`suites`) used by fingerprints; live normalization stamps
+  `run_uuid`/`content_hash` so later imports match live runs.
+- Portal: `GET/POST /projects/<id>/imports/new|preview`,
+  `GET /projects/<id>/imports/<sid>`,
+  `POST .../confirm` — `EDIT_ROLES`, project-scoped via
+  `_project_or_404`. History gains `origin` and `framework` filters
+  and an `imported` badge; detail view shows provenance/warnings and
+  hides Cancel/Retry for imported runs.
+
+### Identity & dedup rules (as designed, with one real-data fix)
+
+- `execution.uuid` (KRE run id) + canonical `content_hash` over
+  suite keys, timestamps, per-case tuples, totals.
+- **Collection runs**: KRE emits one report dir per suite sharing a
+  single `execution.uuid` — dirs with the same uuid merge into ONE
+  candidate/execution (discovered on real E2E evidence; member dirs
+  recorded on the candidate for confirm-time re-parse).
+- Confirmed duplicate → skipped + linked. Same-run-with-gaps →
+  `supplement` fills only demonstrably missing fields (timestamps,
+  unseen evidence by SHA-256) preserving provenance. Same suite+time
+  but differing case set → `ambiguous`, requires explicit
+  "import as new". Different timestamp = different run, even with
+  identical outcomes. Filenames/commits/totals alone never identify
+  a run.
+- Confirm re-parses from staging and rechecks inside the per-candidate
+  transaction; IntegrityError races resolve to the existing row.
+- Evidence copied to `instance/imported-evidence/<exec_id>/`
+  preserving repo-relative layout; staging under
+  `instance/import-staging/` cleaned after confirm (7-day lazy sweep).
+- Limits: 20k dirs scanned, 2k files/512MB per run, 64MB per XML,
+  500 candidates; symlinks and dotdirs skipped; `..` paths rejected.
+
+### Verification
+
+- 19 new tests (`tests/test_import_results.py`): KRE parse, multi-dir
+  grouping, duplicates, renamed copies, distinct reruns, ambiguous →
+  review → force-new, legacy live-exec match, supplement, malformed/
+  unsupported, project-scoped dedup, no dup test/attempt rows,
+  preview→confirm race, auth/roles, history/detail visibility, reopen
+  persistence, rlabs generation.
+- Full suite: **610 passed, 1 skipped**.
+- Migration verified: v2.0.0-shape DB → `alembic upgrade head` adds
+  all columns/tables/indexes.
+- **Real-input acceptance** (actual KRE output from the recorded 2.0.0
+  E2E evidence, staged into a git repo — real artifacts, not
+  synthetic): preview detected 3 real runs (single-suite, 2-case
+  collection merged into one 26-case execution, distinct rerun);
+  import produced correct results/artifacts; reportingLabs `ready`
+  for all three; repeat import → all duplicates; a legacy unstamped
+  live execution was matched via lazy fingerprint (supplement, no
+  second row); persisted across app reopen.
+
+### Known limitations (honest, not passes)
+
+- Matching scans candidate executions per project — fine at current
+  scale; index-backed lookup can be added if needed.
+- Generic JUnit XML (non-KRE) is detected and parsed, but framework
+  attribution stays `katalon` until additional parsers register.
+- Windows interactive + real-corpus checks remain waived as in 2.0.0.
