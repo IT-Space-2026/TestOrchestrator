@@ -12,6 +12,6 @@ file and LICENSE. The upstream pytest entry point
 (`[pytest11] reporting_labs`) is not registered by vendoring; the repo's
 pytest.ini already disables that plugin (`-p no:reporting_labs`).
 
-Upgrade procedure: replace this directory with the new wheel's `reporting_labs`
+Upgrade procedure: replace 3rdparty/reporting_labs/ with the new wheel's `reporting_labs`
 package contents, update the version above and LICENSE if upstream re-issued
 it, and update the pinned version assertion in scripts/validate_package.py.

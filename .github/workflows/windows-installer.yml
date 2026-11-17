@@ -46,7 +46,7 @@ jobs:
           $p = Start-Process (Get-ChildItem -Recurse ".\installer" -Filter "*windows-amd64-setup-UNSIGNED.exe" | Select-Object -First 1).FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
           Write-Host "installer exit: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
-          foreach ($f in @("$inst\python\python.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem","$inst\run_worker.py")) {
+          foreach ($f in @("$inst\python\python.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem","$inst\run_worker.py","$inst\3rdparty\reporting_labs\__init__.py","$inst\3rdparty\reporting_labs\LICENSE")) {
             if (!(Test-Path $f)) { throw "MISSING: $f" }
             Write-Host "present: $f"
           }

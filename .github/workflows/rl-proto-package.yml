@@ -29,8 +29,8 @@ jobs:
           cd packaging/windows
           export PATH="/c/Program Files (x86)/NSIS:$PATH"
           bash build_app_installer.sh
-          ls app-payload | grep -qi "^reporting_labs$" || {
-            echo "MISSING vendored reporting_labs"; exit 1; }
+          ls app-payload/3rdparty | grep -qi "^reporting_labs$" || {
+            echo "MISSING vendored 3rdparty/reporting_labs"; exit 1; }
           echo "payload staged: $(du -sh app-payload | cut -f1)"
 
       - name: compile prototype installer (same NSIS settings)
@@ -69,7 +69,7 @@ jobs:
           Write-Host "installed footprint: $size bytes"
           if (Test-Path "$inst\nodejs") { throw "nodejs leaked into payload" }
           if (Test-Path "$inst\allure3") { throw "allure3 leaked into payload" }
-          & "$inst\python\python.exe" -c "import reporting_labs, sys; print('reporting_labs OK', getattr(reporting_labs,'__version__','?'))"
+          & "$inst\python\python.exe" -c "import testorchestrator, reporting_labs, sys; print('reporting_labs OK', getattr(reporting_labs,'__version__','?'))"
           if ($LASTEXITCODE -ne 0) { throw "reporting_labs not importable in installed runtime" }
           Write-Host "PASS proto install + rl dependency available"
 

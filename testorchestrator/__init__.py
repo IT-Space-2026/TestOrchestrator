@@ -10,12 +10,38 @@ Architecture notes (v1.0–v1.6 foundation + v1.7 About/branding):
   adapters in ``testorchestrator.adapters`` and run outside request handlers.
 """
 
+import importlib.util
 import os
 import secrets
+import sys
 from datetime import timedelta
 from pathlib import Path
 
 from flask import Flask, render_template
+
+
+# Vendored reporting-labs (MIT, 0.1.14) lives at
+# <package-root>/3rdparty/reporting_labs in BOTH the source checkout and
+# the installed payload (the installer copies 3rdparty/ wholesale). A
+# scoped meta-path finder resolves only the ``reporting_labs`` name from
+# there — no other 3rdparty directory becomes importable (they are not
+# Python packages but could otherwise surface as namespace packages),
+# and the vendored copy deterministically wins over any stray
+# site-packages install. No PYTHONPATH or manual copy is ever required.
+class _VendoredReportingLabs:
+    _PKG = (Path(__file__).resolve().parent.parent
+            / "3rdparty" / "reporting_labs")
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname != "reporting_labs" \
+                or not (self._PKG / "__init__.py").is_file():
+            return None
+        return importlib.util.spec_from_file_location(
+            "reporting_labs", self._PKG / "__init__.py",
+            submodule_search_locations=[str(self._PKG)])
+
+
+sys.meta_path.insert(0, _VendoredReportingLabs())
 
 from .config import BASE_DIR, Config, INSTANCE_DIR
 from .extensions import csrf, db, login_manager, migrate

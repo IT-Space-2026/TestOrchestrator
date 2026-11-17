@@ -16,7 +16,7 @@ requirements, and installation instructions.
 | Runner connector (`testorchestrator/agent.py` + API) | yes (source) | in-process tests | live remote-host run |
 | Git runtime | not bundled | Dulwich default; `TO_GIT_BACKEND=cli` uses host git or `acquire_git.py` re-stage (rootfs not tracked in repo) | — |
 | Dagu 2.27.0 | yes | contract test + fixture chain green | — |
-| reporting-labs 0.1.14 (sole enhanced backend, 2.0) | yes — vendored in-repo source (`./reporting_labs`, MIT) | pure-Python, no external runtime | — |
+| reporting-labs 0.1.14 (sole enhanced backend, 2.0) | yes — vendored in-repo source (`3rdparty/reporting_labs`, MIT) | pure-Python, no external runtime | — |
 | ReportPortal stack/images/config | **no** | — | container backend + pinned images |
 | KRE | **no** (external by requirement) | — | operator-installed |
 | Installer/launcher (config/services/HTTPS) | partial `scripts/install.py` + `create_venv_offline` | dry-path only | full lifecycle on target |
@@ -27,7 +27,7 @@ requirements, and installation instructions.
 
 Allure 3 + bundled Node.js were removed in 2.0. The sole enhanced
 report backend is `reporting-labs==0.1.14` — pure-Python source
-vendored in-repo at `./reporting_labs` (MIT licence retained). No
+vendored in-repo at `3rdparty/reporting_labs` (MIT licence retained). No
 Java, Node, npm, PyPI download, or external generator is required at
 install or runtime; there is no runtime probe to validate.
 Historical Allure report files from 1.x installs are preserved on

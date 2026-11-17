@@ -87,6 +87,77 @@ jobs:
             report_serving_check.py check
           echo "PASS retained reports/licence/access after v1.0.2->candidate upgrade"
 
+  installer-validate:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: testorchestrator-linux-package
+          path: candidate
+      - name: install candidate through install.sh (CI test licence)
+        run: |
+          set -e
+          TB=$(find candidate -name "testorchestrator-*-linux-x86_64.tar.gz" | head -1)
+          mkdir -p /tmp/cand-inst && tar -xzf "$TB" -C /tmp/cand-inst
+          P=$(echo /tmp/cand-inst/testorchestrator-*-linux-x86_64)
+          cd "$P"
+          # CI-only test licence: ephemeral keypair signed code + pubkey
+          # substituted in the EXTRACTED copy (the release artifact is
+          # untouched). Crypto comes from the package's own wheels.
+          WD=$(mktemp -d)
+          for w in 3rdparty/python-wheels/*.whl; do
+            n=$(basename "$w" | cut -d- -f1 | tr 'A-Z' 'a-z')
+            case "$n" in
+              cryptography|cffi|pycparser)
+                python3 -c "import zipfile,sys;zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$w" "$WD" ;;
+            esac
+          done
+          PYTHONPATH="$WD" python3 - <<'PY'
+          import base64,datetime,json,uuid
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          from cryptography.hazmat.primitives.serialization import (
+              Encoding,NoEncryption,PrivateFormat,PublicFormat)
+          k=Ed25519PrivateKey.generate()
+          open('ci-pubkey.pem','wb').write(k.public_key().public_bytes(
+              Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
+          vf=datetime.datetime(2026,1,1,tzinfo=datetime.timezone.utc)
+          vu=datetime.datetime(2030,1,1,tzinfo=datetime.timezone.utc)
+          p={'version':1,'key_id':'prod','licence_id':uuid.uuid4().hex[:16],
+             'product':'TestOrchestrator','customer':'ci-installer-validate',
+             'valid_from':vf.isoformat(),'valid_until':vu.isoformat()}
+          c=json.dumps(p,sort_keys=True,separators=(',',':')).encode()
+          s=k.sign(c)
+          open('ci-lic.txt','w').write(
+              'TO1.'+base64.urlsafe_b64encode(c).decode().rstrip('=')
+              +'.'+base64.urlsafe_b64encode(s).decode().rstrip('='))
+          PY
+          cp ci-pubkey.pem release/licence_pubkey.pem
+          TO_LICENCE_CODE="$(cat ci-lic.txt)" bash install.sh \
+            --payload /tmp/ci-payload --data /tmp/ci-data \
+            --config /tmp/ci-config \
+            --https-port 8443 --no-service-start --yes
+      - name: installed payload includes + resolves reporting_labs
+        run: |
+          set -e
+          test -f /tmp/ci-payload/3rdparty/reporting_labs/__init__.py
+          test -f /tmp/ci-payload/3rdparty/reporting_labs/LICENSE
+          cd /tmp/ci-payload
+          ./venv/bin/python -c "import testorchestrator, reporting_labs; \
+            assert '/3rdparty/' in reporting_labs.__file__, reporting_labs.__file__; \
+            print('installed reporting_labs', reporting_labs.__version__, reporting_labs.__file__)"
+      - name: report generation + serving from installed payload
+        run: |
+          set -e
+          cd /tmp/ci-payload
+          export TO_INSTANCE_DIR=/tmp/ci-data TO_SECURE_COOKIES=0
+          ./venv/bin/python -m testorchestrator db-upgrade
+          cp "$GITHUB_WORKSPACE/packaging/ci/report_serving_check.py" .
+          ./venv/bin/python report_serving_check.py seed
+          ./venv/bin/python report_serving_check.py check
+          echo "PASS installer payload generates + serves reportingLabs reports"
+
   upgrade-from-v200:
     needs: build
     runs-on: ubuntu-latest

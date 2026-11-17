@@ -22,7 +22,7 @@ cd /opt/testorchestrator-1.0.0-pre.5
 2. `systemctl start testorchestrator-web` → `systemctl is-active` = active.
 3. `curl -sf http://127.0.0.1:<port>/login` → 200 (schema migrated, bootstrap Admin created).
 4. `python -c "import dulwich"` inside the bundled runtime → 1.2.20, no git on PATH needed.
-5. `import reporting_labs` resolves to the vendored in-repo source (`./reporting_labs`, MIT) → 0.1.14; a report generates with no Node/Java and no PyPI download.
+5. `import reporting_labs` resolves to the vendored in-repo source (`3rdparty/reporting_labs`, MIT) → 0.1.14; a report generates with no Node/Java and no PyPI download.
 6. Download route lists `dagu_2.27.0_*_amd64.tar.gz` + worker installer, checksums match.
 7. `ldd` sweep of every bundled executable → no `not found` outside libc/glibc-2.39+.
 8. `TO_GIT_BACKEND=dulwich` clone of a local `file://` repo succeeds with no git binary.

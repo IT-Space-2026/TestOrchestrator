@@ -382,7 +382,7 @@ limitation — empty steps are not demonstrated parity.
 Measured against the published v1.0.2 installers; the prototype stages
 the SAME payload contents/architecture/compression minus
 `3rdparty/nodejs` + `3rdparty/allure3` (incl. `node_modules`), plus
-`reporting-labs==0.1.14` — **vendored source** at `./reporting_labs`
+`reporting-labs==0.1.14` — **vendored source** at `3rdparty/reporting_labs`
 (MIT, `VENDORED.md` provenance; no PyPI download at install or dev
 setup — previously shipped as wheel 246,730 B; ~1.25 MB installed; zero
 dependencies). Windows prototype produced by

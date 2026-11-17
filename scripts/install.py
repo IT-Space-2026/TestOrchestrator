@@ -27,19 +27,19 @@ SERVICE_USER = "testorchestrator"
 # item is an installer defect (2.0.2 shipped without reporting_labs and
 # report generation failed on installed systems). Every name must exist
 # at the package root; an absent source aborts the install instead of
-# producing a half-complete payload.
+# producing a half-complete payload. Vendored reporting-labs arrives via
+# 3rdparty/reporting_labs inside the "3rdparty" item.
 PAYLOAD_ITEMS = [
     "testorchestrator", "wsgi.py", "requirements.txt",
     "release", "3rdparty", "migrations", "deploy", "scripts",
-    "reporting_labs",
 ]
 # Files that MUST be present in the payload after copying — checked
 # before the install is allowed to proceed.
 REQUIRED_PAYLOAD_FILES = (
     "testorchestrator/__init__.py",
     "wsgi.py",
-    "reporting_labs/__init__.py",
-    "reporting_labs/LICENSE",
+    "3rdparty/reporting_labs/__init__.py",
+    "3rdparty/reporting_labs/LICENSE",
 )
 
 

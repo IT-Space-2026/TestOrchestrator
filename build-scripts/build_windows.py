@@ -37,8 +37,11 @@ PAYLOAD = REPO / "packaging" / "windows" / "app-payload"
 # build_app_installer.sh's staging set.
 APP_COPY = [
     "testorchestrator", "migrations", "wsgi.py", "run_worker.py",
-    "requirements.txt", "release", "deploy", "reporting_labs",
+    "requirements.txt", "release", "deploy",
 ]
+# Vendored reporting-labs lands under 3rdparty/ — the same location the
+# app's vendored-source bootstrap resolves in every installed layout.
+VENDORED_RL = ("3rdparty/reporting_labs", "3rdparty/reporting_labs")
 
 
 def stage_app_payload(vpy: Path, dl: Path, log: Log) -> None:
@@ -79,6 +82,11 @@ def stage_app_payload(vpy: Path, dl: Path, log: Log) -> None:
                 "__pycache__", "*.pyc", ".pytest_cache", "instance"))
         else:
             shutil.copy2(src, dst)
+    src, dst = REPO / VENDORED_RL[0], PAYLOAD / VENDORED_RL[1]
+    if not src.is_dir():
+        raise BuildError(f"payload source missing: {VENDORED_RL[0]}")
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
+        "__pycache__", "*.pyc"))
     prov = REPO / "scripts" / "provision_dagu.py"
     shutil.copy2(prov, PAYLOAD / "provision_dagu.py")
 
@@ -105,7 +113,9 @@ def check_payload(log: Log) -> dict:
                 "testorchestrator/templates", "testorchestrator/static",
                 "migrations", "wsgi.py", "requirements.txt",
                 "release/release.json", "dagu/LICENSE",
-                "reporting_labs", "provision_dagu.py"):
+                "3rdparty/reporting_labs/__init__.py",
+                "3rdparty/reporting_labs/LICENSE",
+                "provision_dagu.py"):
         need(rel)
     req_names = [l.split("==")[0].split(">=")[0].strip()
                  for l in (PAYLOAD / "requirements.txt").read_text()
