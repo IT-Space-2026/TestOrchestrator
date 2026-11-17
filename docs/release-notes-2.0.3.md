@@ -106,6 +106,10 @@ coordinator/worker aligned.
 | `testorchestrator-2.0.3-linux-x86_64.run` | 278,813,951 | `7fef2b18812a17db0212f39d5f6dd7c133f9466cdbd8877ddadbb6f84bbab8de` |
 | `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` | 306,850,425 | `ea7ec2fc97a4982854740001a269e7af4a5d246b3fa84412bdd417192de909a6` |
 
+Documentation: `TestOrchestrator-Admin-Manual-2.0.3.pdf` and
+`TestOrchestrator-User-Manual-2.0.3.pdf` — PDF renders of the
+Manuals-Doc guides (screenshots + diagrams embedded).
+
 Bundled (not a release asset): `testorchestrator-dagu-worker-`
 `2.27.0-setup-UNSIGNED.exe`, 64,319,318 bytes, SHA-256
 `f212af46ceb7c0cc121ac7fedf0d7f35f0c57c3efff49848547f2675de84e062` —
