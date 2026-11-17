@@ -5,7 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.0.3] — 2026-11-17
 
 Patch release. Tag `v2.0.3` → commit
-`60273c78dffa35ecf2988b28caf6ef2c0a10c0d1`.
+`be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`.
 
 ### Fixed — installed Linux payload omitted reporting-labs (2.0.x)
 
@@ -27,11 +27,17 @@ Patch release. Tag `v2.0.3` → commit
 - Upgrade from 2.0.1/2.0.2 repairs the defect automatically and
   removes a superseded root-level `payload/reporting_labs` copy so
   the package exists exactly once.
+- Licence page: expiry label now matches the enforced half-open
+  boundary (`now < valid_until`) — previously claimed the end date
+  was inclusive.
+- Release scope picker lists suites/collections only; discovered
+  test cases are no longer offered (adds were silently ignored).
 
 ### Added
 
 - User and administrator manuals under `Manuals-Doc/` (screenshots
-  captured on released 2.0.2; see `Manuals-Doc/Validation-Record.md`).
+  captured on released 2.0.2, select frames recaptured on 2.0.3;
+  see `Manuals-Doc/Validation-Record.md`).
 - CI `installer-validate` job exercising the real `install.sh` path.
 
 ## [2.0.0–2.0.2 — cumulative notes]

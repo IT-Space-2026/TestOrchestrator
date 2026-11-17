@@ -198,6 +198,13 @@ What the installer does, in order **[verified — every step observed]**:
 Other `install.sh` flags: `--dry-run` prints the plan;
 `--service-user` overrides the unit user.
 
+A real install transcript (dev-mode run — the `/tmp/…` paths are
+the `--payload`/`--data`/`--config` directories chosen for this
+documentation install; a production run uses `/opt`,
+`/var/lib`, `/etc`):
+
+![Installer transcript — licence check, payload copy, Dagu provisioning, staged units](Screenshot-Doc/admin/install-transcript.png)
+
 ### 4.3 The `.run` self-extracting package
 
 `testorchestrator-…-.run` wraps the same tarball; it extracts and
@@ -227,6 +234,28 @@ export TO_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))'
   invalidate on restart — put it in `web.env`.
 - `toctl db-upgrade` applies pending Alembic migrations; it is
   idempotent and safe before every start/upgrade.
+
+What a brand-new install looks like at first login:
+
+![Fresh install — empty dashboard](Screenshot-Doc/admin/install-dashboard.png)
+
+- **Users** lists exactly one account — the bootstrap `Admin`.
+  Create real accounts next (§12.3):
+
+  ![Fresh install — user list with only the bootstrap Admin](Screenshot-Doc/admin/install-users.png)
+
+- **Infrastructure** shows no workers and no KRE installations yet —
+  this is where §12.1 and §12.2 start. The **Download execution
+  worker** card already serves the pinned Dagu build with its
+  SHA-256:
+
+  ![Fresh install — empty workers/KRE tables and worker download](Screenshot-Doc/admin/install-infrastructure.png)
+
+- **Health & services** shows every unit `not installed` until the
+  staged systemd units are enabled — expected on a
+  `--no-service-start` or non-root install, not a fault:
+
+  ![Fresh install — services not yet installed](Screenshot-Doc/admin/install-health.png)
 
 ### 4.5 Directory layout **[verified]**
 

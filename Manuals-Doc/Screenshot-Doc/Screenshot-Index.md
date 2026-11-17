@@ -3,7 +3,11 @@
 - **Source version:** released 2.0.2 (tag `v2.0.2`, commit
   `574860d08124411692b141643da0ad87e576100d`; package
   `testorchestrator-2.0.2-linux-x86_64.tar.gz`,
-  SHA-256 `af08a60d…f7e`)
+  SHA-256 `af08a60d…f7e`). **Exceptions:** `admin/install-*.png`
+  (fresh 2.0.3 install), `admin/licence.png` and
+  `user/release-detail.png` were captured on released **2.0.3**
+  (tag `v2.0.3`, commit `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`)
+  after the licence-label and scope-picker fixes.
 - **Captured:** 2026-11-17, Chromium headless at 1440×900, real
   running installation at `http://127.0.0.1:8095`
 - **Environment:** isolated documentation install
@@ -36,7 +40,7 @@
 | `suite-new.png` | New suite form: name, description, source binding, two-panel case selector (6 selected) |
 | `suite-detail.png` | Suite detail: ordered entries, version/hash, run controls |
 | `release-new.png` | New release form: name, description, start/target dates |
-| `release-detail.png` | Release detail: scope table (1 suite + 1 collection), `not yet executed` states, run scope |
+| `release-detail.png` | Release detail: scope table (1 suite + 1 collection), `not yet executed` states, scopeable-only picker *(2.0.3)* |
 | `schedule-new.png` | New schedule form: target selector, kind, UTC first run, interval, profile/browser/runner/runtime/overlap |
 | `schedules.png` | Schedules list: next run, enabled toggle, run-now, edit |
 | `about.png` | About page |
@@ -58,7 +62,12 @@
 | `runner-new.png` | Add worker form: name, description, OS/arch, connection mode, workspace, slots, allowed projects |
 | `runtime-new.png` | Register-KRE form: execution location, remote runner, worker label, executable/workspace paths, credentials, concurrency |
 | `user-new.png` | Create user form: username, display name, role radios, temporary password |
-| `licence.png` | Licence administration: status, activated-licence table, add-code field (demonstration licence only — no real licence code shown) |
+| `licence.png` | Licence administration: status, activated-licence table, add-code field — corrected expiry wording *(2.0.3)*; demonstration licence only |
+| `install-transcript.png` | Real `install.sh` output: licence check, payload/data/config paths, Dagu provisioning, staged units *(2.0.3 dev-mode install)* |
+| `install-dashboard.png` | Fresh install — dashboard at first login, no data yet *(2.0.3)* |
+| `install-users.png` | Fresh install — user list containing only the bootstrap Admin *(2.0.3)* |
+| `install-infrastructure.png` | Fresh install — empty workers/KRE tables; worker download card with pinned version + SHA-256 *(2.0.3)* |
+| `install-health.png` | Fresh install — services shown `not installed` until staged units are enabled *(2.0.3)* |
 
 **Not captured:** destructive-action
 confirmations (deletion/cancel dialogs were exercised via code paths,
