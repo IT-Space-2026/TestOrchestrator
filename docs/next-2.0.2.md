@@ -111,20 +111,22 @@ Targeted improvement (review target, not speculative):
 Driver: `packaging/ci/worker_e2e.py` run against the generated package
 — no source-checkout shortcuts.
 
-**Final-candidate run (release candidate `4966330`)** — package
-`testorchestrator-2.0.2-linux-x86_64.tar.gz`, 278,810,011 B,
-SHA-256 `8ef43a80582fe0d5eddbcd117e5b855d463edb646a494b3f02c3fc6ab8a52380`,
-installed to `/tmp/to202-rc`:
+**Final-candidate run (release candidate `7403f5c`)** — package
+`testorchestrator-2.0.2-linux-x86_64.tar.gz`, 278,808,371 B,
+SHA-256 `9e1ccb0b1492c6d22a5dd4b3b40a78d71e4c415262057c7c41ef2b0d3e4a282e`,
+installed to `/tmp/to202-final`:
 
 - Worker asset downloaded through the installed app's authenticated
   route `/system/infrastructure/dagu-worker/dagu_2.27.0_linux_amd64.tar.gz`:
   64,492,882 B, SHA-256 `a9045768c9777d0b938585696e0491bc0ce46fbeb0419989b34fde63a0cc6f85`
   — matches the pinned digest exactly.
-- Coordinator `start-all` (http :8083, gRPC :53055); downloaded worker
+- Coordinator `start-all` (http :8084, gRPC :54055); downloaded worker
   binary `version` → **2.27.0** = coordinator pin. Registered as
   `e2e-worker-202` with label `kre=e2e-202`; coordinator reported it
   via `/api/v1/workers`; dispatched with `worker_selector=map[kre:e2e-202]`.
-- Execution `20c0ca6f8eba432195e6e6d03e68de99` — **fixture-KRE path**:
+- `toctl evidence-prune` reachable in the packaged install:
+  dry-run reported `{"orphans": [], "removed": []}`.
+- Execution `ef42e8ec985d42d88f44ca9e5d376d56` — **fixture-KRE path**:
   a script emitting genuine Katalon-format JUnit/log/screenshot stood
   in for the KRE binary. Demonstrated coverage: application-served
   worker download, registration, selector-based dispatch, task
@@ -136,6 +138,8 @@ installed to `/tmp/to202-rc`:
 
 - `2b0445614974482d9d9e5789cbd8852d` — same fixture-KRE path, on the
   package built from `bc600a5` (278,795,546 B, `6141cc2c…`). Passed.
+- `20c0ca6f8eba432195e6e6d03e68de99` — same fixture-KRE path, on the
+  package built from `4966330` (278,810,011 B, `8ef43a80…`). Passed.
 - `74af175f7e9e41a99f064b1338531648` — **real KRE 11.7.0** on the
   `bc600a5` package: real `katalonc` launched on the worker, reached
   activation, failed (`valid offline licenses: 0 … Activation
@@ -273,9 +277,10 @@ Reproduce: `.venv/bin/python scripts/benchmark_import.py
   `duplicate`/`skipped`; new import → `imported`; legacy rows lazily
   stamped; persistence across separate process opens.
 - Commit labels: first run on the `e0b65ca` build; **re-verified on
-  the release candidate** `4966330` (fresh 2.0.1 instance seeded with
-  imported exec `87a90a16` + rlabs `ready` + legacy row `ae71accf`,
-  migration applied, retention/dedup/new-import all confirmed).
+  the `4966330` package** (fresh 2.0.1 instance seeded with imported
+  exec `87a90a16` + rlabs `ready` + legacy row `ae71accf`, migration
+  applied, retention/dedup/new-import all confirmed). The `7403f5c`
+  payload is code-identical to `4966330` (diff is docs only).
 
 ### 7. Confirmed defects fixed in 2.0.2
 
