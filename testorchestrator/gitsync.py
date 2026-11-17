@@ -679,8 +679,11 @@ def delete_report(execution_id: str) -> dict:
     if not ex.report_pub_dir:
         # never published — nothing to remove remotely; finalize.
         ex.deletion_status = "none"
+        rd, wp = ex.report_dir or "", ex.workspace_path or ""
         db.session.delete(ex)
         db.session.commit()
+        from . import evidence
+        evidence.remove_owned(execution_id, rd, wp)
         return {"removed": True, "absent": True}
     binding = (db.session.get(GitBinding, ex.binding_id)
                if ex.binding_id else None)
@@ -722,8 +725,11 @@ def delete_report(execution_id: str) -> dict:
         ex.deletion_error = ""
         ex.report_pub_dir = ""
         ex.report_pub_status = "none"
+        rd, wp = ex.report_dir or "", ex.workspace_path or ""
         db.session.delete(ex)            # app deletion after remote ok
         db.session.commit()
+        from . import evidence
+        evidence.remove_owned(execution_id, rd, wp)
         return {"removed": True}
     except Exception as exc:
         ex.deletion_status = "failed"

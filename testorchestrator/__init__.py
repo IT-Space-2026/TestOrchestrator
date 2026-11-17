@@ -242,6 +242,18 @@ def register_cli(app: Flask) -> None:
         db.session.execute(db.text("SELECT 1"))
         click.echo("ok")
 
+    @app.cli.command("evidence-prune")
+    @click.option("--apply", "apply_", is_flag=True,
+                  help="Actually remove orphans (default: dry-run report).")
+    def evidence_prune(apply_: bool) -> None:
+        """Report/remove orphan evidence dirs under managed roots —
+        dirs owned by no Execution row (confirm-crash remnants etc.).
+        Dry-run by default; pass --apply to delete."""
+        import json as _json
+        from . import evidence
+        report = evidence.prune_orphans(dry_run=not apply_)
+        click.echo(_json.dumps(report, indent=2))
+
     @app.cli.command("worker")
     @click.option("--once", is_flag=True,
                   help="Process the durable outbox once and exit.")

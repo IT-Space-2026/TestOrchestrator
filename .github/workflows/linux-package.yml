@@ -143,3 +143,60 @@ jobs:
           ./3rdparty/python-runtime/python/bin/python \
             report_serving_check.py check
           echo "PASS retained reports/licence/access after v2.0.0->candidate upgrade"
+
+  upgrade-from-v201:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: testorchestrator-linux-package
+          path: candidate
+      - name: fetch released v2.0.1 package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v2.0.1" \
+            | python3 -c "import json,sys; print([a['id'] for a in json.load(sys.stdin)['assets'] if 'linux' in a['name'] and a['name'].endswith('.run')][0])")
+          curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id" \
+            -o v201.run
+          ls -la v201.run
+      - name: install released v2.0.1 payload + seed
+        run: |
+          set -e
+          mkdir -p /tmp/v201
+          LINE=$(grep -an -m1 "^__TO_ARCHIVE_BELOW__$" v201.run | cut -d: -f1)
+          tail -n +$((LINE + 1)) v201.run | tar -xzf - -C /tmp/v201
+          P=$(echo /tmp/v201/testorchestrator-*-linux-x86_64)
+          cd "$P"
+          export TO_INSTANCE_DIR=/tmp/to-inst TO_SECURE_COOKIES=0
+          ./3rdparty/python-runtime/python/bin/python -m pip install \
+            --no-index --find-links 3rdparty/python-wheels \
+            -r requirements.txt -q
+          ./3rdparty/python-runtime/python/bin/python \
+            -m testorchestrator db-upgrade
+          cp "$GITHUB_WORKSPACE/packaging/ci/report_serving_check.py" .
+          ./3rdparty/python-runtime/python/bin/python \
+            report_serving_check.py seed
+      - name: candidate upgrade over retained instance + checks
+        run: |
+          set -e
+          TB=$(find candidate -name "testorchestrator-*-linux-x86_64.tar.gz" | head -1)
+          mkdir -p /tmp/cand && tar -xzf "$TB" -C /tmp/cand
+          C=$(echo /tmp/cand/testorchestrator-*-linux-x86_64)
+          cd "$C"
+          export TO_INSTANCE_DIR=/tmp/to-inst TO_SECURE_COOKIES=0
+          ./3rdparty/python-runtime/python/bin/python -m pip install \
+            --no-index --find-links 3rdparty/python-wheels \
+            -r requirements.txt -q
+          # payload replaced; schema migrations run over retained data
+          ./3rdparty/python-runtime/python/bin/python \
+            -m testorchestrator db-upgrade
+          cp "$GITHUB_WORKSPACE/packaging/ci/report_serving_check.py" .
+          ./3rdparty/python-runtime/python/bin/python \
+            report_serving_check.py check
+          echo "PASS retained reports/licence/access after v2.0.1->candidate upgrade"

@@ -223,11 +223,26 @@ def fingerprint(pi: ParsedImport) -> tuple[str, str]:
 
 def fingerprint_live(ex: Execution) -> tuple[str, str]:
     """Fingerprint an existing execution from its stored report dir —
-    lazily computed for rows that predate fingerprint stamping."""
-    if ex.run_uuid or ex.content_hash:
+    lazily computed for rows that predate fingerprint stamping.
+
+    2.0.2: the computed values are PERSISTED on the row (content_hash,
+    suite_keys_json, and run_uuid when it doesn't collide with the
+    project-unique index) so the lazy cost is paid once, not on every
+    import. A row with no readable evidence is stamped
+    suite_keys_json='[]' so it is not re-scanned on later imports.
+    Persisting run_uuid is skipped when another execution in the
+    project already claims that uuid — the unique index makes that an
+    IntegrityError waiting to happen; content_hash is evidence, not
+    identity, so stamping it is always safe."""
+    if ex.suite_keys_json is not None and (
+            ex.run_uuid or ex.content_hash):
         return ex.run_uuid, ex.content_hash
+    if ex.suite_keys_json is not None:
+        # fingerprinted before but nothing was readable — don't rescan
+        return ex.run_uuid or "", ex.content_hash or ""
     report_dir = Path(ex.report_dir or "")
     if not report_dir.is_dir():
+        ex.suite_keys_json = "[]"
         return "", ""
     uuid_f = report_dir / "execution.uuid"
     run_uuid = ""
@@ -251,10 +266,21 @@ def fingerprint_live(ex: Execution) -> tuple[str, str]:
                 timestamps.append(s["timestamp"])
         cases.extend(parsed.cases)
         totals += parsed.producer_tests
+    ex.suite_keys_json = json.dumps(sorted({tuple(k) for k in
+                                          suite_keys}))
     if not cases:
         return run_uuid, ""
-    return run_uuid, content_fingerprint(
-        suite_keys, timestamps, cases, totals)
+    chash = content_fingerprint(suite_keys, timestamps, cases, totals)
+    ex.content_hash = ex.content_hash or chash
+    if run_uuid and not ex.run_uuid:
+        # unique-index guard — another row may already claim the uuid
+        clash = Execution.query.filter(
+            Execution.project_id == ex.project_id,
+            Execution.run_uuid == run_uuid,
+            Execution.id != ex.id).first()
+        if clash is None:
+            ex.run_uuid = run_uuid
+    return ex.run_uuid or run_uuid, ex.content_hash
 
 
 def _parse_ts(value: str) -> datetime | None:
@@ -322,6 +348,58 @@ def _content_relation(pi: ParsedImport, ex: Execution) -> str:
     return "equal"
 
 
+def _same_uuid_decision(pi: ParsedImport, ex: Execution,
+                        warnings: list) -> tuple[str, str, list]:
+    """Decision for an import whose run_uuid equals the stored
+    execution's — same producer run, so only the content relation
+    decides how it is reconciled."""
+    rel = _content_relation(pi, ex)
+    if rel == "conflict":
+        return (DECISION_AMBIGUOUS, ex.id, warnings + [
+            "same execution.uuid but conflicting results — "
+            "review required; the producer run id cannot "
+            "identify two different executions"])
+    if rel == "additive":
+        return (DECISION_SUPPLEMENT, ex.id, warnings + [
+            "same execution.uuid with additional content "
+            "(e.g. a suite that arrived later) — supplements "
+            "missing cases and evidence only"])
+    # equal/subset → duplicate or fill missing fields/evidence
+    missing = []
+    if ex.finished_at is None and _parse_ts(
+            max(pi.timestamps) if pi.timestamps else ""):
+        missing.append("finished_at")
+    exact_dir = Path(ex.report_dir or "")
+    if exact_dir.is_dir():
+        stored_sha = {a.sha256 for a in Artifact.query.filter_by(
+            execution_id=ex.id)}
+        unseen = len({results_mod.sha256_file(p)
+                      for p, _rel in pi.files} - stored_sha)
+        if unseen:
+            missing.append(f"{unseen} artifact(s)")
+    if missing:
+        return (DECISION_SUPPLEMENT, ex.id, warnings + [
+            f"same run already recorded — can fill: "
+            f"{', '.join(missing)}"])
+    return (DECISION_DUPLICATE, ex.id, warnings + [
+        "identical run already in history"])
+
+
+def _content_match_decision(pi: ParsedImport, ex: Execution,
+                            warnings: list) -> tuple[str, str, list]:
+    """Decision for an identical content fingerprint where uuid is
+    unknown on at least one side."""
+    if pi.timestamps:
+        # identical report incl. timestamps → the same run's data,
+        # wherever it was produced or copied to
+        return (DECISION_DUPLICATE, ex.id, warnings + [
+            "identical content fingerprint already in history"])
+    return (DECISION_AMBIGUOUS, ex.id, warnings + [
+        "identical result content but no execution.uuid and "
+        "no timestamps — cannot prove same run; review "
+        "required"])
+
+
 def classify(project_id: str, pi: ParsedImport) -> tuple[str, str, list]:
     """(decision, match_execution_id, warnings). Project-scoped only —
     matching never crosses project boundaries.
@@ -340,6 +418,13 @@ def classify(project_id: str, pi: ParsedImport) -> tuple[str, str, list]:
       renamed reports collapse); identical content with NO temporal or
       producer identity → ambiguous, never auto-merged.
     - Suite+timestamp subset overlap without full equality → ambiguous.
+
+    2.0.2: indexed lookups first (run_uuid is unique-indexed,
+    content_hash is a lookup index); the residual scan only pays
+    lazy-fingerprint cost for never-fingerprinted rows — stamped rows
+    compare persisted suite_keys in memory. Match precedence is
+    deliberately strongest-evidence-first: uuid > content fingerprint
+    > suite+timestamp overlap.
     """
     warnings = list(pi.warnings)
     if pi.unsupported:
@@ -347,74 +432,53 @@ def classify(project_id: str, pi: ParsedImport) -> tuple[str, str, list]:
     if not pi.cases:
         return DECISION_MALFORMED, "", warnings + [
             "JUnit parsed but contains no test cases"]
-    run_uuid, chash = fingerprint(pi)
+    _ru, chash = fingerprint(pi)
     suite_ts = {(k[0], k[1]) for k in pi.suite_keys if k[0]}
+
+    # fast path 1 — producer-assigned identity via the unique index
+    if pi.run_uuid:
+        ex = Execution.query.filter_by(
+            project_id=project_id, run_uuid=pi.run_uuid).first()
+        if ex is not None:
+            return _same_uuid_decision(pi, ex, warnings)
+
+    # fast path 2 — identical content via the lookup index (only where
+    # uuid can't name a different run on either side)
+    if chash:
+        for ex in Execution.query.filter_by(
+                project_id=project_id, content_hash=chash):
+            if ex.run_uuid and pi.run_uuid \
+                    and ex.run_uuid != pi.run_uuid:
+                continue                    # producer: different runs
+            return _content_match_decision(pi, ex, warnings)
+
+    # residual scan — rows that could still match: never-fingerprinted
+    # rows (lazy compute, persisted so the cost is one-time) and the
+    # suite+timestamp overlap check, now in-memory for stamped rows.
+    unmatchable = 0
     for ex in Execution.query.filter_by(project_id=project_id):
         eu, eh = fingerprint_live(ex)
         if pi.run_uuid and eu:
-            if pi.run_uuid != eu:
-                continue                    # producer: different runs
-            rel = _content_relation(pi, ex)
-            if rel == "conflict":
-                return (DECISION_AMBIGUOUS, ex.id, warnings + [
-                    "same execution.uuid but conflicting results — "
-                    "review required; the producer run id cannot "
-                    "identify two different executions"])
-            if rel == "additive":
-                return (DECISION_SUPPLEMENT, ex.id, warnings + [
-                    "same execution.uuid with additional content "
-                    "(e.g. a suite that arrived later) — supplements "
-                    "missing cases and evidence only"])
-            # equal/subset → duplicate or fill missing fields/evidence
-            missing = []
-            if ex.finished_at is None and _parse_ts(
-                    max(pi.timestamps) if pi.timestamps else ""):
-                missing.append("finished_at")
-            exact_dir = Path(ex.report_dir or "")
-            if exact_dir.is_dir():
-                stored_sha = {a.sha256 for a in Artifact.query.filter_by(
-                    execution_id=ex.id)}
-                unseen = len({results_mod.sha256_file(p)
-                              for p, _rel in pi.files} - stored_sha)
-                if unseen:
-                    missing.append(f"{unseen} artifact(s)")
-            if missing:
-                return (DECISION_SUPPLEMENT, ex.id, warnings + [
-                    f"same run already recorded — can fill: "
-                    f"{', '.join(missing)}"])
-            return (DECISION_DUPLICATE, ex.id, warnings + [
-                "identical run already in history"])
-        # uuid unknown on at least one side → content fallback
+            if pi.run_uuid == eu:
+                return _same_uuid_decision(pi, ex, warnings)
+            continue                        # producer: different runs
         if chash and eh and chash == eh:
-            if pi.timestamps:
-                # identical report incl. timestamps → the same run's
-                # data, wherever it was produced or copied to
-                return (DECISION_DUPLICATE, ex.id, warnings + [
-                    "identical content fingerprint already in "
-                    "history"])
-            return (DECISION_AMBIGUOUS, ex.id, warnings + [
-                "identical result content but no execution.uuid and "
-                "no timestamps — cannot prove same run; review "
-                "required"])
-        # suite+timestamp subset overlap → cannot distinguish partial
-        # copy from distinct run → review
-        ex_keys = set()
-        report_dir = Path(ex.report_dir or "")
-        if report_dir.is_dir():
-            for art in Artifact.query.filter_by(execution_id=ex.id,
-                                                kind="junit"):
-                f = report_dir / art.rel_path
-                parsed = _looks_junit(f) if f.is_file() else None
-                if parsed:
-                    for st in parsed.suites:
-                        ex_keys.add((st["id"] or st["name"],
-                                     st["timestamp"]))
-        if suite_ts and ex_keys \
-                and (suite_ts <= ex_keys or ex_keys <= suite_ts):
+            return _content_match_decision(pi, ex, warnings)
+        ex_keys = ex.suite_keys()
+        if not eu and not eh and not ex_keys:
+            unmatchable += 1                # no readable evidence
+        if ex_keys and suite_ts \
+                and (suite_ts <= set(ex_keys)
+                     or set(ex_keys) <= suite_ts):
             return (DECISION_AMBIGUOUS, ex.id, warnings + [
                 "same suite and start time but differing case set — "
                 "review required (possible partial copy or distinct "
                 "run)"])
+    if unmatchable:
+        warnings.append(
+            f"{unmatchable} existing execution(s) could not be "
+            "fingerprinted (missing/unreadable evidence) — "
+            "deduplication is incomplete for those rows")
     return DECISION_NEW, "", warnings
 
 
@@ -584,6 +648,8 @@ def _create_execution(project, session, cand, pi, user) -> Execution:
         imported_by=user,
         run_uuid=pi.run_uuid or "",
         content_hash=cand.content_hash,
+        suite_keys_json=json.dumps(
+            sorted({tuple(k) for k in pi.suite_keys})),
         source_repo=(db.session.get(GitBinding, session.binding_id).url
                      if session.binding_id else ""),
         source_commit=session.resolved_sha,
@@ -659,6 +725,10 @@ def _supplement(ex: Execution, pi: ParsedImport,
         if _content_relation(pi, ex) == "equal":
             ex.content_hash = ch
             filled.append("content_hash")
+    if ex.suite_keys_json is None:
+        ex.suite_keys_json = json.dumps(
+            sorted({tuple(k) for k in pi.suite_keys}))
+        filled.append("suite_keys")
     if not ex.framework or ex.framework == "unknown":
         if pi.framework != "unknown":
             ex.framework = pi.framework
@@ -747,10 +817,77 @@ def _reparse_candidate(base: Path, cand: ImportCandidate
     return pi
 
 
+CONFIRM_CLAIM_STALE_S = 15 * 60
+
+
+def _claim_project_import(project_id: str, session_id: str,
+                        user: str) -> None:
+    """Single-writer claim on a project's confirm path.
+
+    Concurrent confirmations of the same candidate (same or different
+    sessions) must not both insert executions — for uuid-less content
+    no unique index can arbitrate a duplicate insert. Serialized via
+    the import_locks row; a claim older than CONFIRM_CLAIM_STALE_S is
+    treated as crashed and reclaimed."""
+    from .execution import ImportLock
+    from sqlalchemy import delete, update
+    from datetime import timedelta
+    stale_before = utcnow() - timedelta(seconds=CONFIRM_CLAIM_STALE_S)
+    # reclaim a crashed claim atomically — rowcount>0 means the claim
+    # is now ours; otherwise try to insert a fresh row.
+    res = db.session.execute(
+        update(ImportLock)
+        .where(ImportLock.project_id == project_id)
+        .where(ImportLock.claimed_at < stale_before)
+        .values(session_id=session_id, claimed_by=user,
+                claimed_at=utcnow()))
+    if res.rowcount == 0:
+        try:
+            db.session.add(ImportLock(project_id=project_id,
+                                      session_id=session_id,
+                                      claimed_by=user))
+            db.session.flush()
+        except IntegrityError:
+            db.session.rollback()
+            raise ImportError_(
+                "another import confirmation is already running for "
+                "this project — wait for it to finish and retry")
+    db.session.commit()                     # claim is visible
+
+
+def _release_project_import(project_id: str, session_id: str) -> None:
+    from .execution import ImportLock
+    from sqlalchemy import delete
+    db.session.execute(
+        delete(ImportLock)
+        .where(ImportLock.project_id == project_id)
+        .where(ImportLock.session_id == session_id))
+    db.session.commit()
+
+
 def confirm_import(session: ImportSession, selected_ids: list,
                    force_new_ids: list, user: str) -> dict:
     """Recheck + persist selected candidates, per-candidate transaction.
+
+    NOT an atomic batch — each candidate commits independently, so an
+    interruption leaves imported candidates committed and pending/
+    failed ones retryable; staging persists until the batch finishes.
     Idempotent: imported/skipped candidates are not re-processed."""
+    _claim_project_import(session.project_id, session.id, user)
+    session.status = "confirming"
+    db.session.commit()
+    try:
+        return _confirm_import_inner(session, selected_ids,
+                                     force_new_ids, user)
+    finally:
+        try:
+            _release_project_import(session.project_id, session.id)
+        except Exception:
+            db.session.rollback()
+
+
+def _confirm_import_inner(session: ImportSession, selected_ids: list,
+                          force_new_ids: list, user: str) -> dict:
     staging = Path(session.staging_path)
     if not staging.is_dir() and any(
             c.status in ("pending", "failed")
@@ -829,5 +966,10 @@ def confirm_import(session: ImportSession, selected_ids: list,
     session.summary_json = json.dumps(
         {k: len(v) for k, v in out.items()})
     db.session.commit()
-    shutil.rmtree(staging, ignore_errors=True)
+    # keep staging while retryable candidates remain — a failed
+    # candidate must be re-confirmable; cleanup_stale_staging() reaps
+    # abandoned checkouts after STAGING_MAX_AGE_S.
+    if not any(c.status in ("pending", "failed")
+               for c in session.candidates):
+        shutil.rmtree(staging, ignore_errors=True)
     return out
