@@ -73,16 +73,16 @@ def main() -> None:
                              Path(args.config))
 
     # Port policy (v1.8 §3): occupied 443 -> explicit alternative required.
-    # Licence gate — validate BEFORE payload copy so a rejected code
-    # leaves nothing partially installed. Unattended input via
-    # TO_LICENCE_CODE env (never logged).
+    # Optional licence seed — the application licence is informational
+    # only (it never gates install or functionality). When a code is
+    # supplied via TO_LICENCE_CODE (never logged) it is validated early
+    # and persisted for the portal's status display; invalid or absent
+    # codes never abort the install.
     code = os.environ.get("TO_LICENCE_CODE", "").strip()
     if not code and not args.yes and not args.dry_run:
-        code = input("Licence code: ").strip()
-    if not args.dry_run:
-        if not code:
-            sys.exit("error: installation requires a licence code — "
-                     "set TO_LICENCE_CODE or enter it when prompted.")
+        code = input("Licence code (optional — press Enter to skip): "
+                     ).strip()
+    if not args.dry_run and code:
         # Licence check runs BEFORE deps install — extract the crypto
         # wheels (native .so can't zip-import) to a scratch dir.
         import sys as _s, zipfile as _zf, tempfile as _tf
@@ -98,32 +98,45 @@ def main() -> None:
         _lic = _ilu.module_from_spec(_spec)
         _spec.loader.exec_module(_lic)
         parse, register_key = _lic.parse, _lic.register_key
+        # Application licences are informational only: install never
+        # fails over licence state. A valid code is persisted so the
+        # portal can report status; rejected/expired codes warn and the
+        # installation proceeds without one.
         pub = (REPO / "release" / "licence_pubkey.pem")
         if not pub.exists():
-            sys.exit("error: licence verification key missing "
-                     "(release/licence_pubkey.pem)")
-        register_key("prod", pub.read_bytes())
-        r = parse(code)
-        if isinstance(r, str):
-            sys.exit(f"error: licence rejected — {r}. Installation "
-                     "cannot continue without a valid TestOrchestrator "
-                     "licence.")
-        import datetime as _dt
-        _now = _dt.datetime.now(_dt.timezone.utc)
-        if _now < r["_from"]:
-            sys.exit("error: licence is not yet valid "
-                     f"(starts {r['valid_from'][:10]} UTC).")
-        if _now >= r["_until"]:
-            sys.exit(f"error: licence expired {r['valid_until'][:10]} UTC.")
-        print(f"[licence] valid — {r['customer']} "
-              f"({r['valid_from'][:10]} to {r['valid_until'][:10]} UTC)")
-        # persist for the installed app
-        lic = {k: r[k] for k in ("licence_id","customer","valid_from",
-                                 "valid_until","key_id")}
-        lic["code"] = code
-        os.makedirs(args.data, exist_ok=True)
-        import json as _j
-        (Path(args.data)/"licence.json").write_text(_j.dumps([lic]))
+            print("[licence] warn: verification key missing "
+                  "(release/licence_pubkey.pem) — continuing without "
+                  "a licence")
+        else:
+            register_key("prod", pub.read_bytes())
+            r = parse(code)
+            bad = None
+            if isinstance(r, str):
+                bad = f"rejected — {r}"
+            else:
+                import datetime as _dt
+                _now = _dt.datetime.now(_dt.timezone.utc)
+                if _now < r["_from"]:
+                    bad = (f"not yet valid "
+                           f"(starts {r['valid_from'][:10]} UTC)")
+                elif _now >= r["_until"]:
+                    bad = f"expired {r['valid_until'][:10]} UTC"
+            if bad:
+                print(f"[licence] warn: licence {bad} — continuing "
+                      "without a licence")
+            else:
+                print(f"[licence] valid — {r['customer']} "
+                      f"({r['valid_from'][:10]} to "
+                      f"{r['valid_until'][:10]} UTC)")
+                # persist for the installed app's status display
+                lic = {k: r[k] for k in ("licence_id","customer",
+                                         "valid_from","valid_until",
+                                         "key_id")}
+                lic["code"] = code
+                os.makedirs(args.data, exist_ok=True)
+                import json as _j
+                (Path(args.data)/"licence.json").write_text(
+                    _j.dumps([lic]))
 
     if not args.dry_run and not port_free(args.https_port):
         sys.exit(

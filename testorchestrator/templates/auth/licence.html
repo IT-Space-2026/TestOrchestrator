@@ -1,7 +1,9 @@
 <body class="login-page">
 <main class="login-card">
-  <h2>Licence required</h2>
+  <h2>Licence status</h2>
   <p>Status: <strong>{{ status }}</strong></p>
+  <p>Licence status is informational only — it does not restrict
+     application functionality.</p>
   {% if best %}
   <p>Licence {{ best.licence_id }} — {{ best.valid_from[:10] }} to
      {{ best.valid_until[:10] }} (UTC).</p>

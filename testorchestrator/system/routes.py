@@ -1375,7 +1375,8 @@ def licence_admin():
 @system_bp.route("/licence/resume", methods=["POST"])
 @role_required(Role.ADMIN)
 def licence_resume():
-    from .. import settings
-    settings.set("licence_dispatch_held", "")
-    flash("Dispatch resumed — held queue is now eligible.", "info")
+    # Compatibility stub: application licensing no longer holds the
+    # dispatch queue, so there is nothing to resume. Kept so older
+    # automation/links do not 404.
+    flash("Licence status is informational — dispatch is not held.", "info")
     return redirect(url_for("system.licence_admin"))

@@ -95,45 +95,16 @@ jobs:
         with:
           name: testorchestrator-linux-package
           path: candidate
-      - name: install candidate through install.sh (CI test licence)
+      - name: install candidate through install.sh (no licence required)
         run: |
           set -e
           TB=$(find candidate -name "testorchestrator-*-linux-x86_64.tar.gz" | head -1)
           mkdir -p /tmp/cand-inst && tar -xzf "$TB" -C /tmp/cand-inst
           P=$(echo /tmp/cand-inst/testorchestrator-*-linux-x86_64)
           cd "$P"
-          # CI-only test licence: ephemeral keypair signed code + pubkey
-          # substituted in the EXTRACTED copy (the release artifact is
-          # untouched). Crypto comes from the package's own wheels.
-          WD=$(mktemp -d)
-          for w in 3rdparty/python-wheels/*.whl; do
-            n=$(basename "$w" | cut -d- -f1 | tr 'A-Z' 'a-z')
-            case "$n" in
-              cryptography|cffi|pycparser)
-                python3 -c "import zipfile,sys;zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$w" "$WD" ;;
-            esac
-          done
-          PYTHONPATH="$WD" python3 - <<'PY'
-          import base64,datetime,json,uuid
-          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-          from cryptography.hazmat.primitives.serialization import (
-              Encoding,NoEncryption,PrivateFormat,PublicFormat)
-          k=Ed25519PrivateKey.generate()
-          open('ci-pubkey.pem','wb').write(k.public_key().public_bytes(
-              Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
-          vf=datetime.datetime(2026,1,1,tzinfo=datetime.timezone.utc)
-          vu=datetime.datetime(2030,1,1,tzinfo=datetime.timezone.utc)
-          p={'version':1,'key_id':'prod','licence_id':uuid.uuid4().hex[:16],
-             'product':'TestOrchestrator','customer':'ci-installer-validate',
-             'valid_from':vf.isoformat(),'valid_until':vu.isoformat()}
-          c=json.dumps(p,sort_keys=True,separators=(',',':')).encode()
-          s=k.sign(c)
-          open('ci-lic.txt','w').write(
-              'TO1.'+base64.urlsafe_b64encode(c).decode().rstrip('=')
-              +'.'+base64.urlsafe_b64encode(s).decode().rstrip('='))
-          PY
-          cp ci-pubkey.pem release/licence_pubkey.pem
-          TO_LICENCE_CODE="$(cat ci-lic.txt)" bash install.sh \
+          # The application licence is informational only — installation
+          # must complete with NO licence code and no key substitution.
+          bash install.sh \
             --payload /tmp/ci-payload --data /tmp/ci-data \
             --config /tmp/ci-config \
             --https-port 8443 --no-service-start --yes

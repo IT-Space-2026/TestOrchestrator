@@ -16,12 +16,18 @@ private key. Tampered payloads, bad signatures, unknown key_ids,
 wrong products, malformed codes, and invalid date ranges are rejected.
 
 ## Dates
-UTC, end-date inclusive → internally half-open
-`[valid_from, valid_until)` where `valid_until` = the instant after the
-chosen end date. States: missing / invalid / not-yet-valid / valid /
-expired. Relies on the host clock — no tamper-proof expiry is claimed.
+UTC, internally half-open `[valid_from, valid_until)`. States:
+missing / invalid / not-yet-valid / valid / expired. Relies on the
+host clock — no tamper-proof expiry is claimed.
 
-## Enforcement points
-Login + protected requests (gate), dispatch (`create_execution`),
-worker polling (`worker_once`), installer (`scripts/install.py`).
-Unauthenticated `/licence-activate` recovers an expired installation.
+## Status is informational (since 2.0.4)
+The application licence is NOT an enforcement gate. Install, startup,
+login, dispatch, workers, imports, reports, admin routes, and the CLI
+all work with a missing/expired/invalid licence. The sole
+user-visible effect of a non-valid licence is the exact notice
+`This version is not supported` on the login page (login itself is
+never blocked). `/licence` and `/licence-activate` remain for status
+viewing and recording a code; `scripts/install.py` accepts an
+optional `TO_LICENCE_CODE` and warns — never aborts — on a rejected
+code. Signature verification and stored-row re-verification are
+unchanged; this is separate from KRE licensing, which is untouched.

@@ -2,6 +2,9 @@
 {% block title %}Licence · TestOrchestrator{% endblock %}
 {% block content %}
 <h2>Licence</h2>
+<p class="muted">Licence status is informational only — it does not
+   restrict application functionality. When no valid licence is
+   recorded, the login page shows "This version is not supported".</p>
 <p>Status: <strong>{{ status }}</strong></p>
 {% if best %}
 <p><strong>{{ best.customer }}</strong> — licence {{ best.licence_id }}<br>

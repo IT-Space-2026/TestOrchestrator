@@ -130,8 +130,9 @@ def ready_ops(app):
 
 @pytest.fixture(autouse=True)
 def _test_licence(monkeypatch):
-    """Suite-wide licence bypass — unit/route tests exercise behaviour
-    unrelated to licensing; enforcement itself is covered in
-    test_licensing.py against the real checks."""
+    """Suite-wide licence-status stub — application licensing is
+    informational (never gates behaviour); status handling itself is
+    exercised in test_licensing.py / test_licence_enforcement.py
+    against the real checks."""
     monkeypatch.setattr(
         "testorchestrator.licensing.usable", lambda *a, **k: True)

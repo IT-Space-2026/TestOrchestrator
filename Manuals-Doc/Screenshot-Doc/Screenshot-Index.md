@@ -62,8 +62,9 @@
 | `runner-new.png` | Add worker form: name, description, OS/arch, connection mode, workspace, slots, allowed projects |
 | `runtime-new.png` | Register-KRE form: execution location, remote runner, worker label, executable/workspace paths, credentials, concurrency |
 | `user-new.png` | Create user form: username, display name, role radios, temporary password |
-| `licence.png` | Licence administration: status, activated-licence table, add-code field — corrected expiry wording *(2.0.3)*; demonstration licence only |
-| `install-transcript.png` | Real `install.sh` output: licence check, payload/data/config paths, Dagu provisioning, staged units *(2.0.3 dev-mode install)* |
+| `licence.png` | Licence administration: status, activated-licence table, add-code field — informational status display *(2.0.3)*; demonstration licence only |
+| `login-unsupported.png` | Login page with no valid application licence — exact notice *"This version is not supported"*, form fully usable *(2.0.4 candidate)* |
+| `install-transcript.png` | Real `install.sh` output: optional licence seed, payload/data/config paths, Dagu provisioning, staged units *(2.0.3 dev-mode install)* |
 | `install-dashboard.png` | Fresh install — dashboard at first login, no data yet *(2.0.3)* |
 | `install-users.png` | Fresh install — user list containing only the bootstrap Admin *(2.0.3)* |
 | `install-infrastructure.png` | Fresh install — empty workers/KRE tables; worker download card with pinned version + SHA-256 *(2.0.3)* |

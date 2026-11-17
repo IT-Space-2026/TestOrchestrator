@@ -166,8 +166,8 @@ moved to that commit. Verified on this environment:
 | `toctl evidence-prune` dry-run | EXEC | JSON `{orphans: [], removed: []}` — `admin/evidence-prune.png` |
 | Screenshot recapture on 2.0.3 | EXEC | `licence.png` (corrected expiry wording), `release-detail.png` (scopeable-only picker), `admin/install-*.png` (fresh-install frames) |
 
-Same boundaries: test-licence substitution inside this documentation
-payload only; the doc env now runs the **be5d133** payload (all prior
+Same boundaries: fixture data inside this documentation payload only;
+the doc env now runs the **be5d133** payload (all prior
 2.0.2 evidence remains as recorded above — provenance is per-frame in
 the Screenshot-Index). Additional throwaway instances running for the
 new captures: web `:8098`/`:8099`, coordinator `:29877`.

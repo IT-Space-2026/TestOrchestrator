@@ -30,9 +30,8 @@ def live(tmp_path_factory):
     from tests.conftest import make_app
     licensing._VERIFY_KEYS.clear()
     licensing.register_key("test", PUB)
-    # restore real enforcement — suite conftest bypasses licensing
-    import testorchestrator.licensing as lic
-    lic.usable = lambda *a, **k: lic.current_status(*a, **k)[0]         == "valid"
+    # real licence status — the suite-wide usable() stub is irrelevant
+    # anyway: licensing is informational and gates nothing
     app = make_app(tmp)
     with app.app_context():
         from testorchestrator.extensions import db
@@ -68,11 +67,14 @@ def test_licence_page_renders_activation_form(pg):
     assert "Licence" in page.title() or "licence" in page.content()
 
 
-def test_login_blocked_shows_licence_field(pg):
+def test_login_shows_unsupported_notice(pg):
     url, page = pg
     page.goto(f"{url}/login")
-    # unlicensed — the login page must surface the activation field
-    assert page.locator("input[name=licence_code]").count() == 1
+    # unlicensed — exact informational notice, usable form, no
+    # activation prompt or licence field
+    assert "This version is not supported" in page.content()
+    assert page.locator("input[name=licence_code]").count() == 0
+    assert page.locator("input[name=username]").count() == 1
 
 
 def test_activate_via_licence_page(pg):
@@ -85,16 +87,13 @@ def test_activate_via_licence_page(pg):
     assert "/login" in page.url or "Sign in" in page.content()
 
 
-def test_protected_route_gated(pg):
-    """Protected GETs never render content without auth/licence —
-    after activation they land on login (unauthenticated), before
-    activation on /licence."""
+def test_protected_route_auth_gated_not_licence_gated(pg):
+    """Protected GETs redirect to /login (auth) — never to /licence,
+    regardless of licence state."""
     url, page = pg
     page.goto(f"{url}/projects")
-    blocked = ("/licence" in page.url or "/login" in page.url
-               or "Sign in" in page.content()
-               or "licence" in page.content())
-    assert blocked
+    assert ("/login" in page.url or "Sign in" in page.content())
+    assert "/licence" not in page.url
 
 
 def _login(page, url):
@@ -133,14 +132,13 @@ def test_renewal_and_login_flow(pg):
     assert "Sign in" not in page.content()
 
 
-def test_session_expiry_lockout(pg):
-    """An authenticated session loses protected access when the licence
-    is removed/expired from the store."""
+def test_session_survives_missing_licence(pg):
+    """An authenticated session keeps protected access even with no
+    valid licence — licence status is informational only."""
     url, page = pg
     _login(page, url)
     page.goto(f"{url}/projects")
-    # still authenticated — now expire the licence by pointing the
-    # date check at a far-future 'now'
+    assert "Sign in" not in page.content()
     page.goto(f"{url}/system/licence")
     assert "Licence" in page.content()
 

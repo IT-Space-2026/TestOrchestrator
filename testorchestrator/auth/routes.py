@@ -8,6 +8,16 @@ from . import auth_bp
 from .forms import ChangePasswordForm, LoginForm
 
 
+def _licence_unsupported() -> bool:
+    """Informational flag for the login notice. Never fails closed on
+    access — a status error shows the notice and keeps login usable."""
+    from .. import licensing
+    try:
+        return licensing.current_status()[0] != "valid"
+    except Exception:
+        return True
+
+
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -23,7 +33,9 @@ def login():
                 *form.password.errors,
                 "Too many attempts. Try again shortly.",
             )
-            return render_template("auth/login.html", form=form), 429
+            return render_template(
+                "auth/login.html", form=form,
+                licence_unsupported=_licence_unsupported()), 429
 
         user = User.query.filter_by(username=username).first()
         if user and user.is_active and user.check_password(form.password.data):
@@ -42,14 +54,9 @@ def login():
         record_audit(username or "<empty>", "login.failure")
         form.password.errors = (*form.password.errors, "Invalid username or password.")
 
-    from .. import licensing
-    from .forms import LicenceActivationForm
-    st, best, _ = licensing.current_status()
     return render_template(
         "auth/login.html", form=form,
-        licence_state=st if st != "valid" else None,
-        licence_best=best,
-        licence_form=LicenceActivationForm())
+        licence_unsupported=_licence_unsupported())
 
 
 @auth_bp.route("/logout", methods=["POST"])

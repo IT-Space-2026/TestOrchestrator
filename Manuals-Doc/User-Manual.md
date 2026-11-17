@@ -34,7 +34,7 @@ screenshot caption and in the text.
   - [4.3 Monitoring an execution](#43-monitoring-an-execution)
   - [4.4 Cancellation, retry, and deletion](#44-cancellation-retry-and-deletion)
   - [4.5 Reading outcomes: test failure vs. infrastructure failure](#45-reading-outcomes-test-failure-vs-infrastructure-failure)
-  - [4.6 When the licence blocks dispatch](#46-when-the-licence-blocks-dispatch)
+  - [4.6 The application-licence notice](#46-the-application-licence-notice)
 - [5. Historical-result import](#5-historical-result-import)
   - [5.1 Starting an import](#51-starting-an-import)
   - [5.2 The preview](#52-the-preview)
@@ -509,29 +509,24 @@ outcome `failed` (tests ran and failed) or `failed` with no outcome
 
 ![Failed execution — one case failed, one passed](Screenshot-Doc/user/execution-detail-failed.png)
 
-### 4.6 When the licence blocks dispatch
+### 4.6 The application-licence notice
 
-TestOrchestrator itself runs under an application licence that an
-**administrator** manages — you cannot add or renew it from a
-non-admin account. What you will experience:
+TestOrchestrator's own application licence is **informational
+only** — it never blocks you. If the licence is missing, expired,
+or otherwise not valid, the login page shows the notice:
 
-- **Everything works while the licence is `valid`.** You do not need
-  to do anything; validity is checked transparently at dispatch time.
-- **Runs stay `queued` when no licence is usable.** If the licence is
-  missing, expired, or not yet valid, the dispatcher *holds* the
-  queue — manual runs, scheduled firings, and queued work all wait
-  rather than failing. Nothing you queue is lost, but nothing starts
-  either.
-- **It does not resume on its own.** After an administrator applies a
-  valid licence at **System → Licence**, they must also press
-  **Resume dispatch** — the held queue is released deliberately, not
-  automatically. If your runs sit queued for a long time, contact an
-  administrator; this is the most likely cause.
-- **Licence states** an admin may report to you: `missing`,
-  `invalid`, `not-yet-valid` (a renewal was stored early and starts
-  later — harmless), `valid`, `expired`. Validity is UTC
-  `[valid_from, valid_until)` — the licence stops at the start of
-  `valid_until`, not at the end of that day.
+> This version is not supported
+
+![Login page showing the unsupported-version notice — form fully usable](Screenshot-Doc/user/login-unsupported.png)
+
+*Login with no valid application licence — tested on the 2.0.4
+candidate; the notice is informational and sign-in works normally.*
+
+That is all it does. You can still sign in normally and every
+feature — projects, runs, schedules, imports, reports — works
+exactly the same. Nothing is queued, held, or restricted. An
+administrator can record a licence at **System → Licence** to clear
+the notice, but is not required to.
 
 This is the **application** licence — separate from the KRE licence
 that must exist on each execution worker (§4.1). An

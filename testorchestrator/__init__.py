@@ -140,24 +140,12 @@ def create_app(config_object=Config) -> Flask:
 
     install_gates(app)
 
-    # ---- licence enforcement ----
-    _LIC_OPEN = {"/licence", "/licence-activate", "/healthz", "/login"}
-    _LIC_PREFIX = ("/static", "/setup")
+    # ---- licence status (informational only) ----
+    # The application licence is NOT an enforcement gate: every route and
+    # operation works regardless of licence state. The only visible effect
+    # of an absent/invalid licence is the "This version is not supported"
+    # notice rendered on the login page (auth/routes.py).
     app.config.setdefault("MAX_CONTENT_LENGTH", 64 * 1024)
-
-    @app.before_request
-    def _licence_gate():
-        from . import licensing
-        from flask import redirect, request
-        if licensing.usable():
-            return None
-        p = request.path
-        if p in _LIC_OPEN or p.startswith(_LIC_PREFIX):
-            return None
-        if request.method == "GET" and not p.startswith("/api"):
-            return redirect("/licence")
-        return ("Licence required — activation needed before "
-                "protected operations.", 403)
 
     @app.route("/licence")
     def licence_status_page():

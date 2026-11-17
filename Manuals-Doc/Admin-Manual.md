@@ -9,15 +9,11 @@ commit `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`).
 |---|---|
 | **[verified]** | Executed against a released install package — details in [Validation-Record.md](Validation-Record.md) |
 | **[code/CI]** | Documented from installer source and CI evidence; not interactively validated here |
-| **[doc-env]** | Demonstrated on the isolated documentation environment (fixture data, test licence) — procedure is real, values are not |
+| **[doc-env]** | Demonstrated on the isolated documentation environment (fixture data) — procedure is real, values are not |
 
 Disclosed boundaries, up front: most screenshots were captured on the
 released **2.0.2** package (the index lists which frames were
-recaptured on 2.0.3); the documentation installs use **test-licence
-substitution** — published artifacts carry the real verification key;
-**Windows installers are unsigned** and Windows validation is CI-only;
-**licensed KRE execution** was not possible (no licence/API key) —
-pipeline coverage used a fixture stand-in.
+recaptured on 2.0.3).
 
 ---
 
@@ -75,7 +71,7 @@ pipeline coverage used a fixture stand-in.
   - [12.1 Add a worker](#121-add-a-worker)
   - [12.2 Register a KRE installation (runtime connection)](#122-register-a-kre-installation-runtime-connection)
   - [12.3 Add a user and assign a role](#123-add-a-user-and-assign-a-role)
-  - [12.4 Apply or renew the licence](#124-apply-or-renew-the-licence)
+  - [12.4 Licence status (informational)](#124-licence-status-informational)
 - [13. Production deployment checklist](#13-production-deployment-checklist)
 - [14. Configuration reference](#14-configuration-reference)
   - [14.1 Environment variables (set in `web.env` / service unit)](#141-environment-variables-set-in-webenv--service-unit)
@@ -353,10 +349,12 @@ version (`2.27.0`).
 
 ### 4.1 Requirements
 
-- A licence code (`TO1.…`) issued for this product — validated by the
-  installer **before** anything is copied; a rejected code leaves no
-  partial install. Unattended installs pass it via the
-  `TO_LICENCE_CODE` environment variable (it is never logged).
+- No licence is required to install or run the application — the
+  TestOrchestrator application licence is **informational only**
+  (§12.4). If you were issued a code (`TO1.…`) and want it recorded,
+  pass it via the `TO_LICENCE_CODE` environment variable (never
+  logged); it is validated and stored for status display, but a
+  rejected or absent code never aborts the install.
 
 ### 4.2 Tarball install **[verified]**
 
@@ -364,11 +362,11 @@ version (`2.27.0`).
 tar -xzf testorchestrator-2.0.3-linux-x86_64.tar.gz
 cd testorchestrator-2.0.3-linux-x86_64
 
-# interactive: prompts for the licence code
+# interactive — licence prompt is optional (Enter skips it)
 sudo bash install.sh
 
 # or unattended, explicit directories, units staged but not started:
-TO_LICENCE_CODE='TO1.…' bash install.sh \
+bash install.sh \
     --payload /opt/testorchestrator \
     --data /var/lib/testorchestrator \
     --config /etc/testorchestrator \
@@ -378,22 +376,24 @@ TO_LICENCE_CODE='TO1.…' bash install.sh \
 
 What the installer does, in order **[verified — every step observed]**:
 
-1. Validates the licence offline (Ed25519) against the bundled
-   `release/licence_pubkey.pem`; rejects expired/not-yet-valid codes.
-2. Writes `licence.json` into the data dir.
-3. Copies the payload (`testorchestrator/`, `wsgi.py`,
+1. If a licence code was supplied (`TO_LICENCE_CODE` or the interactive
+   prompt), validates it offline (Ed25519) against the bundled
+   `release/licence_pubkey.pem` and writes `licence.json` into the
+   data dir. A rejected, expired, or absent code logs a warning and
+   the install continues — licensing is informational only.
+2. Copies the payload (`testorchestrator/`, `wsgi.py`,
    `requirements.txt`, `release/`, `3rdparty/`, `migrations/`,
    `deploy/`, `scripts/`) plus the bundled dagu-worker installer
    into `packaging/windows/` — the portal serves it as a worker
    download (§6.1).
-4. Creates the offline venv from the bundled Python + vendored wheels.
-5. Provisions Dagu: binary + `server.yaml` (basic auth) +
+3. Creates the offline venv from the bundled Python + vendored wheels.
+4. Provisions Dagu: binary + `server.yaml` (basic auth) +
    `credentials` file (`0600`) + execution workflow + a systemd unit
    under `config/dagu/`. Set `TO_DAGU_PROVISION_PASSWORD` beforehand
    so the coordinator credential matches what the portal stores; if
    unset, a random token is generated and the installer warns — store
    that token in the portal under **Admin → Credentials** afterwards.
-6. Stages systemd units (`testorchestrator-web`, `-worker`, `-dagu`,
+5. Stages systemd units (`testorchestrator-web`, `-worker`, `-dagu`,
    `-caddy`) and a `Caddyfile` under the config dir. With root +
    systemd and no `--no-service-start`, they are enabled and started;
    otherwise they are left for manual activation.
@@ -568,8 +568,10 @@ From the installer (`app-installer.nsi`, `build_app_installer.sh`,
    SYSTEM/ONSTART Scheduled Tasks — `TestOrchestratorWeb` (Waitress,
    `127.0.0.1:18080`), `…Worker`, `…Dagu`, `…Caddy` (HTTPS `:443`).
    No reboot is required; tasks also restart at boot.
-4. Browse to `https://localhost/` → licence page → enter the licence
-   code → login → use.
+4. Browse to `https://localhost/` → sign in (bootstrap admin
+   credentials are printed by the installer) → use. If no application
+   licence is installed the login page shows the informational notice
+   *"This version is not supported"* — it does not restrict anything.
 
 ### 5.2 Certificate trust (what the installer does for you)
 
@@ -937,7 +939,7 @@ diagnostic commands is §21.
 | Symptom | Check |
 |---|---|
 | `403` immediately after install | Host allowlist — browse the configured alias, not a bare IP; or loopback-only gate still on (setup incomplete / `external_enabled` unset). |
-| `licence rejected` at install | Code expired/not-yet-valid (UTC dates), wrong product, or corrupted paste — the code is `TO1.<payload>.<signature>`. |
+| `licence … warn` at install | Code expired/not-yet-valid (UTC dates), wrong product, or corrupted paste — the code is `TO1.<payload>.<signature>`. Warning only; the install still completes and the app is fully usable. |
 | `cannot resolve '<ref>'` on sync/import | Bad ref/branch on the binding, or a shallow worktree missing the object — re-sync. |
 | Coordinator `/api/v1/workers` → `503` | Coordinator's `--coordinator.advertise` address isn't bound/reachable — advertise an interface address, not a hostname that resolves elsewhere. |
 | Remote run fails `mkdir /tmp/dagu: not a directory` | A stray file shadows Dagu's default temp dir — set a private `TMPDIR` for coordinator/worker processes. |
@@ -1065,18 +1067,26 @@ Role capability summary (enforced server-side on every route):
 | **Tester** | view | yes | no |
 | **PO** | view | no | no |
 
-### 12.4 Apply or renew the licence
+### 12.4 Licence status (informational)
 
 The application licence is verified **offline** — an Ed25519
 signature checked against the public key bundled in the payload
 (`release/licence_pubkey.pem`). No phone-home, no licence server.
 
-**At install time:** `install.sh` requires a valid code — pass it via
-the `TO_LICENCE_CODE` environment variable (never logged) or enter it
-at the interactive prompt. The installer validates it, then writes
-`licence.json` into the data dir (§4.2).
+**The licence does not gate anything.** Since 2.0.4 the application
+licence is informational only: installation, startup, login,
+projects, dispatch, workers, imports, reports, admin operations, and
+the CLI all work with a missing, expired, or invalid licence. The
+only user-visible effect of a non-valid licence is the notice
+*"This version is not supported"* shown on the login page — login
+itself is never blocked, and no other feature is restricted.
+Authentication, roles, and project isolation are unaffected.
 
-**In the running portal (renewal / first code after bootstrap):**
+**At install time:** pass a code via `TO_LICENCE_CODE` (never
+logged) or enter it at the optional interactive prompt to have it
+recorded; skip it and the install proceeds identically (§4.2).
+
+**In the running portal (view status / record a code):**
 
 1. Sign in as **Admin** → **System → Licence** — the page shows the
    current state, every activated licence (ID, customer, validity),
@@ -1090,25 +1100,14 @@ at the interactive prompt. The installer validates it, then writes
    success shows *"Licence activated for `<customer>` — valid
    `<from>` to `<to>`"*; failures show the reason (bad signature /
    malformed code).
-4. If dispatch was held while no licence was usable, press **Resume
-   dispatch** on the same page — the held queue does **not** resume
-   by itself; an admin must release it deliberately.
 
-**Renewal timing:** several licences may be stored; each is
-re-verified on every read. A future renewal can be added **before**
-its start date — it never displaces the currently valid one. States
-you may see on the page: `missing`, `invalid`, `not-yet-valid`
-(renewal stored, starts later), `valid`, `expired`. Enforcement is
-`now < valid_until` in UTC — the printed expiry is the boundary:
-the licence does not cover work started **at or after** it, so plan
-renewals to land before that date rather than relying on the expiry
-day itself.
-
-**What happens without a usable licence:** the dispatcher marks the
-queue *held* — queued and scheduled executions wait instead of
-failing. Users see their runs stay queued until an admin applies a
-valid licence and presses **Resume dispatch**. Manual runs are
-rechecked at dispatch time, so a queued run cannot slip past expiry.
+**States shown on the page:** `missing`, `invalid`, `not-yet-valid`
+(renewal stored, starts later), `valid`, `expired`. When the state is
+anything other than `valid`, the login page shows *"This version is
+not supported"* until a valid licence is recorded. This is distinct
+from the KRE licence (§4.5 of the User Manual): KRE still requires a
+valid Katalon licence/API key on the worker, and real KRE activation
+failures continue to fail the affected runs.
 
 ---
 
@@ -1116,8 +1115,8 @@ rechecked at dispatch time, so a queued run cannot slip past expiry.
 
 Order of operations for a new production install. Each line links to
 the detailed procedure; none of the values below come from the
-documentation environment (custom ports, fixture data, and test-licence
-substitution there are for screenshots only).
+documentation environment (custom ports and fixture data there are for
+screenshots only).
 
 1. **Choose directories** — `--payload` (code, replaceable), `--data`
    (all state — the backup target), `--config` (units, `web.env`,
