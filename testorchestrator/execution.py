@@ -425,6 +425,11 @@ class Execution(db.Model):
     # parse for imported ones; empty means "not fingerprintable".
     run_uuid = db.Column(db.String(64), nullable=False, default="")
     content_hash = db.Column(db.String(64), nullable=False, default="")
+    # Persisted suite keys [[id|name, timestamp], ...] — lets dedup's
+    # suite/timestamp overlap check run in memory instead of re-reading
+    # junit evidence per row. NULL = never fingerprinted; "[]" =
+    # fingerprinted, nothing found (evidence missing/unreadable).
+    suite_keys_json = db.Column(db.Text, nullable=True)
     # Import provenance — empty for live executions.
     source_repo = db.Column(db.String(512), nullable=False, default="")
     source_commit = db.Column(db.String(64), nullable=False, default="")
@@ -438,6 +443,16 @@ class Execution(db.Model):
 
     def snapshot(self) -> dict:
         return json.loads(self.snapshot_json or "{}")
+
+    def suite_keys(self) -> list | None:
+        """Persisted [[id|name, timestamp], ...] suite keys.
+        None = never fingerprinted; [] = fingerprinted, no evidence."""
+        if self.suite_keys_json is None:
+            return None
+        try:
+            return [tuple(k) for k in json.loads(self.suite_keys_json)]
+        except (TypeError, ValueError):
+            return []
 
 
 class CaseStatus(str, enum.Enum):
@@ -641,6 +656,21 @@ class ImportCandidate(db.Model):
 
     def run_dirs(self) -> list:
         return json.loads(self.run_dirs_json or "[]")
+
+
+class ImportLock(db.Model):
+    """Single-writer claim on a project's import-confirm path (2.0.2).
+
+    Concurrent confirmations of the same candidate (same or different
+    sessions) must not both insert executions — for uuid-less content
+    no unique index can arbitrate. The lock row serializes confirmers;
+    a crashed claim is reclaimable after CONFIRM_CLAIM_STALE_S."""
+    __tablename__ = "import_locks"
+    project_id = db.Column(db.String(32), primary_key=True)
+    session_id = db.Column(db.String(32), nullable=False, default="")
+    claimed_by = db.Column(db.String(64), nullable=False, default="")
+    claimed_at = db.Column(db.DateTime(timezone=True), nullable=False,
+                           default=utcnow)
 
 
 class AuthoringDraft(db.Model):

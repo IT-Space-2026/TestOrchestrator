@@ -7,6 +7,7 @@
     toctl backup --to DIR            state backup -> backup-*.tar.gz
     toctl recover --from FILE --into DIR
     toctl install-info               JSON of detected install context
+    toctl evidence-prune [--apply]   dry-run/report orphan evidence dirs
 
 Every entry point works in the frozen build — no external python, no
 flask CLI, no venv. install.sh and systemd units call `toctl`.
@@ -56,6 +57,17 @@ def cmd_db_upgrade(args) -> int:
         from flask_migrate import upgrade
         upgrade(directory=_migrations_dir())
     return 0
+
+
+def cmd_evidence_prune(args) -> int:
+    app = _app()
+    res = app.test_cli_runner().invoke(
+        args=["evidence-prune"] + (["--apply"] if args.apply else []))
+    sys.stdout.write(res.output)
+    if res.exception:
+        import traceback
+        traceback.print_exception(res.exception)
+    return res.exit_code or 0
 
 
 def cmd_readiness(args) -> int:
@@ -413,6 +425,11 @@ def main(argv=None) -> int:
     sub.add_parser("worker",
                    help="dispatch/outbox worker (extra args forwarded)")
     sub.add_parser("db-upgrade")
+    p = sub.add_parser(
+        "evidence-prune",
+        help="list (dry-run) or remove orphan evidence dirs under "
+             "managed roots")
+    p.add_argument("--apply", action="store_true")
     p = sub.add_parser("readiness"); p.add_argument("--url",
                                                   default="http://127.0.0.1:18080")
     p = sub.add_parser("backup"); p.add_argument("--to", required=True)
@@ -441,6 +458,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     args.extra = extra if args.cmd == "worker" else []
     fn = {"web": cmd_web, "worker": cmd_worker, "db-upgrade": cmd_db_upgrade,
+          "evidence-prune": cmd_evidence_prune,
           "readiness": cmd_readiness, "backup": cmd_backup,
           "recover": cmd_recover, "install-info": cmd_install_info,
           "install": cmd_install}

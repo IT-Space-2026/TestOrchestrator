@@ -866,6 +866,9 @@ def _normalize(ex: Execution) -> None:
                 totals += parsed.producer_tests
             ex.content_hash = _imp.content_fingerprint(
                 suite_keys, timestamps, [c[0] for c in cases], totals)
+            if ex.suite_keys_json is None:
+                ex.suite_keys_json = json.dumps(
+                    sorted({tuple(k) for k in suite_keys}))
     except Exception:
         pass                        # fingerprinting never breaks normalize
     db.session.commit()
