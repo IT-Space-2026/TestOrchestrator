@@ -92,19 +92,68 @@ pipeline coverage used a fixture stand-in.
 
 ## 1. Architecture and components
 
+```mermaid
+flowchart LR
+    subgraph EXT["External"]
+        BR["browser<br/>admin + end users"]
+        GIT["Git repository"]
+        KLS["Katalon licence service"]
+    end
+
+    subgraph HOST["Portal host (single machine, systemd)"]
+        direction TB
+        CDY["Caddy<br/>bundled binary<br/>TLS :443, :8080"]
+        subgraph APPUNIT["app unit (testorchestrator-web)"]
+            APP["Flask + Waitress :18080<br/>Python 3.12 payload + offline venv"]
+            RLAB["reporting_labs<br/>vendored package (MIT)"]
+            DB[("SQLite<br/>Alembic-migrated")]
+            APP --> RLAB
+            APP --> DB
+        end
+        subgraph DAGUNIT["coordinator unit (testorchestrator-dagu)"]
+            COORD["Dagu coordinator<br/>bundled 2.27.0<br/>UI/API :8097 - gRPC :50055"]
+        end
+        FS[/"instance data dir<br/>evidence - workspaces - staging -<br/>licence.json - certs - secret.key"/]
+        CDY --> APP
+        APP --> COORD
+        APP --> FS
+    end
+
+    subgraph WH["Worker host(s)"]
+        direction TB
+        subgraph WUNIT["worker unit (testorchestrator-worker)"]
+            WKR["dagu worker<br/>bundled 2.27.0<br/>labels: kre=label, os, arch"]
+        end
+        KRE["KRE / katalonc<br/>NOT SHIPPED - install<br/>and licence it yourself"]
+        WWS["job workspace +<br/>worker credential file"]
+        WKR --> KRE
+        KRE --> WWS
+    end
+
+    BR -->|HTTPS| CDY
+    WKR <-->|gRPC task poll| COORD
+    APP -->|clone/fetch SSH or HTTPS| GIT
+    KRE -.->|activation| KLS
+
+    classDef bundled fill:#f1f5f9,stroke:#334155,color:#0f172a
+    classDef external fill:#dbeafe,stroke:#1e40af,color:#0f172a
+    classDef own fill:#fde68a,stroke:#92400e,color:#0f172a
+    classDef data fill:#fef9c3,stroke:#a16207,color:#0f172a
+    class CDY,APP,RLAB,COORD,WKR bundled
+    class BR,GIT,KLS external
+    class KRE,WWS own
+    class DB,FS data
 ```
- Browser ──HTTPS──▶ Caddy (reverse proxy, TLS) ──HTTP loopback──▶ Waitress (Flask app :18080)
-                                                                    │  SQLite instance dir
-                                                                    ▼
-                                                     portal ──API──▶ Dagu coordinator
-                                                                    (start-all: UI/API + gRPC :50055)
-                                                                        │ worker task poll
-                                                                        ▼
-                                                     dagu worker (labels: kre=<label>, os, arch)
-                                                                        │ executes
-                                                                        ▼
-                                                     KRE (katalonc) → Reports/ → results back
-```
+
+![Component/deployment diagram — rendered copy](Screenshot-Doc/admin/architecture-diagram.png)
+*(rendered from the diagram above for PDF/offline readers — source:
+`Screenshot-Doc/admin/architecture-diagram.mmd`)*
+
+Colour key: grey = shipped binaries (Caddy, Flask/Waitress app,
+reporting_labs, Dagu coordinator/worker); yellow = persistent data;
+amber = **not shipped** — KRE and worker-side files you install and
+licence yourself; blue = external services.
+
 
 | Piece | Ships as | Notes |
 |---|---|---|

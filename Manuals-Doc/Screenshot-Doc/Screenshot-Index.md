@@ -74,6 +74,7 @@
 | `dr-restored-executions.png` | DR restore proof — execution history intact on a restored copy of the instance *(2.0.3)* |
 | `dr-restored-release.png` | DR restore proof — release + scope intact on the restored instance *(2.0.3)* |
 | `dataflow-diagram.png` | Rendered data-flow diagram for §1 — **generated asset, not a UI capture**; source `dataflow-diagram.mmd` (also embedded as a mermaid block in the manual) |
+| `architecture-diagram.png` | Rendered component/deployment diagram for §1 — **generated asset, not a UI capture**; source `architecture-diagram.mmd` |
 
 **Not captured:** destructive-action
 confirmations (deletion/cancel dialogs were exercised via code paths,
