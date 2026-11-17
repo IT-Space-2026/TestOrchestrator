@@ -26,6 +26,8 @@ def upgrade() -> None:
                   server_default="live"),
         sa.Column("framework", sa.String(length=32), nullable=False,
                   server_default="katalon"),
+        sa.Column("result_format", sa.String(length=32), nullable=False,
+                  server_default="junit"),
         sa.Column("imported_at", sa.DateTime(timezone=True),
                   nullable=True),
         sa.Column("imported_by", sa.String(length=64), nullable=False,
@@ -43,16 +45,18 @@ def upgrade() -> None:
     ):
         op.add_column("executions", col)
 
-    # Dedup safety net: the commit-time recheck is the primary gate;
-    # these partial indexes make concurrent imports transactional.
+    # Dedup safety net: the commit-time recheck is the primary gate.
+    # run_uuid is producer-assigned identity — unique where present.
+    # content_hash is only *evidence*: distinct reruns can produce
+    # identical content and must remain insertable, so it is a
+    # lookup index, NOT a uniqueness constraint.
     op.create_index(
         "uq_exec_project_run_uuid", "executions",
         ["project_id", "run_uuid"], unique=True,
         sqlite_where=sa.text("run_uuid != ''"))
     op.create_index(
-        "uq_exec_project_content_hash", "executions",
-        ["project_id", "content_hash"], unique=True,
-        sqlite_where=sa.text("content_hash != ''"))
+        "ix_exec_project_content_hash", "executions",
+        ["project_id", "content_hash"])
 
     op.create_table(
         "import_sessions",
@@ -117,7 +121,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("import_candidates")
     op.drop_table("import_sessions")
-    op.drop_index("uq_exec_project_content_hash", "executions")
+    op.drop_index("ix_exec_project_content_hash", "executions")
     op.drop_index("uq_exec_project_run_uuid", "executions")
     for col in ("source_path", "source_commit", "source_repo",
                 "content_hash", "run_uuid", "imported_by",

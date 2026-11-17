@@ -61,6 +61,7 @@ class ParsedImport:
     suite_keys: list = field(default_factory=list)   # (id|name, timestamp)
     timestamps: list = field(default_factory=list)
     run_uuid: str = ""
+    framework: str = "unknown"          # producer; format is junit
     properties: dict = field(default_factory=dict)
     warnings: list = field(default_factory=list)
     malformed: bool = False
@@ -172,6 +173,15 @@ def parse_run_dir(run_dir: Path, rel_dir: str,
                     pi.warnings.append(
                         f"{f.name}: producer totals disagree with "
                         "case count (recorded honestly)")
+    # producer-framework markers: KRE writes execution.uuid,
+    # execution.properties and names its report JUnit_Report.xml.
+    # A bare junit file proves the FORMAT, not the framework.
+    kre_markers = (run_dir / "execution.uuid").is_file() \
+        or (run_dir / "execution.properties").is_file() \
+        or (run_dir / "tsc_id.txt").is_file() \
+        or (run_dir / "testCaseBinding").is_file() \
+        or any(f.name == "JUnit_Report.xml" for f, _p in pi.junit_files)
+    pi.framework = "katalon" if kre_markers else "unknown"
     uuid_file = run_dir / "execution.uuid"
     if uuid_file.is_file():
         try:
@@ -271,9 +281,66 @@ DECISION_UNSUPPORTED = "unsupported"
 DECISION_MALFORMED = "malformed"
 
 
+def _import_multiset(pi: ParsedImport) -> set:
+    return {(c.classname, c.name, c.status,
+             round(c.duration_s or 0, 3)) for c in pi.cases}
+
+
+def _stored_multiset(ex: Execution) -> set:
+    return {(r.classname or "", r.case_name or r.case_ref,
+             r.status.value, round(r.duration_s or 0, 3))
+            for r in ex.results}
+
+
+def _keyed(tuples) -> dict:
+    """(classname,name) -> sorted [(status,duration), ...] — one entry
+    per attempt, so retried cases keep their per-attempt values."""
+    out = {}
+    for cls, name, status, dur in tuples:
+        out.setdefault((cls, name), []).append((status, dur))
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def _content_relation(pi: ParsedImport, ex: Execution) -> str:
+    """'equal' | 'subset' | 'additive' | 'conflict'.
+
+    A same-uuid import and a stored execution are partial views of one
+    producer run. CONFLICT requires an actual contradiction — the same
+    case+attempt position with a different outcome — not merely a
+    different subset (a later-arriving suite adds NEW case keys)."""
+    have = _keyed(_stored_multiset(ex))
+    want = _keyed(_import_multiset(pi))
+    for key in set(have) & set(want):
+        if have[key] != want[key]:
+            return "conflict"
+    extra = set(want) - set(have)
+    missing = set(have) - set(want)
+    if extra:
+        return "additive"           # import brings unseen cases
+    if missing:
+        return "subset"             # import is a partial copy
+    return "equal"
+
+
 def classify(project_id: str, pi: ParsedImport) -> tuple[str, str, list]:
     """(decision, match_execution_id, warnings). Project-scoped only —
-    matching never crosses project boundaries."""
+    matching never crosses project boundaries.
+
+    Identity rules (deliberately asymmetric — fingerprints are
+    evidence, not identity):
+    - Same producer execution.uuid: same run. Identical content →
+      duplicate/supplement; strictly-additional content (e.g. a
+      suite that arrived in a later import of one collection) →
+      supplement; conflicting content → ambiguous review (the uuid
+      unique index still forbids a second execution claiming that id).
+    - Different uuids → different runs, even with identical results:
+      a rerun may produce byte-identical outcomes.
+    - No uuid either side → identical fingerprint counts as a duplicate
+      ONLY when the fingerprint carries a suite timestamp (copied /
+      renamed reports collapse); identical content with NO temporal or
+      producer identity → ambiguous, never auto-merged.
+    - Suite+timestamp subset overlap without full equality → ambiguous.
+    """
     warnings = list(pi.warnings)
     if pi.unsupported:
         return DECISION_UNSUPPORTED, "", warnings
@@ -281,19 +348,56 @@ def classify(project_id: str, pi: ParsedImport) -> tuple[str, str, list]:
         return DECISION_MALFORMED, "", warnings + [
             "JUnit parsed but contains no test cases"]
     run_uuid, chash = fingerprint(pi)
-    candidates = Execution.query.filter_by(project_id=project_id).all()
-    exact = None
     suite_ts = {(k[0], k[1]) for k in pi.suite_keys if k[0]}
-    for ex in candidates:
+    for ex in Execution.query.filter_by(project_id=project_id):
         eu, eh = fingerprint_live(ex)
-        if run_uuid and eu and run_uuid == eu:
-            exact = ex
-            break
+        if pi.run_uuid and eu:
+            if pi.run_uuid != eu:
+                continue                    # producer: different runs
+            rel = _content_relation(pi, ex)
+            if rel == "conflict":
+                return (DECISION_AMBIGUOUS, ex.id, warnings + [
+                    "same execution.uuid but conflicting results — "
+                    "review required; the producer run id cannot "
+                    "identify two different executions"])
+            if rel == "additive":
+                return (DECISION_SUPPLEMENT, ex.id, warnings + [
+                    "same execution.uuid with additional content "
+                    "(e.g. a suite that arrived later) — supplements "
+                    "missing cases and evidence only"])
+            # equal/subset → duplicate or fill missing fields/evidence
+            missing = []
+            if ex.finished_at is None and _parse_ts(
+                    max(pi.timestamps) if pi.timestamps else ""):
+                missing.append("finished_at")
+            exact_dir = Path(ex.report_dir or "")
+            if exact_dir.is_dir():
+                stored_sha = {a.sha256 for a in Artifact.query.filter_by(
+                    execution_id=ex.id)}
+                unseen = len({results_mod.sha256_file(p)
+                              for p, _rel in pi.files} - stored_sha)
+                if unseen:
+                    missing.append(f"{unseen} artifact(s)")
+            if missing:
+                return (DECISION_SUPPLEMENT, ex.id, warnings + [
+                    f"same run already recorded — can fill: "
+                    f"{', '.join(missing)}"])
+            return (DECISION_DUPLICATE, ex.id, warnings + [
+                "identical run already in history"])
+        # uuid unknown on at least one side → content fallback
         if chash and eh and chash == eh:
-            exact = ex
-            break
-        # Same suite+start time but a different case multiset → cannot
-        # distinguish partial copy from distinct run → review.
+            if pi.timestamps:
+                # identical report incl. timestamps → the same run's
+                # data, wherever it was produced or copied to
+                return (DECISION_DUPLICATE, ex.id, warnings + [
+                    "identical content fingerprint already in "
+                    "history"])
+            return (DECISION_AMBIGUOUS, ex.id, warnings + [
+                "identical result content but no execution.uuid and "
+                "no timestamps — cannot prove same run; review "
+                "required"])
+        # suite+timestamp subset overlap → cannot distinguish partial
+        # copy from distinct run → review
         ex_keys = set()
         report_dir = Path(ex.report_dir or "")
         if report_dir.is_dir():
@@ -302,37 +406,15 @@ def classify(project_id: str, pi: ParsedImport) -> tuple[str, str, list]:
                 f = report_dir / art.rel_path
                 parsed = _looks_junit(f) if f.is_file() else None
                 if parsed:
-                    for s in parsed.suites:
-                        ex_keys.add((s["id"] or s["name"],
-                                     s["timestamp"]))
+                    for st in parsed.suites:
+                        ex_keys.add((st["id"] or st["name"],
+                                     st["timestamp"]))
         if suite_ts and ex_keys \
-                and (suite_ts <= ex_keys or ex_keys <= suite_ts) \
-                and not (chash and eh and chash == eh):
+                and (suite_ts <= ex_keys or ex_keys <= suite_ts):
             return (DECISION_AMBIGUOUS, ex.id, warnings + [
                 "same suite and start time but differing case set — "
                 "review required (possible partial copy or distinct "
                 "run)"])
-    if exact is not None:
-        missing = []
-        if exact.finished_at is None and _parse_ts(
-                min(pi.timestamps) if pi.timestamps else ""):
-            missing.append("finished_at")
-        exact_dir = Path(exact.report_dir or "")
-        if exact_dir.is_dir():
-            stored_sha = {a.sha256 for a in Artifact.query.filter_by(
-                execution_id=exact.id)}
-            new_bytes = {results_mod.sha256_file(p)
-                         for p, _rel in pi.files}
-            unseen = len(new_bytes - stored_sha)
-            if unseen:
-                missing.append(f"{unseen} artifact(s) not in stored "
-                               "evidence")
-        if missing:
-            return (DECISION_SUPPLEMENT, exact.id, warnings + [
-                f"same run already recorded — import can fill missing "
-                f"data: {', '.join(missing)}"])
-        return (DECISION_DUPLICATE, exact.id, warnings + [
-            "identical run already in history"])
     return DECISION_NEW, "", warnings
 
 
@@ -427,6 +509,8 @@ def create_preview(project: Project, binding: GitBinding,
             g.warnings.extend(pi.warnings)
             g.unsupported = g.unsupported and pi.unsupported
             g.malformed = g.malformed or pi.malformed
+            if pi.framework != "unknown":
+                g.framework = pi.framework
     for i, key in enumerate(ordered):
         pi = groups[key]
         if len(pi.run_dirs) > 1:
@@ -490,7 +574,8 @@ def _create_execution(project, session, cand, pi, user) -> Execution:
         binding_id=session.binding_id,
         suite_id=_best_suite_link(project.id, pi),
         origin="imported",
-        framework="katalon",
+        framework=pi.framework,
+        result_format="junit",
         state=ExecutionState.COMPLETED,
         outcome=Outcome(results_mod.aggregate_outcome(
             pi.cases, completed=True)),
@@ -566,6 +651,38 @@ def _supplement(ex: Execution, pi: ParsedImport,
     """Fill only demonstrably-missing data; existing values and their
     provenance are preserved. Returns what was filled."""
     filled = []
+    if not ex.run_uuid and pi.run_uuid:
+        ex.run_uuid = pi.run_uuid
+        filled.append("run_uuid")
+    if not ex.content_hash:
+        _u, ch = fingerprint(pi)
+        if _content_relation(pi, ex) == "equal":
+            ex.content_hash = ch
+            filled.append("content_hash")
+    if not ex.framework or ex.framework == "unknown":
+        if pi.framework != "unknown":
+            ex.framework = pi.framework
+            filled.append("framework")
+    stored_cases = _stored_multiset(ex)
+    new_cases = [c for c in pi.cases
+                 if (c.classname, c.name, c.status,
+                     round(c.duration_s or 0, 3)) not in stored_cases]
+    if new_cases:
+        seen = {}
+        for r in ex.results:
+            key = (r.classname or "", r.case_name or r.case_ref)
+            seen[key] = max(seen.get(key, 0), r.attempt)
+        for c in new_cases:
+            key = (c.classname, c.name)
+            seen[key] = seen.get(key, 0) + 1
+            db.session.add(TestResult(
+                execution_id=ex.id,
+                case_ref=c.classname or c.name, case_name=c.name,
+                classname=c.classname, iteration=c.iteration,
+                attempt=seen[key], status=c.status,
+                duration_s=c.duration_s,
+                message=(c.message or "")[:4000], unresolved=False))
+        filled.append(f"{len(new_cases)} test result(s)")
     if ex.finished_at is None:
         ts = _parse_ts(max(pi.timestamps) if pi.timestamps else "")
         if ts:

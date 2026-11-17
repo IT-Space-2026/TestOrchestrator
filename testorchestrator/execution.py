@@ -415,6 +415,10 @@ class Execution(db.Model):
     # reuse these columns instead of inventing parallel history.
     framework = db.Column(db.String(32), nullable=False,
                           default="katalon")
+    # evidence format ('junit' today) — kept separate from framework:
+    # a bare JUnit file proves the format, not the producer
+    result_format = db.Column(db.String(32), nullable=False,
+                              default="junit")
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
     imported_by = db.Column(db.String(64), nullable=False, default="")
     # Dedup identities — populated at normalize for live runs and at

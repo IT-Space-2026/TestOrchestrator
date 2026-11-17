@@ -468,3 +468,119 @@ def test_collection_run_shared_uuid_one_execution(tmp_path, app):
         rels = {a.rel_path for a in ex.artifacts}
         assert any("Wiki" in r for r in rels)
         assert any("IT-Space" in r for r in rels)
+
+
+# ---------- identity edge cases (release-gate verification) ----------
+
+def test_distinct_uuids_identical_content_stay_separate(tmp_path, app):
+    """Two different producer uuids with byte-identical results are two
+    executions — identical outcomes do not merge runs."""
+    shared = dict(suite="TS_Login", ts="2026-11-10T09:30:00")
+    files = {}
+    for d, u in (("20261110_093000", UUID),
+                 ("20261110_093001", "bbbbbbbb-1111-2222-3333-444444444444")):
+        run = kre_run(uuid=u)
+        files.update({f"Reports/{d}/{k}": v for k, v in run.items()})
+    pid, bid = make_binding(tmp_path, app, files, "dupres")
+    out = confirm(app, preview(app, pid, bid))
+    assert len(out["imported"]) == 2
+    with app.app_context():
+        assert Execution.query.filter_by(project_id=pid).count() == 2
+
+
+def test_identical_content_no_uuid_no_ts_is_ambiguous(tmp_path, app):
+    """Identical content with no uuid and no timestamps cannot prove a
+    single run — ambiguous, and force-new must actually insert."""
+    junit = JUNIT.format(suite="TS_X", ts="", n=1, f=0, t=1.0,
+                         cases=CASE_PASS.format(cls="x", nm="y"))
+    files = {}
+    for d in ("a", "b"):
+        files[f"Reports/{d}/JUnit_Report.xml"] = junit
+        files[f"Reports/{d}/execution0.log"] = "log"
+    pid, bid = make_binding(tmp_path, app, files, "nots")
+    s1 = preview(app, pid, bid)
+    confirm(app, s1, select=[cand(app, s1, 0).id])
+    s2 = preview(app, pid, bid)
+    c2 = cand(app, s2, run_dir_suffix="/b")
+    assert c2.decision == "ambiguous", \
+        "identical content without uuid/timestamps must be ambiguous"
+    # force-new succeeds — the content fingerprint is evidence, not a
+    # uniqueness constraint
+    out = confirm(app, s2, force=[c2.id])
+    assert len(out["imported"]) == 1
+    with app.app_context():
+        assert Execution.query.filter_by(project_id=pid).count() == 2
+
+
+def test_same_uuid_conflicting_content_is_ambiguous(tmp_path, app):
+    """Same execution.uuid with conflicting results → review; the
+    producer id cannot identify two different executions."""
+    run_b = kre_run(cases=[CASE_PASS.format(cls="TS_Login", nm="login"),
+                           CASE_PASS.format(cls="TS_Login", nm="logout")])
+    files = {f"Reports/a/{k}": v for k, v in kre_run().items()}
+    files.update({f"Reports/b/{k}": v for k, v in run_b.items()})
+    pid, bid = make_binding(tmp_path, app, files, "uconflict")
+    s = preview(app, pid, bid, result_dir="Reports/a")
+    confirm(app, s)
+    s2 = preview(app, pid, bid, result_dir="Reports/b")
+    c = cand(app, s2)
+    assert c.decision == "ambiguous"
+    with app.app_context():
+        assert Execution.query.filter_by(project_id=pid).count() == 1
+
+
+def test_same_uuid_late_suite_supplements(tmp_path, app):
+    """A collection's suite arriving in a later import (same uuid,
+    additional cases) supplements the existing execution."""
+    coll_uuid = "dddddddd-1111-2222-3333-444444444444"
+    files = {}
+    for suite, d, cases in (
+            ("Wiki", "w", None),
+            ("IT-Space", "i", [CASE_PASS.format(cls="TS_ITS", nm="open"),
+                               CASE_FAIL.format(cls="TS_ITS", nm="edit")])):
+        run = kre_run(suite=f"TS_{suite}",
+                      ts="2026-11-16T16:31:15", uuid=coll_uuid,
+                      cases=cases)
+        files.update({f"Reports/{d}/{k}": v for k, v in run.items()})
+    pid, bid = make_binding(tmp_path, app, files, "late")
+    # first import: only the Wiki dir is selected
+    s = preview(app, pid, bid, result_dir="Reports/w")
+    out = confirm(app, s)
+    ex_id = out["imported"][0][1]
+    with app.app_context():
+        assert len(db.session.get(Execution, ex_id).results) == 2
+    # second import picks up the IT-Space dir (same uuid, more cases)
+    s2 = preview(app, pid, bid, result_dir="Reports/i")
+    c2 = cand(app, s2)
+    assert c2.decision == "supplement"
+    out2 = confirm(app, s2, select=[c2.id])
+    assert len(out2["supplemented"]) == 1
+    with app.app_context():
+        ex = db.session.get(Execution, ex_id)
+        assert len(ex.results) == 4
+        assert Execution.query.filter_by(project_id=pid).count() == 1
+
+
+def test_generic_junit_framework_unknown(tmp_path, app):
+    """A bare JUnit file without KRE markers is format=junit but
+    framework=unknown — the producer is not established."""
+    files = {"out/results.xml": JUNIT.format(
+        suite="SomeSuite", ts="2026-11-10T09:30:00", n=1, f=0, t=1.0,
+        cases=CASE_PASS.format(cls="pkg.Cls", nm="m1"))}
+    pid, bid = make_binding(tmp_path, app, files, "genjunit")
+    out = confirm(app, preview(app, pid, bid, result_dir="out"))
+    with app.app_context():
+        ex = db.session.get(Execution, out["imported"][0][1])
+        assert ex.framework == "unknown"
+        assert ex.result_format == "junit"
+
+
+def test_katalon_markers_give_katalon(tmp_path, app):
+    files = {f"Reports/20261110_093000/{k}": v
+             for k, v in kre_run().items()}
+    pid, bid = make_binding(tmp_path, app, files, "kmark")
+    out = confirm(app, preview(app, pid, bid))
+    with app.app_context():
+        ex = db.session.get(Execution, out["imported"][0][1])
+        assert ex.framework == "katalon"
+        assert ex.result_format == "junit"
