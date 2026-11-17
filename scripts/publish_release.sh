@@ -1,7 +1,7 @@
 #!/bin/sh
 # Publish the dist/ bundle as a GitHub PRERELEASE with its checksum,
 # dependency manifest, file inventory, and release notes.
-# Requires: gh CLI authenticated (gh auth login) for repo IT-Space-2026/TestOrchestrator.
+# Requires: gh CLI authenticated (gh auth login) for repo IT-Space-ltd/TestOrchestrator.
 set -eu
 cd "$(dirname "$0")/.."
 VER=$(python3 -c "import json;print(json.load(open('release/release.json'))['version'])")

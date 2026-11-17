@@ -7,7 +7,7 @@ Nothing here is claimed beyond what was run or read.
 
 | Item | Value |
 |---|---|
-| Release | `v2.0.2` — https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.2 |
+| Release | `v2.0.2` — https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/v2.0.2 |
 | Source commit | `574860d08124411692b141643da0ad87e576100d` |
 | Package | `testorchestrator-2.0.2-linux-x86_64.tar.gz` |
 | Size / SHA-256 | 278,808,449 B / `af08a60d1506b061edd1342169aded75553dbc3ee6b134df23c19ec7670a6f7e` — re-verified against the published `SHA256SUMS.txt` before use |

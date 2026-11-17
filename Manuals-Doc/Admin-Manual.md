@@ -323,8 +323,8 @@ a standalone release asset.
 Verify before installing **[verified]**:
 
 ```bash
-curl -LO https://github.com/IT-Space-2026/TestOrchestrator/releases/download/v2.0.3/SHA256SUMS.txt
-curl -LO https://github.com/IT-Space-2026/TestOrchestrator/releases/download/v2.0.3/testorchestrator-2.0.3-linux-x86_64.tar.gz
+curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/v2.0.3/SHA256SUMS.txt
+curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/v2.0.3/testorchestrator-2.0.3-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
 # testorchestrator-2.0.3-linux-x86_64.tar.gz: OK
 ```

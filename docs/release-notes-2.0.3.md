@@ -54,12 +54,12 @@ worker-download assets the portal serves.
 ### Added
 
 - **User and administrator manuals** under
-  [`Manuals-Doc/`](https://github.com/IT-Space-2026/TestOrchestrator/tree/v2.0.3/Manuals-Doc)
+  [`Manuals-Doc/`](https://github.com/IT-Space-ltd/TestOrchestrator/tree/v2.0.3/Manuals-Doc)
   — installation, projects/bindings, workers, historical-result import,
   reports/evidence, backup/upgrade, security, troubleshooting, plus a
   validation record and 45 screenshots. Screenshots were captured on
   the **released 2.0.2 package**; the
-  [validation record](https://github.com/IT-Space-2026/TestOrchestrator/blob/v2.0.3/Manuals-Doc/Validation-Record.md)
+  [validation record](https://github.com/IT-Space-ltd/TestOrchestrator/blob/v2.0.3/Manuals-Doc/Validation-Record.md)
   states which procedures ran on which version, including the
   test-licence substitution and manual reportingLabs copy used inside
   the documentation test payload (test-only — not part of the published

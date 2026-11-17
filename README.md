@@ -11,7 +11,7 @@ single-file reports — a pure-Python backend with no bundled Node.js.
 [CHANGELOG](CHANGELOG.md)). The release tag `v2.0.3` resolves to commit
 `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`; published binaries were built
 from exactly that clean commit. See the
-[GitHub release](https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.3).
+[GitHub release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/v2.0.3).
 2.0.3 repairs the Linux installer's omission of the vendored
 reporting-labs package, relocates it to `3rdparty/reporting_labs`, and
 corrects the licence-expiry label and release scope picker.
@@ -465,7 +465,7 @@ and output layout: `docs/build.md`.
 ## Release assets & checksums (v2.0.3)
 
 Published at
-<https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.3>
+<https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/v2.0.3>
 — tag `v2.0.3` → commit `22a1400f5f17afc153a351857c3bebad47a66eac`,
 all binaries built from that exact clean commit:
 
@@ -488,8 +488,8 @@ separate release asset.
 ## Validation (v2.0.3)
 
 CI on the tagged commit
-([linux-package](https://github.com/IT-Space-2026/TestOrchestrator/actions/runs/44092012798) ·
-[windows-installer](https://github.com/IT-Space-2026/TestOrchestrator/actions/runs/44092018182) —
+([linux-package](https://github.com/IT-Space-ltd/TestOrchestrator/actions/runs/44092012798) ·
+[windows-installer](https://github.com/IT-Space-ltd/TestOrchestrator/actions/runs/44092018182) —
 all jobs success):
 
 - **Linux**: build · installer-validate (real `install.sh` +
