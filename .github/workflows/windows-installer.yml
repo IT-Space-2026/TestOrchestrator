@@ -337,7 +337,7 @@ jobs:
           if ($rc -ne 0) { throw "post-upgrade report-serving check failed" }
           Write-Host "PASS retained reports/licence/verified access after v1.0.2->candidate upgrade"
 
-  upgrade-from-v200:
+  upgrade-from-v202:
     needs: compile
     runs-on: windows-latest
     steps:
@@ -346,39 +346,39 @@ jobs:
         with:
           name: testorchestrator-windows-setup
           path: candidate
-      - name: fetch released v2.0.0 installer
+      - name: fetch released v2.0.2 installer
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v2.0.0" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v2.0.2" \
             | python -c "import json,sys; print([a['id'] for a in json.load(sys.stdin)['assets'] if 'windows' in a['name'] and a['name'].endswith('.exe') and 'dagu' not in a['name']][0])")
           curl -sL -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/octet-stream" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id" \
-            -o v200-setup.exe
-          ls -la v200-setup.exe
-      - name: install released v2.0.0 + seed sanitised report
+            -o v202-setup.exe
+          ls -la v202-setup.exe
+      - name: install released v2.0.2 + seed sanitised report
         shell: pwsh
         run: |
-          $inst = "C:\to upgrade install v200"
-          $p = Start-Process ".\v200-setup.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "v2.0.0 install exited $($p.ExitCode)" }
+          $inst = "C:\to upgrade install v202"
+          $p = Start-Process ".\v202-setup.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "v2.0.2 install exited $($p.ExitCode)" }
           $thumb1 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" }).Thumbprint
-          Set-Content "$env:TEMP\thumb1v200.txt" $thumb1
+          Set-Content "$env:TEMP\thumb1v202.txt" $thumb1
           Copy-Item ".\packaging\ci\report_serving_check.py" "$inst\"
           Push-Location $inst
           & "$inst\python\python.exe" "$inst\report_serving_check.py" seed 2>&1
-          if ($LASTEXITCODE -ne 0) { Pop-Location; throw "seed on v2.0.0 failed" }
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw "seed on v2.0.2 failed" }
           & "$inst\python\python.exe" "$inst\report_serving_check.py" check 2>&1
-          if ($LASTEXITCODE -ne 0) { Pop-Location; throw "serving check failed on released v2.0.0" }
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw "serving check failed on released v2.0.2" }
           Pop-Location
-      - name: upgrade to 2.0.1 candidate + verify retained data
+      - name: upgrade to candidate + verify retained data
         shell: pwsh
         run: |
-          $inst = "C:\to upgrade install v200"
-          $thumb1 = Get-Content "$env:TEMP\thumb1v200.txt"
+          $inst = "C:\to upgrade install v202"
+          $thumb1 = Get-Content "$env:TEMP\thumb1v202.txt"
           $setup = Get-ChildItem -Recurse ".\candidate" -Filter "*windows-amd64-setup-UNSIGNED.exe" | Select-Object -First 1
           $p = Start-Process $setup.FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "upgrade install exited $($p.ExitCode)" }
@@ -387,11 +387,11 @@ jobs:
           Write-Host "PASS upgrade: CA thumbprint retained ($thumb1)"
           $ok = $false
           for ($i=0; $i -lt 60; $i++) { try { $r = Invoke-WebRequest -Uri "https://localhost/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep 1 }
-          if (!$ok) { throw "app not healthy after v2.0.0->candidate upgrade" }
+          if (!$ok) { throw "app not healthy after v2.0.2->candidate upgrade" }
           Write-Host "PASS app healthy after upgrade (cert-validated)"
           Push-Location $inst
           & "$inst\python\python.exe" "$inst\report_serving_check.py" check 2>&1
           $rc = $LASTEXITCODE
           Pop-Location
           if ($rc -ne 0) { throw "post-upgrade report-serving check failed" }
-          Write-Host "PASS retained reports/licence/verified access after v2.0.0->candidate upgrade"
+          Write-Host "PASS retained reports/licence/verified access after v2.0.2->candidate upgrade"
