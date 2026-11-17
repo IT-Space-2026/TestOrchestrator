@@ -106,20 +106,20 @@ Confirmed on this doc install through the real web route
   (screenshots show real UI reading real generated output).
 - **Customer-visible workaround** (documented in Admin Manual §11):
   copy `reporting_labs/` from the extracted tarball into the payload
-  directory, then Regenerate. **2.0.2-scoped:** apply this until the
-  patched release is installed.
-- **Fix status (post-documentation):** corrected on branch
-  `fix/installer-reporting-labs` for the next patch — the installer
+  directory, then Regenerate. **2.0.1/2.0.2-scoped:** apply this only
+  on those released versions — unnecessary from 2.0.3 onward.
+- **Fix status (post-documentation):** corrected in 2.0.3 (branches
+  `fix/installer-reporting-labs` → `integration/2.0.3`) — the installer
   copies the vendored package (relocated to
   `3rdparty/reporting_labs` in both the package and the installed
   payload), aborts on any missing payload source, verifies required
   files after copying, and the app resolves `reporting_labs` through
   a scoped bootstrap in `testorchestrator/__init__.py` — no manual
-  copy or PYTHONPATH. Regression tests cover copy-list completeness,
-  import resolution from the installed payload, no masking by a
-  stale site-packages/repo copy, and upgrade repair of a defective
-  2.0.2 install. **Unreleased** — do not apply these paths to
-  published 2.0.2 instructions without the version note.
+  copy or PYTHONPATH. Upgrading also removes a superseded root-level
+  `payload/reporting_labs` copy so the package exists exactly once.
+  Regression tests cover copy-list completeness, import resolution
+  from the installed payload, no masking by a stale site-packages/repo
+  copy, and upgrade repair of a defective 2.0.2 install.
 
 ## 5. Explicit limitations retained
 

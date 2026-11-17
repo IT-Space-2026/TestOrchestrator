@@ -143,10 +143,10 @@ What the installer does, in order **[verified — every step observed]**:
    systemd and no `--no-service-start`, they are enabled and started;
    otherwise they are left for manual activation.
 
-> **Known limitation of the 2.0.2 payload copy** — the copy list
+> **Known limitation of the released 2.0.2 payload copy** — the copy list
 > above omits `reporting_labs/` (the vendored report generator), so
 > an `install.sh`-installed 2.0.2 system cannot generate reports until
-> the workaround in §11 is applied. Fixed in the next patch: the
+> the workaround in §11 is applied. **Fixed in 2.0.3:** the
 > package lives at `3rdparty/reporting_labs`, arrives via the
 > `3rdparty` copy item, and the installer fails loudly if any required
 > payload file is missing.
@@ -588,7 +588,7 @@ python   build-scripts/build_windows.py   # Windows app + worker installers (NSI
 | Coordinator `/api/v1/workers` → `503` | Coordinator's `--coordinator.advertise` address isn't bound/reachable — advertise an interface address, not a hostname that resolves elsewhere. |
 | Remote run fails `mkdir /tmp/dagu: not a directory` | A stray file shadows Dagu's default temp dir — set a private `TMPDIR` for coordinator/worker processes. |
 | Execution `failed` with `Activation failed` in the run log | KRE licence/API key missing on the worker — environment problem, fix on the worker. |
-| `rl_status=failed`, log shows `No module named 'reporting_labs'` | **Known defect in released 2.0.1/2.0.2:** the `install.sh` payload copy omits the vendored `reporting_labs/` directory (present in the tarball root and in the Windows payload). **Workaround for 2.0.2 installations:** copy `reporting_labs/` from the extracted tarball into the payload dir (or run generation once with `PYTHONPATH=<tarball-root>`), then **Regenerate**; original artifacts are untouched. **Fixed for the next patch** (branch `fix/installer-reporting-labs`): the installer copies the vendored package — now located at `3rdparty/reporting_labs` in both the package and the installed payload — and the app resolves it automatically; no manual copy or PYTHONPATH is needed after upgrading. See Validation-Record §4. |
+| `rl_status=failed`, log shows `No module named 'reporting_labs'` | **Known defect in released 2.0.1/2.0.2:** the `install.sh` payload copy omits the vendored `reporting_labs/` directory (present in the tarball root and in the Windows payload). **Workaround for 2.0.2 installations:** copy `reporting_labs/` from the extracted tarball into the payload dir (or run generation once with `PYTHONPATH=<tarball-root>`), then **Regenerate**; original artifacts are untouched. **Fixed in 2.0.3:** the installer copies the vendored package — now located at `3rdparty/reporting_labs` in both the package and the installed payload — and the app resolves it automatically; upgrading also removes a superseded root-level `reporting_labs` copy, so no manual copy or PYTHONPATH is needed. See Validation-Record §4. |
 | Import says `staging checkout expired` | Staging was cleaned — rerun the preview; pending candidates were not committed. |
 
 ## 12. Demonstrated worker flow used for these docs

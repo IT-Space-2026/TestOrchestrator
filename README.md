@@ -13,9 +13,14 @@ single-file reports — a pure-Python backend with no bundled Node.js.
 from exactly that clean commit. See the
 [GitHub release](https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.2).
 
+**In preparation — v2.0.3** (this branch): Linux installer repair for the
+vendored reporting-labs package, plus relocation of that package to
+`3rdparty/reporting_labs`. Not yet tagged or published.
+
 **Documentation:** [User and administrator manuals](Manuals-Doc/README.md) —
-verified against the released 2.0.2 package, with screenshots and a
-validation record.
+manual content describes the application; **screenshots were captured on
+the released 2.0.2 package** and the validation record states which
+procedures were verified on which version.
 
 ## Architecture
 
