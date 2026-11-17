@@ -538,5 +538,5 @@ Implementation-level references:
 - `internal/spec/step_types.go` - custom `actions:` and legacy
   `step_types:` handling
 - `internal/spec/deprecation.go` - deprecated v1 syntax warnings
-- [`SCHEMA_MIGRATION.md`](./SCHEMA_MIGRATION.md) - migration notes from v1
+- `SCHEMA_MIGRATION.md` (upstream repository) - migration notes from v1
   syntax to the current schema

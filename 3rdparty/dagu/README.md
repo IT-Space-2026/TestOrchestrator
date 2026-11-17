@@ -1,7 +1,4 @@
 <div align="center">
-  <a href="https://dagu.sh">
-    <img src="./assets/images/hero-logo.png" width="720" alt="Dagu: built for teams whose main work is not orchestration">
-  </a>
   <p>
     <a href="https://docs.dagu.sh">Docs</a> ·
     <a href="https://docs.dagu.sh/getting-started/cli">CLI</a> ·
@@ -35,16 +32,6 @@ Dagu turns existing scripts and runbooks into production workflows with scheduli
 ## Quick Look
 
 For a quick look at how workflows are defined, see the examples.
-
-<div align="center">
-  <a href="https://dagu.sh/dagu-film.mp4">
-    <img src="./assets/images/dagu-film-poster.jpg" width="720" alt="Watch the Dagu film: your code is the engine, Dagu is the cockpit">
-  </a>
-</div>
-
-| Run Details | Step Logs | Wiki |
-|---|---|---|
-| ![Run details in dark mode](./assets/images/readme-run-details-dark.png) | ![Workflow logs in dark mode](./assets/images/readme-logs-dark.png) | ![Workflow Wiki in dark mode](./assets/images/readme-wiki-dark.png) |
 
 **Try it live:** [Live Demo](https://dagu-demo-f5e33d0e.dagu.sh) (credentials: `demouser` / `demouser`)
 
@@ -154,7 +141,7 @@ helm repo update
 helm install dagu dagu/dagu --set persistence.storageClass=<your-rwx-storage-class>
 ```
 
-> Replace `<your-rwx-storage-class>` with a StorageClass that supports `ReadWriteMany`. See [charts/dagu/README.md](./charts/dagu/README.md) for chart configuration.
+> Replace `<your-rwx-storage-class>` with a StorageClass that supports `ReadWriteMany`. See [charts/dagu/README.md](https://github.com/dagucloud/dagu/blob/main/charts/dagu/README.md) for chart configuration.
 
 The script installers run a guided wizard that can add Dagu to your PATH, set it up as a background service, and create the initial admin account. The Windows installer can add Dagu to your PATH and run it as a Windows service. Homebrew, npm, Scoop, Docker, and Helm install without a wizard. See the [Installation documentation](https://docs.dagu.sh/getting-started/installation/) for all options.
 
@@ -190,29 +177,6 @@ If an installer set Dagu up as a background service, it is already running (on p
 
 Dagu runs on one machine, on temporary workers your platform creates for each run, or on workers you keep running. All three are self-hosted, and the same workflow YAML runs on any of them. Any of them can report to Dagu Console, which shows your servers together and emails you when a workflow fails or a server goes silent. See the [Deployment Models guide](https://docs.dagu.sh/overview/deployment-models).
 
-<table>
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <strong>Single server</strong><br>
-      <img src="./assets/images/deployment-model-single-server.svg" width="100%" alt="Single server: one machine runs dagu start-all; the Dagu server runs your steps and writes DAGs, run history, and logs to local files.">
-    </td>
-    <td width="50%" align="center" valign="top">
-      <strong>Temporary workers</strong><br>
-      <img src="./assets/images/deployment-model-temporary-workers.svg" width="100%" alt="Temporary workers: your launcher starts a temporary worker that runs dagu start and writes state to a shared volume; the always-on Dagu server reads the same volume, with no network path between the two.">
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <strong>Distributed workers</strong><br>
-      <img src="./assets/images/deployment-model-distributed-workers.svg" width="100%" alt="Distributed workers: workers on your hosts poll the coordinator in the Dagu server over outbound gRPC, so they need no inbound port; the server writes status, logs, and artifacts to Dagu data.">
-    </td>
-    <td width="50%" align="center" valign="top">
-      <strong>Monitoring with Dagu Console</strong><br>
-      <img src="./assets/images/deployment-model-console-monitoring.svg" width="100%" alt="Monitoring with Dagu Console: three servers, one per topology, report metadata to Dagu Console over outbound HTTPS; Dagu Console shows them together and emails you when a workflow fails or a server goes silent, while logs, outputs, and secrets stay on each server.">
-    </td>
-  </tr>
-</table>
-
 | Topology | Execution | Best for |
 |----------|-----------|----------|
 | **Single server** | `dagu start-all` runs the server, scheduler, and steps in one process on one machine. | Development, single-machine scheduled workloads, edge jobs, and internal automation. |
@@ -227,10 +191,6 @@ Dagu runs on one machine, on temporary workers your platform creates for each ru
 ## Monitor Every Server from One Place
 
 Connect your Dagu servers to [Dagu Console](https://console.dagu.sh) and see all of them in one place: which servers report, what failed today, open alerts, and run and duration trends for each workflow. Alert emails go out when a workflow fails or recovers, and when a server stops reporting.
-
-<div align="center">
-  <img src="./assets/images/readme-console-overview.png" width="720" alt="Dagu Console Overview showing two of three servers reporting, failures today, open alerts including a server that stopped reporting, and the 7-day success rate.">
-</div>
 
 - **Opt-in:** a server reports nothing until an administrator turns monitoring on in **Settings**, or sets `cloud.report: runs`.
 - **Outbound only:** the server reports over HTTPS every 60 seconds, or every 5 minutes on the free tier. No inbound port and no VPN.
@@ -352,10 +312,6 @@ steps:
       limit: 3
       interval_sec: 30
 ```
-
-<div align="center">
-  <img src="./assets/images/ui-params.png" width="720" alt="Generated parameter input form in the Dagu Web UI">
-</div>
 
 ## Workflow Examples
 
@@ -631,7 +587,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `http.request` | HTTP requests with headers, auth, and request bodies |
 | `mcp.call` | Call a tool on a remote MCP server over Streamable HTTP |
 | `chat.completion` | Run an LLM chat completion step |
-| `harness.run` | Run external coding-agent CLIs such as Claude Code, Codex, Gemini CLI, Cursor, and DeepSeek Harness, or [managed OpenCode sessions](./skills/dagu/references/harnesses.md#managed-opencode-sessions) |
+| `harness.run` | Run external coding-agent CLIs such as Claude Code, Codex, Gemini CLI, Cursor, and DeepSeek Harness, or managed OpenCode sessions (upstream: `skills/dagu/references/harnesses.md`) |
 | `browser.extract` / `browser.run` | Automate websites in a local Chrome with natural-language actions, structured extraction, and human input |
 | `computer.extract` / `computer.run` | Automate desktop applications on macOS and Windows workers with natural-language tasks, screen extraction, and human input |
 | `postgres.query` / `postgres.import` | PostgreSQL queries and imports |
@@ -808,8 +764,6 @@ and scheduler) together so retries can reload base SMTP.
 Scoped notification routing is broken in v2.11.0-v2.11.2. Use v2.11.3 or later.
 
 ## Artifacts
-
-![Artifact browser in dark mode](./assets/images/readme-artifacts-dark.png)
 
 Dagu runs can write arbitrary files under `${context.paths.artifacts_dir}` in value-resolved fields, with `DAG_RUN_ARTIFACTS_DIR` also exposed to step processes. Dagu stores those files per run as Artifacts. In the Web UI, operators can browse the file tree, preview Markdown, text, and image files inline, and download any artifact when they need the raw file.
 
@@ -1107,7 +1061,7 @@ if err != nil {
 fmt.Println(status.Status)
 ```
 
-The embedded API is experimental and may change. See the [embedded API documentation](https://docs.dagu.sh/embedding/go-api) and [examples/embedded](./examples/embedded).
+The embedded API is experimental and may change. See the [embedded API documentation](https://docs.dagu.sh/embedding/go-api) and [examples/embedded](https://github.com/dagucloud/dagu/tree/main/examples/embedded).
 
 ## Community
 
@@ -1127,56 +1081,17 @@ make lint     # Run golangci-lint
 ```
 
 For the local UI development loop, run `make run-server` from the repository
-root, then follow [`ui/README.md`](./ui/README.md). See
-[`ARCHITECTURE.md`](./ARCHITECTURE.md) for a human-oriented repository map and
-[`CONTRIBUTING.md`](./CONTRIBUTING.md) for the focused first-PR workflow and
+root, then follow [`ui/README.md`](https://github.com/dagucloud/dagu/blob/main/ui/README.md). See
+[`ARCHITECTURE.md`](https://github.com/dagucloud/dagu/blob/main/ARCHITECTURE.md) for a human-oriented repository map and
+[`CONTRIBUTING.md`](https://github.com/dagucloud/dagu/blob/main/CONTRIBUTING.md) for the focused first-PR workflow and
 code standards.
 
 ## Acknowledgements
 
-<div align="center">
-  <h3>Premium Sponsors</h3>
-  <a href="https://slashbinlabs.com/">
-    <img src="https://wsrv.nl/?url=https%3A%2F%2Fslashbinlabs.com%2Flogo.png&w=150&h=150&fit=cover&mask=circle" width="100" height="100" alt="/bin labs">
-  </a>
-
-  <h3>Supporters</h3>
-  <p align="center">
-    <a href="https://github.com/gyger">
-      <img src="https://wsrv.nl/?url=https%3A%2F%2Fgithub.com%2Fgyger.png&w=128&h=128&fit=cover&mask=circle" width="50" alt="@gyger">
-    </a>
-    <a href="https://github.com/disizmj">
-      <img src="https://wsrv.nl/?url=https%3A%2F%2Fgithub.com%2Fdisizmj.png&w=128&h=128&fit=cover&mask=circle" width="50" alt="@disizmj">
-    </a>
-    <a href="https://github.com/Arvintian">
-      <img src="https://wsrv.nl/?url=https%3A%2F%2Fgithub.com%2FArvintian.png&w=128&h=128&fit=cover&mask=circle" width="50" alt="@Arvintian">
-    </a>
-    <a href="https://github.com/yurivish">
-      <img src="https://wsrv.nl/?url=https%3A%2F%2Fgithub.com%2Fyurivish.png&w=128&h=128&fit=cover&mask=circle" width="50" alt="@yurivish">
-    </a>
-    <a href="https://github.com/jayjoshi64">
-      <img src="https://wsrv.nl/?url=https%3A%2F%2Fgithub.com%2Fjayjoshi64.png&w=128&h=128&fit=cover&mask=circle" width="50" alt="@jayjoshi64">
-    </a>
-    <a href="https://github.com/alangrafu">
-      <img src="https://wsrv.nl/?url=https%3A%2F%2Fgithub.com%2Falangrafu.png&w=128&h=128&fit=cover&mask=circle" width="50" alt="@alangrafu">
-    </a>
-  </p>
-
-  <br/><br/>
-
-  <a href="https://github.com/sponsors/dagucloud">
-    <img src="https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86" width="150" alt="Sponsor">
-  </a>
-</div>
-
 ## Contributing
 
-Contributions of all kinds are welcome. See the [Contribution Guide](./CONTRIBUTING.md) for details.
-
-<a href="https://github.com/dagucloud/dagu/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=dagucloud/dagu" />
-</a>
+Contributions of all kinds are welcome. See the [Contribution Guide](https://github.com/dagucloud/dagu/blob/main/CONTRIBUTING.md) for details.
 
 ## License
 
-GNU GPLv3: See [LICENSE](./LICENSE). See [LICENSING.md](./LICENSING.md) for embedded API and commercial embedding notes.
+GNU GPLv3: See [LICENSE](./LICENSE). See [LICENSING.md](https://github.com/dagucloud/dagu/blob/main/LICENSING.md) for embedded API and commercial embedding notes.
