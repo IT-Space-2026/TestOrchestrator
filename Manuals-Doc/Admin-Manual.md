@@ -133,24 +133,88 @@ units only — start the processes manually with the same config files.
 
 ### Data flow
 
-**Live execution:**
+**Live execution** — numbered flows ①–⑲ trace a dispatch end to end:
 
+```mermaid
+flowchart LR
+    subgraph EXT["External actors and services"]
+        U["End user / administrator<br/>web browser"]
+        GIT["Git repository<br/>suite sources"]
+        KLS["Katalon licence service<br/>(optional, KRE activation)"]
+    end
+
+    subgraph PH["Portal host"]
+        direction TB
+        CDY["Caddy reverse proxy<br/>TLS :443 / HTTP :8080 redirect"]
+        APP["TestOrchestrator app<br/>Waitress + Flask :18080"]
+        DB[("SQLite database<br/>data/testorchestrator.db")]
+        COORD["Dagu coordinator<br/>worker API / gRPC :50055<br/>own UI :8097"]
+        RLAB["reportingLabs<br/>vendored, in-process"]
+        subgraph FS["Persistent data/ filesystem"]
+            EV["evidence/ + imported-evidence/"]
+            WS["bindings/ workspaces"]
+            STG["import-staging/"]
+            GEN["generated reports/"]
+            KEY["licence.json - certs/<br/>secret.key - dagu creds"]
+        end
+    end
+
+    subgraph WH["Worker host"]
+        WKR["dagu worker<br/>labels: kre=label, os, arch"]
+        KRE["KRE runtime<br/>katalonc subprocess"]
+        WWS["job workspace +<br/>worker credential file"]
+        OUT["Katalon Reports/<br/>test output"]
+    end
+
+    U -->|"① HTTPS :443"| CDY
+    CDY -->|"② HTTP loopback :18080"| APP
+    APP -->|"③ SQL: authn, config,<br/>executions, history"| DB
+    APP -->|"④ write dispatch intent<br/>outbox table"| DB
+    APP -->|"⑤ submit run request gRPC"| COORD
+    WKR -->|"⑥ gRPC task poll<br/>worker auth"| COORD
+    COORD -->|"⑦ task assignment<br/>matching labels"| WKR
+    WKR -->|"⑧ spawn katalonc"| KRE
+    KRE -.->|"⑨ optional licence activation"| KLS
+    KRE -->|"⑩ writes"| OUT
+    KRE -->|"⑪ result artifact"| WWS
+    WKR -->|"⑫ run state + result transfer"| COORD
+    APP -->|"⑬ poll state, collect<br/>results + evidence"| COORD
+    APP -->|"⑭ store evidence"| EV
+    APP -->|"⑮ generate report"| RLAB
+    RLAB --> GEN
+    APP -->|"⑯ clone/fetch<br/>SSH or HTTPS + stored credential"| GIT
+    GIT -->|"⑰ checkout"| WS
+    APP -->|"⑱ stage - confirm - ingest"| STG
+    APP -.->|"⑲ pages, reports,<br/>evidence links"| CDY
+    APP --> KEY
+    WKR --> WWS
+
+    classDef actor fill:#dbeafe,stroke:#1e40af,color:#0f172a
+    classDef proc fill:#f1f5f9,stroke:#334155,color:#0f172a
+    classDef store fill:#fef9c3,stroke:#a16207,color:#0f172a
+    classDef worker fill:#dcfce7,stroke:#166534,color:#0f172a
+    class U,GIT,KLS actor
+    class CDY,APP,COORD,RLAB proc
+    class DB,EV,WS,STG,GEN,KEY store
+    class WKR,KRE,OUT,WWS worker
 ```
- you → portal (HTTPS via Caddy)
-       │  creates Execution + OutboxEvent (SQLite)
-       ▼
- portal dispatcher → dagu coordinator (gRPC :50055)
-       │  task claimed by the worker whose labels match
-       │  (kre=<label>, os, arch — from the runtime's worker_label)
-       ▼
- dagu worker → katalonc (KRE) inside the binding worktree
-       │  JUnit XML / logs / screenshots → Reports/
-       ▼
- portal collects results → TestResult rows + evidence/<exec-id>/
-       │  reporting_labs renders → evidence/.../reporting-labs/gen-*/
-       ▼
- report + artifacts served through the portal (auth-checked)
-```
+
+![Data-flow diagram — rendered copy](Screenshot-Doc/admin/dataflow-diagram.png)
+*(rendered from the diagram above for PDF/offline readers — source:
+`Screenshot-Doc/admin/dataflow-diagram.mmd`)*
+
+Flow summary: ①–③ the browser reaches the portal over HTTPS through
+Caddy → Waitress; the app reads/writes SQLite. ④–⑧ a dispatch is
+recorded in the outbox, submitted to the Dagu coordinator over gRPC,
+and claimed by the worker whose labels (`kre=<label>`, os, arch) match
+the runtime's `worker_label`; the worker spawns `katalonc`. ⑨ KRE may
+contact Katalon's licence service (separate from the portal licence).
+⑩–⑭ results and evidence travel back through the coordinator → the app
+→ `evidence/` and execution rows. ⑮ reportingLabs renders a report in
+process; ⑯–⑱ cover repository bindings (clone → workspace →
+stage/confirm/ingest); ⑲ everything is served back to the browser
+through Caddy.
+
 
 **Historical-result import** follows the same storage path minus the
 worker: preview classifies repo results → confirm writes executions,

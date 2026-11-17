@@ -10,6 +10,47 @@ screenshot caption and in the text.
 
 ---
 
+## Contents
+
+- [1. Introduction](#1-introduction)
+  - [1.1 What TestOrchestrator does](#11-what-testorchestrator-does)
+  - [1.2 Components and their responsibilities](#12-components-and-their-responsibilities)
+  - [1.3 Live execution vs. historical-result import](#13-live-execution-vs-historical-result-import)
+  - [1.4 Signing in](#14-signing-in)
+  - [1.5 Roles and permissions](#15-roles-and-permissions)
+  - [1.6 Navigation](#16-navigation)
+- [2. Projects and repositories](#2-projects-and-repositories)
+  - [2.1 Creating a project](#21-creating-a-project)
+  - [2.2 Configuring a repository binding](#22-configuring-a-repository-binding)
+  - [2.3 Discovery: what sync finds](#23-discovery-what-sync-finds)
+  - [2.4 Suites, schedules, and releases](#24-suites-schedules-and-releases)
+- [3. Step by step — suites, releases, and plans](#3-step-by-step--suites-releases-and-plans)
+  - [3.1 Create and edit a test suite](#31-create-and-edit-a-test-suite)
+  - [3.2 Create and manage a release](#32-create-and-manage-a-release)
+  - [3.3 Create a plan (schedule)](#33-create-a-plan-schedule)
+- [4. Connecting KRE and running tests](#4-connecting-kre-and-running-tests)
+  - [4.1 What must exist first](#41-what-must-exist-first)
+  - [4.2 Starting a suite or collection](#42-starting-a-suite-or-collection)
+  - [4.3 Monitoring an execution](#43-monitoring-an-execution)
+  - [4.4 Cancellation, retry, and deletion](#44-cancellation-retry-and-deletion)
+  - [4.5 Reading outcomes: test failure vs. infrastructure failure](#45-reading-outcomes-test-failure-vs-infrastructure-failure)
+  - [4.6 When the licence blocks dispatch](#46-when-the-licence-blocks-dispatch)
+- [5. Historical-result import](#5-historical-result-import)
+  - [5.1 Starting an import](#51-starting-an-import)
+  - [5.2 The preview](#52-the-preview)
+  - [5.3 Confirming](#53-confirming)
+  - [5.4 Provenance](#54-provenance)
+  - [5.5 Warnings and missing evidence](#55-warnings-and-missing-evidence)
+  - [5.6 Retrying a failed candidate](#56-retrying-a-failed-candidate)
+- [6. Reports and evidence](#6-reports-and-evidence)
+  - [6.1 Execution history](#61-execution-history)
+  - [6.2 reportingLabs reports](#62-reportinglabs-reports)
+  - [6.3 Evidence](#63-evidence)
+  - [6.4 Troubleshooting missing or incomplete results](#64-troubleshooting-missing-or-incomplete-results)
+- [7. Fixture-vs-licensed statement for these screenshots](#7-fixture-vs-licensed-statement-for-these-screenshots)
+
+---
+
 ## 1. Introduction
 
 ### 1.1 What TestOrchestrator does
@@ -377,6 +418,10 @@ or a portal suite.
 
 Missed/blocked targets surface the same way as manual runs — check
 **Executions** for the fired runs and §4.5 for failure semantics.
+
+---
+
+## 4. Connecting KRE and running tests
 
 ### 4.1 What must exist first
 
