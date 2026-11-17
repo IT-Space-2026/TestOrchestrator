@@ -234,9 +234,18 @@ def check():
         from testorchestrator.execution import (
             Artifact, CaseStatus, Execution, TestResult)
         import reporting_labs
-        assert "3rdparty" in reporting_labs.__file__, \
-            f"reporting_labs resolved outside vendored tree: " \
-            f"{reporting_labs.__file__}"
+        import testorchestrator
+        # Must resolve from THIS install's vendored copy — either
+        # 3rdparty/reporting_labs (post-relocation) or the legacy
+        # root-level reporting_labs (released 2.0.x payloads this
+        # script is copied into during upgrade checks). A
+        # site-packages or source-checkout copy must not satisfy it.
+        app_root = Path(
+            testorchestrator.__file__).resolve().parent.parent
+        rl_file = Path(reporting_labs.__file__).resolve()
+        assert rl_file.parent.name == "reporting_labs" \
+            and rl_file.is_relative_to(app_root), \
+            f"reporting_labs resolved outside vendored tree: {rl_file}"
         gx = Execution(id="cirpt02", project_id="p1", created_by="ci")
         gx.report_dir = str(
             Path(INSTANCE_DIR) / "ci-evidence" / "cirpt02")
