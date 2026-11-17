@@ -169,6 +169,14 @@ def main() -> None:
             if _d.is_dir():
                 shutil.rmtree(_d, ignore_errors=True)
                 print(f"[install] removed stale {_d}")
+        # reporting_labs moved to 3rdparty/reporting_labs: drop a stale
+        # root-level copy (2.0.x payload or operator-applied workaround)
+        # so the vendored package exists exactly once in the payload.
+        _stale_rl = payload / "reporting_labs"
+        if _stale_rl.is_dir():
+            shutil.rmtree(_stale_rl, ignore_errors=True)
+            print(f"[install] removed superseded {_stale_rl} "
+                  "(now at 3rdparty/reporting_labs)")
 
         # Offline venv from the bundled runtime + vendored wheels —
         # no host python/pip and no network required.
