@@ -1,13 +1,23 @@
-# TestOrchestrator 2.0.2 — Administrator Manual
+# TestOrchestrator 2.0.3 — Administrator Manual
 
-Applies to released **TestOrchestrator 2.0.2** (tag `v2.0.2`, source
-commit `574860d08124411692b141643da0ad87e576100d`).
+Applies to released **TestOrchestrator 2.0.3** (tag `v2.0.3`, source
+commit `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`).
 
-Procedures marked **[verified]** were executed against the published
-release package in an isolated Linux installation — details in
-[Validation-Record.md](Validation-Record.md). Procedures marked
-**[code/CI]** are documented from the installer code and CI evidence
-only and were not interactively validated here.
+**How to read the validation markers** — every procedure carries one:
+
+| Marker | Means |
+|---|---|
+| **[verified]** | Executed against a released install package — details in [Validation-Record.md](Validation-Record.md) |
+| **[code/CI]** | Documented from installer source and CI evidence; not interactively validated here |
+| **[doc-env]** | Demonstrated on the isolated documentation environment (fixture data, test licence) — procedure is real, values are not |
+
+Disclosed boundaries, up front: most screenshots were captured on the
+released **2.0.2** package (the index lists which frames were
+recaptured on 2.0.3); the documentation installs use **test-licence
+substitution** — published artifacts carry the real verification key;
+**Windows installers are unsigned** and Windows validation is CI-only;
+**licensed KRE execution** was not possible (no licence/API key) —
+pipeline coverage used a fixture stand-in.
 
 ---
 
@@ -547,7 +557,8 @@ separate location **[verified — restore tested, see
 Validation-Record]**: the archive is unpacked beside the original so
 you can diff/migrate before swapping it in. Restored users/settings
 come back as they were — recovery never reactivates a bootstrap
-credential.
+credential. The complete end-to-end restore procedure — including
+what a DB-only backup cannot recover — is §16.
 
 ### 8.2 Upgrades
 
@@ -633,6 +644,9 @@ directories referenced by any execution are never listed. Storage
 inspection is otherwise plain `du`/`find` under the managed roots.
 
 ## 10. Troubleshooting
+
+Quick-reference symptoms; the fuller incident matrix with
+diagnostic commands is §21.
 
 | Symptom | Check |
 |---|---|
@@ -809,3 +823,288 @@ queue *held* — queued and scheduled executions wait instead of
 failing. Users see their runs stay queued until an admin applies a
 valid licence and presses **Resume dispatch**. Manual runs are
 rechecked at dispatch time, so a queued run cannot slip past expiry.
+
+---
+
+## 13. Production deployment checklist
+
+Order of operations for a new production install. Each line links to
+the detailed procedure; none of the values below come from the
+documentation environment (custom ports, fixture data, and test-licence
+substitution there are for screenshots only).
+
+1. **Choose directories** — `--payload` (code, replaceable), `--data`
+   (all state — the backup target), `--config` (units, `web.env`,
+   Dagu credentials). Defaults `/opt`, `/var/lib`, `/etc`. §4.5.
+2. **Licence code ready** — `TO1.…`, passed via `TO_LICENCE_CODE`.
+   §4.1, §12.4.
+3. **Install** — checksum the package (§3), run `install.sh` or the
+   `.run`. §4.2, §4.3.
+4. **Enable services** — copy the staged units, `systemctl
+   enable --now` web/worker/dagu/caddy; confirm **Health & services**
+   shows them installed and running. §4.4, §4.7.
+5. **Bootstrap the admin** — `flask set-admin-password` or forced
+   first-login change; then create named users. §4.4, §12.3.
+6. **Public URL + TLS** — DNS → host, **Network & certificates** →
+   set alias + ports, import or generate the certificate, **Apply**,
+   verify rollback works. §4.6, §20.4.
+7. **Repository access** — project binding + deploy credentials
+   (SSH key or token) under **Credentials**. §6, §20.1.
+8. **Workers + KRE** — install KRE on execution hosts, license it
+   there, register runner + runtime in the portal, verify a live
+   heartbeat. §12.1, §12.2.
+9. **Backups** — schedule `toctl backup`, test `toctl recover --into`
+   once before you need it. §8, §16.
+10. **Acceptance run** — queue one suite on the real worker, confirm
+    results + evidence + generated report return to the portal.
+    §6.6, User Manual §4.
+
+## 14. Configuration reference
+
+Every supported knob — no hypothetical settings. Three layers:
+environment variables (process env / `web.env`), persisted settings
+(DB `settings` table — the Admin UI writes these), and installer
+flags (one-time, at `install.sh`).
+
+### 14.1 Environment variables (set in `web.env` / service unit)
+
+| Variable | Purpose | Default | Secret | Restart |
+|---|---|---|---|---|
+| `TO_INSTANCE_DIR` | Instance data dir — the state root | `<payload>/instance` | no | yes |
+| `TO_SECRET_KEY` | Flask session/CSRF signing key — **must be stable across restarts** or sessions invalidate | ephemeral per process | **yes** | yes |
+| `TO_SECRET_KEY_FILE` | Path of the key file protecting stored secrets (`secret.key` in the data dir) | `$TO_INSTANCE_DIR/secret.key` | no (file is 0600) | yes |
+| `TO_DATABASE_URI` | SQLAlchemy URI | `sqlite:///<instance>/testorchestrator.db` | may contain creds | yes |
+| `TO_ADMIN_PASSWORD` | Bootstrap password used **once** at first provisioning (≥12 chars) — replaces `Admin`/`Admin` | unset → `Admin`/`Admin` + forced change | yes | first start only |
+| `TO_SECURE_COOKIES` | `Secure` cookie flag (`1`/`0`) — `0` only for plain-HTTP dev | `1` | no | yes |
+| `TO_SESSION_LIFETIME_HOURS` | Session lifetime | `8` | no | yes |
+| `TO_WAITRESS_LISTEN` | Waitress bind (`host:port`) | `127.0.0.1:18080` | no | yes |
+| `TO_TRUSTED_PROXIES` | Comma-separated peers whose forwarding headers are honoured | `127.0.0.1,::1` | no | yes |
+| `TO_CERT_DIR` | Protected key/cert store (0700/0600) | `$TO_INSTANCE_DIR/certs` | no | yes |
+| `TO_CADDY_BIN` | Caddy binary path | `payload/3rdparty/caddy/caddy` | no | yes |
+| `TO_CADDY_CONFIG_DIR` | Rendered Caddyfile staging | `$TO_INSTANCE_DIR/caddy` | no | yes |
+| `TO_INSTALL_ID` | Install identity — written by the installer; `toctl` refuses to service a foreign install | generated | no | yes |
+| `TO_UPDATE_KEY` | Trusted public key path for signed update packages (`toctl update`) | unset | no | per-invocation |
+| `TO_SERVICE_UNITS` / `TO_SERVICE_SCOPE` | Unit names + `--user`/system scope used by **Health → Restart services** | `testorchestrator-*` / `system` | no | yes |
+| `TO_LICENCE_CODE` | Licence code for the installer (never logged) | required at install | yes | n/a |
+| `TO_DAGU_PROVISION_PASSWORD` | Coordinator credential planted at provision so the portal matches | unset → random token + warning | yes | install-time |
+| `TO_GIT_BACKEND` | `dulwich` \| `cli` git engine | `dulwich` | no | yes |
+| `TO_SPEC_PREVIEW` | Dumps the rendered Dagu spec env for debugging | unset | may expose refs | per-invocation |
+| `TO_SEED_<ROLE>_PASSWORD` | Test/demo account seeding | unset | yes | first start |
+
+### 14.2 Persisted settings (DB — edited in the Admin UI)
+
+| Key | Purpose | Default | Where |
+|---|---|---|---|
+| `setup_completed` | Bootstrap gate — loopback-only until true | `false` | set by first-password flow |
+| `local_host` / `external_host` / `external_enabled` | Access aliases; external traffic is refused until enabled | `localhost` / `""` / `false` | **Network & certificates** |
+| `bind_addresses` / `allowed_hosts` | Listeners + host allowlist (403 outside it) | loopback + `localhost` | **Network & certificates** |
+| `advertised_base_url` | Public URL used in generated links/launchers | `https://localhost` | **Network & certificates** |
+| `https_port` / `http_port` / `http_mode` | Public ports; `http_mode` = `redirect` \| `disabled` \| `development-insecure` | `443` / `8080` / `redirect` | **Network & certificates** |
+| `internal_app_host` / `internal_app_port` | Waitress side of the proxy | `127.0.0.1` / `18080` | **Network & certificates** |
+| `certificate_mode` / `certificate_reference` / `certificate_public_metadata` | TLS material selection (`""`/`local`/`imported`) — paths + public fields only, never key bytes | unset | **Network & certificates** |
+| `previous_good_config` / `network_config_version` | Last-good network snapshot + apply counter — powers rollback | `{}` / `0` | automatic |
+| `dagu_endpoint` | Portal → Dagu HTTP API URL | `""` | **Integrations** |
+| `dagu_credential_ref` / `dagu_username` | Credential reference (secret name) + auth mode — value lives in **Credentials**, not here | `""` | **Integrations** |
+| `dagu_coordinator_url` | Worker-facing gRPC coordinator address | `""` | backend-managed |
+| `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `false` | **Reporting** |
+| `logs_retention_days` / `logs_max_rows` | Operational-log pruning bounds | `30` / `20000` | **Reporting** / logs |
+| `git_export_repo` / `git_export_credential_ref` / `git_export_ref` | Optional evidence-export target repo + credential ref + branch | `""` / `""` / `main` | **Reporting** |
+
+Unknown keys are rejected (`KeyError`), upgrades never reset these,
+and `update()` only accepts keys listed here.
+
+### 14.3 Installer flags (one-time — `install.sh`)
+
+`--payload` / `--data` / `--config` (directories), `--https-port` /
+`--http-port` (Caddy listeners), `--service-user` (unit user),
+`--no-service-start` (provision only), `--yes` (noninteractive —
+still requires `TO_LICENCE_CODE`), `--dry-run` (print the plan),
+`--upgrade` semantics: re-running on an occupied port refuses a
+fresh install. §4.2.
+
+## 15. Network and authentication matrix
+
+| Flow | Initiator → destination | Port (default) | Protocol | AuthN | Expose beyond localhost? | Verify |
+|---|---|---|---|---|---|---|
+| Browser → portal | Browser → **Caddy** | 443 (+8080 redirect) | HTTPS | session cookie (CSRF per form) | **yes** — the public edge | `curl -Ik https://<host>` |
+| Proxy → app | Caddy → **Waitress** | 127.0.0.1:18080 | HTTP | none — loopback + host allowlist | never | `curl -s 127.0.0.1:18080/login` |
+| Portal → coordinator | Flask → **Dagu API** | 8096/`dagu_endpoint` | HTTP | basic-auth user, password via `dagu_credential_ref` **or** Bearer token | coordinator host only | `curl -u <u>:<p> <ep>/api/v1/dags` → 200/401 |
+| Worker → coordinator | `dagu worker` → coordinator | 50055/`dagu_coordinator_url` | **gRPC** | coordinator credentials file (0600) provisioned at install | worker-reachable hosts | worker log: `connected`/poll OK; portal shows heartbeat |
+| Portal → repositories | app → git remote | 22 or 443 | SSH/HTTPS | deploy key or token from **Credentials** | no (outbound) | binding **Sync**; check fetched SHA |
+| Worker → KRE | worker → KRE binary | n/a (local exec) | process exec | KRE licence on the worker host | never | probe (local installs) or a smoke suite |
+| App → evidence export | app → `git_export_repo` | 22/443 | git | `git_export_credential_ref` | no (outbound) | Reporting settings test/export |
+| Agent → portal | worker agent → portal API | portal port | HTTP | one-time agent token (SHA-256 stored, shown once) | portal-reachable | runner row shows agent heartbeat |
+
+Rules of thumb: only the Caddy ports and the coordinator gRPC port
+must be reachable by *other machines*; everything else is loopback
+or outbound. Worker→portal and portal→coordinator are *initiated
+outbound* in both directions — no inbound listener is needed on a
+worker host except its optional health port (disable with
+`--worker.health-port=0`).
+
+## 16. Disaster recovery — full restore
+
+What a complete backup contains (§8.1), expanded into an end-to-end
+procedure. **[doc-env — executed: real backup → restored instance
+verified below]**
+
+### 16.1 What to capture
+
+- `data/` **entirely** — `testorchestrator.db` (+ `-wal`/`-shm`),
+  `licence.json`, `secret.key`, `certs/` (0700/0600 — preserve modes),
+  `imported-evidence/`, `remote-runs/`, `bindings/`, `dagu/` state.
+- `config/` — `web.env`, `dagu/credentials`, `dagu/server.yaml`,
+  Caddyfile.
+- **Not needed**: `payload/` — rebuild by reinstalling the same
+  package version.
+
+**DB-only backup is not enough**: without `secret.key` every stored
+credential (repository tokens, KRE refs) is unreadable; without
+`licence.json` the licence record is gone; without `certs/` the
+private keys are gone; without `imported-evidence/`/`remote-runs/`
+the evidence files referenced by history are missing (rows survive,
+files 404).
+
+### 16.2 Consistency
+
+Stop `testorchestrator-web` (or use SQLite's online backup
+— `conn.backup()`, which is what `toctl backup` does internally
+with `VACUUM INTO`-class consistency) before copying the `.db`.
+WAL files must be checkpointed or copied together.
+
+### 16.3 Restore procedure (tested)
+
+```bash
+# on the SOURCE — live-safe DB backup
+python3 -c "import sqlite3; s=sqlite3.connect('data/testorchestrator.db'); \
+            d=sqlite3.connect('backup.db'); s.backup(d)"
+tar -czf to-backup.tar.gz --exclude='testorchestrator.db*' data/ config/
+
+# on the TARGET — same-version package installed (§4.2), services stopped
+toctl recover --from to-backup.tar.gz --into /var/lib/testorchestrator
+# or manually: unpack, restore modes (certs/ 0700, *.key/credentials 0600)
+
+TO_INSTANCE_DIR=/var/lib/testorchestrator venv/bin/python -m testorchestrator db-upgrade
+```
+
+**What must change when the host/URL differs**: `web.env`
+(`TO_INSTANCE_DIR`, `TO_SECRET_KEY`), `dagu/server.yaml` + the
+`dagu_endpoint`/`dagu_coordinator_url` settings if the coordinator
+moved, `advertised_base_url` + `external_host` for a new DNS name,
+and the Caddyfile. If `TO_SECRET_KEY` differs, every user session
+is invalidated — nothing else breaks.
+
+**Worker reconnection**: workers re-register on their coordinator
+address automatically — update `--worker.coordinators` to the new
+host and restart them; runner records, tokens, and labels come back
+with the DB. A worker that stayed up through the outage resumes
+claiming once the coordinator returns.
+
+### 16.4 Verified restore evidence
+
+The documentation environment was backed up live (SQLite online
+backup + file copy), restored into a second instance dir, and booted
+against the same package: sign-in, full execution history, release
+scope, and licence state all present — **no reconfiguration needed
+when only the directory location changed**.
+
+![Restored instance — execution history intact](Screenshot-Doc/admin/dr-restored-executions.png)
+
+![Restored instance — release + scope intact](Screenshot-Doc/admin/dr-restored-release.png)
+
+## 17. Storage lifecycle and capacity
+
+| Data dir entry | Class | Grows with | Cleanup |
+|---|---|---|---|
+| `testorchestrator.db` | required state | history, imports, audit | never delete manually — vacuum via backup |
+| `licence.json`, `secret.key`, `certs/` | required state | never | never — losing `secret.key` orphans every stored credential |
+| `bindings/` | derived state | repo size × bindings | re-sync rebuilds; safe to rebuild, wasteful to delete |
+| `imported-evidence/` | required state | imported runs | `toctl evidence-prune` (orphans only) |
+| `remote-runs/` | required state | live executions | evidence-prune for orphans; keep referenced dirs |
+| `import-staging/` | **transient** | in-flight imports | abandoned candidates expire — safe to prune per §9.4 |
+| `dagu/` | required state | dag definitions + history | managed by coordinator |
+| `workspaces/` (on worker) | **transient** | concurrent runs | worker-side; safe to clear stopped run dirs |
+| `payload/reporting-labs/gen-*/` | derived output | report regenerations | older generations pruned per §9 |
+| service logs (`journald`, `data/*.log`) | diagnostic | traffic | journald rotation; `logs_retention_days`/`logs_max_rows` bound the in-app operational log |
+
+Automatic: operational-log bounds (`logs_retention_days`,
+`logs_max_rows`), report-generation pruning, import-staging expiry.
+**Manual**: evidence orphans (`toctl evidence-prune` — dry-run
+first), worker workspaces, OS log rotation.
+
+![Data-dir footprint on the doc install](Screenshot-Doc/admin/storage-layout.png)
+
+![`toctl evidence-prune` dry-run output](Screenshot-Doc/admin/evidence-prune.png)
+
+Backup ≠ export ≠ pruning: backup preserves *everything* for
+restore; export publishes selected evidence to a repo; pruning
+*deletes* unreferenced files. Don't prune to "save" a backup.
+
+## 18. Worker maintenance and failure recovery
+
+| Task | Supported procedure |
+|---|---|
+| Take a worker offline safely | **Drain** on its runner row — stops new claims; in-flight executions finish. Then stop the process. |
+| Active execution during worker restart | The portal holds the lease; heartbeats renew it. If the lease **expires**, the execution is reconciled to **`UNKNOWN`** — never silently re-dispatched or double-run. Inspect it and rerun manually. `UNKNOWN` still consumes the runner's capacity slot until resolved. |
+| Coordinator restart | Queued work is durable (outbox). Workers reconnect and resume claiming; running executions follow the lease rule above. |
+| Stale registration | A stopped worker shows its last-seen heartbeat (>~2 min = not live). No auto-purge — **Edit**/**delete** the runner record deliberately. |
+| Interrupted result transfer | The worker keeps the run directory; results stay `UNKNOWN`/`running` until transfer completes or the lease expires — never partially marked passed. |
+| Replace a worker host | Drain → decommission → register the new runner (§12.1) reusing the `kre=<label>` so runtimes rebind automatically. |
+| Update the worker binary | Download the portal-served package (always the coordinator's pinned Dagu version — no drift), stop the worker, replace, restart with the same labels/credentials. |
+| Decommission | Drain → stop → delete the runner record → remove the host's credentials file and `workspaces/` — token re-issue revokes the old one (§12.1 step 2). |
+
+Not implemented: automatic worker updates, auto-drain on version
+mismatch, re-dispatch of `UNKNOWN` executions — each is a manual,
+audited decision by design.
+
+## 19. Credential and certificate lifecycle
+
+| Secret | Lives | Replace/rotate | Restart needed |
+|---|---|---|---|
+| Repository deploy key/token | **Credentials** (encrypted under `secret.key`) | Edit the credential; bindings pick it up next sync | no |
+| Worker agent token | runner record — SHA-256 only | **Issue token** re-generates; old token revoked | worker restart with new token |
+| Coordinator credential | `config/dagu/credentials` (0600) + portal `dagu_credential_ref` | update both together — provision via `TO_DAGU_PROVISION_PASSWORD` at install or rotate manually | dagu + web |
+| KRE licence/API key | **worker host only** (never the portal — `credential_file` carries just a path) | on the worker per Katalon's docs | worker executions pick it up next run |
+| TLS certificate | `data/certs/` + `certificate_*` settings | **Network & certificates** → generate/import → Apply (`previous_good` rollback if the new config breaks) | via staged apply |
+| `TO_SECRET_KEY` | `web.env` | rotate only if you're willing to invalidate all sessions | web |
+| `secret.key` | `data/secret.key` (0600) — **master key for stored secrets** | no rotation supported — losing it = re-enter every credential | n/a |
+
+After a restore: every stored secret returns intact **only if**
+`secret.key` was backed up — the DB alone cannot decrypt them.
+
+## 20. Version and upgrade matrix
+
+| Path | Platform | Evidence | Migrations | Notes |
+|---|---|---|---|---|
+| 2.0.1 → 2.0.2 | Linux | **[verified]** interactive upgrade | `db-upgrade` applies; idempotent | history/config/evidence preserved |
+| 2.0.1 → 2.0.3 | Linux | **[code/CI]** `upgrade-from-v201` job | auto via installer + `db-upgrade` | skips 2.0.2 — fine; includes repair below |
+| 2.0.2 → 2.0.3 | Linux | **[verified]** CI `upgrade-from-v202` + the live doc environment upgraded this way | auto | **automatically repairs the 2.0.1/2.0.2 reportingLabs omission** and removes a superseded root-level `payload/reporting_labs` |
+| 1.0.2 → 2.0.3 | Windows | **[code/CI]** `upgrade-from-v102` | auto | |
+| 2.0.2 → 2.0.3 | Windows | **[code/CI]** `upgrade-from-v202` | auto | |
+
+Rules: **back up `data/` first** (§16). Re-running the installer on
+the same directories performs the in-place upgrade; running an app
+directly from an **extracted tarball root** is *not* an install —
+the 2.0.1/2.0.2 reportingLabs defect never appears there because the
+tarball root itself is on `sys.path`, which is exactly what masked
+it. Rollback = restore the pre-upgrade backup; there are no
+downgrade migrations. Retired paths: 2.0.0 → * (source release was
+removed; historical results preserved in prior run logs).
+
+## 21. Incident runbooks
+
+Symptom → first checks. Exact commands/paths, no database surgery.
+
+| Symptom | Investigation path |
+|---|---|
+| Portal unavailable | `systemctl status testorchestrator-web` (or the running waitress pid) → `journalctl -u testorchestrator-web -n 50` → bind (`TO_WAITRESS_LISTEN`) → Caddy `systemctl status testorchestrator-caddy` + cert validity |
+| Worker absent | process on host → coordinator reachability (`--worker.coordinators` host:port) → credentials file (0600) → runner row heartbeat (>~2 min stale) → worker log |
+| Job stays `queued` | licence state (**System → Licence** — held queue needs licence + **Resume dispatch**) → live worker with matching `kre=<label>` → free slots (concurrency on runner + runtime) → overlap policy on schedules |
+| KRE exits before tests | executable path **on the worker** → file permissions → `Activation failed` = worker-side KRE licence → remote run log for the exact exit |
+| Execution done, results missing | worker run dir → transfer errors in coordinator/worker logs → `remote-runs/` evidence dir → execution row state (`UNKNOWN` = transfer/lease gap) |
+| reportingLabs generation fails | `report_status` on the execution → generation log → `import reporting_labs` resolves from `payload/3rdparty/` → `reportinglabs_enabled` setting → input JUnit/evidence present |
+| Import can't be confirmed | candidate row state → staging checkout expiry → per-item match decision (duplicate/ambiguous) → importer errors in operational log |
+| Disk filling | `du -sh data/*/` → `import-staging/` (expired candidates) → workspaces on workers → `reporting-labs/gen-*` generations → journald size → `toctl evidence-prune` dry-run |
+| `403` for everyone | host alias vs bare IP — `allowed_hosts`; loopback gate until `setup_completed` + `external_enabled` |
+| Sessions drop on restart | `TO_SECRET_KEY` unset/changed — pin it in `web.env` |
+| `UNKNOWN` executions | lease expired mid-run — inspect run log, verify results on the worker, rerun deliberately; the slot frees on resolution |

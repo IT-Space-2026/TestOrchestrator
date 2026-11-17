@@ -68,6 +68,11 @@
 | `install-users.png` | Fresh install — user list containing only the bootstrap Admin *(2.0.3)* |
 | `install-infrastructure.png` | Fresh install — empty workers/KRE tables; worker download card with pinned version + SHA-256 *(2.0.3)* |
 | `install-health.png` | Fresh install — services shown `not installed` until staged units are enabled *(2.0.3)* |
+| `reporting.png` | Reporting settings: reportingLabs toggle, log retention bounds, git evidence-export fields |
+| `storage-layout.png` | Real `du`/`ls` of the instance data dir — per-directory footprint for capacity planning |
+| `evidence-prune.png` | `toctl evidence-prune` dry-run output — the supported orphan-evidence cleanup |
+| `dr-restored-executions.png` | DR restore proof — execution history intact on a restored copy of the instance *(2.0.3)* |
+| `dr-restored-release.png` | DR restore proof — release + scope intact on the restored instance *(2.0.3)* |
 
 **Not captured:** destructive-action
 confirmations (deletion/cancel dialogs were exercised via code paths,

@@ -151,3 +151,23 @@ kill $(cat /home/szefi/to202-docs/web.pid) \
 ```
 
 Existing development/test/production installs were not modified.
+
+## 7. Follow-on validation — 2.0.3 (`be5d133`)
+
+After the licence-label and scope-picker fixes, the 2.0.3 package was
+rebuilt from `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de` and the tag
+moved to that commit. Verified on this environment:
+
+| Procedure | Status | Result |
+|---|---|---|
+| Fresh install of the be5d133 tarball to `/tmp/to203-fix-*` | EXEC | Installer transcript captured (`admin/install-transcript.png`); licence validated; payload/data/config laid out |
+| **In-place upgrade of this doc environment** (2.0.2-era payload → be5d133 build) | EXEC | `install.sh` on same `--payload/--data/--config` preserved every record: suite, release + 2 scope items, schedule, 112 discovered items, users, licence. Services restarted on the same ports |
+| **Backup → restore** of the live data dir | EXEC | SQLite online backup + file copy → restored instance booted at `:8099` — sign-in, execution history, release scope, licence all intact (`admin/dr-restored-*.png`) |
+| `toctl evidence-prune` dry-run | EXEC | JSON `{orphans: [], removed: []}` — `admin/evidence-prune.png` |
+| Screenshot recapture on 2.0.3 | EXEC | `licence.png` (corrected expiry wording), `release-detail.png` (scopeable-only picker), `admin/install-*.png` (fresh-install frames) |
+
+Same boundaries: test-licence substitution inside this documentation
+payload only; the doc env now runs the **be5d133** payload (all prior
+2.0.2 evidence remains as recorded above — provenance is per-frame in
+the Screenshot-Index). Additional throwaway instances running for the
+new captures: web `:8098`/`:8099`, coordinator `:29877`.
