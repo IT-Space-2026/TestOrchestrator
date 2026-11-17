@@ -5,7 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.0.3] — 2026-11-17
 
 Patch release. Tag `v2.0.3` → commit
-`be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`.
+`22a1400f5f17afc153a351857c3bebad47a66eac`.
 
 ### Fixed — installed Linux payload omitted reporting-labs (2.0.x)
 

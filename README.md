@@ -464,14 +464,14 @@ and output layout: `docs/build.md`.
 
 Published at
 <https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.3>
-— tag `v2.0.3` → commit `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`,
+— tag `v2.0.3` → commit `22a1400f5f17afc153a351857c3bebad47a66eac`,
 all binaries built from that exact clean commit:
 
 | Asset | Bytes | SHA-256 |
 |---|---|---|
-| `testorchestrator-2.0.3-linux-x86_64.tar.gz` | 278,810,910 | `7ad10e4135e3bbaed490a4b582b18718d01474a21e8156287ecc8bf802189185` |
-| `testorchestrator-2.0.3-linux-x86_64.run` | 278,812,914 | `96659457e4304a2fa144098295df467df0919a21b0190e8c5642ac4baff36385` |
-| `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` | 113,510,371 | `87a1d4169f9cd174a69725323e27363b13838dce96f3d92e957dcb2b9e7b1f3d` |
+| `testorchestrator-2.0.3-linux-x86_64.tar.gz` | 278,811,947 | `2b4d97515fdc8c3e0603eaedb6f14e5fb2ce2fac9054d0157f4943e81f77b263` |
+| `testorchestrator-2.0.3-linux-x86_64.run` | 278,813,951 | `7fef2b18812a17db0212f39d5f6dd7c133f9466cdbd8877ddadbb6f84bbab8de` |
+| `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` | 306,850,425 | `ea7ec2fc97a4982854740001a269e7af4a5d246b3fa84412bdd417192de909a6` |
 Plus `SHA256SUMS`, `build-manifest-linux.json`, and
 `build-manifest-windows.json` (distinct manifest names). Verify:
 `sha256sum -c SHA256SUMS` next to the downloaded files. `dist/` is

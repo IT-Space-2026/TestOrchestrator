@@ -331,9 +331,9 @@ Expected digests (from the release record — see `SHA256SUMS.txt`
 on the release page for the authoritative values):
 
 ```
-<SHA256>  testorchestrator-2.0.3-linux-x86_64.tar.gz
-<SHA256>  testorchestrator-2.0.3-linux-x86_64.run
-<SHA256>  testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe
+2b4d9751…  testorchestrator-2.0.3-linux-x86_64.tar.gz
+7fef2b18…  testorchestrator-2.0.3-linux-x86_64.run
+ea7ec2fc…  testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe
 ```
 
 The bundled dagu-worker installer is verified by the portal at
