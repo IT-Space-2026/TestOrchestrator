@@ -104,7 +104,7 @@ Confirmed on this doc install through the real web route
   `PYTHONPATH=<tarball-root>` so `import reporting_labs` resolves;
   the generated report is then served normally by the running app
   (screenshots show real UI reading real generated output).
-- **Customer-visible workaround** (documented in Admin Manual §11):
+- **Customer-visible workaround** (documented in Admin Manual §10):
   copy `reporting_labs/` from the extracted tarball into the payload
   directory, then Regenerate. **2.0.1/2.0.2-scoped:** apply this only
   on those released versions — unnecessary from 2.0.3 onward.

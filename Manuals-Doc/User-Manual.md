@@ -431,9 +431,10 @@ outcome `failed` (tests ran and failed) or `failed` with no outcome
   removes the published remote report copy, then the execution
   record, then its owned local evidence directories. Evidence that
   another execution still references is preserved (see
-  Admin Manual §10).
+  Admin Manual §9).
 
 ### 4.5 Reading outcomes: test failure vs. infrastructure failure
+
 
 | Symptom | Classification | What it means |
 |---|---|---|
@@ -443,6 +444,35 @@ outcome `failed` (tests ran and failed) or `failed` with no outcome
 | `incompleted`/partial results, `framework=unknown` artifacts | **Incomplete** | Output was cut short or produced by an unrecognized tool; treat with care. |
 
 ![Failed execution — one case failed, one passed](Screenshot-Doc/user/execution-detail-failed.png)
+
+### 4.6 When the licence blocks dispatch
+
+TestOrchestrator itself runs under an application licence that an
+**administrator** manages — you cannot add or renew it from a
+non-admin account. What you will experience:
+
+- **Everything works while the licence is `valid`.** You do not need
+  to do anything; validity is checked transparently at dispatch time.
+- **Runs stay `queued` when no licence is usable.** If the licence is
+  missing, expired, or not yet valid, the dispatcher *holds* the
+  queue — manual runs, scheduled firings, and queued work all wait
+  rather than failing. Nothing you queue is lost, but nothing starts
+  either.
+- **It does not resume on its own.** After an administrator applies a
+  valid licence at **System → Licence**, they must also press
+  **Resume dispatch** — the held queue is released deliberately, not
+  automatically. If your runs sit queued for a long time, contact an
+  administrator; this is the most likely cause.
+- **Licence states** an admin may report to you: `missing`,
+  `invalid`, `not-yet-valid` (a renewal was stored early and starts
+  later — harmless), `valid`, `expired`. Validity is UTC
+  `[valid_from, valid_until)` — the licence stops at the start of
+  `valid_until`, not at the end of that day.
+
+This is the **application** licence — separate from the KRE licence
+that must exist on each execution worker (§4.1). An
+`Activation failed` result (§4.5) means the worker's KRE licence, not
+the portal's application licence.
 
 ---
 
@@ -562,7 +592,7 @@ native Katalon HTML/CSV reports, and (for live runs) the worker run
 log. **Download** options provide a report ZIP and an artifacts ZIP.
 
 Evidence lives under managed directories owned by executions (see
-Admin Manual §10). Deleting an execution removes only the evidence it
+Admin Manual §9). Deleting an execution removes only the evidence it
 owns; evidence another execution also references is kept.
 
 ### 6.4 Troubleshooting missing or incomplete results

@@ -190,7 +190,7 @@ What the installer does, in order **[verified — every step observed]**:
 > **Known limitation of the released 2.0.2 payload copy** — the copy list
 > above omits `reporting_labs/` (the vendored report generator), so
 > an `install.sh`-installed 2.0.2 system cannot generate reports until
-> the workaround in §11 is applied. **Fixed in 2.0.3:** the
+> the workaround in §10 is applied. **Fixed in 2.0.3:** the
 > package lives at `3rdparty/reporting_labs`, arrives via the
 > `3rdparty` copy item, and the installer fails loudly if any required
 > payload file is missing.
@@ -603,26 +603,7 @@ deletes nothing. `--apply` removes only those listed orphans —
 directories referenced by any execution are never listed. Storage
 inspection is otherwise plain `du`/`find` under the managed roots.
 
-## 10. Building from source **[verified]**
-
-```bash
-python3 build-scripts/build_linux.py      # Linux tarball + .run + worker installer
-python   build-scripts/build_windows.py   # Windows app + worker installers (NSIS)
-```
-
-- One command per platform; prerequisites are vendored in
-  `build-scripts/assets.json` (Python runtime, Dagu, Caddy, NSIS) —
-  the scripts fetch/pin them, so the host needs network for the first
-  build and nothing else.
-- Outputs land in `dist/release/<platform>/` with
-  `build-manifest.json` (source commit, `dirty` flag, tool versions,
-  per-artifact SHA-256/size), `SHA256SUMS.txt`, and build logs in
-  `dist/release/logs/`.
-- Building ≠ installing ≠ publishing: build produces candidate
-  artifacts; `install.sh`/installers deploy them; a GitHub release
-  makes them public. See `docs/build.md` for the full pipeline.
-
-## 11. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Check |
 |---|---|
@@ -635,7 +616,7 @@ python   build-scripts/build_windows.py   # Windows app + worker installers (NSI
 | `rl_status=failed`, log shows `No module named 'reporting_labs'` | **Known defect in released 2.0.1/2.0.2:** the `install.sh` payload copy omits the vendored `reporting_labs/` directory (present in the tarball root and in the Windows payload). **Workaround for 2.0.2 installations:** copy `reporting_labs/` from the extracted tarball into the payload dir (or run generation once with `PYTHONPATH=<tarball-root>`), then **Regenerate**; original artifacts are untouched. **Fixed in 2.0.3:** the installer copies the vendored package — now located at `3rdparty/reporting_labs` in both the package and the installed payload — and the app resolves it automatically; upgrading also removes a superseded root-level `reporting_labs` copy, so no manual copy or PYTHONPATH is needed. See Validation-Record §4. |
 | Import says `staging checkout expired` | Staging was cleaned — rerun the preview; pending candidates were not committed. |
 
-## 12. Demonstrated worker flow used for these docs
+## 11. Demonstrated worker flow used for these docs
 
 Every §6 step above ran on the isolated doc install:
 portal-served worker download (SHA-256 pin match) → extraction →
@@ -645,13 +626,13 @@ execution with returned JUnit/log/screenshot evidence and a
 reportingLabs report. The dispatched job used a **fixture** KRE
 stand-in — pipeline coverage, not licensed execution.
 
-## 13. Runbooks — step by step
+## 12. Runbooks — step by step
 
-Condensed checklists for the three most common provisioning tasks.
+Condensed checklists for the most common provisioning tasks.
 §6 has the verified long-form worker walkthrough; §7 has the security
 detail. These are the same steps, in order, with every required field.
 
-### 13.1 Add a worker
+### 12.1 Add a worker
 
 1. **Register the runner record** — **System → Infrastructure →
    Workers** → new entry: *Name*, *Description*, *OS/architecture*,
@@ -688,7 +669,7 @@ detail. These are the same steps, in order, with every required field.
    in-flight runs finish; then stop the process and remove the runner
    record.
 
-### 13.2 Register a KRE installation (runtime connection)
+### 12.2 Register a KRE installation (runtime connection)
 
 Prerequisite: KRE installed **and licensed** on the execution host —
 the portal cannot supply the Katalon licence.
@@ -722,7 +703,7 @@ the portal cannot supply the Katalon licence.
 4. **Enable/disable** with the toggle; **Edit** updates paths,
    labels, and concurrency without recreating the record.
 
-### 13.3 Add a user and assign a role
+### 12.3 Add a user and assign a role
 
 1. **System → Users → New user**: *Username* (unique, ≤64 chars),
    *Display name*, *Role* (radio), *Temporary password* (≥12 chars).
@@ -744,3 +725,41 @@ Role capability summary (enforced server-side on every route):
 | **Test Manager** | create / edit | yes | no |
 | **Tester** | view | yes | no |
 | **PO** | view | no | no |
+
+### 12.4 Apply or renew the licence
+
+The application licence is verified **offline** — an Ed25519
+signature checked against the public key bundled in the payload
+(`release/licence_pubkey.pem`). No phone-home, no licence server.
+
+**At install time:** `install.sh` requires a valid code — pass it via
+the `TO_LICENCE_CODE` environment variable (never logged) or enter it
+at the interactive prompt. The installer validates it, then writes
+`licence.json` into the data dir (§4.2).
+
+**In the running portal (renewal / first code after bootstrap):**
+
+1. Sign in as **Admin** → **System → Licence**.
+2. Paste the licence code (the `TO1.…` string you were issued) into
+   the code field and submit.
+3. The portal verifies the signature and stores the licence —
+   success shows *"Licence activated for `<customer>` — valid
+   `<from>` to `<to>`"*; failures show the reason (bad signature /
+   malformed code).
+4. If dispatch was held while no licence was usable, press **Resume
+   dispatch** on the same page — the held queue does **not** resume
+   by itself; an admin must release it deliberately.
+
+**Renewal timing:** several licences may be stored; each is
+re-verified on every read. A future renewal can be added **before**
+its start date — it never displaces the currently valid one. States
+you may see on the page: `missing`, `invalid`, `not-yet-valid`
+(renewal stored, starts later), `valid`, `expired`. Validity is
+`[valid_from, valid_until)` in UTC — the licence stops working
+**at** `valid_until`, not at the end of that day.
+
+**What happens without a usable licence:** the dispatcher marks the
+queue *held* — queued and scheduled executions wait instead of
+failing. Users see their runs stay queued until an admin applies a
+valid licence and presses **Resume dispatch**. Manual runs are
+rechecked at dispatch time, so a queued run cannot slip past expiry.
