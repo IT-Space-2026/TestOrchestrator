@@ -164,7 +164,11 @@ reads repo content).
 | Collection layout (same uuid) | `supplement` — merged into same execution, +1 artifact |
 | Failing run (uuid `a1b2c3d4`, API1 FAILED) | new → exec `3715d496`, `completed`/`failed`, API1 failed + API2 passed |
 | Late-suite supplement (IT-Space2 arrives later, same uuid) | `supplement` — +2 test results, +1 artifact, suite_keys unioned |
-| ReportingLabs on imported exec | `ready`, `index.html` + `report.json` + evidence assets (HARs, logs) attached |
+| ReportingLabs on imported exec | `ready`, `index.html` (818 KB) + `report.json` + evidence assets (HARs, logs) attached |
+
+Output sizes: imported execution evidence 2.7 MB (incl. rlabs gen);
+remote-run evidence 1.3 MB. No published baseline exists for these
+exact runs — sizes recorded here as the 2.0.2 reference.
 
 Live normal-suite/collection/failing *execution* coverage comes from
 the worker E2E above (fixture-KRE pass + real-KRE licence-blocked

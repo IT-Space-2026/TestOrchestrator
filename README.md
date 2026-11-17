@@ -133,6 +133,7 @@ One frozen binary implements every runtime role — no system python:
 | `toctl backup --to DIR` | state backup (atomic `.part`→rename, retention 10) |
 | `toctl recover --from F --into D` | restore (rejects corrupt archives) |
 | `toctl install-info` | resolved instance/db/paths JSON |
+| `toctl evidence-prune [--apply]` | dry-run report of orphan evidence dirs under managed roots; `--apply` removes them (never shared/unmanaged files) |
 
 Services (systemd): `testorchestrator-web`, `testorchestrator-worker`,
 `testorchestrator-dagu`, `testorchestrator-caddy`. Units ExecStart the
