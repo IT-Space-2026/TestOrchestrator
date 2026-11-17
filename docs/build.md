@@ -44,7 +44,7 @@ fetched by the script.
    `dagu.sha256`)
 3. stages `packaging/windows/app-payload/` entirely in Python:
    runtimes, `dagu.exe`+`LICENSE`, app source, vendored
-   `reporting_labs/`, and every `requirements.txt` wheel resolved for
+   `3rdparty/reporting_labs/`, and every `requirements.txt` wheel resolved for
    `win_amd64`/py3.12 into `site-packages/`
 4. payload completeness gate (runtimes, app dirs, every requirement
    present — package dirs, dist-info, and module files)

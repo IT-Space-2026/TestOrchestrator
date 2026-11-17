@@ -22,6 +22,9 @@ done)
 # executable. Only the opt-in TO_GIT_BACKEND=cli path wants it; if a
 # git-setup.7z.exe was staged, it is installed alongside. Portal-side
 # ssh:// remotes additionally need a host ssh client either way.
+# vendored reporting-labs (MIT) — report generation fails without it
+need 3rdparty/reporting_labs/__init__.py
+need 3rdparty/reporting_labs/LICENSE
 # licences/notices
 need dagu/LICENSE
 [ $fail -eq 0 ] && echo "payload COMPLETE ($(du -sh . | cut -f1))" || exit 1

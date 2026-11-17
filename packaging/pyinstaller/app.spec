@@ -29,16 +29,20 @@ for src, dest in (("testorchestrator/templates","testorchestrator/templates"),
         if f.is_file():
             datas.append((str(f), dest if f.parent == __import__("pathlib").Path(p)
                           else str(f.parent.relative_to(ROOT))))
-# Vendored reporting-labs (repo-root ./reporting_labs, traced via
-# pathex=[ROOT]): non-.py package data must ship explicitly — template.html,
-# py.typed, snippets, LICENSE/VENDORED.md. .py modules come through PYZ.
+# Vendored reporting-labs (3rdparty/reporting_labs, traced via
+# pathex=[ROOT, ROOT/3rdparty]): non-.py package data must ship
+# explicitly — template.html, py.typed, snippets, LICENSE/VENDORED.md.
+# .py modules come through PYZ. The runtime bootstrap resolves the
+# vendored dir from <root>/3rdparty when it is shipped as data.
 for f in sorted(__import__("pathlib").Path(
-        os.path.join(ROOT, "reporting_labs")).rglob("*")):
+        os.path.join(ROOT, "3rdparty", "reporting_labs")).rglob("*")):
     if f.is_file() and f.suffix != ".py":
         datas.append((str(f),
                       str(f.parent.relative_to(ROOT))))
 
-a = Analysis([os.path.join(ROOT, "toctl.py")], pathex=[ROOT], binaries=binaries,
+a = Analysis([os.path.join(ROOT, "toctl.py")],
+             pathex=[ROOT, os.path.join(ROOT, "3rdparty")],
+             binaries=binaries,
              datas=datas, hiddenimports=hiddenimports +
              ["testorchestrator.main.routes","testorchestrator.portal.routes",
               "testorchestrator.system.routes","testorchestrator.agent_api",

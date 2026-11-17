@@ -32,7 +32,7 @@ OUT = REPO / "dist"
 # (repo path, category) — the complete inclusion policy.
 INCLUDE = [
     ("testorchestrator", "app"),
-    ("reporting_labs", "app"),   # vendored reporting-labs 0.1.14 (MIT)
+    ("3rdparty/reporting_labs", "app"),  # vendored reporting-labs 0.1.14 (MIT)
     ("wsgi.py", "app"),
     ("install.sh", "install"),
     ("requirements.txt", "app"),
@@ -65,6 +65,8 @@ REQUIRED = [
     "release/release.json", "install.sh", "scripts/install.py",
     "migrations", "deploy/Caddyfile",
     "3rdparty/caddy/caddy",
+    "3rdparty/reporting_labs/__init__.py",
+    "3rdparty/reporting_labs/LICENSE",
     "3rdparty/python-runtime/python/bin/python3",  # swapped for app/toctl under --frozen
     "3rdparty/dagu",
 ]

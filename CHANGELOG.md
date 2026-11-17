@@ -4,6 +4,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased — 2.0]
 
+### Fixed — installed Linux payload omitted reporting-labs (2.0.x)
+
+- `scripts/install.py` now ships the vendored report generator in the
+  installed payload and aborts loudly when any declared payload source
+  is missing; a post-copy gate verifies required files. Previously the
+  copy list omitted `reporting_labs`, so report generation failed on
+  systems installed through the supported installer
+  (`ModuleNotFoundError: No module named 'reporting_labs'`) — masked by
+  running the app from the extracted tarball root.
+- **Vendored source relocated** from repository-root `./reporting_labs`
+  to `3rdparty/reporting_labs` in both the checkout and every installed
+  payload (Linux `install.sh`/`.run`/tarball, Windows app payload,
+  frozen spec). The app resolves the `reporting_labs` import name via a
+  scoped vendored-source bootstrap in `testorchestrator/__init__.py` —
+  no PYTHONPATH or manual copy required.
+- `report_serving_check.py` now exercises real `generate_for`
+  report generation + serving, not only pre-seeded report files.
+
 ### Changed — reporting-labs is the sole report backend (BREAKING)
 
 - **Allure 3 + bundled Node.js removed** throughout the application

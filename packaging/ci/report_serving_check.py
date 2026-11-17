@@ -226,6 +226,58 @@ def check():
             "reporting-labs/gen-aaaaaaaaaaaa/index.html"
         print("PASS execution metadata intact")
 
+        # REAL generation through the installed payload — the 2.0.2
+        # installer defect was exactly this path (reporting_labs absent
+        # from the payload copy). Serving a pre-made report is not
+        # proof the vendored package resolves.
+        from testorchestrator.adapters import reporting_labs as rla
+        from testorchestrator.execution import (
+            Artifact, CaseStatus, Execution, TestResult)
+        import reporting_labs
+        import testorchestrator
+        # Must resolve from THIS install's vendored copy — either
+        # 3rdparty/reporting_labs (post-relocation) or the legacy
+        # root-level reporting_labs (released 2.0.x payloads this
+        # script is copied into during upgrade checks). A
+        # site-packages or source-checkout copy must not satisfy it.
+        app_root = Path(
+            testorchestrator.__file__).resolve().parent.parent
+        rl_file = Path(reporting_labs.__file__).resolve()
+        assert rl_file.parent.name == "reporting_labs" \
+            and rl_file.is_relative_to(app_root), \
+            f"reporting_labs resolved outside vendored tree: {rl_file}"
+        # Unique per invocation — the same retained DB is checked
+        # before and after an upgrade on Windows CI.
+        import uuid
+        gid = f"cirpt-{uuid.uuid4().hex[:8]}"
+        gx = Execution(id=gid, project_id="p1", created_by="ci")
+        gx.report_dir = str(
+            Path(INSTANCE_DIR) / "ci-evidence" / gid)
+        Path(gx.report_dir).mkdir(parents=True, exist_ok=True)
+        junit = Path(gx.report_dir) / "junit.xml"
+        junit.write_text(
+            '<testsuite><testcase classname="TS" name="case_a" '
+            'time="0.1"/></testsuite>')
+        db.session.add(gx)
+        db.session.commit()
+        db.session.add(TestResult(
+            execution_id=gx.id, case_name="case_a", classname="TS",
+            status=CaseStatus.PASSED, duration_s=0.1))
+        import hashlib
+        db.session.add(Artifact(
+            execution_id=gx.id, kind="junit", rel_path="junit.xml",
+            sha256=hashlib.sha256(junit.read_bytes()).hexdigest(),
+            size=junit.stat().st_size))
+        db.session.commit()
+        res = rla.generate_for(gx)
+        assert res["status"] == "ready", f"generation failed: {res}"
+        assert (Path(gx.report_dir) / gx.rl_path).is_file(), gx.rl_path
+        r = c.get(f"/executions/{gx.id}/rlabs")
+        assert r.status_code == 200, r.status_code
+        print(f"PASS real reportingLabs generation + serving "
+              f"(vendored {reporting_labs.__version__} from "
+              f"{reporting_labs.__file__})")
+
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "all"

@@ -46,11 +46,14 @@ def main():
             "--find-links",str(pkg/"3rdparty/python-wheels"),
             "-r",str(pkg/"requirements.txt")],check=True)
         subprocess.run([str(v/"bin/pip"),"check"],check=True)
-        # reporting-labs is vendored at the package root (./reporting_labs) —
-        # import it with cwd=pkg exactly as the running app does.
+        # reporting-labs is vendored at 3rdparty/reporting_labs — resolve
+        # it exactly as the running app does: import testorchestrator so
+        # the vendored-source bootstrap installs, then import the module
+        # and pin its file location under 3rdparty/.
         r=subprocess.run([str(v/"bin/python"),"-c",
-            "import reporting_labs,os;"
+            "import testorchestrator,reporting_labs,os;"
             "assert 'site-packages' not in reporting_labs.__file__, reporting_labs.__file__;"
+            "assert os.sep+'3rdparty'+os.sep in reporting_labs.__file__, reporting_labs.__file__;"
             "print(reporting_labs.__version__)"],
             capture_output=True,text=True,cwd=pkg)
         assert r.returncode==0,f"reporting_labs import failed: {r.stderr}"

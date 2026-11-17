@@ -30,8 +30,9 @@ fetch "https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11
 unzip -q -o /tmp/caddy-win.zip -d app-payload/caddy
 cp -r "$REPO/testorchestrator" "$REPO/migrations" "$REPO/wsgi.py" \
       "$REPO/run_worker.py" "$REPO/requirements.txt" "$REPO/release" \
-      "$REPO/deploy" "$REPO/scripts/provision_dagu.py" \
-      "$REPO/reporting_labs" app-payload/   # vendored reporting-labs (MIT)
+      "$REPO/deploy" "$REPO/scripts/provision_dagu.py" app-payload/
+mkdir -p app-payload/3rdparty
+cp -r "$REPO/3rdparty/reporting_labs" app-payload/3rdparty/  # vendored reporting-labs (MIT)
 # python packages for win_amd64 — vendored, NOT a bootstrap download:
 # install-time wheels land in site-packages wired via python312._pth.
 ${PIP:-python -m pip} download --platform win_amd64 --only-binary=:all: \

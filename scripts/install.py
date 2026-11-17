@@ -23,6 +23,25 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SERVICE_USER = "testorchestrator"
 
+# Everything the supported runtime needs — a missing or silently-skipped
+# item is an installer defect (2.0.2 shipped without reporting_labs and
+# report generation failed on installed systems). Every name must exist
+# at the package root; an absent source aborts the install instead of
+# producing a half-complete payload. Vendored reporting-labs arrives via
+# 3rdparty/reporting_labs inside the "3rdparty" item.
+PAYLOAD_ITEMS = [
+    "testorchestrator", "wsgi.py", "requirements.txt",
+    "release", "3rdparty", "migrations", "deploy", "scripts",
+]
+# Files that MUST be present in the payload after copying — checked
+# before the install is allowed to proceed.
+REQUIRED_PAYLOAD_FILES = (
+    "testorchestrator/__init__.py",
+    "wsgi.py",
+    "3rdparty/reporting_labs/__init__.py",
+    "3rdparty/reporting_labs/LICENSE",
+)
+
 
 def port_free(port: int, host: str = "127.0.0.1") -> bool:
     try:
@@ -113,10 +132,7 @@ def main() -> None:
         )
 
     steps = [
-        ("payload copy", payload, [
-            "testorchestrator", "wsgi.py", "requirements.txt",
-            "release", "3rdparty", "migrations", "deploy", "scripts",
-        ]),
+        ("payload copy", payload, PAYLOAD_ITEMS),
         ("data dir", data, []),
         ("certs dir", data / "certs", []),
         ("config dir", config, []),
@@ -129,11 +145,19 @@ def main() -> None:
     if not args.dry_run:
         for item in steps[0][2]:
             src, dst = REPO / item, payload / item
+            if not src.exists():
+                sys.exit(f"error: payload source missing: {item} — "
+                         "incomplete package, refusing to install")
             if src.is_dir():
                 copy_payload_tree(src, dst)
-            elif src.exists():
+            else:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
+        missing = [r for r in REQUIRED_PAYLOAD_FILES
+                   if not (payload / r).is_file()]
+        if missing:
+            sys.exit("error: payload incomplete after copy — "
+                     f"missing: {', '.join(missing)}")
         os.chmod(data / "certs", 0o700)
 
         # Upgrade cleanup: 2.0 dropped bundled Allure/Node. The copy
@@ -145,6 +169,14 @@ def main() -> None:
             if _d.is_dir():
                 shutil.rmtree(_d, ignore_errors=True)
                 print(f"[install] removed stale {_d}")
+        # reporting_labs moved to 3rdparty/reporting_labs: drop a stale
+        # root-level copy (2.0.x payload or operator-applied workaround)
+        # so the vendored package exists exactly once in the payload.
+        _stale_rl = payload / "reporting_labs"
+        if _stale_rl.is_dir():
+            shutil.rmtree(_stale_rl, ignore_errors=True)
+            print(f"[install] removed superseded {_stale_rl} "
+                  "(now at 3rdparty/reporting_labs)")
 
         # Offline venv from the bundled runtime + vendored wheels —
         # no host python/pip and no network required.
