@@ -82,7 +82,7 @@ Legend: **EXEC** = executed and verified on this install;
 | `toctl evidence-prune` dry-run + `--apply` | EXEC | dry-run listed seeded orphan, removed nothing; `--apply` removed only the orphan |
 | Referenced-evidence protection | EXEC | live execution's evidence never listed as orphan |
 | `toctl backup` / `toctl recover` | IMPL | reviewed: atomic `.part` publish, retention cap, restore-to-separate-dir semantics; archive format verified in code |
-| 2.0.1 → 2.0.2 upgrade (released 2.0.1 → this package) | EXEC (earlier candidate builds; re-verified on `3c98ed5`) | `p6q7r8s9t0u1 → q7r8s9t0u1v2 → r8s9t0u1v2w3`; history/settings/evidence retained — recorded in `docs/next-2.0.2.md` |
+| 2.0.1 → 2.0.2 upgrade (released 2.0.1 → this package) | EXEC (earlier candidate builds; re-verified on `3c98ed5`) | `p6q7r8s9t0u1 → q7r8s9t0u1v2 → r8s9t0u1v2w3`; history/settings/evidence retained — recorded in `docs/release-notes-2.0.2.md` |
 | Caddy / TLS / systemd services | IMPL | config rendered + units staged; not started (non-root doc install) |
 | Windows app + worker installers | IMPL | `windows-installer` CI green on `574860d` (compile, installed-validate, upgrade-from-v102, upgrade-from-v200); unsigned; not run locally |
 

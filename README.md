@@ -132,7 +132,8 @@ data is never deleted.
 
 Run `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe`
 (interactive or `/S` for silent NSIS install). It installs the frozen
-portal + worker services. See `docs/windows-install.md`.
+portal + worker services. See the Admin Manual §5 (Windows installation, certificate
+trust, service tasks, uninstall).
 
 For a remote KRE host only, download the bundled
 `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` from the
@@ -373,7 +374,8 @@ default; unavailable explicit picks reject — no fallback), Run-now on
 saved schedules, per-schedule overlap policy (allow|skip), a
 filterable/paginated `/executions` history view (project, status,
 origin, framework), bulk cancel on selected rows, and imported-run
-badges. See `docs/execution-capability.md`.
+badges. See `Manuals-Doc/Validation-Record.md` for verified-vs-
+claimed status.
 
 ## Browser & WebDriver selection
 

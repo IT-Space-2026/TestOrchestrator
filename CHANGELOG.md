@@ -381,7 +381,8 @@ Patch release. Tag `v2.0.3` → commit
   CAS; agent passes timeout_seconds + remote-webdriver config;
   UNKNOWN executions hold capacity until admin resolves them via the
   new **Resolve UNKNOWN** action (audited); multi-process race tests.
-  docs/execution-capability.md + docs/runbook-two-host.md.
+  (working records of that cycle; removed in the 2.0.3 docs
+  audit — the Validation-Record is the current evidence file).
 
 - **Execution controls (Legacy-parity round):** explicit runner/
   runtime selectors (auto default, revalidated at dispatch, no
@@ -404,7 +405,7 @@ Patch release. Tag `v2.0.3` → commit
   `-browserType=Remote` + `-remoteWebDriverUrl=` +
   `-remoteWebDriverType=` (was dropping -browserType); URL credential
   scrubbing; grid-browser selection documented as desired-capabilities
-  driven, not URL-driven. See docs/execution-capability.md.
+  driven, not URL-driven.
 
 ### Known limitations
 - `CANCEL_REQUESTED` running-process kill path recorded but not yet

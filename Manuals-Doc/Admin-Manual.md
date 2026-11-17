@@ -40,6 +40,11 @@ pipeline coverage used a fixture stand-in.
   - [4.7 Service management and logs](#47-service-management-and-logs)
   - [4.8 Uninstall](#48-uninstall)
 - [5. Windows installation **[code/CI — not locally validated]**](#5-windows-installation-codeci--not-locally-validated)
+  - [5.1 Install and first access](#51-install-and-first-access)
+  - [5.2 Certificate trust (what the installer does for you)](#52-certificate-trust-what-the-installer-does-for-you)
+  - [5.3 Stop, restart, uninstall](#53-stop-restart-uninstall)
+  - [5.4 Remote access — separate deployment mode](#54-remote-access--separate-deployment-mode)
+  - [5.5 Validation gates — honest status](#55-validation-gates--honest-status)
 - [6. Workers — installation and operation (Linux) **[verified end to end]**](#6-workers--installation-and-operation-linux-verified-end-to-end)
   - [6.1 Get the worker archive through the portal](#61-get-the-worker-archive-through-the-portal)
   - [6.2 Verify the asset **[verified]**](#62-verify-the-asset-verified)
@@ -85,6 +90,7 @@ pipeline coverage used a fixture stand-in.
 - [17. Storage lifecycle and capacity](#17-storage-lifecycle-and-capacity)
 - [18. Worker maintenance and failure recovery](#18-worker-maintenance-and-failure-recovery)
 - [19. Credential and certificate lifecycle](#19-credential-and-certificate-lifecycle)
+  - [19.1 Private-repository access — three separate auth contexts](#191-private-repository-access--three-separate-auth-contexts)
 - [20. Version and upgrade matrix](#20-version-and-upgrade-matrix)
 - [21. Incident runbooks](#21-incident-runbooks)
 
@@ -550,6 +556,89 @@ From the installer (`app-installer.nsi`, `build_app_installer.sh`,
 - Windows CI proves compile + installed validation + upgrades
   (v1.0.2→, v2.0.0→); interactive Windows use was **not** validated
   for this manual.
+
+### 5.1 Install and first access
+
+1. Run the installer **elevated** (admin) — required for the
+   `%ProgramFiles%` payload, `%ProgramData%` state, Scheduled Tasks,
+   and machine trust.
+2. Unattended: `setup.exe /S [/D=<path>] [/PORT=8080]
+   [/ADDR=localhost]`.
+3. The installer registers and **immediately starts** four
+   SYSTEM/ONSTART Scheduled Tasks — `TestOrchestratorWeb` (Waitress,
+   `127.0.0.1:18080`), `…Worker`, `…Dagu`, `…Caddy` (HTTPS `:443`).
+   No reboot is required; tasks also restart at boot.
+4. Browse to `https://localhost/` → licence page → enter the licence
+   code → login → use.
+
+### 5.2 Certificate trust (what the installer does for you)
+
+- Mode `tls internal`: Caddy generates a **fresh, per-installation
+  local CA** at first start under
+  `%ProgramData%\TestOrchestrator\caddy-home\Caddy\pki`. The private
+  key is created on the machine, never shipped in the package, never
+  shared between installations.
+- The installer waits for `…\authorities\local\root.crt` and runs
+  `certutil -addstore -f Root` — the CA lands in the **LocalMachine**
+  Trusted Root store, so Edge/Chrome and other system-store clients
+  validate `https://localhost/` **with no certificate bypass**.
+- **Firefox** uses its own trust store — the one unavoidable manual
+  step: import the same `root.crt` (Settings → Certificates →
+  Import), or use a system-store browser.
+- Leaf renewal is automatic — Caddy renews short-lived leafs while
+  running; the root CA (~10 y) outlives the install.
+- Upgrade: `caddy-home` persists under `%ProgramData%` → same CA →
+  trust carries over.
+- Uninstall removes **this** installation's CA by thumbprint (other
+  Caddy CAs untouched). Customer data under `%ProgramData%\TestOrchestrator`
+  is kept unless explicitly confirmed.
+
+### 5.3 Stop, restart, uninstall
+
+- Supported stop: `%ProgramData%\TestOrchestrator\stop_to.cmd` — ends
+  all four tasks **and** reaps orphaned child processes. Plain
+  `schtasks /End` only kills the `.cmd` host and leaves python/caddy/
+  dagu children bound to their ports — do not use it alone.
+- Logs: `%ProgramData%\TestOrchestrator\logs\{web,worker,dagu,caddy}.log`
+  (Task Scheduler provides no stdout capture; wrappers append here).
+- Uninstall entry points are registered under
+  `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator`:
+  - `UninstallString` → `uninstall.exe` (interactive NSIS flow:
+    prompts before deleting `%ProgramData%`; `/PURGEDATA=1` forces
+    removal).
+  - `QuietUninstallString` → `cmd /c "...uninstall_to.cmd"` — silent,
+    deterministic (the NSIS silent uninstaller is unreliable in
+    Session-0/headless contexts); requires elevation. **Retains data
+    by default.** Pass `/PURGE` (aliases `/PURGEDATA`,
+    `/PURGEDATA=1`) for full removal.
+- Both flows do the same cleanup — untrust this installation's CA
+  only, stop services and reap children, delete the four tasks,
+  remove the payload, remove the ARP registry entry — and the same
+  retention default (keep data unless purge is explicitly chosen).
+
+### 5.4 Remote access — separate deployment mode
+
+Local `https://localhost` needs none of this. For LAN/remote clients:
+
+- Install with `/ADDR=<hostname>` so generated config/redirects use
+  it.
+- The internal CA issues a leaf for the configured name only — remote
+  clients need the same `root.crt` imported, or provide a real
+  CA-issued certificate via the admin **Network & certificates** page
+  (`tls` file mode) — the recommended production posture.
+- Firewall: inbound 443 (and 8080 if the HTTP→HTTPS redirect is used)
+  must be opened by the client administrator.
+
+### 5.5 Validation gates — honest status
+
+Verified on disposable CI (`windows-latest`): silent install, payload
+completeness (including the worker-download assets — dagu archives +
+bundled worker installer), task registration + start, HTTP readiness,
+task restart, HTTPS with real certificate validation, licence
+negative/positive/persistence, report generation. **Pending on an
+interactive Windows host:** GUI installer screens, real-browser
+activation flow, actual reboot persistence, upgrade-in-place, and
+uninstall UX.
 
 ## 6. Workers — installation and operation (Linux) **[verified end to end]**
 
@@ -1268,6 +1357,38 @@ audited decision by design.
 
 After a restore: every stored secret returns intact **only if**
 `secret.key` was backed up — the DB alone cannot decrypt them.
+
+### 19.1 Private-repository access — three separate auth contexts
+
+Each is configured and consumed separately — do not conflate them:
+
+| Stage | Where auth is configured | How it is consumed |
+|---|---|---|
+| Portal-side git ops (binding sync, case/suite listing) | stored `user:token` SecretRef (HTTPS) or host ssh | portal backend only |
+| Worker-side source checkout | `git_ssh_key_path` on the runtime — a path **on the worker** | worker's git SSH checkout; key material never crosses the wire |
+| Evidence publishing | `publish_repo_url` + publish credential (portal-side) | portal export write + read-back + delete probe |
+
+Worker-side prerequisites — the portal cannot provision the deploy
+key. The administrator must:
+
+1. Install a keypair on the **worker host** and authorize its public
+   key on the repository host (deploy key / SSH access).
+2. Supply the key's on-worker path as `git_ssh_key_path` in the run
+   configuration — the spec references the *path*, never the material.
+3. Keep the repository host in the worker's `known_hosts` — SSH host
+   verification stays ON.
+
+Rotating the key material at the same path is invisible to the portal
+— re-verify after rotation; the worker is the source of truth for key
+validity. Portal-side secret-rotation coverage does NOT extend to
+worker key changes.
+
+Verification semantics: "source binding resolved" proves **portal**-side
+access only — remote capability additionally requires an `ssh://` /
+`git@host:` binding, an eligible worker, and a verified engine on it;
+the worker launch-verifies its own access. The publishing write probe
+is a *verification* operation (marker ref created/read/deleted) — an
+execution's evidence export is a different, later operation.
 
 ## 20. Version and upgrade matrix
 
