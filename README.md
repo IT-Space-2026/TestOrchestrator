@@ -276,6 +276,14 @@ and keeps the newest 10. `toctl recover` validates the archive before
 extracting. Updates stage through the signed-bundle verifier; rollback
 uses the last good backup.
 
+## Release builds
+
+One command per platform — `python3 build-scripts/build_linux.py` /
+`python build-scripts\build_windows.py` — fetches pinned assets,
+compiles the worker installer, packages, validates, and emits
+checksums + manifest into `dist/release/<platform>/`. Prerequisites
+and output layout: `docs/build.md`.
+
 ## Release assets & checksums
 
 GitHub prerelease `v1.0.0-pre`: `tar.gz` + `.sha256` + `.manifest.json` +

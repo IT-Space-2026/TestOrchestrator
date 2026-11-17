@@ -1,5 +1,5 @@
 name: windows-installer
-on: {push: {branches: [main]}, pull_request: {}, workflow_dispatch: {}}
+on: {push: {branches: [main, "feature/2.0.1"]}, pull_request: {}, workflow_dispatch: {}}
 permissions: {contents: read}
 jobs:
   compile:
@@ -9,10 +9,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: provision gitignored deps
-        shell: bash
-        run: |
-          bash scripts/fetch_dagu.sh
       - name: report-serving tests on Windows
         shell: bash
         # safe_under + generation-scoped serving: Windows-specific
@@ -20,19 +16,18 @@ jobs:
         run: |
           pip install -r requirements-dev.txt -q
           python -m pytest tests/test_safe_under.py tests/test_reporting_labs_poc.py -x -q
-      - name: install nsis
+      - name: nsis (system prerequisite)
         shell: pwsh
         run: choco install nsis -y --no-progress
-      - name: build payload + compile installer
-        shell: bash
-        run: |
-          export PATH="/c/Program Files (x86)/NSIS:$PATH"
-          makensis -VERSION || export PATH="$ChocolateyInstall/bin:$PATH"
-          bash packaging/windows/build_app_installer.sh
+      - name: one-command release build
+        run: python build-scripts/build_windows.py
       - uses: actions/upload-artifact@v4
         with:
           name: testorchestrator-windows-setup
-          path: packaging/windows/testorchestrator-*-setup-UNSIGNED.exe
+          path: |
+            dist/release/windows/*-setup-UNSIGNED.exe
+            dist/release/windows/SHA256SUMS.txt
+            dist/release/windows/build-manifest.json
           retention-days: 14
 
   installed-validate:
@@ -48,7 +43,7 @@ jobs:
         shell: pwsh
         run: |
           $inst = "C:\to smoke install"
-          $p = Start-Process (Get-Item ".\installer\*setup-UNSIGNED.exe" | Select-Object -First 1).FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          $p = Start-Process (Get-ChildItem -Recurse ".\installer" -Filter "*windows-amd64-setup-UNSIGNED.exe" | Select-Object -First 1).FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
           Write-Host "installer exit: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
           foreach ($f in @("$inst\python\python.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem","$inst\run_worker.py")) {
@@ -199,7 +194,7 @@ jobs:
         run: |
           $inst = "C:\to smoke install"
           $data = "C:\ProgramData\TestOrchestrator"
-          $setup = (Get-Item ".\installer\*setup-UNSIGNED.exe" | Select-Object -First 1).FullName
+          $setup = (Get-ChildItem -Recurse ".\installer" -Filter "*windows-amd64-setup-UNSIGNED.exe" | Select-Object -First 1).FullName
           # registered uninstall entry points must exist and point at supported flows
           $arp = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator' -ErrorAction Stop
           if ($arp.UninstallString -ne "`"$inst\uninstall.exe`"") { throw "UninstallString wrong: $($arp.UninstallString)" }
@@ -321,7 +316,7 @@ jobs:
         run: |
           $inst = "C:\to upgrade install"
           $thumb1 = Get-Content "$env:TEMP\thumb1.txt"
-          $setup = Get-Item ".\candidate\*setup-UNSIGNED.exe" | Select-Object -First 1
+          $setup = Get-ChildItem -Recurse ".\candidate" -Filter "*windows-amd64-setup-UNSIGNED.exe" | Select-Object -First 1
           $p = Start-Process $setup.FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "upgrade install exited $($p.ExitCode)" }
           $thumb2 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" }).Thumbprint
@@ -341,3 +336,62 @@ jobs:
           Pop-Location
           if ($rc -ne 0) { throw "post-upgrade report-serving check failed" }
           Write-Host "PASS retained reports/licence/verified access after v1.0.2->candidate upgrade"
+
+  upgrade-from-v200:
+    needs: compile
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: testorchestrator-windows-setup
+          path: candidate
+      - name: fetch released v2.0.0 installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v2.0.0" \
+            | python -c "import json,sys; print([a['id'] for a in json.load(sys.stdin)['assets'] if 'windows' in a['name'] and a['name'].endswith('.exe') and 'dagu' not in a['name']][0])")
+          curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id" \
+            -o v200-setup.exe
+          ls -la v200-setup.exe
+      - name: install released v2.0.0 + seed sanitised report
+        shell: pwsh
+        run: |
+          $inst = "C:\to upgrade install v200"
+          $p = Start-Process ".\v200-setup.exe" -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "v2.0.0 install exited $($p.ExitCode)" }
+          $thumb1 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" }).Thumbprint
+          Set-Content "$env:TEMP\thumb1v200.txt" $thumb1
+          Copy-Item ".\packaging\ci\report_serving_check.py" "$inst\"
+          Push-Location $inst
+          & "$inst\python\python.exe" "$inst\report_serving_check.py" seed 2>&1
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw "seed on v2.0.0 failed" }
+          & "$inst\python\python.exe" "$inst\report_serving_check.py" check 2>&1
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw "serving check failed on released v2.0.0" }
+          Pop-Location
+      - name: upgrade to 2.0.1 candidate + verify retained data
+        shell: pwsh
+        run: |
+          $inst = "C:\to upgrade install v200"
+          $thumb1 = Get-Content "$env:TEMP\thumb1v200.txt"
+          $setup = Get-ChildItem -Recurse ".\candidate" -Filter "*windows-amd64-setup-UNSIGNED.exe" | Select-Object -First 1
+          $p = Start-Process $setup.FullName -ArgumentList "/S","/D=$inst" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "upgrade install exited $($p.ExitCode)" }
+          $thumb2 = (Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*Caddy Local Authority*" }).Thumbprint
+          if ($thumb2 -ne $thumb1) { throw "upgrade replaced trusted CA ($thumb1 -> $thumb2)" }
+          Write-Host "PASS upgrade: CA thumbprint retained ($thumb1)"
+          $ok = $false
+          for ($i=0; $i -lt 60; $i++) { try { $r = Invoke-WebRequest -Uri "https://localhost/healthz" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep 1 }
+          if (!$ok) { throw "app not healthy after v2.0.0->candidate upgrade" }
+          Write-Host "PASS app healthy after upgrade (cert-validated)"
+          Push-Location $inst
+          & "$inst\python\python.exe" "$inst\report_serving_check.py" check 2>&1
+          $rc = $LASTEXITCODE
+          Pop-Location
+          if ($rc -ne 0) { throw "post-upgrade report-serving check failed" }
+          Write-Host "PASS retained reports/licence/verified access after v2.0.0->candidate upgrade"

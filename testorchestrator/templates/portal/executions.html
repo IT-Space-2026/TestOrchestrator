@@ -49,6 +49,19 @@
   <div class="field"><label for="to_date">To</label>
     <input type="date" name="to_date" id="to_date"
            value="{{ filters.get('to_date','') }}"></div>
+  <div class="field"><label for="origin">Origin</label>
+    <select name="origin" id="origin">
+      <option value="">All</option>
+      <option value="live" {% if filters.get('origin')=='live' %}selected{% endif %}>live</option>
+      <option value="imported" {% if filters.get('origin')=='imported' %}selected{% endif %}>imported</option>
+    </select></div>
+  <div class="field"><label for="framework">Framework</label>
+    <select name="framework" id="framework">
+      <option value="">All</option>
+      {% for f in frameworks %}
+      <option value="{{ f }}" {% if filters.get('framework')==f %}selected{% endif %}>{{ f }}</option>
+      {% endfor %}
+    </select></div>
   <div class="form-actions">
     <button type="submit" class="button">Filter</button>
     <a class="button secondary" href="{{ url_for('portal.executions') }}">Clear</a>
@@ -75,7 +88,8 @@
                  value="{{ e.id }}"
                  {% if e.state.value not in ("queued","dispatched","running","preparing","cancel_requested") %}disabled{% endif %}></td>
       {% endif %}
-      <td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
+      <td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a>
+        {% if e.origin == "imported" %}<span class="badge imported" title="imported from repository results">imported</span>{% endif %}</td>
       <td>{{ e.project.name if e.project }}</td>
       <td>{{ e.snapshot().get('suite_name', '') }}</td>
       <td><span class="badge {{ e.state.value }}">{{ e.state.value }}</span></td>

@@ -406,6 +406,29 @@ class Execution(db.Model):
     deletion_status = db.Column(db.String(16), nullable=False,
                                 default="none")     # none|pending|failed
     deletion_error = db.Column(db.String(512), nullable=False, default="")
+    # ---- 2.0.1 result import (origin + provenance + dedup) ----
+    # live = dispatched by this app; imported = repository-result import.
+    # The common history is the same table either way.
+    origin = db.Column(db.String(16), nullable=False, default="live")
+    # Producer framework — 'katalon' today; the model is
+    # framework-independent so future parsers (robot/cypress/playwright)
+    # reuse these columns instead of inventing parallel history.
+    framework = db.Column(db.String(32), nullable=False,
+                          default="katalon")
+    # evidence format ('junit' today) — kept separate from framework:
+    # a bare JUnit file proves the format, not the producer
+    result_format = db.Column(db.String(32), nullable=False,
+                              default="junit")
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    imported_by = db.Column(db.String(64), nullable=False, default="")
+    # Dedup identities — populated at normalize for live runs and at
+    # parse for imported ones; empty means "not fingerprintable".
+    run_uuid = db.Column(db.String(64), nullable=False, default="")
+    content_hash = db.Column(db.String(64), nullable=False, default="")
+    # Import provenance — empty for live executions.
+    source_repo = db.Column(db.String(512), nullable=False, default="")
+    source_commit = db.Column(db.String(64), nullable=False, default="")
+    source_path = db.Column(db.String(512), nullable=False, default="")
     project = db.relationship("Project")
     suite = db.relationship("Suite")
     runner = db.relationship("Runner")
@@ -551,6 +574,73 @@ class DiscoveredItem(db.Model):
             return _j.loads(self.members_json or "[]")
         except Exception:
             return []
+
+
+class ImportSession(db.Model):
+    """Durable preview bookkeeping for repository-result import (2.0.1).
+    Workflow state only — never an execution-history record. A preview
+    can be re-confirmed after restart or safely retried after failure."""
+    __tablename__ = "import_sessions"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
+                           nullable=False)
+    binding_id = db.Column(db.String(32), db.ForeignKey("git_bindings.id"),
+                           nullable=False)
+    revision_input = db.Column(db.String(256), nullable=False, default="")
+    resolved_sha = db.Column(db.String(64), nullable=False, default="")
+    result_dir = db.Column(db.String(512), nullable=False, default="")
+    staging_path = db.Column(db.String(512), nullable=False, default="")
+    created_by = db.Column(db.String(64), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    # previewed|committed|failed — 'committed' may still carry failed
+    # per-candidate outcomes (retryable).
+    status = db.Column(db.String(16), nullable=False, default="previewed")
+    summary_json = db.Column(db.Text, nullable=False, default="{}")
+    error = db.Column(db.Text, nullable=False, default="")
+    project = db.relationship("Project")
+
+    def summary(self) -> dict:
+        return json.loads(self.summary_json or "{}")
+
+
+class ImportCandidate(db.Model):
+    """One detected run inside an ImportSession, with its dedup
+    decision and import outcome."""
+    __tablename__ = "import_candidates"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    session_id = db.Column(db.String(32),
+                           db.ForeignKey("import_sessions.id"),
+                           nullable=False, index=True)
+    seq = db.Column(db.Integer, nullable=False, default=0)
+    run_dir = db.Column(db.String(512), nullable=False, default="")
+    # member report dirs (rel to scan root) — collection runs span
+    # several dirs sharing one execution.uuid
+    run_dirs_json = db.Column(db.Text, nullable=False, default="[]")
+    # new|duplicate|supplement|ambiguous|unsupported|malformed
+    decision = db.Column(db.String(16), nullable=False, default="new")
+    match_execution_id = db.Column(db.String(32), nullable=False,
+                                   default="")
+    run_uuid = db.Column(db.String(64), nullable=False, default="")
+    content_hash = db.Column(db.String(64), nullable=False, default="")
+    suite_name = db.Column(db.String(512), nullable=False, default="")
+    started_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    case_count = db.Column(db.Integer, nullable=False, default=0)
+    warnings_json = db.Column(db.Text, nullable=False, default="[]")
+    # pending|imported|skipped|failed
+    status = db.Column(db.String(16), nullable=False, default="pending")
+    imported_execution_id = db.Column(db.String(32), nullable=False,
+                                      default="")
+    error = db.Column(db.Text, nullable=False, default="")
+    session = db.relationship("ImportSession",
+                              backref=db.backref(
+                                  "candidates",
+                                  order_by="ImportCandidate.seq"))
+
+    def warnings(self) -> list:
+        return json.loads(self.warnings_json or "[]")
+
+    def run_dirs(self) -> list:
+        return json.loads(self.run_dirs_json or "[]")
 
 
 class AuthoringDraft(db.Model):

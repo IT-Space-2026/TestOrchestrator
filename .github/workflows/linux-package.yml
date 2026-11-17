@@ -1,5 +1,5 @@
 name: linux-package
-on: {push: {branches: [main]}, pull_request: {}, workflow_dispatch: {}}
+on: {push: {branches: [main, "feature/2.0.1"]}, pull_request: {}, workflow_dispatch: {}}
 permissions: {contents: read}
 jobs:
   build:
@@ -9,50 +9,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: provision gitignored deps
-        run: |
-          set -e
-          # dagu archives (checksum-verified against pinned digests)
-          bash scripts/fetch_dagu.sh
-          # vendored git rootfs for the packaged cli-backend fallback
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends dpkg-dev ubuntu-keyring gpgv
-          python3 scripts/acquire_git.py --suite resolute --arch amd64 \
-            --acquire --verify-runtime
-      - name: build dagu-worker Windows installer asset
-        run: |
-          set -e
-          # The NSIS worker installer rides inside the linux package as
-          # the intended downloadable worker asset — a clean checkout
-          # has no staged exe, so it must be built here (makensis runs
-          # on Linux; payload = checksum-verified pinned archive).
-          sudo apt-get install -y --no-install-recommends nsis
-          bash packaging/windows/build_worker_installer.sh
-          ls -la packaging/windows/testorchestrator-dagu-worker-*-setup-UNSIGNED.exe
-      - name: build bundle + self-extracting installer
-        run: |
-          set -e
-          python3 scripts/build_bundle.py
-          TB=$(ls dist/testorchestrator-*-linux-x86_64.tar.gz | head -1)
-          python3 scripts/build_linux_installer.py "$TB" "${TB%.tar.gz}.run"
-      - name: validate assembled package
-        run: |
-          set -e
-          TB=$(ls dist/testorchestrator-*-linux-x86_64.tar.gz)
-          mkdir -p /tmp/pkgx
-          tar -xzf "$TB" -C /tmp/pkgx
-          python3 scripts/validate_package.py /tmp/pkgx/testorchestrator-*/
-      - name: checksums
-        run: |
-          cd dist
-          sha256sum testorchestrator-*-linux-x86_64.tar.gz testorchestrator-*-linux-x86_64.run | tee SHA256SUMS.txt
+      - name: nsis (system prerequisite for the worker installer)
+        run: sudo apt-get install -y --no-install-recommends nsis
+      - name: one-command release build
+        run: python3 build-scripts/build_linux.py
       - uses: actions/upload-artifact@v4
         with:
           name: testorchestrator-linux-package
           path: |
-            dist/testorchestrator-*-linux-x86_64.tar.gz
-            dist/testorchestrator-*-linux-x86_64.run
-            dist/SHA256SUMS.txt
+            dist/release/linux/*.tar.gz
+            dist/release/linux/*.run
+            dist/release/linux/*.exe
+            dist/release/linux/SHA256SUMS.txt
+            dist/release/linux/build-manifest.json
             dist/testorchestrator-*-linux-x86_64.manifest.json
           retention-days: 14
 
@@ -97,7 +66,7 @@ jobs:
       - name: candidate upgrade over retained instance + checks
         run: |
           set -e
-          TB=$(ls candidate/testorchestrator-*-linux-x86_64.tar.gz)
+          TB=$(find candidate -name "testorchestrator-*-linux-x86_64.tar.gz" | head -1)
           mkdir -p /tmp/cand && tar -xzf "$TB" -C /tmp/cand
           C=$(echo /tmp/cand/testorchestrator-*-linux-x86_64)
           cd "$C"
@@ -117,3 +86,60 @@ jobs:
           ./3rdparty/python-runtime/python/bin/python \
             report_serving_check.py check
           echo "PASS retained reports/licence/access after v1.0.2->candidate upgrade"
+
+  upgrade-from-v200:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: testorchestrator-linux-package
+          path: candidate
+      - name: fetch released v2.0.0 package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v2.0.0" \
+            | python3 -c "import json,sys; print([a['id'] for a in json.load(sys.stdin)['assets'] if 'linux' in a['name'] and a['name'].endswith('.run')][0])")
+          curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id" \
+            -o v200.run
+          ls -la v200.run
+      - name: install released v2.0.0 payload + seed
+        run: |
+          set -e
+          mkdir -p /tmp/v200
+          LINE=$(grep -an -m1 "^__TO_ARCHIVE_BELOW__$" v200.run | cut -d: -f1)
+          tail -n +$((LINE + 1)) v200.run | tar -xzf - -C /tmp/v200
+          P=$(echo /tmp/v200/testorchestrator-*-linux-x86_64)
+          cd "$P"
+          export TO_INSTANCE_DIR=/tmp/to-inst TO_SECURE_COOKIES=0
+          ./3rdparty/python-runtime/python/bin/python -m pip install \
+            --no-index --find-links 3rdparty/python-wheels \
+            -r requirements.txt -q
+          ./3rdparty/python-runtime/python/bin/python \
+            -m testorchestrator db-upgrade
+          cp "$GITHUB_WORKSPACE/packaging/ci/report_serving_check.py" .
+          ./3rdparty/python-runtime/python/bin/python \
+            report_serving_check.py seed
+      - name: candidate upgrade over retained instance + checks
+        run: |
+          set -e
+          TB=$(find candidate -name "testorchestrator-*-linux-x86_64.tar.gz" | head -1)
+          mkdir -p /tmp/cand && tar -xzf "$TB" -C /tmp/cand
+          C=$(echo /tmp/cand/testorchestrator-*-linux-x86_64)
+          cd "$C"
+          export TO_INSTANCE_DIR=/tmp/to-inst TO_SECURE_COOKIES=0
+          ./3rdparty/python-runtime/python/bin/python -m pip install \
+            --no-index --find-links 3rdparty/python-wheels \
+            -r requirements.txt -q
+          # payload replaced; schema migrations run over retained data
+          ./3rdparty/python-runtime/python/bin/python \
+            -m testorchestrator db-upgrade
+          cp "$GITHUB_WORKSPACE/packaging/ci/report_serving_check.py" .
+          ./3rdparty/python-runtime/python/bin/python \
+            report_serving_check.py check
+          echo "PASS retained reports/licence/access after v2.0.0->candidate upgrade"

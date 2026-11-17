@@ -443,7 +443,11 @@
 
 <!-- ============ EXECUTIONS ============ -->
 <section class="tab-panel card" id="panel-executions">
-  <h2>Recent executions</h2>
+  <h2>Recent executions
+    {% if can_edit %}
+    <a class="button ghost sm" style="float:right"
+       href="{{ url_for('portal.import_new', project_id=project.id) }}">Import results…</a>
+    {% endif %}</h2>
   {% if executions %}
   <table class="audit-table">
     <thead><tr><th>ID</th><th>Suite</th><th>State</th><th>Outcome</th><th>Git</th><th>By</th><th>Started</th></tr></thead>

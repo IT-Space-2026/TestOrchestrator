@@ -13,7 +13,9 @@
 ; signing identity exists.
 
 !define PRODUCT "TestOrchestrator Dagu Worker"
-!define VERSION "2.27.0"
+!ifndef VERSION
+!define VERSION "2.27.0"   ; default only — builds pass -DVERSION=<dagu pin>
+!endif
 !define PAYLOAD_DIR "worker-payload"
 
 Name "${PRODUCT} ${VERSION} (unsigned)"

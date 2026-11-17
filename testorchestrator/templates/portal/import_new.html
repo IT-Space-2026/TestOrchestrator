@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Import results · {{ project.name }}{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=project.id) }}">← Back to project</a></p>
+<h1>Import results — {{ project.name }}</h1>
+<p class="muted">Import existing execution results (Katalon report
+directories containing JUnit XML) from a bound repository into this
+project's execution history. Preview first — nothing is recorded
+until you confirm. Executions are never launched by import.</p>
+{% if not bindings %}
+<p class="warn">No synced repository bindings on this project.
+Sync a binding first so a revision can be resolved.</p>
+{% else %}
+<form method="post" action="{{ url_for('portal.import_preview', project_id=project.id) }}" class="card">
+  {{ form.csrf_token }}
+  <div class="field"><label for="binding_id">Repository binding</label>
+    <select name="binding_id" id="binding_id" required>
+      {% for b in bindings %}
+      <option value="{{ b.id }}">{{ b.name }} — {{ b.url }} ({{ b.ref }})</option>
+      {% endfor %}
+    </select></div>
+  <div class="field"><label for="revision">Revision</label>
+    <input type="text" name="revision" id="revision" placeholder="HEAD"
+           pattern="[A-Za-z0-9._/\-]*">
+    <small class="muted">Branch, tag, or SHA resolvable in the synced
+    checkout — resolved to an exact commit.</small></div>
+  <div class="field"><label for="result_dir">Result directory</label>
+    <input type="text" name="result_dir" id="result_dir" value="Reports">
+    <small class="muted">Relative to the bound project root — e.g.
+    <code>Reports</code> or <code>.</code>.</small></div>
+  <div class="form-actions">
+    <button type="submit" class="button">Preview import</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,7 +1,12 @@
 #!/bin/sh
 # Full TestOrchestrator Windows application installer — stages every
 # redistributable dependency for a Windows amd64 host, all
-# checksum-pinned. KRE is NOT included (separately licensed).
+# checksum-pinned. KRE is NOT included (separately licensed).#
+# SUPERSEDED for release builds — use build-scripts/build_linux.py
+# or build-scripts/build_windows.py (one-command, verified path).
+# Retained as a manual/debug helper; pins may drift from
+# build-scripts/assets.json.
+
 set -eu
 cd "$(dirname "$0")"
 REPO="$(cd ../.. && pwd)"
