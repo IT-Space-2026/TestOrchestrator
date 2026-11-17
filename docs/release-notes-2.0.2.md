@@ -56,22 +56,31 @@ it, evidence lifecycle closed, one-command builds preserved.
 
 ## Validation
 
-- Installed-package Linux worker E2E: worker asset downloaded through
-  the app route (SHA-256 verified against the pin), worker binary
-  `version` = coordinator pin **2.27.0**, registered + dispatched +
-  result return + evidence + reporting-labs (`2b044561`).
-- Real KRE 11.7.0 dispatched through the same pipeline reached
-  activation and failed with no offline licence (KRE exit 2) —
-  worker log returned portal-side, classified `failed`/`incomplete`.
-  **Licensed-KRE execution remains an external blocker**; this is
-  recorded, not passed.
+- **Fixture-backed worker pipeline (acceptance)**: on the installed
+  release-candidate package the worker asset was downloaded through
+  the app's authenticated route (SHA-256 verified against the pin),
+  a real `dagu worker` process registered (`version` = coordinator
+  pin **2.27.0**), a job was dispatched with exact `kre=<label>`
+  selection, executed, and results + evidence + reporting-labs
+  returned — execution `20c0ca6f`, `completed`/`passed`. This used a
+  fixture KRE emitting genuine Katalon-format output; it is pipeline
+  coverage, **not** licensed KRE execution.
+- **Real KRE attempt (blocked, recorded)**: real KRE 11.7.0
+  `katalonc` launched on the worker, reached activation, failed —
+  `valid offline licenses: 0 … Activation failed` (exit 2). Failure
+  logs returned portal-side; classified `failed`/`incomplete`,
+  never falsely green. Licensed test execution remains blocked.
 - Real-corpus import of genuine Katalon 11.7.0 results: new /
   duplicate / supplement / late-suite / failing-run paths verified;
   reporting-labs `ready` with real HAR/log evidence attached.
-- Full test suite: **631 passed, 1 skipped** (the skip is the
-  unchanged pre-existing conditional skip; 13 new hardening tests).
-- Benchmark: `python3 scripts/benchmark_import.py` — before/after
-  numbers in `docs/next-2.0.2.md`.
+- `toctl evidence-prune` verified on the packaged install: dry-run
+  lists orphans without deleting; `--apply` removes only managed,
+  unreferenced dirs; referenced evidence preserved.
+- Full test suite: **631 passed, 1 skipped** (unchanged pre-existing
+  conditional skip; 13 new hardening tests).
+- Benchmark: `scripts/benchmark_import.py` — linear rescan replaced
+  by a one-time lazy-fingerprint backfill; steady-state preview is
+  flat (~9 queries / ~2 reads vs ~967 / ~962 before at 800 rows).
 
 ## Artifacts
 
@@ -99,6 +108,11 @@ SHA-256 digests are recorded in `SHA256SUMS.txt` and
   (compile + installed validation + upgrade jobs) is retained and
   reported; the Windows installers remain unsigned.
 - Non-KRE JUnit imports land as `framework='unknown'` (unchanged).
-- KRE options gating thresholds are declared, not verified.
-- Azure DevOps repo interoperability remains gated on an authorized
-  repository.
+
+Pre-existing backlog (not part of 2.0.2 scope, unchanged):
+- **KRE options gating thresholds** — `retry`/`retryStrategy`/
+  `maxFailedTests` minimum-version declarations, never verified
+  against a licensed KRE build (README:493–500).
+- **Azure DevOps repo interoperability** — untested; no authorized
+  ADO repository has been available (README:319; the authorized-host
+  runbook marks it a separate gate).

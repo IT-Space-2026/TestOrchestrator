@@ -109,45 +109,41 @@ Targeted improvement (review target, not speculative):
 ### 1. Worker E2E on the installed 2.0.2 candidate (Linux)
 
 Driver: `packaging/ci/worker_e2e.py` run against the generated package
-extracted to `/tmp/to202-e2e` — no source-checkout shortcuts.
+— no source-checkout shortcuts.
 
-- Package: `testorchestrator-2.0.2-linux-x86_64.tar.gz`,
-  278,795,546 B, SHA-256 `6141cc2c06077c76902626116cdb42181933e70d9082e654944e8958f292f519`
-  (built from `bc600a5`; a later rebuild added only the suite_keys
-  union fix — pipeline identical).
-- Migration `r8s9t0u1v2w3` applied cleanly in the installed instance.
+**Final-candidate run (release candidate `4966330`)** — package
+`testorchestrator-2.0.2-linux-x86_64.tar.gz`, 278,810,011 B,
+SHA-256 `8ef43a80582fe0d5eddbcd117e5b855d463edb646a494b3f02c3fc6ab8a52380`,
+installed to `/tmp/to202-rc`:
+
 - Worker asset downloaded through the installed app's authenticated
   route `/system/infrastructure/dagu-worker/dagu_2.27.0_linux_amd64.tar.gz`:
   64,492,882 B, SHA-256 `a9045768c9777d0b938585696e0491bc0ce46fbeb0419989b34fde63a0cc6f85`
   — matches the pinned digest exactly.
-- Coordinator `start-all` (http :8082, gRPC :52055); downloaded worker
+- Coordinator `start-all` (http :8083, gRPC :53055); downloaded worker
   binary `version` → **2.27.0** = coordinator pin. Registered as
-  `e2e-worker-202` with label `kre=e2e-202`; the coordinator reported
-  it via `/api/v1/workers`.
-- Dispatch: `worker_selector=map[kre:e2e-202]` — the intended worker
-  claimed and executed the task (coordinator log line verified).
+  `e2e-worker-202` with label `kre=e2e-202`; coordinator reported it
+  via `/api/v1/workers`; dispatched with `worker_selector=map[kre:e2e-202]`.
+- Execution `20c0ca6f8eba432195e6e6d03e68de99` — **fixture-KRE path**:
+  a script emitting genuine Katalon-format JUnit/log/screenshot stood
+  in for the KRE binary. Demonstrated coverage: application-served
+  worker download, registration, selector-based dispatch, task
+  execution, result/evidence return, and reportingLabs generation
+  (`completed`/`passed`, 3 cases, `rl_status=ready`). This is
+  pipeline coverage — not licensed KRE execution.
 
-Two executions recorded:
+**Earlier runs (supporting evidence, labelled by commit):**
 
-- `2b0445614974482d9d9e5789cbd8852d` — fixture KRE emitting a real
-  Katalon-format JUnit: `prepare`/`checkout`/`run_kre` executed on the
-  worker → `completed`/`passed`, 3 test cases, JUnit + `execution.uuid`
-  + `execution0.log` + screenshot + `kre-remote-run.log` returned and
-  retained under `instance/remote-runs/<id>`; reporting-labs
-  `rl_status=ready` with `current` symlink + `report.json`; `.ws-cleanup`
-  marker shows bounded workspace cleanup was requested.
-- `74af175f7e9e41a99f064b1338531648` — **real KRE 11.7.0**
-  (`/tmp/kre-probe/.../katalonc`): the real binary ran on the worker,
-  reached activation, failed with `The number of valid offline
-  licenses: 0 … Activation failed` (KRE exit code 2). The full worker
-  log was captured portal-side; the run is classified
-  `failed`/`incomplete` (infrastructure) — not falsely green. This is
-  the precise external blocker: **licenced-KRE execution needs a
-  Katalon licence/apiKey this host does not have.**
-
-Unblocked acceptance (download → register → dispatch → execute →
-result/evidence/rlabs → version pin) is fully demonstrated on real
-packaged artifacts; only the licensed-KRE step is external-blocked.
+- `2b0445614974482d9d9e5789cbd8852d` — same fixture-KRE path, on the
+  package built from `bc600a5` (278,795,546 B, `6141cc2c…`). Passed.
+- `74af175f7e9e41a99f064b1338531648` — **real KRE 11.7.0** on the
+  `bc600a5` package: real `katalonc` launched on the worker, reached
+  activation, failed (`valid offline licenses: 0 … Activation
+  failed`, KRE exit 2), failure logs returned portal-side, classified
+  `failed`/`incomplete` — never falsely green. **Licensed test
+  execution remains blocked on a Katalon licence/apiKey this host
+  does not have.** No relevant code changed since — the real-KRE run
+  was not repeated.
 
 ### 2. Real-corpus validation (Katalon-cert, KRE 11.7.0 outputs)
 
@@ -170,34 +166,61 @@ Output sizes: imported execution evidence 2.7 MB (incl. rlabs gen);
 remote-run evidence 1.3 MB. No published baseline exists for these
 exact runs — sizes recorded here as the 2.0.2 reference.
 
+Commit labels: the table above ran on the `bc600a5`/`e0b65ca`
+packages; the late-suite suite_keys union was **re-verified on the
+release candidate** (`4966330`, installed `/tmp/to202-rc`) —
+supplement filled `suite_keys` →
+`[["Test Suites/API-TS",…],["Test Suites/IT-Space2",…]]` — and the
+evidence-prune dry-run listed only the true orphan while the
+referenced evidence dir stayed intact.
+
 Live normal-suite/collection/failing *execution* coverage comes from
 the worker E2E above (fixture-KRE pass + real-KRE licence-blocked
 run); KRE licence blocks a full licensed live corpus.
 
 ### 3. Import benchmark (SQLite, Dell-7020, warm FS cache)
 
-Generated history of N stamped executions + one no-uuid import
-candidate (worst case — exercises the full history scan).
+Instrument definitions (from `scripts/benchmark_import.py`):
+- **Query** — one SQL statement observed via SQLAlchemy's
+  `before_cursor_execute` event on the app engine.
+- **Evidence read** — one call to `importer._looks_junit`, i.e. one
+  JUnit file opened/sniffed for parsing.
+- **History** — generated executions with real JUnit dirs on disk.
+  `stamped` = `run_uuid`+`content_hash` populated (2.0.1 already did
+  this); `suite_keys_json` is only populated by 2.0.2, so **all**
+  pre-existing rows pay a one-time lazy fingerprint on the first
+  import after upgrade regardless of stamped state.
 
-| History | Metric | Before (2.0.1 code) | After (2.0.2) |
+Measured on the current code (worst case: a no-uuid candidate):
+
+| History | First preview (backfill) | Confirm | Subsequent previews |
 |---|---|---|---|
-| 100 | preview queries/reads | 127 / 122 | 11 / 1 |
-| 400 | preview queries/reads | 487 / 482 | 11 / 1 |
-| 800 | preview queries/reads | 967 / 962 | 11 / 4 |
-| 800 | preview wall | 0.352 s | 0.031 s |
+| 100 | 0.10 s / 249 q / 102 r | 28 q / 1 r | 0.008 s / 9 q / 2 r |
+| 400 | 0.35 s / 969 q / 402 r | 28 q / 1 r | 0.006 s / 9 q / 2 r |
+| 800 | 0.72 s / 1929 q / 802 r | 22–28 q / 1 r | 0.007 s / 9 q / 2 r |
 
-The 2.0.1 path did ~1 artifact read + ~1.2 queries **per history row**
-per candidate — material overhead confirmed, optimization justified:
-- `run_uuid` + `content_hash` indexed fast paths first.
-- Suite+timestamp overlap via persisted `suite_keys_json` (new column,
-  migration `r8s9t0u1v2w3`) instead of re-reading evidence.
-- Lazy fingerprint persists onto unstamped rows — one-time cost.
-- Residual full scan only for rows that were never fingerprintable.
+Baseline for comparison (2.0.1 code, measured earlier): the *same*
+~1 read + ~1.2 queries per history row recurred on **every** import —
+967 q / 962 r at n=800 repeatedly, not just once. The 2.0.2 change
+converts the linear scan into a **one-time** lazy-fingerprint cost
+paid on the first import per row (persisted `suite_keys_json`,
+`[]` marker for unfingerprintable rows); every import after that is
+flat (~9 queries, ~2 reads — the candidate's own JUnit parse plus
+bounded residual checks).
 
-Correctness preserved: content hash is evidence not identity; distinct
-uuids stay distinct; ambiguous inputs still require review.
+Why "4 reads at 800 vs 1 at 100" in the earlier snapshot: reads are
+the candidate's own parse (1) plus rows still lacking usable keys at
+that moment; the count is bounded and non-scaling — the numbers above
+are the cleaner per-mode split.
 
-Reproduce: `python3 scripts/benchmark_import.py`.
+Changes: `run_uuid`/`content_hash` indexed fast paths, persisted
+`suite_keys_json` (migration `r8s9t0u1v2w3`), lazy-fingerprint
+persistence, residual scan only for never-fingerprinted rows.
+Correctness preserved: content hash is evidence not identity;
+distinct uuids stay distinct; ambiguous inputs still require review.
+
+Reproduce: `.venv/bin/python scripts/benchmark_import.py
+--sizes 100 400 800 [--unstamped 0.2]`.
 
 ### 4. Import interruption/recovery — defects found & fixed
 
@@ -240,17 +263,19 @@ Reproduce: `python3 scripts/benchmark_import.py`.
   `testorchestrator-2.0.1-linux-x86_64.tar.gz`, 278,783,010 B, SHA-256
   `52efcda5ae812e06604fc3336499d4fc7afb63557449cf5c6efdd6c49804d488` —
   matches the published release record.
-- Seeded under 2.0.1: admin user, settings, git binding, one imported
-  real-corpus execution (`e5e55818`, evidence + rlabs `ready`), two
-  unstamped legacy executions (`cf0e323b`, `b589b2fb`).
+- Seeded under 2.0.1: admin user, settings, git binding, imported
+  real-corpus executions with evidence + rlabs `ready`, unstamped
+  legacy executions.
 - Upgrade: `db-upgrade` applied exactly one migration
   (`q7r8s9t0u1v2 → r8s9t0u1v2w3`) on the real 2.0.1 DB.
-- Verified: settings + setup flag retained; all three executions
-  retained with results; imported evidence (30 files) + rlabs
-  `gen-f51f00cd/index.html` + Katalon `.html` report accessible;
-  repeat import → `duplicate`/`skipped`; new import → `imported`;
-  legacy rows lazily stamped (`suite_keys_json='[]'`); persistence
-  across separate process opens.
+- Verified: settings + setup flag retained; executions + results +
+  evidence + rlabs/Katalon reports accessible; repeat import →
+  `duplicate`/`skipped`; new import → `imported`; legacy rows lazily
+  stamped; persistence across separate process opens.
+- Commit labels: first run on the `e0b65ca` build; **re-verified on
+  the release candidate** `4966330` (fresh 2.0.1 instance seeded with
+  imported exec `87a90a16` + rlabs `ready` + legacy row `ae71accf`,
+  migration applied, retention/dedup/new-import all confirmed).
 
 ### 7. Confirmed defects fixed in 2.0.2
 
@@ -276,5 +301,13 @@ validation + upgrade jobs) is retained without local Windows.
 - Windows interactive GUI and real-corpus execution checks: deferred.
 - Real licensed-KRE suite execution: blocked on licence.
 - Non-KRE JUnit imports → `framework='unknown'`.
-- KRE options gating thresholds are declared, not verified.
-- Azure DevOps repo interoperability gated on an authorized repo.
+
+Pre-existing backlog (not introduced or touched by 2.0.2):
+- **KRE options gating thresholds** — the `retry`, `retryStrategy`,
+  and `maxFailedTests` KRE-console flags carry declared minimum-
+  version requirements; they have never been verified against a
+  licensed KRE build (README:493–500). Unchanged since 2.0.0.
+- **Azure DevOps repo interoperability** — HTTPS/proxy/custom-CA and
+  ADO git endpoints are untested because no authorized ADO repository
+  has been available (README:319; runbook-authorized-host.md:60
+  marks it "separate gate"). Unchanged since 2.0.0.
