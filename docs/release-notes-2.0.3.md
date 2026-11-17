@@ -8,8 +8,48 @@ installations, relocates the vendored reportingLabs source to
 `3rdparty/`, and ensures every installed payload carries the
 worker-download assets the portal serves.
 
+### Application licence — now informational only
+
+- **The TestOrchestrator application licence no longer gates
+  anything.** A missing, expired, malformed, or invalid-signature
+  licence does not block installation, startup, login, dispatch,
+  workers, imports, reports, admin operations, or the CLI.
+- **What a licence does:** when a valid licence is recorded
+  (optional, via `TO_LICENCE_CODE` at install, `/licence`, or
+  System → Licence) its status is shown for information. When no
+  valid licence exists, the login page displays the notice
+  *"This version is not supported"* — and nothing else changes.
+- **What a licence does not do:** it never restricts access or
+  functionality. Authentication, role permissions, and project
+  isolation are unchanged. This is separate from KRE licensing —
+  Katalon KRE still requires its own licence/API key on each worker,
+  and real KRE activation failures still fail the affected runs.
+- **Compatibility:** existing installs with expired/invalid licences
+  start and run normally after upgrade; stored licence files are
+  preserved. Installers no longer require `TO_LICENCE_CODE`.
+
 ### Fixed
 
+- **Application-licence enforcement removed** (see above): the
+  global request gate, dispatch check, queue-hold, and mandatory
+  installer code are gone — licence status is informational only.
+- **Remote SSH dispatch crash.** `dispatch._submit_remote` used an
+  undefined `runtime` name — every remote (dagu-worker) run on
+  `ssh://`/`git@` bindings crashed with `NameError`. Fixed.
+- **Report deletion could not clone the worktree.** `delete_report`
+  referenced an undefined variable plus a non-existent
+  `binding.report_branch` attribute — deletion failed whenever a
+  fresh clone was needed. Fixed.
+- **Setup wizard bad step key → 500.** A missing `abort` import
+  turned a 404 into an internal error. Fixed.
+- **Resource hygiene.** Login rate-limiter map bounded (sprayed
+  usernames no longer grow memory); agent artifact uploads stream
+  instead of loading whole files; agent poll loop survives transient
+  request errors; licence file handle closed; operational-log pruning
+  amortized; heartbeat threads joined.
+- **Performance.** `/projects` and the dashboard trend use SQL
+  aggregates instead of loading every execution row; JUnit artifacts
+  parsed once per run (was twice).
 - **Linux installer omitted vendored reportingLabs.** Fresh `install.sh`
   (and `.run`, which executes the same installer) installations of
   2.0.1/2.0.2 could not generate reports — `report_status=failed`,
@@ -81,7 +121,12 @@ worker-download assets the portal serves.
 
 ### Verified
 
-- Clean Linux install generates and serves reports immediately
+- Full suite **665 tests** passing, including rewritten licensing
+  coverage: notice shown/suppressed per licence state, dispatch never
+  licence-held, authentication still enforced, signature machinery
+  intact, browser-level login flows.
+- Clean Linux install **with no licence code** completes and serves
+  reports immediately
   (`reporting-labs/gen-*/index.html`), including after restart.
 - `.run` self-extracts and dispatches to `install.sh`; embedded tarball
   is byte-identical to the separately published tarball.
