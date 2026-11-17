@@ -7,20 +7,26 @@ server-rendered UI, Waitress WSGI, Dagu workflow orchestration, Katalon
 Runtime Engine (KRE) execution via remote workers, and reporting-labs
 single-file reports — a pure-Python backend with no bundled Node.js.
 
-**Status: released — v2.0.2** ([release notes](docs/release-notes-2.0.2.md) ·
-[CHANGELOG](CHANGELOG.md)). The release tag `v2.0.2` resolves to commit
-`574860d08124411692b141643da0ad87e576100d`; published binaries were built
+**Status: released — v2.0.3** ([release notes](docs/release-notes-2.0.3.md) ·
+[CHANGELOG](CHANGELOG.md)). The release tag `v2.0.3` resolves to commit
+`60273c78dffa35ecf2988b28caf6ef2c0a10c0d1`; published binaries were built
 from exactly that clean commit. See the
-[GitHub release](https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.2).
+[GitHub release](https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.3).
+2.0.3 repairs the Linux installer's omission of the vendored
+reporting-labs package and relocates it to `3rdparty/reporting_labs`.
 
-**In preparation — v2.0.3** (this branch): Linux installer repair for the
-vendored reporting-labs package, plus relocation of that package to
-`3rdparty/reporting_labs`. Not yet tagged or published.
+## Manuals
 
-**Documentation:** [User and administrator manuals](Manuals-Doc/README.md) —
-manual content describes the application; **screenshots were captured on
-the released 2.0.2 package** and the validation record states which
-procedures were verified on which version.
+- **[User manual](Manuals-Doc/User-Manual.md)** — sign-in, roles,
+  projects and repository bindings, worker runs, historical-result
+  import, reports and evidence.
+- **[Admin manual](Manuals-Doc/Admin-Manual.md)** — installation,
+  configuration, workers, security, backup/upgrade, maintenance,
+  troubleshooting.
+- **[Screenshot index](Manuals-Doc/Screenshot-Doc/Screenshot-Index.md)**
+  and **[validation record](Manuals-Doc/Validation-Record.md)** —
+  screenshots were captured on the released 2.0.2 package; the record
+  states which procedures were verified on which version.
 
 ## Architecture
 
@@ -91,8 +97,8 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 
 | Platform | Status | Package |
 |---|---|---|
-| Ubuntu x86_64 (central server) | **released** | `testorchestrator-2.0.1-linux-x86_64.tar.gz` / `.run` |
-| Windows amd64 (portal + worker) | **released, unsigned** | `testorchestrator-2.0.1-windows-amd64-setup-UNSIGNED.exe` |
+| Ubuntu x86_64 (central server) | **released** | `testorchestrator-2.0.3-linux-x86_64.tar.gz` / `.run` |
+| Windows amd64 (portal + worker) | **released, unsigned** | `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` |
 | Windows amd64 (remote worker only) | **released, unsigned** | `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` |
 
 Both Windows executables are **unsigned** — expect SmartScreen /
@@ -101,10 +107,10 @@ publisher warnings; verify the SHA-256 below instead.
 ## Installing (Linux)
 
 ```text
-tar xzf testorchestrator-2.0.1-linux-x86_64.tar.gz
-cd testorchestrator-2.0.1-linux-x86_64
+tar xzf testorchestrator-2.0.3-linux-x86_64.tar.gz
+cd testorchestrator-2.0.3-linux-x86_64
 sudo ./install.sh            # → toctl install (frozen payload)
-# or: ./testorchestrator-2.0.1-linux-x86_64.run  (self-extracting)
+# or: ./testorchestrator-2.0.3-linux-x86_64.run  (self-extracting)
 ```
 
 `install.sh` locates its own payload, checks Linux/x86_64, and runs
@@ -120,7 +126,7 @@ data is never deleted.
 
 ## Installing (Windows)
 
-Run `testorchestrator-2.0.1-windows-amd64-setup-UNSIGNED.exe`
+Run `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe`
 (interactive or `/S` for silent NSIS install). It installs the frozen
 portal + worker services. See `docs/windows-install.md`.
 
@@ -426,14 +432,18 @@ extracting.
 
 Upgrades are in-place: unpack the new payload over the install and run
 `toctl db-upgrade` (migrations are additive; `q7r8s9t0u1v2` adds the
-import schema in 2.0.1). Verified paths on v2.0.1 CI:
+import schema in 2.0.1). Verified paths on v2.0.3 CI:
 
-- **1.0.2 → 2.0.1**: Windows dedicated job; Linux inside
-  `installed-validate` — both pass.
-- **2.0.0 → 2.0.1**: dedicated job on **both** platforms — pass.
-  Additionally verified on a real installed 2.0.0 (Linux): history,
-  config, and report access survive; unstamped pre-2.0.1 executions
-  participate in import duplicate matching via lazy fingerprinting.
+- **2.0.1 → 2.0.3** and **2.0.2 → 2.0.3**: dedicated jobs on Linux —
+  both pass. Upgrading a 2.0.1/2.0.2 install affected by the
+  reporting-labs installer defect repairs it automatically (package
+  installed, superseded root-level copy removed, failed reports
+  regenerable).
+- **1.0.2 → 2.0.3** and **2.0.2 → 2.0.3**: dedicated jobs on Windows —
+  both pass.
+- Historical coverage (earlier CI): 1.0.2 → 2.0.1, 2.0.0 → 2.0.1,
+  1.0.2 → 2.0.2, and 2.0.0 → 2.0.2 on both platforms. The 2.0.0-based
+  jobs were retired when the v2.0.0 release was removed.
 
 ## Release builds
 
@@ -443,18 +453,18 @@ compiles the worker installer, packages, validates, and emits
 checksums + manifest into `dist/release/<platform>/`. Prerequisites
 and output layout: `docs/build.md`.
 
-## Release assets & checksums (v2.0.1)
+## Release assets & checksums (v2.0.3)
 
 Published at
-<https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.1>
-— tag `v2.0.1` → commit `1f4895373096734261590f46d4c462ee6b71e935`,
+<https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.3>
+— tag `v2.0.3` → commit `60273c78dffa35ecf2988b28caf6ef2c0a10c0d1`,
 all binaries built from that exact clean commit:
 
 | Asset | Bytes | SHA-256 |
 |---|---|---|
-| `testorchestrator-2.0.1-linux-x86_64.tar.gz` | 278,783,010 | `52efcda5ae812e06604fc3336499d4fc7afb63557449cf5c6efdd6c49804d488` |
-| `testorchestrator-2.0.1-linux-x86_64.run` | 278,785,014 | `7a9725aea84443a4a666e2c86ed1a0ad0e4e9743ae565f003b60bcb01b5d0870` |
-| `testorchestrator-2.0.1-windows-amd64-setup-UNSIGNED.exe` | 113,504,602 | `0511d82c98dfe5e0ca8d4f82cb6ab2ccfc7393d8abeab72564b15422b04954dc` |
+| `testorchestrator-2.0.3-linux-x86_64.tar.gz` | 278,810,852 | `1dadeabe2c2728d5dcc1ed6a6bfd5a403a68ef4ccd7f884ff82e2a0f25161405` |
+| `testorchestrator-2.0.3-linux-x86_64.run` | 278,812,856 | `44936efe833847b0c0d58c1b0cdfc5149510999e9e8dcadd51d0d2432ded4d64` |
+| `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` | 113,510,358 | `719553d08efb43063b49f00888cf565b32562300fd7d7fbc7c7fd6224a605670` |
 | `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` | 64,319,318 | `f212af46ceb7c0cc121ac7fedf0d7f35f0c57c3efff49848547f2675de84e062` |
 
 Plus `SHA256SUMS`, `build-manifest-linux.json`, and
@@ -462,34 +472,33 @@ Plus `SHA256SUMS`, `build-manifest-linux.json`, and
 `sha256sum -c SHA256SUMS` next to the downloaded files. `dist/` is
 never tracked in the repo.
 
-## Validation (v2.0.1)
+## Validation (v2.0.3)
 
 CI on the tagged commit
-([linux-package](https://github.com/IT-Space-2026/TestOrchestrator/actions/runs/44044120410) ·
-[windows-installer](https://github.com/IT-Space-2026/TestOrchestrator/actions/runs/44044120534) —
+([linux-package](https://github.com/IT-Space-2026/TestOrchestrator/actions/runs/44092012798) ·
+[windows-installer](https://github.com/IT-Space-2026/TestOrchestrator/actions/runs/44092018182) —
 all jobs success):
 
-- **Linux**: build · installed-validate (incl. 1.0.2 → candidate
-  upgrade) · upgrade-from-2.0.0.
+- **Linux**: build · installer-validate (real `install.sh` +
+  payload-completeness gate — the job added to close the gap that hid
+  the reporting-labs defect) · installed-validate · upgrade-from-2.0.1
+  · upgrade-from-2.0.2.
 - **Windows**: compile · installed-validate · upgrade-from-1.0.2 ·
-  upgrade-from-2.0.0.
+  upgrade-from-2.0.2.
+- Clean-install verification (outside the checkout, no PYTHONPATH):
+  `reporting_labs` resolves from `payload/3rdparty/reporting_labs`,
+  report generation produces `reporting-labs/gen-*/index.html` and
+  serves it — including after restart.
+- Upgrade repair verified on a seeded defective 2.0.2 install
+  (`rl_status=failed`): vendored package installed automatically,
+  superseded root-level copy removed, previously failed report
+  regenerated, data/users/history/evidence/reports preserved.
 - Package inventory reconciled: coordinator and worker both pin
-  **Dagu 2.27.0**; all three worker-download assets (Linux + Windows
-  archives + Windows installer) ship in the package with pinned
-  digests; vendored `reporting-labs==0.1.14` + LICENSE present.
-- Test suite: **618 passed, 1 skipped** (25 import tests covering
-  duplicates, distinct reruns, ambiguous inputs, late collection
-  suites, and cross-project isolation).
-- Real-input acceptance: three actual KRE runs (single + multi-suite
-  collection layouts) imported correctly, reporting-labs generated for
-  each, repeat import produced only duplicates, persistence across
-  restart verified.
-- **Worker dispatch evidence caveat**: registered-worker +
-  dispatched-job evidence (`28d1aa79`, COMPLETED/PASSED) was verified
-  against the **2.0.0** release assets and earlier Dagu 2.25.2 E2E —
-  it was **not** rerun for 2.0.1 and is not 2.0.1 execution evidence.
-  2.0.1 worker coverage is the packaged-asset inventory check plus CI
-  installed-validation.
+  **Dagu 2.27.0**; vendored `reporting_labs==0.1.14` + `LICENSE` +
+  `VENDORED.md` present exactly once per runtime payload.
+- Test suite: **637 passed, 1 skipped** — including installer
+  payload-completeness, vendored-resolution, no-masking, and
+  upgrade-repair regression tests.
 
 ## Deferred checks & limitations
 

@@ -2,7 +2,10 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased — 2.0]
+## [2.0.3] — 2026-11-17
+
+Patch release. Tag `v2.0.3` → commit
+`60273c78dffa35ecf2988b28caf6ef2c0a10c0d1`.
 
 ### Fixed — installed Linux payload omitted reporting-labs (2.0.x)
 
@@ -21,6 +24,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   no PYTHONPATH or manual copy required.
 - `report_serving_check.py` now exercises real `generate_for`
   report generation + serving, not only pre-seeded report files.
+- Upgrade from 2.0.1/2.0.2 repairs the defect automatically and
+  removes a superseded root-level `payload/reporting_labs` copy so
+  the package exists exactly once.
+
+### Added
+
+- User and administrator manuals under `Manuals-Doc/` (screenshots
+  captured on released 2.0.2; see `Manuals-Doc/Validation-Record.md`).
+- CI `installer-validate` job exercising the real `install.sh` path.
+
+## [2.0.0–2.0.2 — cumulative notes]
 
 ### Changed — reporting-labs is the sole report backend (BREAKING)
 
