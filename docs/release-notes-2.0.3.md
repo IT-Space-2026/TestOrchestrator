@@ -1,7 +1,7 @@
 # TestOrchestrator 2.0.3 — release notes
 
 Status: **published** — tag `v2.0.3` → commit
-`22a1400f5f17afc153a351857c3bebad47a66eac`; binaries built from that
+`660eb71133516cde32f8a6a8c0eef09754bcd454`; binaries built from that
 exact clean commit. Patch release: repairs defects in the Linux
 installer that prevented report generation on `install.sh` / `.run`
 installations, relocates the vendored reportingLabs source to
@@ -132,24 +132,25 @@ worker-download assets the portal serves.
   is byte-identical to the separately published tarball.
 - Upgrade from released 2.0.2 — including a seeded defective install —
   repairs report generation; previously failed reports regenerate.
-- CI green on Linux (build, installer-validate, installed-validate,
-  upgrade from 2.0.1 and 2.0.2) and Windows (compile, installed-
-  validate, upgrade from 1.0.2 and 2.0.2); 661 tests passing.
+- CI green on Linux (build, installer-validate) and Windows
+  (compile, installed-validate); 665 tests passing. Prior-version
+  upgrade-validation jobs were retired when the v1.0.2/v2.0.1/v2.0.2
+  releases were removed (their installers were the test input).
 - Installed-payload verification: all three worker downloads (both
   dagu archives + the bundled NSIS installer) served HTTP 200 with
   bytes identical to the installed payload files — no remote fetch.
 
 ### Artifacts
 
-Built from commit `22a1400f5f17afc153a351857c3bebad47a66eac`
+Built from commit `660eb71133516cde32f8a6a8c0eef09754bcd454`
 (dirty=false; see `build-manifest-*.json`). Dagu 2.27.0,
 coordinator/worker aligned.
 
 | Asset | Bytes | SHA-256 |
 |---|---|---|
-| `testorchestrator-2.0.3-linux-x86_64.tar.gz` | 278,811,947 | `2b4d97515fdc8c3e0603eaedb6f14e5fb2ce2fac9054d0157f4943e81f77b263` |
-| `testorchestrator-2.0.3-linux-x86_64.run` | 278,813,951 | `7fef2b18812a17db0212f39d5f6dd7c133f9466cdbd8877ddadbb6f84bbab8de` |
-| `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` | 306,850,425 | `ea7ec2fc97a4982854740001a269e7af4a5d246b3fa84412bdd417192de909a6` |
+| `testorchestrator-2.0.3-linux-x86_64.tar.gz` | 271,177,471 | `e00781717058d810ef978ff73bdcd725ca7abeec6605e956038c7a2e159ee68f` |
+| `testorchestrator-2.0.3-linux-x86_64.run` | 271,179,475 | `51d819fab47a6742fb4333eac6c733539e6588f826f3569cc67b5408e1e838d2` |
+| `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` | 306,860,148 | `50f67aed24658e430a1c69a5002101a07785d5be9b710905b0581c1695f89864` |
 
 Documentation: `TestOrchestrator-Admin-Manual-2.0.3.pdf` and
 `TestOrchestrator-User-Manual-2.0.3.pdf` — PDF renders of the
