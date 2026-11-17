@@ -230,3 +230,35 @@ duplicate TestResult/artifact rows.
 - Generic JUnit XML (non-KRE) is detected and parsed, but framework
   attribution stays `katalon` until additional parsers register.
 - Windows interactive + real-corpus checks remain waived as in 2.0.0.
+
+## Correctness review (pre-authorisation) — resolved at 6a9c8fa + a3be86d
+
+1. **Fingerprint uniqueness.** `content_hash` is *evidence*, never
+   identity: its index is non-unique (`ix_exec_project_content_hash`);
+   only `run_uuid` carries a partial unique constraint. Verified by
+   test: distinct uuids + identical content → two executions;
+   identical content with no uuid and no timestamps → ambiguous and
+   force-new inserts (not index-rejected); same uuid + conflicting
+   results → ambiguous (producer id can't name two runs); same uuid +
+   strictly-additional content (a collection's late-arriving suite)
+   → supplement fills the missing cases + evidence. A later import
+   carrying only the missing suite of an imported collection
+   supplements rather than silently skipping — covered by
+   `test_same_uuid_late_suite_supplements`.
+2. **Framework label.** `result_format` (new column, `junit`) is
+   separate from `framework`. KRE markers — `execution.uuid`,
+   `execution.properties`, `JUnit_Report.xml`, `tsc_id.txt`,
+   `testCaseBinding` — establish `katalon`; a bare JUnit file without
+   markers imports as `framework='unknown'`. Tests assert both.
+3. **Installed 2.0.0 → 2.0.1 upgrade (Linux, local, real install).**
+   Released `testorchestrator-2.0.0-linux-x86_64.run` (SHA-256
+   verified against published SHA256SUMS) extracted to a payload,
+   wheels installed, `db-upgrade` to 2.0.0 head, history seeded
+   (`report_serving_check.py seed` + a realistic unstamped live
+   execution carrying real KRE evidence, uuid `8031d2d9`). Applied
+   the clean-commit 2.0.1 tarball over the same instance:
+   `db-upgrade` ran `q7r8s9t0u1v2`; all report-serving checks PASS;
+   the unstamped live execution matched an import of the same run
+   (supplement — fills run_uuid/hash/timestamp only); an unseen run
+   imported as new; executions 1→2. CI gains `upgrade-from-v200`
+   jobs on **both** workflows for platform coverage.
