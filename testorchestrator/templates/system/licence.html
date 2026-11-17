@@ -5,7 +5,7 @@
 <p>Status: <strong>{{ status }}</strong></p>
 {% if best %}
 <p><strong>{{ best.customer }}</strong> — licence {{ best.licence_id }}<br>
-Valid {{ best.valid_from[:10] }} → {{ best.valid_until[:10] }} (UTC, end date inclusive)</p>
+Valid {{ best.valid_from[:10] }} → {{ best.valid_until[:10] }} (UTC — runs must start before the expiry instant)</p>
 {% endif %}
 {% if licences %}
 <h3>Activated licences</h3>

@@ -33,6 +33,30 @@ def test_release_scope_add_remove(app, tmp_path):
         assert ReleaseItem.query.filter_by(release_id=rel.id).count() == 0
 
 
+def test_scope_picker_offers_only_scopeable(app, tmp_path, client,
+                                            login_as):
+    """Cases are silently ignored by scope_add — the picker must not
+    offer them; only suite/collection items appear."""
+    login_as("admin")
+    pid, rid = _seed(app, tmp_path)
+    with app.app_context():
+        b = GitBinding(project_id=pid, name="repo", url="/x",
+                       ref="main", worktree_path=str(tmp_path))
+        db.session.add(b); db.session.flush()
+        for kind, path in (("case", "Test Cases/C.tc"),
+                           ("suite", "Test Suites/S.ts"),
+                           ("collection", "Test Suites/Col.tsc")):
+            db.session.add(DiscoveredItem(
+                project_id=pid, binding_id=b.id, sha="sha1",
+                kind=kind, path=path))
+        db.session.commit()
+    r = client.get(f"/releases/{rid}")
+    assert r.status_code == 200
+    assert b"Test Suites/S.ts" in r.data
+    assert b"Test Suites/Col.tsc" in r.data
+    assert b"Test Cases/C.tc" not in r.data
+
+
 def test_release_execution_link(app, tmp_path):
     pid, rid = _seed(app, tmp_path)
     with app.app_context():

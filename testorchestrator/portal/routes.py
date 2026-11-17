@@ -1221,7 +1221,8 @@ def release_detail(release_id):
         binding_id=GitBinding.query.filter_by(
             project_id=release.project_id).first().id if
         GitBinding.query.filter_by(project_id=release.project_id).first()
-        else "").all()
+        else "").filter(
+        DiscoveredItem.kind.in_(("suite", "collection"))).all()
     return render_template(
         "portal/release_detail.html", release=release, items=items,
         runs=runs, scope_rows=scope_rows,
