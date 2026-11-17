@@ -559,6 +559,10 @@ def test_same_uuid_late_suite_supplements(tmp_path, app):
         ex = db.session.get(Execution, ex_id)
         assert len(ex.results) == 4
         assert Execution.query.filter_by(project_id=pid).count() == 1
+        # late suite's key unions into the persisted suite_keys — the
+        # no-uuid fast path must see both suites, not only the first
+        names = {k[0] for k in ex.suite_keys()}
+        assert names == {"TS_Wiki", "TS_IT-Space"}
 
 
 def test_generic_junit_framework_unknown(tmp_path, app):

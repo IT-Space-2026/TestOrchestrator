@@ -725,10 +725,17 @@ def _supplement(ex: Execution, pi: ParsedImport,
         if _content_relation(pi, ex) == "equal":
             ex.content_hash = ch
             filled.append("content_hash")
-    if ex.suite_keys_json is None:
+    stored_keys = (set(map(tuple, ex.suite_keys()))
+                   if ex.suite_keys() is not None else None)
+    if stored_keys is None:
         ex.suite_keys_json = json.dumps(
             sorted({tuple(k) for k in pi.suite_keys}))
         filled.append("suite_keys")
+    else:
+        merged = stored_keys | {tuple(k) for k in pi.suite_keys}
+        if merged != stored_keys:
+            ex.suite_keys_json = json.dumps(sorted(merged))
+            filled.append("suite_keys")
     if not ex.framework or ex.framework == "unknown":
         if pi.framework != "unknown":
             ex.framework = pi.framework
