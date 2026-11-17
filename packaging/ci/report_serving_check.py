@@ -246,9 +246,13 @@ def check():
         assert rl_file.parent.name == "reporting_labs" \
             and rl_file.is_relative_to(app_root), \
             f"reporting_labs resolved outside vendored tree: {rl_file}"
-        gx = Execution(id="cirpt02", project_id="p1", created_by="ci")
+        # Unique per invocation — the same retained DB is checked
+        # before and after an upgrade on Windows CI.
+        import uuid
+        gid = f"cirpt-{uuid.uuid4().hex[:8]}"
+        gx = Execution(id=gid, project_id="p1", created_by="ci")
         gx.report_dir = str(
-            Path(INSTANCE_DIR) / "ci-evidence" / "cirpt02")
+            Path(INSTANCE_DIR) / "ci-evidence" / gid)
         Path(gx.report_dir).mkdir(parents=True, exist_ok=True)
         junit = Path(gx.report_dir) / "junit.xml"
         junit.write_text(
