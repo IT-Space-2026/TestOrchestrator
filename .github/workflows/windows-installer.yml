@@ -1,5 +1,5 @@
 name: windows-installer
-on: {push: {branches: [main, "feature/2.0.1"]}, pull_request: {}, workflow_dispatch: {}}
+on: {push: {branches: [main, "feature/2.0.1", "feature/2.0.2"]}, pull_request: {}, workflow_dispatch: {}}
 permissions: {contents: read}
 jobs:
   compile:
