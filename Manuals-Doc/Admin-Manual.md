@@ -35,6 +35,50 @@ only and were not interactively validated here.
 | reportingLabs | Vendored package `reporting_labs` (MIT) | Generates per-execution HTML reports |
 | KRE | **Not shipped** | Install/license it on each execution host yourself |
 
+### What an install places on the host
+
+A supported install (tarball `install.sh` / `.run`, or the Windows
+installer) creates three trees plus service definitions:
+
+| Location | Contents |
+|---|---|
+| **Payload** (`--payload`, default under the install root) | Application source (`testorchestrator/`, `wsgi.py`), `3rdparty/` (bundled `python-runtime`, `python-wheels`, `git`, Dagu archives, `reporting_labs` — **since 2.0.3 at `3rdparty/reporting_labs`**, Caddy), the app `venv/` built offline from the bundled wheels, `requirements.txt`, licences |
+| **Config** (`--config`) | `web.env` (service settings — not secrets), `Caddyfile`, `dagu/server.yaml` + `dagu/credentials` (0600), staged systemd units (`testorchestrator-web`, `-worker`, `-dagu`, `-caddy`) |
+| **Data** (`--data`) | SQLite instance DB (Alembic-migrated on upgrade), `dagu/dags/` workflow definitions, `evidence/` per-execution artifacts, `certs/`, `logs/`, `workspaces/` per-run checkouts |
+
+Services: `testorchestrator-web` (Waitress :18080 loopback),
+`testorchestrator-caddy` (HTTPS terminator), `testorchestrator-dagu`
+(coordinator: UI/API + gRPC), `testorchestrator-worker` (local agent
+launcher). On a host without systemd, `--no-service-start` stages the
+units only — start the processes manually with the same config files.
+
+### Data flow
+
+**Live execution:**
+
+```
+ you → portal (HTTPS via Caddy)
+       │  creates Execution + OutboxEvent (SQLite)
+       ▼
+ portal dispatcher → dagu coordinator (gRPC :50055)
+       │  task claimed by the worker whose labels match
+       │  (kre=<label>, os, arch — from the runtime's worker_label)
+       ▼
+ dagu worker → katalonc (KRE) inside the binding worktree
+       │  JUnit XML / logs / screenshots → Reports/
+       ▼
+ portal collects results → TestResult rows + evidence/<exec-id>/
+       │  reporting_labs renders → evidence/.../reporting-labs/gen-*/
+       ▼
+ report + artifacts served through the portal (auth-checked)
+```
+
+**Historical-result import** follows the same storage path minus the
+worker: preview classifies repo results → confirm writes executions,
+results, and imported evidence → the same report/evidence views serve
+them. Evidence that never reached the repository cannot be recreated
+(see User Manual §6).
+
 ## 2. Platforms and prerequisites
 
 ### 2.1 Linux
@@ -600,3 +644,103 @@ portal dispatch with selector `map[kre:doc-demo]` → completed
 execution with returned JUnit/log/screenshot evidence and a
 reportingLabs report. The dispatched job used a **fixture** KRE
 stand-in — pipeline coverage, not licensed execution.
+
+## 13. Runbooks — step by step
+
+Condensed checklists for the three most common provisioning tasks.
+§6 has the verified long-form worker walkthrough; §7 has the security
+detail. These are the same steps, in order, with every required field.
+
+### 13.1 Add a worker
+
+1. **Register the runner record** — **System → Infrastructure →
+   Workers** → new entry: *Name*, *Description*, *OS/architecture*,
+   *Connection mode* (`local` = same host as the portal; `remote` =
+   reached via the Dagu coordinator), *Workspace root*, *Max
+   concurrent slots*, *Allowed projects* (empty = all).
+2. **Issue its agent token** — on the new runner's row, **Issue
+   token**. The plaintext is shown **once** in the flash message —
+   copy it now; only its SHA-256 is stored. Re-issuing revokes the
+   old token.
+3. **Get the worker software through the portal** (guarantees the
+   coordinator version pin):
+   - Linux: download
+     `/system/infrastructure/dagu-worker/dagu_<ver>_linux_amd64.tar.gz`
+     and verify it against the manifest SHA-256.
+   - Windows: download the unsigned worker installer via
+     `/system/infrastructure/dagu-worker-installer/…`.
+   - Optional: download a generated launcher from **Infrastructure →
+     worker → launcher** (`to-worker.sh` / `to-worker.bat`) — the
+     coordinator address and `kre=<label>` are baked in, so raw
+     backend flags are never assembled by hand.
+4. **Install on the worker host** — extract to a dedicated directory,
+   create the workspace root, and write the coordinator connection:
+   gRPC address of the portal host plus the credentials file
+   (0600) provisioned during install (§6.3).
+5. **Start the worker with its KRE label** —
+   `dagu worker --worker.labels="kre=<label>"` (plus auto `os`/`arch`
+   labels). The `<label>` value is what the KRE registration binds to
+   in the next step — pick it deliberately and keep it unique.
+6. **Verify registration** — **System → Infrastructure** shows the
+   worker as **live** once its heartbeat is fresher than ~2 minutes.
+   A stopped or partitioned worker shows its last-seen time instead.
+7. **To retire it**: **Drain** stops it from claiming new work while
+   in-flight runs finish; then stop the process and remove the runner
+   record.
+
+### 13.2 Register a KRE installation (runtime connection)
+
+Prerequisite: KRE installed **and licensed** on the execution host —
+the portal cannot supply the Katalon licence.
+
+1. **System → Infrastructure → KRE installations → New** —
+   set *Execution location*:
+   - **`remote`** (worker host, the normal case): *Dagu worker label*
+     is **required** and must equal the `kre=<label>` the target
+     worker was started with — and be unique across installations
+     (the submit rejects a duplicate or ambiguous label). If no
+     explicit *Worker* is selected the portal auto-creates a
+     `dagu-worker:<label>` runner for it.
+   - **`local`**: KRE on the portal host itself.
+2. Fill the fields:
+   - *KRE path on the selected worker* — absolute path to `katalonc`
+     **on that host** (required).
+   - *Workspace root* — where the worker materialises run checkouts.
+   - *Worker-side SSH key path* — only for `ssh://` bindings; a path
+     on the worker's filesystem, key material never enters the portal.
+   - *Credential reference* — a portal secret used at invocation.
+   - *Worker-local credential file* — absolute path on the worker to
+     a protected file (0700 dir / 0600 file); the workflow spec
+     carries the path only, the worker resolves the value at exec
+     time — this is the recommended way to keep KRE licence values
+     off the portal entirely.
+   - *Concurrency* — max simultaneous runs this installation takes.
+3. **Probe** — on a *local* installation, **Probe** executes a
+   version check and records the detected version + diagnostic.
+   Probe is **not implemented for remote installations** — the flash
+   says so explicitly; verify remote KRE by running a smoke suite.
+4. **Enable/disable** with the toggle; **Edit** updates paths,
+   labels, and concurrency without recreating the record.
+
+### 13.3 Add a user and assign a role
+
+1. **System → Users → New user**: *Username* (unique, ≤64 chars),
+   *Display name*, *Role* (radio), *Temporary password* (≥12 chars).
+2. Hand the temporary password to the user — **first login forces a
+   password change** (`must_change_password` is set on every created
+   account; there is no way to create a user without it).
+3. **Password reset** (same page): sets a new temporary password,
+   flags the mandatory change again, **and revokes all existing
+   sessions** for that user.
+4. **Deactivate**: disables the account and revokes its sessions.
+   The portal refuses to deactivate the last active Admin — promote
+   another admin first.
+
+Role capability summary (enforced server-side on every route):
+
+| Role | Projects/bindings/suites/releases/schedules | Run & cancel | Users, infra, secrets, network, licence |
+|---|---|---|---|
+| **Admin** | create / edit / delete | yes | yes — full access |
+| **Test Manager** | create / edit | yes | no |
+| **Tester** | view | yes | no |
+| **PO** | view | no | no |

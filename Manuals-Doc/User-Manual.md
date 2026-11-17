@@ -196,11 +196,170 @@ reports `cannot resolve '<ref>'`.
 - **Releases** — a scoped set of items tracked toward a release with
   its own run and status view.
 
+Step-by-step procedures for all three are in §3.
+
 ---
 
-## 3. Connecting KRE and running tests
+## 3. Step by step — suites, releases, and plans
 
-### 3.1 What must exist first
+This section walks each authoring flow end to end. Who may do what:
+
+| Action | Admin | Test Manager | Tester | PO |
+|---|---|---|---|---|
+| Create / edit suites, releases, schedules | yes | yes | no | no |
+| Run suites / releases / run-now schedules | yes | yes | yes | no |
+| View everything | yes | yes | yes | yes |
+
+### 3.1 Create and edit a test suite
+
+A suite is an ordered, portal-side list of test cases taken from a
+project's repository binding. It versions on every save and carries a
+content hash so the portal can show when the repo definition drifts.
+
+**Create:**
+
+1. Open the project → **Suites** → **New suite**.
+2. Fill the fields:
+   - **Suite name** — required (≤128 chars). Submitting without one
+     returns to the form with an error; nothing is half-created.
+   - **Description** — optional free text.
+   - **Source binding** — which repository binding's discovered cases
+     the selector lists (when the project has several).
+   - **Test cases** — multi-select from the cases that sync
+     discovered (§2.3). Order of selection is the suite order;
+     duplicates are collapsed on save.
+3. Submit. The portal validates **every** selected ref against the
+   binding's current case list — a case that no longer exists in the
+   repository is reported by name and the suite is not created
+   partially.
+
+**Edit:**
+
+1. Open the suite → **Edit**. The selector shows the saved order;
+   cases that disappeared from the repository remain visible so you
+   can remove them deliberately.
+2. Saving replaces the entry list wholesale in selector order and
+   bumps the suite **version**; the content hash is recomputed.
+3. A suite flagged **read-only** (e.g. a definition authored in and
+   imported from the repository) refuses edits — change it at the
+   source and sync instead.
+4. **Sync to repo** writes the suite definition back into the bound
+   repository — only for bindings with source authoring enabled
+   (§2.2).
+
+**Run:** from the suite page, **Run** opens the execution form —
+see §4.2 for every field. Submission re-checks that the pipeline is
+actually operational (a registered worker + KRE installation must
+exist *now*, not only at setup time); if something is missing the
+portal names it and sends you to setup instead of queuing a doomed
+run.
+
+### 3.2 Create and manage a release
+
+A release tracks a fixed scope of repository items (suites and
+collections) toward a target, with its own run and roll-up status.
+
+**Create:**
+
+1. Open the project → **Releases** → **New release**.
+2. Fields:
+   - **Name** — required.
+   - **Description** — optional.
+   - **Start date** / **Target end date** — ISO `YYYY-MM-DD`;
+     the end date must be on or after the start date or the portal
+     rejects it.
+3. The release page opens. It has three parts: the **scope table**,
+   the **run history** linked to the release, and **add-to-scope**
+   controls.
+
+**Build the scope:**
+
+1. In *Add to scope*, pick from the project's discovered **suite**
+   and **collection** items (plain test cases are not scopeable) and
+   add them. Each row stores the item's kind, repository path, and
+   the discovered item it was taken from.
+2. **Remove** on a scope row drops it.
+3. Scope rows show a live state per item:
+   - `not yet executed` — no matching run yet;
+   - the **outcome of the latest execution** — matched by target
+     *and* run configuration (profile, browser, runner, runtime), so
+     a pass under one profile does not hide a failure under another;
+   - `unavailable — definition removed from repository` — the
+     discovered source item was deleted upstream; the scope row keeps
+     the last-known path for traceability.
+4. **Edit** on the release updates name, description, and dates.
+
+**Sync the release manifest to the repository:**
+
+1. **Sync preview** shows the manifest file the portal would write
+   into the release's bound repository (single-binding scope only —
+   a scope spanning multiple bindings reports that it cannot sync).
+2. **Sync** commits the manifest to the repo and records the written
+   path on the release. Any scope or metadata change flags the
+   release as sync-dirty until the next sync.
+
+**Run the release:**
+
+1. **Run** queues **one execution per in-scope item** with the run
+   form's configuration — execution profile, browser, runner, KRE
+   installation (§4.2). Every queued execution is linked to the
+   release, which is what the roll-up counts.
+2. The portal flashes how many executions were queued; watch them on
+   the release page or **Executions**.
+3. You can also attach an existing execution retroactively — open the
+   execution → **Link release**.
+
+**Roles:** creating, editing, and scope/sync actions need Admin or
+Test Manager; running needs any of Admin / Test Manager / Tester.
+
+### 3.3 Create a plan (schedule)
+
+A schedule fires a target automatically — once at a set time or on a
+repeating interval. Targets are either a discovered repository item
+or a portal suite.
+
+**Create:**
+
+1. Open the project → **Schedules** → **New schedule**.
+2. Fields:
+   - **Schedule name** — required.
+   - **Description** — optional.
+   - **Runs** (target) — one entry: a discovered repository item
+     (`suite · path` / `collection · path`) or a portal suite
+     (`Suite: <name>`). Repository items resolve to their current
+     repo path at fire time.
+   - **Kind** — `Once` (single run) or `Repeating`.
+   - **First run (UTC, `YYYY-MM-DD HH:MM`)** — required for `Once`;
+     on `Repeating` a blank means "start now".
+   - **Every N minutes** — repeat interval, minimum 5 (default 60).
+   - **Execution profile** — free-form profile tag (default
+     `default`); becomes part of the run's configuration key.
+   - **Browser** — one of the supported KRE browser modes
+     (default `Chrome (headless)`).
+   - **Remote WebDriver URL / driver type** — only for runs steered
+     at an external WebDriver grid.
+   - **Timeout (seconds)** — per-run cap, default 3600.
+   - **Runner** — `Auto` (any suitable) or a pinned worker.
+   - **KRE installation** — `Auto` or a pinned runtime connection.
+   - **Overlap** — `Allow overlap` or `Skip if previous run active`
+     (a firing is skipped while the previous execution of this
+     schedule is still running).
+3. Submit — the schedule is created **enabled**.
+
+**Operate:**
+
+- **Toggle** pauses/resumes it. Re-enabling a schedule that has no
+  next run time schedules it to fire immediately.
+- **Edit** changes name, timing, run configuration, and repository
+  targets — history is preserved; already-created executions are
+  untouched.
+- **Run now** fires it once on demand (independent of its clock).
+- **Delete** removes the schedule only — executions it created stay.
+
+Missed/blocked targets surface the same way as manual runs — check
+**Executions** for the fired runs and §4.5 for failure semantics.
+
+### 4.1 What must exist first
 
 A run needs all of the following — an administrator sets these up
 (**Admin → Infrastructure** and **Admin → Workers & runtimes**):
@@ -221,7 +380,7 @@ A run needs all of the following — an administrator sets these up
 > passes invocation through but cannot supply the licence —
 > `kre-exec`/`kre-smoke` verify the binary only as far as launch.
 > A run that reaches KRE activation without a licence fails with a
-> recorded activation error (see §3.5) — that is an environment
+> recorded activation error (see §4.5) — that is an environment
 > problem, not a portal defect, and it is never silently turned
 > green.
 >
@@ -230,7 +389,7 @@ A run needs all of the following — an administrator sets these up
 > showing a live run is labelled accordingly. Licensed execution was
 > not validated here.
 
-### 3.2 Starting a suite or collection
+### 4.2 Starting a suite or collection
 
 From the project's discovered inventory, open a **suite** or
 **collection** item and choose **Run**. The form offers the actually
@@ -246,7 +405,7 @@ implemented settings:
 Confirm to queue the execution. You are taken to the execution detail
 page.
 
-### 3.3 Monitoring an execution
+### 4.3 Monitoring an execution
 
 The execution page shows lifecycle state, outcome, worker, suite,
 timestamps, a results table, artifacts, and provenance.
@@ -260,7 +419,7 @@ outcome `failed` (tests ran and failed) or `failed` with no outcome
 
 ![Execution detail — imported run with provenance](Screenshot-Doc/user/execution-detail-imported.png)
 
-### 3.4 Cancellation, retry, and deletion
+### 4.4 Cancellation, retry, and deletion
 
 - **Cancel** — requests cancellation per selected execution (the bulk
   bar on the Executions page, or per execution). Cancelling asks the
@@ -274,7 +433,7 @@ outcome `failed` (tests ran and failed) or `failed` with no outcome
   another execution still references is preserved (see
   Admin Manual §10).
 
-### 3.5 Reading outcomes: test failure vs. infrastructure failure
+### 4.5 Reading outcomes: test failure vs. infrastructure failure
 
 | Symptom | Classification | What it means |
 |---|---|---|
@@ -287,12 +446,12 @@ outcome `failed` (tests ran and failed) or `failed` with no outcome
 
 ---
 
-## 4. Historical-result import
+## 5. Historical-result import
 
 Import adopts existing Katalon `Reports/` output into execution
 history with provenance. It never rewrites what it imported.
 
-### 4.1 Starting an import
+### 5.1 Starting an import
 
 On the project page choose **Imports → New import**. Pick the bound
 repository, the **revision** (ref or `HEAD` — it is resolved to an
@@ -301,7 +460,7 @@ exact commit before scanning), and the **result directory** to scan
 
 ![New import form](Screenshot-Doc/user/import-new.png)
 
-### 4.2 The preview
+### 5.2 The preview
 
 The preview materializes the chosen revision into a private staging
 checkout (your working tree is never touched), detects every result
@@ -333,7 +492,7 @@ Group behaviour:
   producer are imported with `framework=unknown` — the run is kept,
   but flagged as an unidentified producer.
 
-### 4.3 Confirming
+### 5.3 Confirming
 
 Tick the candidates to import and choose **Import selected**.
 Duplicates and ambiguous rows are re-checked at confirm time; two
@@ -345,14 +504,14 @@ independently. If something interrupts the batch, imported candidates
 stay imported and pending/failed ones can be retried — the staging
 checkout is retained while retryable candidates remain.
 
-### 4.4 Provenance
+### 5.4 Provenance
 
 Every imported execution records who imported it, when, the source
 repository, the resolved commit, the source result path, and the
 parser used (e.g. `kre-junit/1`). This is on the execution page and
 inside its stored snapshot.
 
-### 4.5 Warnings and missing evidence
+### 5.5 Warnings and missing evidence
 
 Import reports what it could not do: unparseable files, missing
 `execution.uuid` (matched by content instead), artifact files
@@ -361,7 +520,7 @@ referenced but absent, and cases whose evidence could not be mapped.
 screenshot is not in the result directory, it is not in the imported
 execution either; the warnings tell you exactly what is absent.
 
-### 4.6 Retrying a failed candidate
+### 5.6 Retrying a failed candidate
 
 A candidate that failed during confirm (parse error, transient
 staging problem) stays on the preview with its failure and can be
@@ -370,9 +529,9 @@ retryable candidates remain.
 
 ---
 
-## 5. Reports and evidence
+## 6. Reports and evidence
 
-### 5.1 Execution history
+### 6.1 Execution history
 
 **Executions** lists every run with filters for ID prefix, project,
 lifecycle state, outcome, worker, schedule, date range, origin
@@ -380,7 +539,7 @@ lifecycle state, outcome, worker, schedule, date range, origin
 
 ![Execution history](Screenshot-Doc/user/execution-history.png)
 
-### 5.2 reportingLabs reports
+### 6.2 reportingLabs reports
 
 An execution's **Report** view embeds the generated reportingLabs
 HTML — overview, per-test status, failures, graphs, and timeline.
@@ -395,7 +554,7 @@ Report generation states (`rl_status`):
 
 ![reportingLabs report](Screenshot-Doc/user/execution-rlabs.png)
 
-### 5.3 Evidence
+### 6.3 Evidence
 
 The execution page lists retained **artifacts**: JUnit XML, Katalon
 `execution.uuid`, execution/console logs, screenshots, HAR files,
@@ -406,7 +565,7 @@ Evidence lives under managed directories owned by executions (see
 Admin Manual §10). Deleting an execution removes only the evidence it
 owns; evidence another execution also references is kept.
 
-### 5.4 Troubleshooting missing or incomplete results
+### 6.4 Troubleshooting missing or incomplete results
 
 - No results table — the run failed before producing JUnit
   (activation or infrastructure failure); read the run log artifact.
@@ -416,7 +575,7 @@ owns; evidence another execution also references is kept.
 
 ---
 
-## 6. Fixture-vs-licensed statement for these screenshots
+## 7. Fixture-vs-licensed statement for these screenshots
 
 All screens in this manual come from the published 2.0.2 package on
 Linux. Live-execution screens used a **fixture** KRE stand-in
