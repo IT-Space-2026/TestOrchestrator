@@ -638,7 +638,12 @@ detail. These are the same steps, in order, with every required field.
    Workers** → new entry: *Name*, *Description*, *OS/architecture*,
    *Connection mode* (`local` = same host as the portal; `remote` =
    reached via the Dagu coordinator), *Workspace root*, *Max
-   concurrent slots*, *Allowed projects* (empty = all).
+   concurrent slots*, *Allowed projects* (empty = all). Per-worker
+   slots are a configured allowance — keep their sum within the
+   purchased floating seats (noted on the form itself).
+
+   ![Add worker form — runner record fields](Screenshot-Doc/admin/runner-new.png)
+
 2. **Issue its agent token** — on the new runner's row, **Issue
    token**. The plaintext is shown **once** in the flash message —
    copy it now; only its SHA-256 is stored. Re-issuing revokes the
@@ -696,6 +701,9 @@ the portal cannot supply the Katalon licence.
      time — this is the recommended way to keep KRE licence values
      off the portal entirely.
    - *Concurrency* — max simultaneous runs this installation takes.
+
+   ![KRE registration form — execution location, worker label, paths](Screenshot-Doc/admin/runtime-new.png)
+
 3. **Probe** — on a *local* installation, **Probe** executes a
    version check and records the detected version + diagnostic.
    Probe is **not implemented for remote installations** — the flash
@@ -707,6 +715,8 @@ the portal cannot supply the Katalon licence.
 
 1. **System → Users → New user**: *Username* (unique, ≤64 chars),
    *Display name*, *Role* (radio), *Temporary password* (≥12 chars).
+
+   ![Create user form — username, display name, role, temporary password](Screenshot-Doc/admin/user-new.png)
 2. Hand the temporary password to the user — **first login forces a
    password change** (`must_change_password` is set on every created
    account; there is no way to create a user without it).
@@ -739,7 +749,12 @@ at the interactive prompt. The installer validates it, then writes
 
 **In the running portal (renewal / first code after bootstrap):**
 
-1. Sign in as **Admin** → **System → Licence**.
+1. Sign in as **Admin** → **System → Licence** — the page shows the
+   current state, every activated licence (ID, customer, validity),
+   and the *Add licence* code field.
+
+   ![Licence administration — status, activated licences, add-code field](Screenshot-Doc/admin/licence.png)
+
 2. Paste the licence code (the `TO1.…` string you were issued) into
    the code field and submit.
 3. The portal verifies the signature and stores the licence —
@@ -754,9 +769,11 @@ at the interactive prompt. The installer validates it, then writes
 re-verified on every read. A future renewal can be added **before**
 its start date — it never displaces the currently valid one. States
 you may see on the page: `missing`, `invalid`, `not-yet-valid`
-(renewal stored, starts later), `valid`, `expired`. Validity is
-`[valid_from, valid_until)` in UTC — the licence stops working
-**at** `valid_until`, not at the end of that day.
+(renewal stored, starts later), `valid`, `expired`. Enforcement is
+`now < valid_until` in UTC — the printed expiry is the boundary:
+the licence does not cover work started **at or after** it, so plan
+renewals to land before that date rather than relying on the expiry
+day itself.
 
 **What happens without a usable licence:** the dispatcher marks the
 queue *held* — queued and scheduled executions wait instead of

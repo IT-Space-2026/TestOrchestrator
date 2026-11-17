@@ -33,6 +33,12 @@
 | `execution-detail-failed.png` | Imported rerun with one failed case (`<failure>` message) |
 | `execution-detail-live.png` | Live worker run (fixture KRE): worker, dagu run id, runtime, results |
 | `execution-rlabs.png` | reportingLabs generated report (4 passed, environment card) |
+| `suite-new.png` | New suite form: name, description, source binding, two-panel case selector (6 selected) |
+| `suite-detail.png` | Suite detail: ordered entries, version/hash, run controls |
+| `release-new.png` | New release form: name, description, start/target dates |
+| `release-detail.png` | Release detail: scope table (1 suite + 1 collection), `not yet executed` states, run scope |
+| `schedule-new.png` | New schedule form: target selector, kind, UTC first run, interval, profile/browser/runner/runtime/overlap |
+| `schedules.png` | Schedules list: next run, enabled toggle, run-now, edit |
 | `about.png` | About page |
 
 ## admin/ — system pages
@@ -49,8 +55,11 @@
 | `logs.png` | Operational logs |
 | `audit.png` | Audit events |
 | `changelog.png` | Changelog view |
+| `runner-new.png` | Add worker form: name, description, OS/arch, connection mode, workspace, slots, allowed projects |
+| `runtime-new.png` | Register-KRE form: execution location, remote runner, worker label, executable/workspace paths, credentials, concurrency |
+| `user-new.png` | Create user form: username, display name, role radios, temporary password |
+| `licence.png` | Licence administration: status, activated-licence table, add-code field (demonstration licence only — no real licence code shown) |
 
-**Not captured:** the licence page (excluded per documentation rules —
-licence details are not published), and destructive-action
+**Not captured:** destructive-action
 confirmations (deletion/cancel dialogs were exercised via code paths,
 not staged for capture).

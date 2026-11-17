@@ -233,6 +233,13 @@ content hash so the portal can show when the repo definition drifts.
    repository is reported by name and the suite is not created
    partially.
 
+![New suite form — name, source binding, two-panel case selector](Screenshot-Doc/user/suite-new.png)
+
+Once saved, the suite page shows the ordered entries, the current
+version and content hash, sync status, and the run controls:
+
+![Suite detail — ordered entries, version, run controls](Screenshot-Doc/user/suite-detail.png)
+
 **Edit:**
 
 1. Open the suite → **Edit**. The selector shows the saved order;
@@ -272,12 +279,16 @@ collections) toward a target, with its own run and roll-up status.
    the **run history** linked to the release, and **add-to-scope**
    controls.
 
+![New release form — name, description, start and target dates](Screenshot-Doc/user/release-new.png)
+
 **Build the scope:**
 
 1. In *Add to scope*, pick from the project's discovered **suite**
-   and **collection** items (plain test cases are not scopeable) and
-   add them. Each row stores the item's kind, repository path, and
-   the discovered item it was taken from.
+   and **collection** items and add them — the picker also lists
+   discovered test cases for completeness, but adding a case is a
+   no-op: scope is suite/collection only. Each row stores the
+   item's kind, repository path, and the discovered item it was
+   taken from.
 2. **Remove** on a scope row drops it.
 3. Scope rows show a live state per item:
    - `not yet executed` — no matching run yet;
@@ -287,6 +298,9 @@ collections) toward a target, with its own run and roll-up status.
    - `unavailable — definition removed from repository` — the
      discovered source item was deleted upstream; the scope row keeps
      the last-known path for traceability.
+
+![Release detail — scope table, run scope, status counters](Screenshot-Doc/user/release-detail.png)
+
 4. **Edit** on the release updates name, description, and dates.
 
 **Sync the release manifest to the repository:**
@@ -323,11 +337,12 @@ or a portal suite.
 1. Open the project → **Schedules** → **New schedule**.
 2. Fields:
    - **Schedule name** — required.
-   - **Description** — optional.
-   - **Runs** (target) — one entry: a discovered repository item
-     (`suite · path` / `collection · path`) or a portal suite
-     (`Suite: <name>`). Repository items resolve to their current
-     repo path at fire time.
+   - **Runs** (target) — pick **one** entry via the two-panel
+     selector: a discovered repository item (`suite · path` /
+     `collection · path`) or a portal suite. Only one target is
+     persisted per schedule — to run several, create a portal suite
+     or a collection first. Repository items resolve to their
+     current repo path at fire time.
    - **Kind** — `Once` (single run) or `Repeating`.
    - **First run (UTC, `YYYY-MM-DD HH:MM`)** — required for `Once`;
      on `Repeating` a blank means "start now".
@@ -346,6 +361,8 @@ or a portal suite.
      schedule is still running).
 3. Submit — the schedule is created **enabled**.
 
+![New schedule form — target selector, kind, timing, run configuration](Screenshot-Doc/user/schedule-new.png)
+
 **Operate:**
 
 - **Toggle** pauses/resumes it. Re-enabling a schedule that has no
@@ -355,6 +372,8 @@ or a portal suite.
   untouched.
 - **Run now** fires it once on demand (independent of its clock).
 - **Delete** removes the schedule only — executions it created stay.
+
+![Schedules list — next run, enabled toggle, run now, edit](Screenshot-Doc/user/schedules.png)
 
 Missed/blocked targets surface the same way as manual runs — check
 **Executions** for the fired runs and §4.5 for failure semantics.
