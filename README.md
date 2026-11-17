@@ -7,11 +7,15 @@ server-rendered UI, Waitress WSGI, Dagu workflow orchestration, Katalon
 Runtime Engine (KRE) execution via remote workers, and reporting-labs
 single-file reports — a pure-Python backend with no bundled Node.js.
 
-**Status: released — v2.0.1** ([release notes](docs/release-notes-2.0.1.md) ·
-[CHANGELOG](CHANGELOG.md)). The release tag `v2.0.1` resolves to commit
-`1f4895373096734261590f46d4c462ee6b71e935`; published binaries were built
+**Status: released — v2.0.2** ([release notes](docs/release-notes-2.0.2.md) ·
+[CHANGELOG](CHANGELOG.md)). The release tag `v2.0.2` resolves to commit
+`574860d08124411692b141643da0ad87e576100d`; published binaries were built
 from exactly that clean commit. See the
-[GitHub release](https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.1).
+[GitHub release](https://github.com/IT-Space-2026/TestOrchestrator/releases/tag/v2.0.2).
+
+**Documentation:** [User and administrator manuals](Manuals-Doc/README.md) —
+verified against the released 2.0.2 package, with screenshots and a
+validation record.
 
 ## Architecture
 
