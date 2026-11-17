@@ -59,10 +59,13 @@ fetched by the script.
 
     dist/release/linux/    testorchestrator-<v>-linux-x86_64.tar.gz
                            testorchestrator-<v>-linux-x86_64.run
-                           testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe
     dist/release/windows/  testorchestrator-<v>-windows-amd64-setup-UNSIGNED.exe
-                           testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe
     both:                  SHA256SUMS.txt, build-manifest.json
+
+The dagu-worker NSIS installer is still built (it is bundled INSIDE
+both packages — `packaging/windows/` in the tarball, staged into the
+Windows app payload) so the installed portal can serve it, but it is
+no longer emitted as a standalone `dist/release/` artifact.
     dist/release/logs/     per-run build logs
 
 `build/` holds transient staging (venvs, downloads cache, extracted
@@ -95,9 +98,13 @@ The Linux package's worker assets are gated by
 checksum-verify, and share one version; exactly one
 `testorchestrator-dagu-worker-<same version>-setup-UNSIGNED.exe` must
 be present under `packaging/windows/`. A missing/skewed worker asset
-fails the build — nothing is silently omitted. The Windows release
-produces the same worker installer as a standalone artifact alongside
-the app installer.
+fails the build — nothing is silently omitted. On the Windows side,
+`check_payload` enforces the same contract inside `app-payload` (both
+dagu archives + pin manifest + exactly one aligned worker exe) before
+`app-installer.nsi` compiles — and `build_windows.py` builds the worker
+installer before payload staging so the app installer embeds it. The
+worker installer is not published standalone anymore; both packages
+carry it for portal-side download.
 
 ## Failure behaviour
 

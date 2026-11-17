@@ -25,7 +25,7 @@ jobs:
         with:
           name: testorchestrator-windows-setup
           path: |
-            dist/release/windows/*-setup-UNSIGNED.exe
+            dist/release/windows/*windows-amd64-setup-UNSIGNED.exe
             dist/release/windows/SHA256SUMS.txt
             dist/release/windows/build-manifest.json
           retention-days: 14
@@ -49,6 +49,16 @@ jobs:
           foreach ($f in @("$inst\python\python.exe","$inst\caddy\caddy.exe","$inst\dagu\dagu.exe","$inst\wsgi.py","$inst\testorchestrator\__main__.py","$inst\release\licence_pubkey.pem","$inst\run_worker.py","$inst\3rdparty\reporting_labs\__init__.py","$inst\3rdparty\reporting_labs\LICENSE")) {
             if (!(Test-Path $f)) { throw "MISSING: $f" }
             Write-Host "present: $f"
+          }
+          # worker-download assets the installed portal must serve —
+          # both pinned dagu archives and the bundled NSIS worker
+          # installer; never fetched remotely at runtime.
+          foreach ($g in @("$inst\3rdparty\dagu\dagu.sha256",
+                           "$inst\3rdparty\dagu\dagu_*_linux_amd64.tar.gz",
+                           "$inst\3rdparty\dagu\dagu_*_windows_amd64.tar.gz",
+                           "$inst\packaging\windows\testorchestrator-dagu-worker-*-setup-UNSIGNED.exe")) {
+            if (!(Get-ChildItem $g -ErrorAction SilentlyContinue)) { throw "MISSING worker asset: $g" }
+            Write-Host "present: $g"
           }
       - name: scheduled-task service registration
         shell: pwsh

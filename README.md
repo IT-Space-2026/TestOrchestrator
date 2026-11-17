@@ -100,9 +100,12 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 |---|---|---|
 | Ubuntu x86_64 (central server) | **released** | `testorchestrator-2.0.3-linux-x86_64.tar.gz` / `.run` |
 | Windows amd64 (portal + worker) | **released, unsigned** | `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` |
-| Windows amd64 (remote worker only) | **released, unsigned** | `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` |
+The remote-worker installer (`testorchestrator-dagu-worker-`
+`2.27.0-setup-UNSIGNED.exe`) is **bundled inside both packages** —
+download it from the installed portal under *Workers & runtimes*;
+it is not a separate release asset.
 
-Both Windows executables are **unsigned** — expect SmartScreen /
+The Windows executable is **unsigned** — expect SmartScreen /
 publisher warnings; verify the SHA-256 below instead.
 
 ## Installing (Linux)
@@ -131,9 +134,12 @@ Run `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe`
 (interactive or `/S` for silent NSIS install). It installs the frozen
 portal + worker services. See `docs/windows-install.md`.
 
-For a remote KRE host only, use
-`testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` — a minimal
-worker-only install aligned to the coordinator's Dagu 2.27.0.
+For a remote KRE host only, download the bundled
+`testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` from the
+installed portal (**Workers & runtimes → download**, SHA-256 shown
+next to the link) — a minimal worker-only install aligned to the
+coordinator's Dagu 2.27.0, shipped inside the app packages rather
+than published standalone.
 
 ## Application commands (`toctl`)
 
@@ -466,12 +472,16 @@ all binaries built from that exact clean commit:
 | `testorchestrator-2.0.3-linux-x86_64.tar.gz` | 278,810,910 | `7ad10e4135e3bbaed490a4b582b18718d01474a21e8156287ecc8bf802189185` |
 | `testorchestrator-2.0.3-linux-x86_64.run` | 278,812,914 | `96659457e4304a2fa144098295df467df0919a21b0190e8c5642ac4baff36385` |
 | `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` | 113,510,371 | `87a1d4169f9cd174a69725323e27363b13838dce96f3d92e957dcb2b9e7b1f3d` |
-| `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` | 64,319,318 | `f212af46ceb7c0cc121ac7fedf0d7f35f0c57c3efff49848547f2675de84e062` |
-
 Plus `SHA256SUMS`, `build-manifest-linux.json`, and
 `build-manifest-windows.json` (distinct manifest names). Verify:
 `sha256sum -c SHA256SUMS` next to the downloaded files. `dist/` is
 never tracked in the repo.
+
+The `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` worker
+installer is **bundled inside both packages** (tarball
+`packaging/windows/` + inside the Windows app installer) and is
+served by the installed portal — it is no longer published as a
+separate release asset.
 
 ## Validation (v2.0.3)
 

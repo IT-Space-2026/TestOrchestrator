@@ -19,7 +19,6 @@ jobs:
           path: |
             dist/release/linux/*.tar.gz
             dist/release/linux/*.run
-            dist/release/linux/*.exe
             dist/release/linux/SHA256SUMS.txt
             dist/release/linux/build-manifest.json
             dist/testorchestrator-*-linux-x86_64.manifest.json
@@ -138,6 +137,24 @@ jobs:
             --payload /tmp/ci-payload --data /tmp/ci-data \
             --config /tmp/ci-config \
             --https-port 8443 --no-service-start --yes
+      - name: installed payload carries portal-served worker assets
+        run: |
+          set -e
+          # both pinned dagu archives + pin manifest + the bundled
+          # NSIS worker installer must land in the installed payload —
+          # the portal serves them locally, never fetches remotely.
+          test -f /tmp/ci-payload/3rdparty/dagu/dagu.sha256
+          for a in /tmp/ci-payload/3rdparty/dagu/dagu_*_amd64.tar.gz; do
+            test -f "$a"
+            # checksum-verify against the shipped pin file
+            grep -F "  $(basename "$a")" \
+              /tmp/ci-payload/3rdparty/dagu/dagu.sha256 \
+              | (cd /tmp/ci-payload/3rdparty/dagu && sha256sum -c -)
+          done
+          EXES=$(ls /tmp/ci-payload/packaging/windows/testorchestrator-dagu-worker-*-setup-UNSIGNED.exe 2>/dev/null | wc -l)
+          test "$EXES" -eq 1 || {
+            echo "expected exactly 1 bundled worker installer, found $EXES"; exit 1; }
+          echo "PASS installed payload serves both worker-asset types"
       - name: installed payload includes + resolves reporting_labs
         run: |
           set -e

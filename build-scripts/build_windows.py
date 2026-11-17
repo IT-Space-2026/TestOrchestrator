@@ -29,7 +29,8 @@ from _common import (ASSETS, BUILD_ROOT, BuildError, Log, REPO,
                      build_worker_installer, clean_release_dir,
                      ensure_makensis, ensure_pip, fetch, fetch_dagu,
                      finalise, git_info, release_version, run,
-                     sha256_file, unzip_safely, venv_python)
+                     sha256_file, unzip_safely, venv_python,
+                     read_pin_file)
 
 PAYLOAD = REPO / "packaging" / "windows" / "app-payload"
 
@@ -90,6 +91,36 @@ def stage_app_payload(vpy: Path, dl: Path, log: Log) -> None:
     prov = REPO / "scripts" / "provision_dagu.py"
     shutil.copy2(prov, PAYLOAD / "provision_dagu.py")
 
+    log.write("  worker-download assets served by the installed portal")
+    # Same contract as the Linux tarball: the portal serves pinned dagu
+    # archives + the bundled NSIS worker installer from the installed
+    # payload — never fetched remotely at runtime.
+    dagu_dst = PAYLOAD / "3rdparty" / "dagu"
+    dagu_dst.mkdir(parents=True, exist_ok=True)
+    pins = read_pin_file(REPO / "3rdparty" / "dagu" / "dagu.sha256")
+    for name in sorted(pins):
+        src_archive = REPO / "3rdparty" / "dagu" / name
+        if not src_archive.is_file():
+            raise BuildError(f"pinned dagu archive missing: {name} — "
+                             "run fetch_all_dagu first")
+        if sha256_file(src_archive) != pins[name]:
+            raise BuildError(f"checksum mismatch: {name}")
+        shutil.copy2(src_archive, dagu_dst / name)
+    for extra in ("dagu.sha256", "LICENSE", "README.md"):
+        p = REPO / "3rdparty" / "dagu" / extra
+        if p.is_file():
+            shutil.copy2(p, dagu_dst / extra)
+    worker_exes = sorted((REPO / "packaging" / "windows").glob(
+        "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe"))
+    if len(worker_exes) != 1:
+        raise BuildError(
+            "expected exactly one built dagu-worker installer under "
+            f"packaging/windows — found "
+            f"{[e.name for e in worker_exes]} (build it before staging)")
+    pkg_win = PAYLOAD / "packaging" / "windows"
+    pkg_win.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(worker_exes[0], pkg_win / worker_exes[0].name)
+
     log.write("  win_amd64 wheels -> site-packages (pinned requirements)")
     ensure_pip(vpy, log)
     run([vpy, "-m", "pip", "download", "--platform", "win_amd64",
@@ -117,6 +148,23 @@ def check_payload(log: Log) -> dict:
                 "3rdparty/reporting_labs/LICENSE",
                 "provision_dagu.py"):
         need(rel)
+    # Worker-download assets the installed portal must serve — same
+    # completeness contract as validate_package.py on the Linux side.
+    need("3rdparty/dagu/dagu.sha256")
+    pins = read_pin_file(REPO / "3rdparty" / "dagu" / "dagu.sha256")
+    for name in sorted(pins):
+        need(f"3rdparty/dagu/{name}")
+        p = PAYLOAD / "3rdparty" / "dagu" / name
+        if p.is_file() and sha256_file(p) != pins[name]:
+            missing.append(f"3rdparty/dagu/{name} (checksum mismatch)")
+    worker_exes = list((PAYLOAD / "packaging" / "windows").glob(
+        "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe"))
+    if not worker_exes:
+        missing.append("packaging/windows/"
+                       "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe")
+    elif len(worker_exes) > 1:
+        missing.append("packaging/windows/ multiple worker installers: "
+                       f"{[e.name for e in worker_exes]}")
     req_names = [l.split("==")[0].split(">=")[0].strip()
                  for l in (PAYLOAD / "requirements.txt").read_text()
                  .splitlines()
@@ -156,11 +204,17 @@ def main() -> int:
         dl.mkdir(parents=True, exist_ok=True)
         makensis = ensure_makensis(log)
 
-        log.step("1/4 stage application payload")
+        log.step("1/4 compile dagu-worker installer (unsigned)")
+        # Built first so stage_app_payload can bundle it — the installed
+        # portal serves it as a worker download; it is no longer
+        # published as a standalone release asset.
+        worker_exe = build_worker_installer(log, ASSETS["dagu"]["version"])
+
+        log.step("2/4 stage application payload")
         stage_app_payload(vpy, dl, log)
         checks = [check_payload(log)]
 
-        log.step("2/4 compile application installer (unsigned)")
+        log.step("3/4 compile application installer (unsigned)")
         win = REPO / "packaging" / "windows"
         # only same-version outputs are refreshed — older local builds
         # are left alone (the bundle's own exclusion policy decides
@@ -177,9 +231,6 @@ def main() -> int:
         log.write(f"  built {app_exes[0].name} "
                   f"({app_exes[0].stat().st_size:,} B, UNSIGNED)")
 
-        log.step("3/4 compile dagu-worker installer (unsigned)")
-        worker_exe = build_worker_installer(log, ASSETS["dagu"]["version"])
-
         log.step("4/4 verify + publish release outputs")
         dagu_ver = ASSETS["dagu"]["version"]
         worker_ok = (f"-{dagu_ver}-" in worker_exe.name)
@@ -190,15 +241,19 @@ def main() -> int:
                        "detail": f"app + worker installers built; "
                                  f"worker embeds dagu {dagu_ver}",
                        "ok": True})
-        out = finalise(log, "windows", gi, [app_exes[0], worker_exe],
+        out = finalise(log, "windows", gi, [app_exes[0]],
                        {"signing": "UNSIGNED — no signing identity "
                                    "configured; installers are "
                                    "labelled unsigned",
                         "worker_assets": {
                             "dagu_version": dagu_ver,
-                            "note": "worker installer is a standalone "
-                                    "release asset; the Linux package "
-                                    "embeds it for portal-side download"}},
+                            "bundled_worker_installer":
+                                f"packaging/windows/{worker_exe.name}",
+                            "note": "worker installer is built and "
+                                    "bundled INSIDE the app installer "
+                                    "for portal-side download — not "
+                                    "published as a standalone "
+                                    "release asset"}},
                        checks)
         log.close()
         return 0

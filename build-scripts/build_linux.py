@@ -13,8 +13,11 @@ Prerequisites (the only ones):
 Produces in dist/release/linux/:
   testorchestrator-<ver>-linux-x86_64.tar.gz
   testorchestrator-<ver>-linux-x86_64.run
-  testorchestrator-dagu-worker-<dagu>-setup-UNSIGNED.exe
   SHA256SUMS.txt + build-manifest.json + per-run log
+
+The dagu-worker NSIS installer is still built (the tarball embeds it
+under packaging/windows/ for portal-side download) but is no longer
+published as a standalone release artifact.
 
 Never tags, publishes, or touches git state.
 """
@@ -100,11 +103,17 @@ def main() -> int:
                     f"packaging/windows/{worker_exe.name}",
                 "dagu_version": ASSETS["dagu"]["version"],
                 "coordinator_worker_aligned": True,
+                "publication": "bundled inside this package for "
+                               "portal-side download — not published "
+                               "as a standalone release asset",
             },
             "stale_guard": "release dir cleaned at build start; "
                            "worker-payload and older worker exes rebuilt",
         }
-        out = finalise(log, "linux", gi, [tb, run_sh, worker_exe],
+        # The worker exe is built (step 2/5) and ships INSIDE the
+        # tarball — the portal serves it as a download. It is no
+        # longer published as a standalone release asset.
+        out = finalise(log, "linux", gi, [tb, run_sh],
                        manifest_extra, checks)
         log.close()
         return 0

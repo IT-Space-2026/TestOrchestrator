@@ -32,6 +32,25 @@ Patch release. Tag `v2.0.3` → commit
   was inclusive.
 - Release scope picker lists suites/collections only; discovered
   test cases are no longer offered (adds were silently ignored).
+- **Installed Linux payload omitted the bundled worker installer** —
+  `install.sh` now copies `packaging/windows/testorchestrator-dagu-
+  worker-*-setup-UNSIGNED.exe` into the payload (removing superseded
+  versions on upgrade) so the portal's worker-installer download route
+  actually serves it; previously it shipped only in the tarball.
+- **Windows app payload omitted all worker-download assets** — the
+  app installer now bundles both pinned dagu archives
+  (`3rdparty/dagu/`, checksum-verified at staging) plus the NSIS
+  worker installer, matching the Linux package; `check_payload`
+  enforces the same completeness gate as `validate_package.py`.
+
+### Changed
+
+- The `testorchestrator-dagu-worker-*-setup-UNSIGNED.exe` worker
+  installer is **no longer published as a standalone release asset**.
+  It is still built, version-aligned, checksum-verified, and bundled
+  inside both application packages; the installed portal serves it
+  (alongside the pinned dagu archives) under
+  *System → Workers & runtimes* — never fetched remotely at runtime.
 
 ### Added
 

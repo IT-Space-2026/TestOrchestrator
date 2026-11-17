@@ -178,6 +178,11 @@ def main() -> None:
             print(f"[install] removed superseded {_stale_rl} "
                   "(now at 3rdparty/reporting_labs)")
 
+        # Bundled NSIS dagu-worker installer — the portal serves it as a
+        # download; the tarball ships it under packaging/windows but the
+        # app payload must hold it too.
+        install_worker_installer_asset(REPO, payload)
+
         # Offline venv from the bundled runtime + vendored wheels —
         # no host python/pip and no network required.
         try:
@@ -353,6 +358,30 @@ def copy_payload_tree(src: Path, dst: Path) -> None:
             if target.is_symlink():
                 target.unlink()
             shutil.copy2(member, target)
+
+
+def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
+    """Install the bundled NSIS dagu-worker installer into the payload so
+    the portal's /infrastructure/dagu-worker-installer/ download serves
+    it — the package ships it, the installer must not strand it.
+    Removes superseded versions left by an older install; refuses to
+    proceed when the package carries no worker installer."""
+    src_dir = repo / "packaging" / "windows"
+    exes = sorted(src_dir.glob(
+        "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe"))
+    if not exes:
+        sys.exit("error: no dagu-worker installer in the package "
+                 f"({src_dir}) — refusing to install an incomplete "
+                 "payload")
+    dst_dir = payload / "packaging" / "windows"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for stale in dst_dir.glob(
+            "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe"):
+        stale.unlink()
+    dst = dst_dir / exes[-1].name
+    shutil.copy2(exes[-1], dst)
+    print(f"[install] worker installer asset: {dst.name}")
+    return dst
 
 
 def ensure_service_user(user: str, data: Path) -> None:

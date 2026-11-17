@@ -288,8 +288,10 @@ them. Evidence that never reached the repository cannot be recreated
 
 ### 2.2 Windows
 
-- Windows amd64, installed via `testorchestrator-2.0.2-windows-amd64-setup-UNSIGNED.exe`;
-  worker via `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe`.
+- Windows amd64, installed via `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe`.
+  The dagu-worker installer is bundled inside the app package —
+  download it from the installed portal (§6.1); it is not a
+  separate release download.
 - **[code/CI]** Documented from installer code + CI jobs
   (`windows-installer` workflow: compile, installed-validate,
   upgrade-from-v102, upgrade-from-v200). **No local Windows install
@@ -299,38 +301,47 @@ them. Evidence that never reached the repository cannot be recreated
 
 ## 3. Package selection and verification
 
-Download from the GitHub release `v2.0.2`:
+Download from the GitHub release `v2.0.3`:
 
 | Asset | Use |
 |---|---|
-| `testorchestrator-2.0.2-linux-x86_64.tar.gz` | Linux payload + installer |
-| `testorchestrator-2.0.2-linux-x86_64.run` | Self-extracting variant of the same payload |
-| `testorchestrator-2.0.2-windows-amd64-setup-UNSIGNED.exe` | Windows app installer (**unsigned**) |
-| `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` | Windows worker installer (**unsigned**) |
+| `testorchestrator-2.0.3-linux-x86_64.tar.gz` | Linux payload + installer |
+| `testorchestrator-2.0.3-linux-x86_64.run` | Self-extracting variant of the same payload |
+| `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` | Windows app installer (**unsigned**) |
 | `SHA256SUMS.txt` | Checksums, one entry per binary |
 | `build-manifest-linux.json` / `build-manifest-windows.json` | Provenance: source commit, `dirty` flag, tool versions |
+
+The dagu-worker installer (`testorchestrator-dagu-worker-`
+`2.27.0-setup-UNSIGNED.exe`) is **bundled inside both packages**
+— Linux tarball at `packaging/windows/…`, Windows installer at
+`packaging\\windows\\…` in the installed tree — and is served
+by the portal as a download (§6.1). It is no longer published as
+a standalone release asset.
 
 Verify before installing **[verified]**:
 
 ```bash
-curl -LO https://github.com/IT-Space-2026/TestOrchestrator/releases/download/v2.0.2/SHA256SUMS.txt
-curl -LO https://github.com/IT-Space-2026/TestOrchestrator/releases/download/v2.0.2/testorchestrator-2.0.2-linux-x86_64.tar.gz
+curl -LO https://github.com/IT-Space-2026/TestOrchestrator/releases/download/v2.0.3/SHA256SUMS.txt
+curl -LO https://github.com/IT-Space-2026/TestOrchestrator/releases/download/v2.0.3/testorchestrator-2.0.3-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
-# testorchestrator-2.0.2-linux-x86_64.tar.gz: OK
+# testorchestrator-2.0.3-linux-x86_64.tar.gz: OK
 ```
 
-Expected digests (from the release record):
+Expected digests (from the release record — see `SHA256SUMS.txt`
+on the release page for the authoritative values):
 
 ```
-af08a60d1506b061edd1342169aded75553dbc3ee6b134df23c19ec7670a6f7e  ...-linux-x86_64.tar.gz
-2a5ecff4f17e66f315f3d4d7ac4eb30b0572f420a193ab71623da3f313d4a0a6  ...-linux-x86_64.run
-fabb75fbd5373e4f76cc7d68d69e3f5ec53eb97a693c6e25bba1bfc0e5814814  ...-windows-amd64-setup-UNSIGNED.exe
-f212af46ceb7c0cc121ac7fedf0d7f35f0c57c3efff49848547f2675de84e062  ...-dagu-worker-2.27.0-setup-UNSIGNED.exe
+<SHA256>  testorchestrator-2.0.3-linux-x86_64.tar.gz
+<SHA256>  testorchestrator-2.0.3-linux-x86_64.run
+<SHA256>  testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe
 ```
 
-The manifests pin the exact source commit
-(`574860d08124411692b141643da0ad87e576100d`, `dirty=false`) and the
-bundled Dagu version (`2.27.0`).
+The bundled dagu-worker installer is verified by the portal at
+download time — **System → Workers & runtimes** shows its SHA-256
+next to the link.
+
+The manifests pin the exact source commit and the bundled Dagu
+version (`2.27.0`).
 
 ## 4. Linux installation
 
@@ -344,8 +355,8 @@ bundled Dagu version (`2.27.0`).
 ### 4.2 Tarball install **[verified]**
 
 ```bash
-tar -xzf testorchestrator-2.0.2-linux-x86_64.tar.gz
-cd testorchestrator-2.0.2-linux-x86_64
+tar -xzf testorchestrator-2.0.3-linux-x86_64.tar.gz
+cd testorchestrator-2.0.3-linux-x86_64
 
 # interactive: prompts for the licence code
 sudo bash install.sh
@@ -366,7 +377,9 @@ What the installer does, in order **[verified — every step observed]**:
 2. Writes `licence.json` into the data dir.
 3. Copies the payload (`testorchestrator/`, `wsgi.py`,
    `requirements.txt`, `release/`, `3rdparty/`, `migrations/`,
-   `deploy/`, `scripts/`).
+   `deploy/`, `scripts/`) plus the bundled dagu-worker installer
+   into `packaging/windows/` — the portal serves it as a worker
+   download (§6.1).
 4. Creates the offline venv from the bundled Python + vendored wheels.
 5. Provisions Dagu: binary + `server.yaml` (basic auth) +
    `credentials` file (`0600`) + execution workflow + a systemd unit
@@ -520,15 +533,17 @@ explicit separate step.
 From the installer (`app-installer.nsi`, `build_app_installer.sh`,
 `packaging/windows/`):
 
-- `testorchestrator-2.0.2-windows-amd64-setup-UNSIGNED.exe` lays down
+- `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` lays down
   the embedded-Python payload, `toctl.exe`, and the same
   `toctl install`/`toctl web` entry points (`python -m
   testorchestrator` equivalent on source layouts). Follow the
   installer's prompts; the app data lives in the configured instance
   location.
-- `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` installs
-  the Dagu worker binary; register labels and the coordinator
-  address per §6.
+- The bundled `testorchestrator-dagu-worker-2.27.0-setup-`
+  `UNSIGNED.exe` (inside the app installer and the Linux tarball,
+  served via **System → Workers & runtimes**) installs the Dagu
+  worker binary; register labels and the coordinator address per
+  §6.
 - **Both installers are unsigned.** Windows will warn; verify the
   published SHA-256 before running, and sign them internally if your
   policy requires it.
