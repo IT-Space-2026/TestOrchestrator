@@ -111,35 +111,43 @@ Targeted improvement (review target, not speculative):
 Driver: `packaging/ci/worker_e2e.py` run against the generated package
 — no source-checkout shortcuts.
 
-**Final-candidate run (release candidate `7403f5c`)** — package
-`testorchestrator-2.0.2-linux-x86_64.tar.gz`, 278,808,371 B,
-SHA-256 `9e1ccb0b1492c6d22a5dd4b3b40a78d71e4c415262057c7c41ef2b0d3e4a282e`,
-installed to `/tmp/to202-final`:
+**Release-candidate validation** — the packaged checks below are
+repeated on each candidate tarball built from the exact
+`feature/2.0.2` head (per-build digests in `dist/release/SHA256SUMS.txt`
+and `build-manifest.json`; the tagged source commit is the manifest's
+`source.commit`). What every candidate run demonstrates:
 
 - Worker asset downloaded through the installed app's authenticated
   route `/system/infrastructure/dagu-worker/dagu_2.27.0_linux_amd64.tar.gz`:
   64,492,882 B, SHA-256 `a9045768c9777d0b938585696e0491bc0ce46fbeb0419989b34fde63a0cc6f85`
-  — matches the pinned digest exactly.
-- Coordinator `start-all` (http :8084, gRPC :54055); downloaded worker
-  binary `version` → **2.27.0** = coordinator pin. Registered as
+  — matches the pinned digest exactly on every build.
+- Coordinator `start-all` on test ports; downloaded worker binary
+  `version` → **2.27.0** = coordinator pin. Registered as
   `e2e-worker-202` with label `kre=e2e-202`; coordinator reported it
   via `/api/v1/workers`; dispatched with `worker_selector=map[kre:e2e-202]`.
-- `toctl evidence-prune` reachable in the packaged install:
-  dry-run reported `{"orphans": [], "removed": []}`.
-- Execution `ef42e8ec985d42d88f44ca9e5d376d56` — **fixture-KRE path**:
-  a script emitting genuine Katalon-format JUnit/log/screenshot stood
-  in for the KRE binary. Demonstrated coverage: application-served
-  worker download, registration, selector-based dispatch, task
-  execution, result/evidence return, and reportingLabs generation
-  (`completed`/`passed`, 3 cases, `rl_status=ready`). This is
-  pipeline coverage — not licensed KRE execution.
+- `toctl evidence-prune` reachable in the packaged install
+  (`python -m testorchestrator evidence-prune`): dry-run listed a
+  seeded orphan with `removed: []` and left it on disk; `--apply`
+  removed only the orphan; a live execution's referenced evidence
+  directory was never listed.
+- **Fixture-KRE path** (a script emitting genuine Katalon-format
+  JUnit/log/screenshot standing in for the KRE binary): application-
+  served worker download, registration, selector-based dispatch, task
+  execution, result/evidence return, and reportingLabs generation —
+  `completed`/`passed`, 3 cases, `rl_status=ready`. This is pipeline
+  coverage — not licensed KRE execution.
 
-**Earlier runs (supporting evidence, labelled by commit):**
+**Completed runs, labelled by build commit:**
 
-- `2b0445614974482d9d9e5789cbd8852d` — same fixture-KRE path, on the
-  package built from `bc600a5` (278,795,546 B, `6141cc2c…`). Passed.
+- `f6ab1915dd2a488bbd8e39d2aeb23b2c` — fixture-KRE path on the
+  `3c98ed5` build (278,808,459 B, `25020e06…`; http :8085 /
+  gRPC :55055). Passed; ReportingLabs `ready`.
+- `ef42e8ec985d42d88f44ca9e5d376d56` — same fixture-KRE path, on the
+  package built from `7403f5c` (278,808,371 B, `9e1ccb0b…`). Passed.
 - `20c0ca6f8eba432195e6e6d03e68de99` — same fixture-KRE path, on the
   package built from `4966330` (278,810,011 B, `8ef43a80…`). Passed.
+- `2b0445614974482d9d9e5789cbd8852d` — same fixture-KRE path, on the
+  package built from `bc600a5` (278,795,546 B, `6141cc2c…`). Passed.
 - `74af175f7e9e41a99f064b1338531648` — **real KRE 11.7.0** on the
   `bc600a5` package: real `katalonc` launched on the worker, reached
   activation, failed (`valid offline licenses: 0 … Activation
@@ -279,8 +287,12 @@ Reproduce: `.venv/bin/python scripts/benchmark_import.py
 - Commit labels: first run on the `e0b65ca` build; **re-verified on
   the `4966330` package** (fresh 2.0.1 instance seeded with imported
   exec `87a90a16` + rlabs `ready` + legacy row `ae71accf`, migration
-  applied, retention/dedup/new-import all confirmed). The `7403f5c`
-  payload is code-identical to `4966330` (diff is docs only).
+  applied, retention/dedup/new-import all confirmed); **and again on
+  the `3c98ed5` package** (2.0.1-state instance `/tmp/upg-inst` copied
+  to `/tmp/to-upg-3c98ed5`: `p6q7r8s9t0u1 → q7r8s9t0u1v2 →
+  r8s9t0u1v2w3` applied, execution `ex-old` + its evidence +
+  settings + users retained, `import_locks` created, `evidence-prune`
+  reported no orphans for the live execution's evidence).
 
 ### 7. Confirmed defects fixed in 2.0.2
 
