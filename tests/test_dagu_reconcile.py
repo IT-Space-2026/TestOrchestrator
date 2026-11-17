@@ -2,7 +2,7 @@
 import pytest
 from testorchestrator import dispatch, settings as S
 from testorchestrator.extensions import db
-from testorchestrator.execution import (Execution, ExecutionState, Outcome,
+from testorchestrator.execution import (Execution, ExecutionState,
                                         Project, Suite, SuiteEntry)
 from testorchestrator.models import AuditEvent
 

@@ -1,7 +1,7 @@
 """First-run setup wizard — same validators and component checks as
 Settings; progress persisted so a failed step can be resumed."""
-from flask import (Blueprint, render_template, request, redirect,
-                   url_for, flash, current_app)
+from flask import (Blueprint, abort, render_template, request, redirect,
+                   url_for, flash)
 from flask_login import current_user
 from ..security import role_required
 from ..models import Role

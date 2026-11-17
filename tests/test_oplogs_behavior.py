@@ -65,7 +65,6 @@ def test_tail_after_returns_newer_only(app, client, login_as):
     import time; time.sleep(1)
     with app.app_context():
         logs.emit("dispatch", "late-event", severity="info"); db.session.commit()
-    from testorchestrator.extensions import db as _db
     with app.app_context():
         rows = logs.OperationalLog.query.order_by(logs.OperationalLog.id).all()
         mid = rows[0].occurred_at.isoformat()

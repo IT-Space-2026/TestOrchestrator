@@ -233,11 +233,11 @@ def main() -> None:
 
         # Enable + start when authorized; --no-service-start or non-root
         # leaves units staged under config for manual activation.
-        services_ok = enable_services(args, config)
+        enable_services(args, config)
 
     print(f"[install] local URL: https://localhost"
           f"{'' if args.https_port == 443 else f':{args.https_port}'}/")
-    print(f"[install] logs: journalctl -u testorchestrator-web "
+    print("[install] logs: journalctl -u testorchestrator-web "
           "-u testorchestrator-worker -u testorchestrator-dagu "
           "-u testorchestrator-caddy")
     if args.dry_run or not args.no_service_start and os.geteuid() == 0:
@@ -260,22 +260,6 @@ def main() -> None:
 def bundled_python(payload: Path) -> Path:
     rt = payload / "3rdparty" / "python-runtime" / "python" / "bin" / "python3"
     return rt if rt.exists() else None
-
-
-def create_venv_offline(payload: Path) -> Path:
-    """Create the app venv from the BUNDLED runtime + vendored wheels —
-    no host python/pip and no network required."""
-    rt = bundled_python(payload)
-    venv = payload / "venv"
-    if rt is None:
-        raise SystemExit("bundled runtime missing — package incomplete")
-    if not venv.exists():
-        subprocess.check_call([str(rt), "-m", "venv", str(venv)])
-    subprocess.check_call([
-        str(venv / "bin" / "pip"), "install", "--no-index",
-        "--find-links", str(payload / "3rdparty" / "python-wheels"),
-        "-r", str(payload / "requirements.txt")])
-    return venv
 
 
 # --- services + readiness ------------------------------------------------
@@ -382,66 +366,6 @@ def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
     shutil.copy2(exes[-1], dst)
     print(f"[install] worker installer asset: {dst.name}")
     return dst
-
-
-def ensure_service_user(user: str, data: Path) -> None:
-    """The service units run as this account — create it when absent.
-    Skipped silently off-root (dev/dry installs keep their user)."""
-    import pwd
-    try:
-        pwd.getpwnam(user)
-        return
-    except KeyError:
-        pass
-    if os.geteuid() != 0:
-        print(f"[install] NOTE: service account {user} does not exist "
-              "and installer is not root — create it before enabling "
-              "the units")
-        return
-    subprocess.check_call([
-        "useradd", "--system", "--user-group",
-        "--home-dir", str(data), "--shell", "/usr/sbin/nologin", user])
-    print(f"[install] service account created: {user}")
-
-
-def _probe_python(payload: Path) -> str:
-    """Prefer the just-created venv python; fall back to the bundled
-    runtime, then the installer interpreter."""
-    for cand in (payload / "venv" / "bin" / "python",
-                 payload / "3rdparty" / "python-runtime" / "python" /
-                 "bin" / "python3"):
-        if cand.exists():
-            return str(cand)
-    return sys.executable
-
-
-def _run_as(user: str, cmd: list) -> tuple[subprocess.CompletedProcess, str]:
-    """Run cmd as the service account when we can (root + runuser);
-    otherwise run it directly. Returns (result, account actually used)
-    — the account is recorded so the probe evidence is honest: a check
-    run as the installing user is not proof for the service account."""
-    import pwd
-    if os.geteuid() == 0:
-        try:
-            pwd.getpwnam(user)
-            return (subprocess.run(["runuser", "-u", user, "--"] + cmd,
-                                   capture_output=True, text=True), user)
-        except KeyError:
-            pass
-    return (subprocess.run(cmd, capture_output=True, text=True),
-            pwd.getpwuid(os.geteuid()).pw_name)
-
-
-def under_user_home(path: str) -> bool:
-    try:
-        p = Path(path).resolve()
-    except OSError:
-        return False
-    parts = p.parts
-    return len(parts) > 2 and parts[1] == "home" or \
-        str(p).startswith("/root/") or str(p).startswith("/users/")
-
-
 
 
 def create_venv_offline(payload: Path) -> Path:

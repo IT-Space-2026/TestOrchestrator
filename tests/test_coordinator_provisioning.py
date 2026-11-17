@@ -1,6 +1,4 @@
 """ensure_coordinator_credential — fresh-install idempotent provisioning."""
-from testorchestrator.extensions import db
-from testorchestrator.execution import SecretRef
 from testorchestrator.secrets_store import (ensure_coordinator_credential,
                                             read_secret)
 
@@ -71,7 +69,6 @@ def test_concurrent_provisioning_race(app):
     the guard rolls back and resolves to the winner's credential — no
     duplicate, no overwrite."""
     import pytest
-    from sqlalchemy.exc import IntegrityError
     from testorchestrator import secrets_store as ss
     with app.app_context():
         ss.ensure_coordinator_credential(app)        # winner

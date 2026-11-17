@@ -32,6 +32,9 @@ _PASSWORD_CHANGE_ALLOWLIST = {"auth.change_password", "auth.logout", "static"}
 
 _attempts_lock = threading.Lock()
 _attempts: dict = {}
+# Hard cap on tracked limiter keys — beyond this, expired-then-oldest
+# entries are evicted so a username/IP spray cannot grow it forever.
+_ATTEMPTS_MAX_KEYS = 4096
 
 
 def is_loopback(remote_addr) -> bool:
@@ -89,6 +92,19 @@ def rate_limit_exceeded(username: str) -> bool:
         if len(attempts) >= limit:
             return True
         attempts.append(now)
+        # Bound the map: sprayed distinct keys must not grow memory
+        # without limit — evict fully-expired entries when oversized,
+        # then oldest-first if still over.
+        if len(_attempts) > _ATTEMPTS_MAX_KEYS:
+            for k in [k for k, dq in _attempts.items()
+                      if not dq or now - dq[-1] > window]:
+                _attempts.pop(k, None)
+            if len(_attempts) > _ATTEMPTS_MAX_KEYS:
+                by_age = sorted(
+                    (k for k, dq in _attempts.items() if dq),
+                    key=lambda k: _attempts[k][-1])
+                for k in by_age[:len(_attempts) - _ATTEMPTS_MAX_KEYS]:
+                    _attempts.pop(k, None)
     return False
 
 

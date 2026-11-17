@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (ASSETS, BUILD_ROOT, BuildError, Log, REPO,
                      build_worker_installer, clean_release_dir,
                      fetch_all_dagu, finalise, git_info, release_version,
-                     run, safe_extract, sha256_file, venv_python)
+                     run, safe_extract, venv_python)
 
 
 def main() -> int:
@@ -113,8 +113,8 @@ def main() -> int:
         # The worker exe is built (step 2/5) and ships INSIDE the
         # tarball — the portal serves it as a download. It is no
         # longer published as a standalone release asset.
-        out = finalise(log, "linux", gi, [tb, run_sh],
-                       manifest_extra, checks)
+        finalise(log, "linux", gi, [tb, run_sh],
+                 manifest_extra, checks)
         log.close()
         return 0
     except BuildError as e:

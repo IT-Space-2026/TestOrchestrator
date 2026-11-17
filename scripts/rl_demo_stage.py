@@ -39,7 +39,6 @@ def build_app(root: Path):
 def seed(app, root: Path) -> str:
     """Execution with passed/failed/skipped/unresolved results, a
     case-matched screenshot, unmatched evidence, and a run log."""
-    from testorchestrator import dispatch
     from testorchestrator.execution import (Artifact, Execution,
                                             ExecutionState, Outcome,
                                             Project, Suite, SuiteEntry,

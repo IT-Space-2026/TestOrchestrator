@@ -319,7 +319,7 @@ def restore_definitions(project_id: str) -> dict:
     if not base.exists():
         raise NotConfigured(f"no exported definitions for {project_id}")
 
-    from .execution import Plan, Release, Suite, SuiteEntry
+    from .execution import Plan, Release, Suite
     counts = {"suites": 0, "plans": 0, "releases": 0}
     for name, model, counter in (
         ("suites", Suite, "suites"),
@@ -692,7 +692,7 @@ def delete_report(execution_id: str) -> dict:
         ex.deletion_error = "no source binding"
         db.session.commit()
         return {"error": "no source binding"}
-    branch = ex.report_pub_branch or binding.report_branch or         binding.ref or "main"
+    branch = ex.report_pub_branch or binding.ref or "main"
     # validate the recorded dir is the allowed root + this execution —
     # a stored path is not unrestricted deletion authority.
     expected = _report_dir(ex)
@@ -706,7 +706,7 @@ def delete_report(execution_id: str) -> dict:
     try:
         if not (wt / ".git").exists():
             wt.parent.mkdir(parents=True, exist_ok=True)
-            git_backend.run("clone", dest_url, wt,
+            git_backend.run("clone", binding.url, wt,
                             branch=branch,
                             auth=_binding_auth(binding))
         else:

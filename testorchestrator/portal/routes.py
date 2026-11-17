@@ -24,7 +24,7 @@ from .. import dispatch, gitsync
 from ..execution import (DiscoveredItem, Execution, ExecutionState,
                          ReleaseItem,
                        GitBinding, OutboxEvent,
-                         Outcome, Plan, Project, Release,
+                         Outcome, Project, Release,
                          Schedule, Suite, SuiteEntry, utcnow)
 from ..extensions import db
 from ..models import Role, record_audit
@@ -40,18 +40,24 @@ RUN_ROLES = (Role.ADMIN, Role.TEST_MANAGER, Role.TESTER)
 
 def _dash_trend(qs, days: int = 14):
     """Daily passed/failed counts — bar-chart data like the main
-    dashboard's chart_outcomes."""
+    dashboard's chart_outcomes. Aggregated in SQL over the window —
+    never a full-history scan into Python."""
     from collections import Counter
     from datetime import date, timedelta
+    from sqlalchemy import func
+    cutoff = utcnow() - timedelta(days=days)
+    rows = (qs.filter(Execution.created_at >= cutoff)
+              .with_entities(func.date(Execution.created_at),
+                             Execution.outcome,
+                             func.count(Execution.id))
+              .group_by(func.date(Execution.created_at),
+                        Execution.outcome).all())
     cp, cf = Counter(), Counter()
-    for e in qs.all():
-        if not e.created_at:
-            continue
-        d = e.created_at.date().isoformat()
-        if e.outcome.value == "passed":
-            cp[d] += 1
-        elif e.outcome.value in ("failed", "incomplete"):
-            cf[d] += 1
+    for day, outcome, n in rows:
+        if outcome == Outcome.PASSED:
+            cp[day] += n
+        elif outcome in (Outcome.FAILED, Outcome.INCOMPLETE):
+            cf[day] += n
     out = []
     for i in range(days):
         day = (date.today() - timedelta(days=days - 1 - i)).isoformat()
@@ -102,22 +108,34 @@ def projects():
         all_projects = [p for p in all_projects
                         if q in p.name.lower()
                         or q in (p.description or "").lower()]
-    exs = Execution.query.all() if all_projects else []
-    by_p = {}
-    for e in exs:
-        by_p.setdefault(e.project_id, []).append(e)
+    if all_projects:
+        totals = dict(db.session.query(
+            Execution.project_id, db.func.count(Execution.id))
+            .group_by(Execution.project_id).all())
+        actives = dict(db.session.query(
+            Execution.project_id, db.func.count(Execution.id))
+            .filter(Execution.state.in_(ACTIVE_STATES))
+            .group_by(Execution.project_id).all())
+        mx = (db.session.query(
+                Execution.project_id,
+                db.func.max(Execution.finished_at).label("mx"))
+              .filter(Execution.state.in_(TERMINAL_STATES),
+                      Execution.finished_at.isnot(None))
+              .group_by(Execution.project_id).subquery())
+        latest_map = {
+            e.project_id: e
+            for e in Execution.query.join(
+                mx, db.and_(Execution.project_id == mx.c.project_id,
+                            Execution.finished_at == mx.c.mx)).all()}
+    else:
+        totals, actives, latest_map = {}, {}, {}
     cards = []
     for p in all_projects:
-        pes = by_p.get(p.id, [])
-        term = [e for e in pes if e.state in TERMINAL_STATES
-                and e.finished_at]
-        term.sort(key=lambda e: e.finished_at, reverse=True)
-        active = sum(1 for e in pes if e.state in ACTIVE_STATES)
         cards.append({
             "project": p,
-            "latest": term[0] if term else None,
-            "active": active,
-            "total": len(pes),
+            "latest": latest_map.get(p.id),
+            "active": actives.get(p.id, 0),
+            "total": totals.get(p.id, 0),
         })
     if sort == "recent":
         cards.sort(key=lambda c: (c["latest"].finished_at

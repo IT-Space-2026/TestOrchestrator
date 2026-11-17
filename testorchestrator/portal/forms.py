@@ -1,7 +1,6 @@
 from flask_wtf import FlaskForm
-from wtforms import (IntegerField, SelectField, SelectMultipleField,
-                     StringField, TextAreaField)
-from wtforms import (StringField, TextAreaField, SelectField, BooleanField)
+from wtforms import (BooleanField, IntegerField, SelectField,
+                     SelectMultipleField, StringField, TextAreaField)
 from wtforms.validators import DataRequired, Length, Optional
 
 from ..adapters.kre import SUPPORTED_BROWSERS

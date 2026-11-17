@@ -2,9 +2,7 @@
 Dagu config command, Admin agent-token issuance, state-monitor endpoint,
 and argv sanitization (A01 review)."""
 
-import json
 import shutil
-import stat
 from pathlib import Path
 
 from testorchestrator import dispatch
@@ -163,7 +161,7 @@ def test_reconcile_dagu_runs_wired_and_running_not_masked(app, monkeypatch):
     dagu run must NOT extend the execution lease (agent disconnect still
     reconciles via expiry)."""
     from datetime import timedelta
-    from testorchestrator.execution import Execution, utcnow
+    from testorchestrator.execution import utcnow
 
     class FakeDagu:
         label = "running"

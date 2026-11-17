@@ -483,7 +483,7 @@ def register_cli(app: Flask) -> None:
         if not key.exists():
             raise click.ClickException("trusted update key not found")
         try:
-            verified = updater.verify_bundle(bundle, key)
+            updater.verify_bundle(bundle, key)
             click.echo("bundle signature+digests verified")
             if not updater.drain(drain_timeout):
                 raise updater.UpdateError("drain timeout — active runs remain")

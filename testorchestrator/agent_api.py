@@ -23,7 +23,7 @@ from pathlib import Path
 from flask import Blueprint, abort, current_app, g, jsonify, request
 
 from .execution import (Artifact, Execution, ExecutionState, Runner,
-                        RuntimeConnection, utcnow)
+                        utcnow)
 from .extensions import db
 from .models import record_audit
 from .results import safe_relpath, sha256_file
@@ -266,7 +266,6 @@ def result():
         return jsonify({"status": "preserved-for-review"})
 
     from .execution import Outcome, TestResult, CaseStatus
-    from . import dispatch
     ex.exit_status = data.get("exit_status")
     ex.error_kind = data.get("error_kind", "")
     ex.error_text = data.get("error_text", "")[:2000]

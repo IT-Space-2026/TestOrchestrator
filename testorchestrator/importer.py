@@ -806,7 +806,6 @@ def _reparse_candidate(base: Path, cand: ImportCandidate
                        ) -> ParsedImport:
     """Rebuild the ParsedImport for a candidate at confirm time —
     collection runs span several dirs (cand.run_dir is their parent)."""
-    scan_root = base
     dirs = [base / d for d in cand.run_dirs()] or         [base / cand.run_dir]
     parsed = [parse_run_dir(d, str(d.relative_to(base)), base)
               for d in dirs if d.is_dir()]
@@ -837,7 +836,7 @@ def _claim_project_import(project_id: str, session_id: str,
     the import_locks row; a claim older than CONFIRM_CLAIM_STALE_S is
     treated as crashed and reclaimed."""
     from .execution import ImportLock
-    from sqlalchemy import delete, update
+    from sqlalchemy import update
     from datetime import timedelta
     stale_before = utcnow() - timedelta(seconds=CONFIRM_CLAIM_STALE_S)
     # reclaim a crashed claim atomically — rowcount>0 means the claim

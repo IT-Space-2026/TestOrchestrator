@@ -3,14 +3,13 @@ and nav-placement coverage (unreleased UI)."""
 
 from datetime import timedelta
 
-import pytest
 
 from testorchestrator import dashboard as dash
 from testorchestrator.extensions import db
 from testorchestrator.execution import utcnow
 from testorchestrator.execution import (Execution, ExecutionState, Outcome,
                                         Project, Runner, Schedule, Suite)
-from testorchestrator.models import AuditEvent, record_audit
+from testorchestrator.models import record_audit
 
 
 def _seed_project(name="P1"):

@@ -1,14 +1,11 @@
 """Katalon project discovery — typed inventory, root detection,
 safety, and lifecycle coverage (synthetic fixtures only)."""
 
-import json
-from pathlib import Path
 
-import pytest
 
 from testorchestrator.extensions import db
 from testorchestrator.execution import (DiscoveredItem, GitBinding,
-                                        Project, utcnow)
+                                        Project)
 from testorchestrator.gitsync import discover_project
 
 
@@ -187,7 +184,6 @@ def test_collection_vs_suite_arg(app, tmp_path):
 def test_upgrade_forward_path(tmp_path):
     """A DB at the OLD f8a9b0c1d2e3 schema (no members_json) gains the
     column via g9a0b1c2d3e4 — forward, not rewritten history."""
-    import sqlite3
     from tests.conftest import make_app
     from pathlib import Path as P
     app = make_app(tmp_path, "fwd.db")

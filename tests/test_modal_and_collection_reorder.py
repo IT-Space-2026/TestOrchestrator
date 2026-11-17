@@ -1,10 +1,6 @@
 """Modal markup + collection reorder/insertion/deletion without config
 crossover — settings stay attached to the correct idx+ref entry."""
-import json
-import re
 
-from testorchestrator.extensions import db
-from testorchestrator.execution import Project, Suite
 
 
 def test_reorder_keeps_cfg_with_entry(app):

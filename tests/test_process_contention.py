@@ -473,7 +473,7 @@ def test_cancel_kills_process_tree(app, tmp_path):
     t.join(timeout=30)
     assert done
     cpid = int(child_pid.read_text().strip())
-    import os, signal as sig
+    import os
     try:
         os.kill(cpid, 0); alive = True
     except OSError:

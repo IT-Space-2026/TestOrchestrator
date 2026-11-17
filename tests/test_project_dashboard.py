@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from testorchestrator.extensions import db
 from testorchestrator.execution import (Project, Execution, ExecutionState,
-                                        Outcome, Project, TestResult)
+                                        Outcome, TestResult)
 from testorchestrator.project_dashboard import summary
 from testorchestrator import charts
 

@@ -165,19 +165,23 @@ def run_task(client: AgentClient, task: dict, work_root: Path) -> None:
         ]
         for path, rel_path, kind, mime in uploads:
             try:
-                client.post(
-                    f"/api/agent/artifact/{ex_id}",
-                    files={"file": (Path(rel_path).name,
-                                    path.read_bytes())},
-                    data={"rel_path": rel_path, "kind": kind, "mime": mime},
-                )
-            except requests.RequestException:
+                # Stream from disk — large videos/HARs never land whole
+                # in memory (requests sends the file object directly).
+                with open(path, "rb") as fh:
+                    client.post(
+                        f"/api/agent/artifact/{ex_id}",
+                        files={"file": (Path(rel_path).name, fh)},
+                        data={"rel_path": rel_path, "kind": kind,
+                              "mime": mime},
+                    )
+            except (requests.RequestException, OSError):
                 pass  # retry on next poll cycle — evidence stays local
     except Exception as exc:
         payload["error_kind"] = "infrastructure"
         payload["error_text"] = f"{type(exc).__name__}: {exc}"[:1500]
     finally:
         stop.set()
+        hb.join(timeout=5)
         client.post("/api/agent/result", json=payload)
 
 
@@ -199,7 +203,14 @@ def run(portal: str, token: str, work_root: Path, once: bool = False,
     client = AgentClient(portal, token, verify_tls=verify_tls)
     client.register()
     while True:
-        poll_once(client, work_root, execution_id)
+        try:
+            poll_once(client, work_root, execution_id)
+        except requests.RequestException:
+            pass  # transient portal/network outage — retry next cycle
+        except Exception as exc:
+            import sys
+            print(f"agent: unexpected poll error: "
+                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
         if once:
             return
         time.sleep(interval)

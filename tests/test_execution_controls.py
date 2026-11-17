@@ -4,11 +4,9 @@ overlap policy, searchable history, bulk cancel."""
 import json
 from datetime import timedelta
 
-import pytest
-
 from testorchestrator import dispatch
 from testorchestrator.execution import (Execution, ExecutionState, Outcome,
-                                        Plan, PlanEntry, Project, Runner,
+                                        Project, Runner,
                                         RuntimeConnection, Schedule, Suite,
                                         utcnow)
 from testorchestrator.extensions import db
@@ -287,7 +285,6 @@ def test_migration_upgrade_preserves_existing(tmp_path):
     schedule_id stays NULL, new fires link correctly."""
     from pathlib import Path
     from tests.conftest import make_app
-    from datetime import timedelta
     app = make_app(tmp_path, "upg.db")
     MIGR = str(Path(__file__).resolve().parent.parent / "migrations")
     with app.app_context():
@@ -391,7 +388,6 @@ def test_overlap_blocks_run_now_while_active(app, client, login_as):
 
 def test_run_now_cross_project_denied(app, client, login_as):
     """A user without the schedule's project can't trigger it."""
-    import json as _j
     with app.app_context():
         s_id, r_id, r2_id, rt_id = _env(app)
         s = db.session.get(Suite, s_id)

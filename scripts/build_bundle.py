@@ -306,22 +306,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# Dagu is shipped as its release tarball under 3rdparty/dagu/ — extract
-# during bundle assembly/install, not committed uncompressed (>100MB).
-
-
-def verify_acquisition(manifest_path: Path,
-                       stage_dir: Path) -> dict:
-    """Checksum-gate acquired archives BEFORE extraction/use.
-    Returns {component: {'ok', 'path', 'sha256'}}; raises RuntimeError
-    on missing payload or checksum mismatch."""
-    return {}
-
-def verify_extracted_runtime(bundle_root: Path,
-                             manifest_path: Path) -> dict:
-    """Completeness check on the EXTRACTED runtime in the bundle —
-    fails on missing required components so a partial stage is never
-    silently packaged."""
-    problems = []
-    return {"ok": not problems, "problems": problems}

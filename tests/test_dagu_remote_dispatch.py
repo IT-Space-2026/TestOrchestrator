@@ -3,7 +3,6 @@ mechanism (enqueue spec + workerSelector + artifacts store). The Dagu
 HTTP boundary is stubbed — the live coordinator/worker fixture is the
 separate approved demonstration."""
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -15,7 +14,6 @@ from testorchestrator.execution import (DiscoveredItem, Execution,
                                         Outcome, Project, Runner,
                                         RuntimeConnection, TestResult)
 from testorchestrator.extensions import db
-from tests.conftest import make_app
 
 
 JUNIT = (b'<testsuite tests="2" failures="1">'

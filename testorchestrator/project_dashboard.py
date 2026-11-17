@@ -1,7 +1,7 @@
 """Project-level dashboard aggregation — metric queries kept separate
 from chart presentation (charts.py builds figures from these rows)."""
 from datetime import datetime, timedelta, timezone
-from .execution import (Execution, TestResult, ExecutionState, Outcome)
+from .execution import Execution, ExecutionState
 
 TERMINAL = {ExecutionState.COMPLETED, ExecutionState.FAILED,
             ExecutionState.CANCELED}

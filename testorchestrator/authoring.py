@@ -335,16 +335,12 @@ def write_new_ts(path: Path, kind: str, name: str,
                  members: list) -> None:
     """Author a fresh .ts artifact — template-based, members
     inserted into the right container."""
-    member_tag = ("testCaseId" if kind == "suite"
-                  else "testSuiteEntity")
     body = "".join(
         f"<testCaseLink><testCaseId>{m}</testCaseId></testCaseLink>"
         if kind == "suite" else
         f"<TestSuiteRunConfiguration><testSuiteEntity>{m}"
         f"</testSuiteEntity><profileName>default</profileName>"
         f"</TestSuiteRunConfiguration>" for m in members)
-    wrap = ("<testCaseLink>" if kind == "suite" else
-            "<testSuiteRunConfigurations>")
     root_tag = ("TestSuiteEntity" if kind == "suite"
                 else "TestSuiteCollectionEntity")
     path.parent.mkdir(parents=True, exist_ok=True)

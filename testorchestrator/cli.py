@@ -74,8 +74,8 @@ def cmd_readiness(args) -> int:
     import urllib.request
     url = args.url.rstrip("/") + "/login"
     try:
-        with urllib.request.urlopen(url, timeout=5) as r:
-            ok = r.status == 200
+        with urllib.request.urlopen(url, timeout=5):
+            pass
     except Exception as exc:
         print(f"not ready — {url}: {exc}", file=sys.stderr)
         return 3
@@ -200,34 +200,7 @@ def _run_toctl(cmd: list, env: dict, timeout: int = 900):
 
 
 def cmd_install_info(args) -> int:
-    import json, os
-    app = _app()
-    print(json.dumps({"instance": app.instance_path,
-                      "db": app.config["SQLALCHEMY_DATABASE_URI"],
-                      "cert_dir": str(app.config["CERT_DIR"]),
-                      "frozen": bool(getattr(sys, "frozen", False)),
-                      "python": sys.executable}, indent=2))
-    return 0
-
-
-# ---------- frozen-package installation (no external python) ----------
-
-def _app_dir() -> "Path":
-    """The application payload dir — the onedir containing toctl when
-    frozen, else the repo app dir."""
-    from pathlib import Path
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent.parent / "app"
-
-
-def _write_unit(path, body: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body)
-
-
-def cmd_install_info(args) -> int:
-    import json, os
+    import json
     app = _app()
     print(json.dumps({"instance": app.instance_path,
                       "db": app.config["SQLALCHEMY_DATABASE_URI"],
@@ -259,7 +232,7 @@ def cmd_install(args) -> int:
 
     NO external python, pip, flask CLI, or venv anywhere in this path.
     """
-    import json, os, shutil, subprocess
+    import os, shutil, subprocess
     from pathlib import Path
     payload = Path(args.payload).resolve()
     data = Path(args.data).resolve()

@@ -3,7 +3,6 @@
 import os
 import stat
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 from cryptography import x509
@@ -12,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 from testorchestrator.certs import (CertificateError, generate_local,
-                                    import_pem, san_covers_host)
+                                    import_pem)
 
 
 def _key(size=2048):

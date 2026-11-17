@@ -8,7 +8,6 @@ does NOT prove real KRE CLI compatibility (A14).
 
 import json
 import os
-import stat
 import time
 from pathlib import Path
 
@@ -581,7 +580,7 @@ def test_reconcile_dagu_failure_not_masked_by_agent(app):
         assert not _agent_owned(ex)
 
 
-import subprocess, sys, os, stat, re
+import sys, os, re
 _WRAP = str(__import__("pathlib").Path(__file__).resolve().parents[1]
             / "scripts" / "kre_cred_exec.py")
 
@@ -847,7 +846,7 @@ def _dagu_env(app, count=1):
     """N QUEUED dagu-worker executions on one runner/runtime/binding —
     enough for _submit_remote to reach the adapter when capacity frees."""
     from testorchestrator.execution import (
-        GitBinding, Project, RuntimeConnection, utcnow)
+        GitBinding, Project, RuntimeConnection)
     with app.app_context():
         p = Project(name="PX"); db.session.add(p); db.session.flush()
         b = GitBinding(project_id=p.id, name="b1", url="git://x",
@@ -954,7 +953,7 @@ def test_portal_schedule_repo_target(app, client, login_as):
     """POST a once-schedule with a repo:<item_id> target — persisted to
     targets_json; a foreign project's item is rejected visibly."""
     with app.app_context():
-        from testorchestrator.execution import GitBinding, Project, Schedule
+        from testorchestrator.execution import GitBinding, Project
         p = Project(name="P1"); db.session.add(p); db.session.flush()
         p2 = Project(name="P2"); db.session.add(p2); db.session.flush()
         b = GitBinding(project_id=p.id, name="b1", url="git://x")

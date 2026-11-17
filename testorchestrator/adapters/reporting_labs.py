@@ -109,7 +109,7 @@ def _options(out_dir: Path):
 def _emit(ex: Execution, out_dir: Path) -> dict:
     """Build the reporting-labs report for one execution. Returns stats."""
     from reporting_labs.core.collector import Run
-    from reporting_labs.core.model import Attempt, Attachment, ErrorInfo
+    from reporting_labs.core.model import Attempt, ErrorInfo
     from reporting_labs.core.writer import write
 
     root = Path(ex.report_dir or "")

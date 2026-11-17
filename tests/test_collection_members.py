@@ -4,7 +4,7 @@ Two entries referencing the SAME suite keep independent settings via
 idx+ref keys; order/dupes preserved; no silent dedupe (Katalon semantics)."""
 import json
 
-from testorchestrator.execution import (GitBinding, Project, Suite)
+from testorchestrator.execution import (GitBinding, Project)
 from testorchestrator.extensions import db
 
 

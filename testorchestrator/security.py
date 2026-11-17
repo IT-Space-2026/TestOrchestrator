@@ -3,7 +3,7 @@
 import functools
 from ipaddress import ip_address
 
-from flask import abort, current_app, request
+from flask import abort, current_app
 from flask_login import current_user
 from werkzeug.middleware.proxy_fix import ProxyFix
 

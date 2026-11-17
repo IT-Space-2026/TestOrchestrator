@@ -122,11 +122,7 @@ def test_manual_resume_lifecycle(enforced):
     """Queued->expire->hold->renew->still-held->explicit resume->dispatch."""
     app = enforced
     with app.app_context():
-        from testorchestrator.extensions import db
         from testorchestrator import settings
-        from testorchestrator.execution import Execution, ExecutionState, \
-            Project, Suite
-        import uuid
         c = app.test_client()
         # 1. licensed + activate -> queue work
         _activate(c, _code(vf="2026-01-01T00:00:00+00:00",

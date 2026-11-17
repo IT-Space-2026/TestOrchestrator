@@ -158,7 +158,8 @@ def seed_from_file(path) -> int:
     if stored() or not os.path.exists(path):
         return 0
     try:
-        rows = json.loads(open(path).read())
+        with open(path) as fh:
+            rows = json.loads(fh.read())
     except (ValueError, OSError):
         return 0
     from . import settings

@@ -4,7 +4,6 @@ these tests pin the command shapes, validation, and writeback logic."""
 import json
 import os
 from unittest.mock import patch, MagicMock
-import pytest
 
 from testorchestrator.system import routes
 
@@ -135,7 +134,6 @@ def test_same_pid_evidence_not_a_restart(tmp_path, app):
 def test_schtasks_create_failure_returns_false():
     """If /Create fails (permissions etc.), /Run must NOT be attempted —
     a stale task under a fixed name could have been relaunched."""
-    from unittest.mock import call
     with patch("subprocess.run") as m, \
          patch("shutil.which", lambda x: "/usr/bin/schtasks"):
         m.side_effect = [
@@ -266,7 +264,6 @@ def test_generated_helper_uses_path_for_marker(app, client, login_as,
                                                monkeypatch, tmp_path):
     """Regression: the helper crashed on m.read_text() with a string
     path — the generated file must wrap the marker in Path."""
-    import pathlib
     from testorchestrator.system import routes as r
     monkeypatch.setattr(r, "_service_status",
                         lambda: _managed_status(["u1.service"]))

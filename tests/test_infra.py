@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from testorchestrator import gitsync
-from testorchestrator.execution import (ExecutionState, Outcome, Project, Suite,
-                                        SyncState)
+from testorchestrator.execution import (ExecutionState, Outcome, Project,
+                                        Suite)
 from testorchestrator.extensions import db
 from testorchestrator.models import Role, User
 from testorchestrator.secrets_store import (SecretError, list_secret_meta,

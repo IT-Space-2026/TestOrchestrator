@@ -3,13 +3,10 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from testorchestrator import dispatch, gitsync
 from testorchestrator.extensions import db
 from testorchestrator.execution import (Execution, ExecutionState,
-                                        GitBinding, Project, Suite,
-                                        utcnow)
+                                        GitBinding, Project, Suite)
 
 
 def _repo(tmp_path):

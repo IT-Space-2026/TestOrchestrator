@@ -10,7 +10,7 @@ from testorchestrator.network import (ValidationError, access_links,
                                       detect_address_candidates, parse_host,
                                       validate_port)
 from testorchestrator.settings import DEFAULTS
-from testorchestrator.settings import all_settings, update
+from testorchestrator.settings import all_settings
 
 
 # NET01 — the three owned defaults never collide.

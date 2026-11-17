@@ -1,9 +1,7 @@
 """Repository-result import (2.0.1): detection, parsing, dedup,
 workflow, permissions — real Katalon-layout fixtures via dulwich."""
-import json
 from pathlib import Path
 
-import pytest
 
 from testorchestrator import importer
 from testorchestrator.execution import (Execution, ExecutionState,

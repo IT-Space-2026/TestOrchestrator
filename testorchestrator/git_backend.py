@@ -237,7 +237,6 @@ def dulwich_checkout(repo: Path, sha: str, dest: Path) -> Path:
     """Isolated checkout at exact sha by tree export — same isolation
     guarantee as `git worktree --detach` without touching the source
     worktree's index. Export-only destination (no .git needed there)."""
-    from dulwich.objects import Tree
     r = _dulwich_repo(repo)
     dest.mkdir(parents=True, exist_ok=True)
     try:

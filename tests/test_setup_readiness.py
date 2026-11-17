@@ -140,7 +140,7 @@ def test_credential_value_decodes_for_https_auth(app):
     """A credential created through the form is consumed by the real
     binding-auth path — user:token splits; bare token = PAT username."""
     with app.app_context():
-        from testorchestrator.secrets_store import store_secret, read_secret
+        from testorchestrator.secrets_store import store_secret
         from flask import current_app
         store_secret(current_app._get_current_object(),
                      "g1", "git", "alice:ghp_token123")
@@ -209,8 +209,7 @@ def test_source_detail_distinguishes_remote_capability(app):
     """https+secret resolves portal-side only; ssh:// is remote-capable
     — portal auth alone never implies remote execution."""
     from testorchestrator.execution import GitBinding
-    from testorchestrator.readiness import (record_verified,
-                                            _binding_fp)
+    from testorchestrator.readiness import (                                            _binding_fp)
     with app.app_context():
         from datetime import datetime, timezone
         from testorchestrator.execution import (Runner,
@@ -231,7 +230,7 @@ def test_source_detail_distinguishes_remote_capability(app):
                         ref="main")
         db.session.add_all([b1, b2]); db.session.flush()
         # mark both resolved (fingerprint-bound)
-        from testorchestrator.readiness import _fp, _verified_fp
+        from testorchestrator.readiness import _fp
         from testorchestrator.settings import set as _s
         combo = _fp(sorted(w.id for w in readiness._eligible_workers()),
                     sorted(r.id for r in readiness._runtimes()

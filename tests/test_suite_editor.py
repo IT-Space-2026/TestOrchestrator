@@ -1,9 +1,9 @@
 """Suite editor: binding validation, ordering, preservation."""
 
-from testorchestrator import dispatch, gitsync
+from testorchestrator import gitsync
 from testorchestrator.extensions import db
-from testorchestrator.execution import (ExecutionState, GitBinding,
-                                        Project, Suite, SuiteEntry)
+from testorchestrator.execution import (GitBinding,
+                                        Project, Suite)
 from tests.test_discovery import _base_files, _fixture
 
 

@@ -5,7 +5,6 @@ execution evidence, serves artifacts, and hosts the report view —
 the local evidence store is authoritative (§11)."""
 
 import hashlib
-from pathlib import Path
 
 from testorchestrator import settings as settings_mod
 from testorchestrator.dispatch import create_execution

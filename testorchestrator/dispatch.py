@@ -15,7 +15,7 @@ Dispatch and collection run in `flask worker`, outside request handlers.
 import json
 import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 
 from flask import current_app
@@ -793,15 +793,6 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
     try:
         from . import reporting
         reporting.refresh_report_status(ex)
-        # Durable publication workflow — queued once the report is
-        # finalized; failures stay separate from the test outcome.
-        if ex.report_pub_status == "none" and not ex.deletion_status:
-            ex.report_pub_status = "pending"
-            db.session.add(OutboxEvent(
-                kind="report-publish",
-                payload_json=json.dumps(
-                    {"execution_id": ex.id})))
-            db.session.commit()
     except Exception as exc:
         try:
             reporting.refresh_failed(ex, exc)
@@ -816,12 +807,14 @@ def _normalize(ex: Execution) -> None:
         execution_id=ex.id, kind="junit").all()
     cases = []
     seen_names = {}
+    parsed_docs = []  # each artifact parsed once — reused for dedup
     for artifact in junit_artifacts:
         path = Path(ex.report_dir) / artifact.rel_path
         try:
             parsed = parse_junit(path)
         except Exception:
             continue
+        parsed_docs.append(parsed)
         for case in parsed.cases:
             key = (case.classname, case.name)
             seen_names[key] = seen_names.get(key, 0) + 1
@@ -852,12 +845,7 @@ def _normalize(ex: Execution) -> None:
             ex.run_uuid = _uuid_f.read_text().strip()[:64]
         if not ex.content_hash and cases:
             suite_keys, timestamps, totals = [], [], 0
-            for artifact in junit_artifacts:
-                path = Path(ex.report_dir) / artifact.rel_path
-                try:
-                    parsed = parse_junit(path)
-                except Exception:
-                    continue
+            for parsed in parsed_docs:
                 for s in parsed.suites:
                     suite_keys.append((s["id"] or s["name"],
                                        s["timestamp"]))
@@ -1415,8 +1403,8 @@ def _submit_remote(ex: Execution) -> None:
         # The runtime's saved key path applies unless run_config
         # overrides it — configured once, not re-entered per launch.
         if not rc.get("git_ssh_key_path") and getattr(
-                runtime, "git_ssh_key_path", ""):
-            rc["git_ssh_key_path"] = runtime.git_ssh_key_path
+                rt, "git_ssh_key_path", ""):
+            rc["git_ssh_key_path"] = rt.git_ssh_key_path
         if rc.get("git_ssh_key_path"):
             git_auth["ssh_key_path"] = rc["git_ssh_key_path"]
         if rc.get("git_ssh_passphrase"):

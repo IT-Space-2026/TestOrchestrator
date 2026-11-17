@@ -2,7 +2,6 @@
 
 Requires the running preview (127.0.0.1:39995) with fixture data.
 Each test asserts a specific interaction behavior — not markup presence."""
-import os
 import pytest
 
 playwright = pytest.importorskip("playwright.sync_api",

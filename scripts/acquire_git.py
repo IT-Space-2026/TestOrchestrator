@@ -19,7 +19,6 @@ adapters; this tool does not claim them.
 """
 
 import argparse
-import gzip
 import hashlib
 import json
 import lzma
@@ -27,10 +26,9 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 MIRROR = "http://archive.ubuntu.com/ubuntu"

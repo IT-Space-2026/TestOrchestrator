@@ -46,7 +46,6 @@ VENDORED_RL = ("3rdparty/reporting_labs", "3rdparty/reporting_labs")
 
 
 def stage_app_payload(vpy: Path, dl: Path, log: Log) -> None:
-    win = REPO / "packaging" / "windows"
     if PAYLOAD.exists():
         shutil.rmtree(PAYLOAD)
     for d in ("python", "dagu", "caddy", "site-packages", "wheels"):
@@ -241,7 +240,7 @@ def main() -> int:
                        "detail": f"app + worker installers built; "
                                  f"worker embeds dagu {dagu_ver}",
                        "ok": True})
-        out = finalise(log, "windows", gi, [app_exes[0]],
+        finalise(log, "windows", gi, [app_exes[0]],
                        {"signing": "UNSIGNED — no signing identity "
                                    "configured; installers are "
                                    "labelled unsigned",

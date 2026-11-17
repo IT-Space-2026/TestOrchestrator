@@ -1,5 +1,5 @@
 """Browser-level licensing flows — live app + chromium."""
-import base64, json, threading, time
+import base64, json, threading
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey)

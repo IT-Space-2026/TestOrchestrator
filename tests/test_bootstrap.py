@@ -1,6 +1,5 @@
 """v1.8 bootstrap acceptance: BOOT01–BOOT04."""
 
-from testorchestrator.extensions import db
 from testorchestrator.models import User
 from testorchestrator.settings import get as get_setting
 

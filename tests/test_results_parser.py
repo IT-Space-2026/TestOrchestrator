@@ -1,11 +1,10 @@
 """Canonical JUnit parsing + evidence manifest tests (§8–§9)."""
 
-from pathlib import Path
 
 import pytest
 
 from testorchestrator.results import (JunitParseError, aggregate_outcome,
-                                      build_evidence_manifest, classify_artifact,
+                                      build_evidence_manifest,
                                       parse_junit, safe_relpath)
 
 

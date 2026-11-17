@@ -16,7 +16,6 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -142,7 +141,7 @@ def run_size(app, tmp_path, n_hist, stamped_frac, label):
     """History=n_hist; import a new run, then repeat-import it."""
     from testorchestrator import importer
     from testorchestrator.execution import (
-        Execution, GitBinding, ImportSession, Project)
+        GitBinding, ImportSession, Project)
     from testorchestrator.extensions import db
     import tests.git_helpers as gh
 

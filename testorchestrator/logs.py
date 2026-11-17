@@ -35,6 +35,10 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+_PRUNE_EVERY = 64
+_emits_since_prune = 0
+
+
 def emit(component: str, message: str, *, severity: str = "info",
          category: str = "system", project_id=None, execution_id=None,
          worker_id=None, correlation_id=None, details: str = "",
@@ -49,7 +53,13 @@ def emit(component: str, message: str, *, severity: str = "info",
         source=source, details=details)
     db.session.add(row)
     db.session.commit()
-    prune()
+    # Prune amortized — a full count/delete scan on every emit turns
+    # hot paths (worker tick, dispatch) into O(n) per log line.
+    global _emits_since_prune
+    _emits_since_prune += 1
+    if _emits_since_prune >= _PRUNE_EVERY:
+        _emits_since_prune = 0
+        prune()
     return row
 
 

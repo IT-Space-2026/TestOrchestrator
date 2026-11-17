@@ -1,9 +1,7 @@
 """Import hardening (2.0.2): concurrency, interruption/recovery,
 evidence lifecycle, persisted fingerprints, missing legacy evidence."""
-import json
 import threading
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -14,9 +12,9 @@ from testorchestrator.execution import (Artifact, Execution,
                                         Outcome, Project, TestResult)
 from testorchestrator.extensions import db
 
-from tests.test_import_results import (CASE_PASS, JUNIT, UUID,
+from tests.test_import_results import (UUID,
                                        cand, confirm, kre_run,
-                                       make_binding, preview, sess)
+                                       make_binding, preview)
 
 
 # ---------- concurrent confirmation ----------
@@ -290,7 +288,6 @@ def test_lazy_fingerprint_persisted_once(tmp_path, app,
              for k, v in kre_run().items()}
     pid, bid = make_binding(tmp_path, app, files, "lazy")
     # unstamped legacy execution whose evidence exists in the worktree
-    from testorchestrator.results import parse_junit
     with app.app_context():
         wc = Path(db.session.get(GitBinding, bid).worktree_path)
         rd = wc / "Reports" / "20261110_093000"

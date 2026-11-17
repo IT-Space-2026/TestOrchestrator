@@ -2,7 +2,7 @@
 """Dagu service provisioning (installer step). Persistent DAGU_HOME,
 protected credentials, workflow placement, systemd unit, health check.
 Honest scaffold — writes artifacts; service activation needs root."""
-import argparse, os, secrets, shutil, subprocess, sys
+import argparse, os, secrets, shutil, sys
 from pathlib import Path
 
 def main(argv=None):

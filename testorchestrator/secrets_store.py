@@ -10,7 +10,6 @@ fabricated success. Rotation touches metadata only.
 
 import json
 import os
-import secrets as _secrets
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -115,7 +114,6 @@ def ensure_coordinator_credential(app) -> bool:
     on restart, repair, upgrade, or installer rerun. The value is
     never surfaced to settings, logs, exports, or command examples.
     """
-    import secrets as _secrets
     name = "coordinator-agent"
     if SecretRef.query.filter_by(name=name).first() is not None:
         return False

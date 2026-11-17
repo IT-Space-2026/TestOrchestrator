@@ -2,7 +2,6 @@
 
 import http.server
 import socketserver
-import threading
 from datetime import timedelta
 
 from testorchestrator import cli, dispatch

@@ -4,8 +4,7 @@ definitions become unavailable (never silently retargeted)."""
 
 from testorchestrator import dispatch, gitsync
 from testorchestrator.extensions import db
-from testorchestrator.execution import (DiscoveredItem, ExecutionState,
-                                        Project, Suite)
+from testorchestrator.execution import (DiscoveredItem, ExecutionState)
 from tests.test_discovery import _base_files, _binding, _fixture
 
 

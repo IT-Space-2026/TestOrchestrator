@@ -2,14 +2,11 @@
 ordering, not sleeps."""
 
 import json
-import threading
-import pytest
 
 from testorchestrator import dispatch, gitsync
 from testorchestrator.extensions import db
 from testorchestrator.execution import (Execution, ExecutionState,
-                                        GitBinding, OutboxEvent,
-                                        Project, Suite)
+                                        OutboxEvent)
 from tests.test_report_pub import _repo, _env
 
 

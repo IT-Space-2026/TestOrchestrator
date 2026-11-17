@@ -1,11 +1,9 @@
 """Release workflow: scope, launch association, link/unlink, status."""
 import json
-import pytest
 from testorchestrator.extensions import db
 from testorchestrator.execution import (
     Execution, Outcome, Release, ReleaseItem, DiscoveredItem,
     GitBinding, utcnow)
-from tests.conftest import make_app
 
 
 def _seed(app, tmp_path):

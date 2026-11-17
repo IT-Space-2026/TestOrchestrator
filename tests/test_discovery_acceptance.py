@@ -2,7 +2,6 @@
 disclosed as untested in the prior report."""
 
 import json
-import pytest
 
 from testorchestrator.extensions import db
 from testorchestrator.execution import (DiscoveredItem, GitBinding,
@@ -198,7 +197,6 @@ def test_plan_path_emits_collection_arg(app):
     """queue_plan_executions forwards the schedule run_config — a
     collection-typed plan entry gets -testSuiteCollectionPath, never
     -testSuitePath."""
-    import json
     from testorchestrator.execution import Plan, PlanEntry
     from testorchestrator.adapters.kre import build_args
     with app.app_context():

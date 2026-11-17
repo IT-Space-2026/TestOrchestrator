@@ -2,9 +2,7 @@
 upstream conflict, cross-user isolation."""
 
 import json
-from pathlib import Path
 
-import pytest
 
 from testorchestrator import authoring
 from testorchestrator.extensions import db
@@ -410,7 +408,6 @@ def test_draft_init_when_authoring_clone_empty(app, tmp_path):
     with app.app_context():
         p, b, item, repo = _env(app, tmp_path)
         # fetched worktree has the real file; authoring clone is absent
-        from tests import git_helpers as gh
         wc = tmp_path / "fetched"
         (wc / "Test Suites").mkdir(parents=True)
         (wc / "Test Suites/S1.ts").write_text(SUITE_XML.replace(

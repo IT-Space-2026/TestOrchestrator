@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from testorchestrator import dispatch, settings as S
+from testorchestrator import dispatch
 from testorchestrator.adapters import reporting_labs as rl
 from testorchestrator.execution import (Artifact, Execution, ExecutionState,
                                         Outcome, Project, Suite, SuiteEntry,

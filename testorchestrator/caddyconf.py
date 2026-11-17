@@ -17,7 +17,7 @@ import subprocess
 from pathlib import Path
 
 from . import settings as settings_mod
-from .network import bracket_host, build_url, effective_allowed_hosts
+from .network import bracket_host, build_url
 
 
 class CaddyApplyError(RuntimeError):

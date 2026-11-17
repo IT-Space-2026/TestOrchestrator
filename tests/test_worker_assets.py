@@ -12,7 +12,6 @@ Covers three layers:
 """
 import hashlib
 import importlib.util
-import re
 from pathlib import Path
 
 import pytest

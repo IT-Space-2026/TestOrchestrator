@@ -10,15 +10,13 @@ import sys
 from datetime import datetime, timezone
 
 from flask import (Response, abort, current_app, flash, redirect,
-                   render_template, request,
-                   request, send_file, url_for)
+                   render_template, request, send_file, url_for)
 from flask_login import current_user
 
 from ..extensions import db
 
 from .. import settings as settings_mod
-from ..caddyconf import (CaddyApplyError, apply_config, render_caddyfile,
-                         rollback_config)
+from ..caddyconf import (CaddyApplyError, apply_config, rollback_config)
 from ..certs import (CertificateError, generate_local, import_pem)
 from ..models import Role, record_audit
 from ..network import (ValidationError, access_links, check_port_conflicts,
@@ -269,7 +267,7 @@ def apply():
 def rollback():
     ApplyForm().validate_on_submit()
     try:
-        result = rollback_config(current_app)
+        rollback_config(current_app)
     except CaddyApplyError as exc:
         flash(str(exc), "error")
         return redirect(url_for("system.network"))
@@ -837,7 +835,6 @@ def _resolve_pending_restart(status: dict, marker) -> None:
     except Exception:
         pass
     evidence = rec.get("evidence") or {}
-    pre = rec.get("pre_invocations") or {}
     confirmed = bool(evidence) and all(
         evidence.get(u, {}).get("restarted") is True
         and evidence.get(u, {}).get("new") !=
@@ -889,7 +886,7 @@ def restart_services():
     mechanism the package itself installed. Detached via a new session
     so completion does not depend on this web request surviving its own
     restart. Never touches remote workers or their KRE processes."""
-    import json as _j, subprocess
+    import json as _j
     status = _service_status()
     if not status["managed"]:
         flash("No managed services — this installation runs without "
@@ -1031,8 +1028,6 @@ def _launch_restart_helper(helper_path, scope: str) -> "bool | str":
 @system_bp.route("/infrastructure")
 @role_required(Role.ADMIN)
 def infrastructure():
-    from ..execution import Runner, RuntimeConnection
-    from ..execution import Project
     record_audit(current_user.username, "page.infrastructure")
     runner_form = RunnerForm()
     runtime_form = RuntimeForm()

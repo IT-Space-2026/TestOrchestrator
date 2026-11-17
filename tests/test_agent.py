@@ -1,10 +1,6 @@
 """Remote runner agent transport tests (§6): auth, task poll, heartbeats,
 artifact upload, cancel flag, reconnect reconciliation."""
 
-import json
-import threading
-import time
-from pathlib import Path
 
 import pytest
 

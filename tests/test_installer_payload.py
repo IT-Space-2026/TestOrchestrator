@@ -17,7 +17,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
@@ -83,8 +82,6 @@ def test_bootstrap_resolves_vendored_source():
     """In the checkout itself the bootstrap must produce the vendored
     module — and only the reporting_labs name, nothing else from
     3rdparty becomes importable."""
-    import testorchestrator  # installs the scoped finder
-    import importlib.util
     finders = [f for f in sys.meta_path
                if type(f).__name__ == "_VendoredReportingLabs"]
     assert finders, "vendored reporting-labs bootstrap not installed"

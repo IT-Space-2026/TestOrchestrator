@@ -1,7 +1,6 @@
 """Report-status code path: refresh_report_status must flip pending ->
 ready when the collection step writes an entry file into the report
 root — the same transition the real collector uses."""
-import os
 import pytest
 from testorchestrator.extensions import db
 from testorchestrator import reporting

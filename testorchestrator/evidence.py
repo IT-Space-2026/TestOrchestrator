@@ -28,8 +28,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from .execution import Artifact, Execution
-from .extensions import db
+from .execution import Execution
 
 
 def managed_roots() -> list[Path]:

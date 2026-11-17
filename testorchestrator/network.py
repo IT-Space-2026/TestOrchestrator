@@ -9,7 +9,7 @@ links — every generated URL is built from stored settings only.
 import ipaddress
 import re
 import socket
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 _DNS_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 DNS_HOSTNAME_RE = re.compile(

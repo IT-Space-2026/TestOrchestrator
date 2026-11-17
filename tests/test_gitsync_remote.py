@@ -5,7 +5,6 @@ application backend uses — so the suite exercises the real workflow
 without GitPython or a git binary."""
 
 import io
-import json
 from pathlib import Path
 
 import pytest

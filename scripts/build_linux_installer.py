@@ -3,17 +3,15 @@
 self-extracting `<ver>-linux-x86_64.run` installer — ONE file the user
 executes; it unpacks its own payload and runs install.sh automatically.
 No external extraction or separate setup step."""
-import json, os, stat, sys, tarfile
+import os, stat, sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
 
 def build(tarball: Path, out: Path) -> Path:
-    meta = json.loads((REPO / "release" / "release.json").read_text())
     if not tarball.is_file():
         raise SystemExit(f"missing payload {tarball} — run build_bundle first")
-    header = out.with_suffix(".run.header")
     # self-extracting stub: appends the tarball, extracts to a private
     # temp dir, invokes install.sh, cleans up on exit.
     stub = f'''#!/bin/sh

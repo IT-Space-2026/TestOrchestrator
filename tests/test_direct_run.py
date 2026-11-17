@@ -7,7 +7,7 @@ from testorchestrator.execution import (DiscoveredItem, Execution,
                                         ExecutionState, GitBinding,
                                         OutboxEvent, Project, Release,
                                         Runner, RuntimeConnection,
-                                        Suite, utcnow)
+                                        Suite)
 from testorchestrator.extensions import db
 
 
