@@ -268,6 +268,28 @@ def test_create_target_syncs_buildbot_for_all_kinds(app, client,
     assert len(calls) == 3
 
 
+def test_create_runner_blank_scope_stores_empty(app, client,
+                                                monkeypatch):
+    """Regression: an untouched allowed_projects multi-select posts
+    [""], which used to be stored verbatim — a one-entry scope that
+    excluded every real project and made targeted dispatch fail with
+    'out of scope'. Blank entries must be stripped to []."""
+    monkeypatch.setattr(
+        "testorchestrator.buildbot_cfg.sync",
+        lambda: {"workers": 0, "targets": 0})
+    login(client, "admin")
+    resp = client.post(
+        "/system/infrastructure/runners",
+        data={"name": "scope-blank", "description": "",
+              "os_arch": "linux/amd64", "target_type": "local",
+              "max_slots": "1", "allowed_projects": [""]},
+        follow_redirects=True)
+    assert resp.status_code == 200
+    with app.app_context():
+        r = Runner.query.filter_by(name="scope-blank").one()
+        assert json.loads(r.allowed_projects) == []
+
+
 def test_internal_worker_credentials_adopted_from_secrets_json(
         app, tmp_path):
     """Regression: provisioned worker passwords in secrets.json must be

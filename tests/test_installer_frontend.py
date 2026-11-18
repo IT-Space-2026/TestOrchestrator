@@ -14,6 +14,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import install as inst  # noqa: E402  scripts/install.py
+import provision_buildbot as pb  # noqa: E402  scripts/provision_buildbot.py
 
 
 def _args():
@@ -45,6 +46,32 @@ def test_no_dagu_or_caddy_units_in_repo():
     """The Dagu-free/Caddy-free release ships no legacy units."""
     names = {p.name for p in (REPO / "deploy").glob("*.service")}
     assert not any("dagu" in n or "caddy" in n for n in names)
+
+
+def test_buildbot_units_execstart_entrypoints(tmp_path):
+    """Regression: generated Buildbot units must invoke the venv's
+    console entry points (``python -m buildbot.scripts.runner`` has no
+    __main__ guard and exits silently) — and ExecStart= must carry the
+    absolute path directly, no leading whitespace."""
+    pb.main(["--home", str(tmp_path / "bb"), "--repo-root", str(REPO),
+             "--python", sys.executable])
+    units = sorted((tmp_path / "bb" / "units").glob("*.service"))
+    assert {u.name for u in units} == {
+        "testorchestrator-buildbot-master.service",
+        "testorchestrator-buildbot-local.service",
+        "testorchestrator-buildbot-ssh.service",
+    }
+    for u in units:
+        es = [ln for ln in u.read_text().splitlines()
+              if ln.startswith("ExecStart=")]
+        assert len(es) == 1
+        cmd = es[0][len("ExecStart="):]
+        assert cmd and cmd == cmd.lstrip()       # no leading space
+        exe = cmd.split()[0]
+        assert exe.startswith("/")
+        assert exe.endswith(("/buildbot", "/buildbot-worker"))
+        assert "-m " not in cmd                  # console entry point
+        assert " --nodaemon " in cmd + " "
 
 
 def test_stage_web_unit_writes_canonical_name(tmp_path):
