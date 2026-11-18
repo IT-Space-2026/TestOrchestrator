@@ -915,27 +915,45 @@ def _handle_event(event: OutboxEvent) -> None:
                         == "dagu-worker"):
                     _submit_remote(ex)
                     return
+                # OWNERSHIP (Option B): Dagu owns the run once submitted;
+                # the portal assigns the authorized runner/runtime up
+                # front (capability/project/capacity checked) so the
+                # workflow's agent picks up exactly this task.
+                # Assignment commits BEFORE submit: the workflow's agent
+                # step polls /api/agent/tasks the moment the run starts —
+                # the DISPATCHED row + runner ownership must already be
+                # durable, or its single poll sees nothing and the lease
+                # decays to UNKNOWN without the task ever being claimed.
+                if ex and _dagu_mandatory():
+                    runner = pick_runner(ex)
+                    runtime = (ex.runtime
+                               or (pick_runtime(ex, runner)
+                                   if runner else None))
+                    if not runner or not runtime:
+                        _fail(ex, "infrastructure",
+                              "no eligible runner/runtime for "
+                              "dagu-coordinated dispatch")
+                        return
+                    if not _assign_runner(ex, runner, runtime):
+                        return   # lost race — stays queued, next tick
+                                 # retries
                 dispatch_id = DaguAdapter.from_settings().submit(payload)
                 if ex:
                     ex.dispatch_id = dispatch_id
                     db.session.commit()
-                    # OWNERSHIP (Option B): Dagu now owns the run; the
-                    # portal assigns the authorized runner/runtime up
-                    # front (capability/project/capacity checked) so the
-                    # workflow's agent picks up exactly this task.
+                    db.session.refresh(ex)
+                    if ex.state == ExecutionState.CANCEL_REQUESTED:
+                        # A cancel landed between assignment and submit —
+                        # request_cancel saw no dispatch_id and skipped the
+                        # coordinator stop. Issue it now so the workflow
+                        # doesn't run a cancelled execution.
+                        try:
+                            DaguAdapter.from_settings().cancel(
+                                dispatch_id)
+                        except Exception:
+                            pass
                     if _dagu_mandatory():
-                        runner = pick_runner(ex)
-                        runtime = (ex.runtime
-                                   or (pick_runtime(ex, runner)
-                                       if runner else None))
-                        if not runner or not runtime:
-                            _fail(ex, "infrastructure",
-                                  "no eligible runner/runtime for "
-                                  "dagu-coordinated dispatch")
-                            return
-                        if not _assign_runner(ex, runner, runtime):
-                            return   # lost race — stays queued, next
-                        return       # tick retries
+                        return
             except Exception as exc:
                 if _dagu_mandatory():
                     if ex:
@@ -1714,7 +1732,20 @@ def reconcile_dagu_runs() -> int:
             continue
         remote = adapter.status(ex.dispatch_id)
         label = (remote.get("statusLabel") or remote.get("status"))
-        if label in ("succeeded", "failed", "aborted", "error"):
+        if label in ("aborted", "canceled") and (
+                ex.state == ExecutionState.CANCEL_REQUESTED
+                or ex.cancel_reason):
+            # User-requested termination acknowledged by the coordinator:
+            # the cause is known — CANCELED is the true terminal state
+            # (same rule as the remote transport in _collect_remote).
+            ex.state = ExecutionState.CANCELED
+            ex.outcome = Outcome.INCOMPLETE
+            ex.finished_at = utcnow()
+            record_audit("system", "execution.cancel_acknowledged",
+                         f"{ex.id}: dagu run {ex.dispatch_id} {label}")
+            fixed += 1
+        elif label in ("succeeded", "failed", "aborted", "error",
+                       "canceled"):
             # Dagu finished but the portal has no result -> ambiguous:
             # reconcile to UNKNOWN, not a re-dispatch.
             ex.state = ExecutionState.UNKNOWN

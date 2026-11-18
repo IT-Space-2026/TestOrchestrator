@@ -234,18 +234,37 @@ class DaguAdapter:
 
     def cancel(self, dispatch_id: str) -> bool:
         """Verified mechanism: `dagu stop <dag> --run-id <id>` via the
-        bundled binary (HTTP cancel path unresolved on 2.27.0)."""
+        bundled binary (HTTP cancel path unresolved on 2.27.0). The
+        installer places the extracted binary under the config area —
+        probe that location too so a packaged install resolves it
+        without DAGU_BIN."""
         import os
         import shutil
         import subprocess
-        exe = (shutil.which("dagu")
-               or os.environ.get("DAGU_BIN")
-               or "3rdparty/dagu/dagu")
+        from pathlib import Path
+        candidates = [os.environ.get("DAGU_BIN"), shutil.which("dagu")]
+        cfg = os.environ.get("TO_CONFIG_DIR")
+        if cfg:
+            candidates.append(str(Path(cfg) / "dagu" / "dagu"))
+        candidates += ["/etc/testorchestrator/dagu/dagu",
+                       "3rdparty/dagu/dagu"]
+        exe = next((c for c in candidates
+                    if c and Path(c).is_file()), None)
+        if exe is None:
+            return False
+        env = dict(os.environ)
+        if not env.get("DAGU_HOME"):
+            # `dagu stop` signals via the coordinator socket under
+            # DAGU_HOME — the installer provisions it at
+            # <instance>/dagu.
+            inst = env.get("TO_INSTANCE_DIR")
+            if inst and (Path(inst) / "dagu").is_dir():
+                env["DAGU_HOME"] = str(Path(inst) / "dagu")
         try:
             r = subprocess.run(
                 [exe, "stop", "testorchestrator-execution",
                  "--run-id", dispatch_id],
-                capture_output=True, timeout=30)
+                capture_output=True, timeout=30, env=env)
             return r.returncode == 0
         except Exception:
             return False
