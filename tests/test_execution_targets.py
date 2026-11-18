@@ -247,3 +247,56 @@ def test_ssh_identity_edit_requires_reapproval(app, client,
         assert r.ssh_host == "10.0.0.8"
         assert r.ssh_host_key_fingerprint == ""
         assert r.check_status == "unverified"
+
+
+def test_create_target_syncs_buildbot_for_all_kinds(app, client,
+                                                    monkeypatch):
+    """Regression: ssh/local targets must trigger a builder sync — a
+    missing sync left the new target without a to-target-* builder and
+    first dispatch 500'd."""
+    calls = []
+    monkeypatch.setattr(
+        "testorchestrator.buildbot_cfg.sync",
+        lambda: calls.append(1) or {"workers": 0, "targets": 0})
+    login(client, "admin")
+    for i, kind in enumerate(("ssh", "local", "buildbot-worker")):
+        fields = {"target_type": kind, "name": f"tk-{kind}"}
+        if kind == "ssh":
+            fields.update(ssh_host="10.0.0.6", ssh_username="u",
+                          ssh_key="k")
+        _create(app, client, **fields)
+    assert len(calls) == 3
+
+
+def test_internal_worker_credentials_adopted_from_secrets_json(
+        app, tmp_path):
+    """Regression: provisioned worker passwords in secrets.json must be
+    adopted into SecretRefs — unadopted refs made sync() regenerate
+    passwords and lock the running workers out. INSERT-ONLY: existing
+    refs always win."""
+    import json
+    from testorchestrator import settings as sm
+    from testorchestrator.secrets_store import (
+        ensure_internal_worker_credentials, read_secret, store_secret)
+    home = tmp_path / "bb"
+    home.mkdir()
+    (home / "secrets.json").write_text(json.dumps({
+        "api_user": "to-api", "api_password": "api-pw",
+        "worker_passwords": {"to-local": "pw-local",
+                             "to-ssh-dispatcher": "pw-disp"}}))
+    with app.app_context():
+        sm.set("buildbot_home", str(home))
+        # pre-existing ref wins — never overwritten by adoption
+        store_secret(app, "buildbot-worker-to-local", "buildbot",
+                     "portal-pw", internal=True)
+        n = ensure_internal_worker_credentials(app)
+        assert n == 1          # only the missing ref adopted
+        assert read_secret(app, "buildbot-worker-to-local") \
+            == "portal-pw"
+        assert read_secret(app, "buildbot-worker-to-ssh-dispatcher") \
+            == "pw-disp"
+        # idempotent — second pass adopts nothing
+        assert ensure_internal_worker_credentials(app) == 0
+        # missing secrets.json -> no-op
+        sm.set("buildbot_home", str(tmp_path / "absent"))
+        assert ensure_internal_worker_credentials(app) == 0
