@@ -60,6 +60,16 @@ def main() -> None:
     parser.add_argument("--https-port", type=int, default=443)
     parser.add_argument("--http-port", type=int, default=8080)
     parser.add_argument("--service-user", default=SERVICE_USER)
+    parser.add_argument("--frontend", choices=("auto", "caddy", "cheroot"),
+                        default="auto",
+                        help="public HTTPS frontend — 'caddy' (bundled "
+                             "reverse proxy; fresh-install default) or "
+                             "'cheroot' (opt-in: in-process WSGI+TLS "
+                             "tier). 'auto' (default) keeps the "
+                             "selection recorded by a previous install "
+                             "(config/frontend) and falls back to "
+                             "caddy — upgrades never silently switch "
+                             "frontends")
     parser.add_argument("--no-service-start", action="store_true",
                         help="provision files/units but do not enable "
                              "or start systemd services")
@@ -225,10 +235,14 @@ def main() -> None:
                   "orchestration not provisioned")
 
         # Service units: web, worker, dagu, caddy — full lifecycle wiring,
-        # activation needs root on the target host.
-        for unit in ("testorchestrator-web.service",
-                     "testorchestrator-caddy.service"):
-            shutil.copy2(REPO / "deploy" / unit, config / unit)
+        # activation needs root on the target host. The frontend choice
+        # resolves: explicit --frontend > persisted config/frontend
+        # marker > caddy. Under cheroot its web unit is staged under the
+        # canonical name (the frontend is in-process); the caddy unit is
+        # still staged for rollback but is not enabled.
+        args.frontend = _resolve_frontend(args, config)
+        print(f"[install] frontend: {args.frontend}")
+        _stage_frontend_units(args.frontend, config)
         (config / "testorchestrator-worker.service").write_text(
             f"[Unit]\nDescription=TestOrchestrator dispatch worker\n"
             f"After=network.target\n\n[Service]\nType=simple\n"
@@ -264,8 +278,7 @@ def main() -> None:
     else:
         print("[install] next: copy units from "
               f"{config} to /etc/systemd/system, systemctl enable --now "
-              "testorchestrator-web testorchestrator-worker "
-              "testorchestrator-dagu testorchestrator-caddy; bootstrap "
+              f"{' '.join(_enabled_units(args))}; bootstrap "
               "Admin via local browser or `flask set-admin-password` "
               "(headless).")
 
@@ -281,22 +294,87 @@ UNITS = ("testorchestrator-web", "testorchestrator-worker",
          "testorchestrator-dagu", "testorchestrator-caddy")
 
 
+def _resolve_frontend(args, config: Path) -> str:
+    """Resolve 'auto' to the previously recorded frontend (upgrades keep
+    their tier) or 'caddy' (fresh/2.0.x installs — Caddy stays default).
+    An explicit --frontend always wins and is what switches a tier."""
+    if args.frontend != "auto":
+        return args.frontend
+    marker = config / "frontend"
+    if marker.is_file():
+        saved = marker.read_text().strip()
+        if saved in ("caddy", "cheroot"):
+            return saved
+    return "caddy"
+
+
+def _stage_frontend_units(frontend: str, config: Path) -> None:
+    """Stage the web unit for the selected tier under its canonical
+    name plus the caddy unit (staged even under cheroot so rollback is
+    a unit swap away), and persist the selection marker."""
+    web_unit = ("testorchestrator-web-cheroot.service"
+                if frontend == "cheroot"
+                else "testorchestrator-web.service")
+    shutil.copy2(REPO / "deploy" / web_unit,
+                 config / "testorchestrator-web.service")
+    shutil.copy2(REPO / "deploy" / "testorchestrator-caddy.service",
+                 config / "testorchestrator-caddy.service")
+    (config / "frontend").write_text(frontend + "\n")
+
+
+def _enabled_units(args) -> tuple:
+    """Units the selected frontend activates. Under --frontend=cheroot
+    the public ports live inside the web unit, so caddy is staged but
+    deliberately NOT enabled — only one frontend may own them."""
+    if getattr(args, "frontend", "caddy") == "cheroot":
+        return tuple(u for u in UNITS if u != "testorchestrator-caddy")
+    return UNITS
+
+
+def _systemctl(*argv, check=True):
+    return subprocess.run(["systemctl", *argv], check=check,
+                          stdout=subprocess.DEVNULL)
+
+
 def enable_services(args, config: Path) -> bool:
     """Install units and enable/start them — only when authorized
-    (root + systemd present) and not --no-service-start."""
+    (root + systemd present) and not --no-service-start. Frontend
+    switching is explicit: under cheroot the caddy unit is disabled so
+    only one frontend can ever own the public ports, and the web unit
+    is restarted when its staged unit content changed."""
     if args.no_service_start or args.dry_run:
         return False
     if os.geteuid() != 0 or not shutil.which("systemctl"):
         print("[install] units staged only — enable manually when "
               "root/systemd is available")
         return False
+    units = _enabled_units(args)
+    staged_web = (config / "testorchestrator-web.service").read_bytes()
+    installed_web = Path(
+        "/etc/systemd/system/testorchestrator-web.service")
+    web_changed = (not installed_web.exists()
+                   or installed_web.read_bytes() != staged_web)
     for u in UNITS:
-        src = config / "dagu" / f"{u}.service" if "dagu" in u             else config / f"{u}.service"
+        src = config / "dagu" / f"{u}.service" if "dagu" in u \
+            else config / f"{u}.service"
         if src.exists():
             shutil.copy2(src, f"/etc/systemd/system/{u}.service")
     subprocess.check_call(["systemctl", "daemon-reload"])
-    subprocess.check_call(["systemctl", "enable", "--now", *UNITS])
-    print(f"[install] services enabled+started: {', '.join(UNITS)}")
+    web_active = _systemctl("is-active", "--quiet",
+                            "testorchestrator-web",
+                            check=False).returncode == 0
+    if args.frontend == "cheroot":
+        # Drop the other frontend first so the public ports are free —
+        # tolerates caddy never having been enabled.
+        _systemctl("disable", "--now", "testorchestrator-caddy",
+                   check=False)
+    if web_active and web_changed:
+        # Unit content changed (frontend switch or template update) —
+        # enable --now alone never restarts a running service.
+        subprocess.check_call(
+            ["systemctl", "restart", "testorchestrator-web"])
+    subprocess.check_call(["systemctl", "enable", "--now", *units])
+    print(f"[install] services enabled+started: {', '.join(units)}")
     return True
 
 
@@ -307,7 +385,7 @@ def readiness_check(args) -> str:
     dagu, and the TLS endpoint are each verified."""
     import time, urllib.request, ssl
     time.sleep(2)
-    failed = [u for u in UNITS
+    failed = [u for u in _enabled_units(args)
               if subprocess.run(["systemctl", "is-active", "--quiet", u]
                                 ).returncode != 0]
     if failed:
@@ -330,8 +408,11 @@ def readiness_check(args) -> str:
             if r.status != 200:
                 return f"HTTPS endpoint returned {r.status} at {url}"
     except Exception as exc:
+        frontend_unit = ("web unit (cheroot frontend)"
+                         if getattr(args, "frontend", "caddy") == "cheroot"
+                         else "caddy unit")
         return (f"HTTPS endpoint unreachable at {url}: {exc} — check "
-                "caddy unit + cert provisioning")
+                f"{frontend_unit} + cert provisioning")
     return f"ok — all units active; app + HTTPS endpoint serving ({url})"
 
 
