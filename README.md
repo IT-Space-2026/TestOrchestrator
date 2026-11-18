@@ -8,7 +8,8 @@ execution orchestration, Katalon Runtime Engine (KRE) execution via
 managed execution targets, and reporting-labs single-file reports —
 a pure-Python backend with no bundled Node.js.
 
-**Status: 2.5.0 release candidate** ([CHANGELOG](CHANGELOG.md)).
+**Status: 2.5.0 released** ([CHANGELOG](CHANGELOG.md) ·
+[release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.5)).
 2.5.0 replaces Dagu with Buildbot as the sole execution orchestrator
 (local workers, remote Buildbot workers, and agentless SSH targets —
 all managed from Admin → Execution Targets) and makes the in-process
@@ -109,7 +110,7 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 
 | Platform | Status | Package |
 |---|---|---|
-| Ubuntu x86_64 (central server) | **2.5.0 candidate** | `testorchestrator-2.5.0-linux-x86_64.tar.gz` / `.run` |
+| Ubuntu x86_64 (central server) | **2.5.0 released** | `testorchestrator-2.5.0-linux-x86_64.tar.gz` / `.run` (GitHub release assets + `SHA256SUMS.txt` + `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz`) |
 | Windows amd64 (portal + worker) | **released, unsigned** | `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` |
 The worker installer (`TestOrchestrator-Buildbot-Worker-Setup-`
 `4.3.0-UNSIGNED.exe`) is **bundled inside the packages** — download
@@ -128,6 +129,14 @@ the portal as a runtime connection. Agentless SSH targets need only
 
 The Windows executable is **unsigned** — expect SmartScreen /
 publisher warnings; verify the SHA-256 below instead.
+
+**Verification status at publication:** Linux acceptance passed on
+the tested internal build (clean install, all three execution modes,
+cancellation, scheduling, disconnect/recovery — see
+`docs/acceptance-2.5.0.md`). Windows `.exe` acceptance runs after
+release; licensed-KRE runs per target type, system-wide systemd
+activation, and a separate-machine `sshd` test remain unverified —
+they are tracked in the acceptance record, not marked passed.
 
 ## Installing (Linux)
 

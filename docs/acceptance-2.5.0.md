@@ -211,3 +211,22 @@ Checks executed against this build — todo items **8–10**:
       `ERR_CONNECTION_REFUSED` (disposable preview :39995 absent —
       environmental); all 16 passed after the preview was stood up
       with fixtures.
+
+## Release record
+
+- PR #3 merged to `main`: merge commit
+  `fa8bb31858e491e6a6bdd806c79c53d01ff8a829` (contains `0ee9ed1` and
+  the 2.5 README; verified via `git merge-base`).
+- Post-merge packaging fix on `main`: `1a77730` — installer stages
+  the corresponding-source archive beside the worker `.exe` (§3(a)
+  pairing; defect found during the redistribution verification pass).
+- GPL redistribution verification recorded on PR #3: notices +
+  licence texts present, separate-process boundary intact,
+  corresponding-source archive complete and Admin-UI-paired with the
+  binary, written offer fulfilled by IT-Space Kft. (≥3y, ≤ physical
+  cost).
+- `TO_BUILDBOT_GPL_APPROVED=1` set only for the customer build;
+  internal artifacts remain historical.
+- Remaining unverified at publication (not passed): Windows `.exe`
+  acceptance (owner-run, post-release), licensed-KRE run per target
+  type, system-wide systemd activation, separate-machine `sshd`.
