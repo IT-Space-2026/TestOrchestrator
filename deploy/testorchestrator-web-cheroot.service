@@ -1,0 +1,36 @@
+[Unit]
+Description=TestOrchestrator application server (Waitress + Cheroot frontend, spike)
+After=network.target
+
+[Service]
+Type=simple
+User=testorchestrator
+Group=testorchestrator
+# Cheroot terminates the public HTTPS/redirect listeners in-process —
+# the unit therefore needs the same privileged-port capability the
+# Caddy unit carried. Opt-in spike tier only.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Environment=TO_FRONTEND=cheroot
+# The admin Services page + restart control manage this set — under the
+# cheroot tier there is no caddy unit to list or restart.
+Environment=TO_SERVICE_UNITS=testorchestrator-web.service,testorchestrator-worker.service,testorchestrator-dagu.service
+# Replaceable application payload:
+WorkingDirectory=/opt/testorchestrator
+# Persistent configuration/data (instance dir, database, certs) lives in
+# /var/lib/testorchestrator and /etc/testorchestrator — never in the payload.
+EnvironmentFile=/etc/testorchestrator/web.env
+# python wsgi.py starts the Cheroot public listeners, then Waitress on
+# loopback for internal probes — a single unit owns the process.
+ExecStart=/opt/testorchestrator/venv/bin/python wsgi.py
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/testorchestrator
+
+[Install]
+WantedBy=multi-user.target
