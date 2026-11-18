@@ -1,5 +1,5 @@
 [Unit]
-Description=TestOrchestrator application server (Waitress + Cheroot frontend, spike)
+Description=TestOrchestrator application server (Waitress + Cheroot frontend)
 After=network.target
 
 [Service]
@@ -8,7 +8,7 @@ User=testorchestrator
 Group=testorchestrator
 # Cheroot terminates the public HTTPS/redirect listeners in-process —
 # the unit therefore needs the same privileged-port capability the
-# Caddy unit carried. Opt-in spike tier only.
+# Caddy unit carried. Cheroot opt-in tier.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 Environment=TO_FRONTEND=cheroot
 # The admin Services page + restart control manage this set — under the
