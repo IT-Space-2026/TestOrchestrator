@@ -164,11 +164,11 @@ def test_system_managed_secret_protected(app):
                                                     SecretError)
         from flask import current_app
         store_secret(current_app._get_current_object(),
-                     "sys1", "dagu", "tok", internal=True)
+                     "sys1", "buildbot", "tok", internal=True)
         login_as_admin = None
         with pytest.raises(SecretError):
             store_secret(current_app._get_current_object(),
-                         "sys1", "dagu", "rotated")
+                         "sys1", "buildbot", "rotated")
         with pytest.raises(SecretError):
             store_secret(current_app._get_current_object(),
                          "sys1", "git", "x")       # kind change too

@@ -156,9 +156,12 @@ def install_gates(app) -> None:
 
         ensure_bootstrap_admin()
         try:
-            from .secrets_store import ensure_coordinator_credential
+            from .secrets_store import (
+                ensure_coordinator_credential,
+                ensure_internal_worker_credentials)
             ensure_orchestrator_settings()
             ensure_coordinator_credential(current_app)
+            ensure_internal_worker_credentials(current_app)
         except Exception:
             pass  # pre-migration; retry on next request
 

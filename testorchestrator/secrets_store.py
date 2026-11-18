@@ -169,4 +169,47 @@ def _provision(app, name):
     db.session.commit()            # UNIQUE(name) -> IntegrityError if racing
     if not settings_mod.get("buildbot_credential_ref"):
         settings_mod.update({"buildbot_credential_ref": name})
+
+
+def ensure_internal_worker_credentials(app) -> int:
+    """Adopt the installer-provisioned controller-worker passwords.
+
+    ``provision_buildbot`` writes ``worker_passwords`` into
+    ``buildbot_home/secrets.json`` and bakes the same values into each
+    worker's ``buildbot.tac``. ``buildbot_cfg.sync`` sources internal
+    workers from the SecretRef store — without adoption the first
+    sync would generate fresh passwords and lock the already-running
+    workers out of the master ("unauthorized login"). INSERT-ONLY per
+    ref: existing SecretRefs always win; missing secrets.json values
+    are skipped (sync generates + stores them, and provision then
+    owns the tac side). Returns the number of refs adopted."""
+    import json
+    from pathlib import Path
+    from . import settings as settings_mod
+    home = settings_mod.get("buildbot_home") or ""
+    secrets_file = Path(home) / "secrets.json" if home else None
+    if not secrets_file or not secrets_file.exists():
+        return 0
+    try:
+        worker_passwords = (json.loads(secrets_file.read_text())
+                            .get("worker_passwords") or {})
+    except Exception:
+        return 0                  # unreadable — sync regenerates instead
+    adopted = 0
+    fernet = _load_fernet(app)
+    for name, password in worker_passwords.items():
+        if not password:
+            continue
+        ref = f"buildbot-worker-{name}"
+        if SecretRef.query.filter_by(name=ref).first() is not None:
+            continue              # existing ref wins — never overwrite
+        db.session.add(SecretRef(
+            name=ref, kind="buildbot",
+            encrypted=fernet.encrypt(password.encode()),
+            meta_json=json.dumps({"purpose": f"internal worker {name}",
+                                  "auto": True})))
+        adopted += 1
+    if adopted:
+        db.session.commit()
+    return adopted
     return True

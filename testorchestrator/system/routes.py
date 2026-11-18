@@ -1108,6 +1108,7 @@ def create_runner():
             runner.ssh_credential_ref = ref
             db.session.add(runner)
             db.session.commit()
+            buildbot_cfg.sync()
             record_audit(current_user.username, "runner.created",
                          runner.name)
             flash("SSH target saved — run Test Connection and approve "
@@ -1115,6 +1116,7 @@ def create_runner():
             return redirect(url_for("system.infrastructure"))
         db.session.add(runner)
         db.session.commit()
+        buildbot_cfg.sync()
         record_audit(current_user.username, "runner.created",
                      runner.name)
     return redirect(url_for("system.infrastructure"))
