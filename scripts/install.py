@@ -70,6 +70,15 @@ def main() -> None:
                              "(config/frontend) and falls back to "
                              "caddy — upgrades never silently switch "
                              "frontends")
+    parser.add_argument("--orchestrator",
+                        choices=("dagu", "buildbot", "both"),
+                        default="dagu",
+                        help="execution orchestrator to provision — "
+                             "'dagu' (current default during the "
+                             "Buildbot transition), 'buildbot' (the "
+                             "replacement), or 'both' (provision "
+                             "Buildbot alongside Dagu so the backend "
+                             "can be switched without reinstalling)")
     parser.add_argument("--no-service-start", action="store_true",
                         help="provision files/units but do not enable "
                              "or start systemd services")
@@ -234,6 +243,34 @@ def main() -> None:
             print("[install] WARNING: bundled dagu tarball missing — "
                   "orchestration not provisioned")
 
+        # Buildbot orchestrator (docs/orchestration-replacement.md):
+        # provisioned alongside or instead of dagu per --orchestrator.
+        # The buildbot stack needs its own interpreter env (buildbot +
+        # paramiko) — a bundled buildbot-venv in packaged installs, or
+        # TO_BUILDBOT_PYTHON for development hosts. Files + units are
+        # always staged; --setup (basedir creation) needs the env.
+        if args.orchestrator in ("buildbot", "both"):
+            bb_home = data / "buildbot"
+            bb_py = os.environ.get("TO_BUILDBOT_PYTHON") or ""
+            if not bb_py:
+                cand = (payload / "buildbot-venv" / "bin" / "python3")
+                bb_py = str(cand) if cand.exists() else ""
+            sys.path.insert(0, str(REPO / "scripts"))
+            import provision_buildbot
+            bb_args = ["--home", str(bb_home),
+                       "--repo-root", str(REPO)]
+            if bb_py:
+                bb_args += ["--python", bb_py, "--setup"]
+            else:
+                print("[install] buildbot files+units staged; "
+                      "basedirs NOT created — set TO_BUILDBOT_PYTHON "
+                      "to a python with buildbot installed and re-run "
+                      "provision_buildbot.py --setup")
+            provision_buildbot.main(bb_args)
+            for unit in (bb_home / "units").glob("*.service"):
+                shutil.copy2(unit, config / unit.name)
+            print(f"[install] buildbot provisioned: {bb_home}")
+
         # Service units: web, worker, dagu, caddy — full lifecycle wiring,
         # activation needs root on the target host. The frontend choice
         # resolves: explicit --frontend > persisted config/frontend
@@ -349,13 +386,30 @@ def _stage_frontend_units(frontend: str, config: Path) -> None:
     (config / "frontend").write_text(frontend + "\n")
 
 
+BB_UNITS = (
+    "testorchestrator-buildbot-master",
+    "testorchestrator-buildbot-local",
+    "testorchestrator-buildbot-ssh",
+)
+
+
 def _enabled_units(args) -> tuple:
-    """Units the selected frontend activates. Under --frontend=cheroot
-    the public ports live inside the web unit, so caddy is staged but
-    deliberately NOT enabled — only one frontend may own them."""
+    """Units the selected frontend + orchestrator activate. Under
+    --frontend=cheroot the public ports live inside the web unit, so
+    caddy is staged but deliberately NOT enabled — only one frontend
+    may own them. --orchestrator decides whether dagu and/or the
+    buildbot master+workers are enabled (units are staged from the
+    provisioned config dir)."""
+    units = UNITS
+    orch = getattr(args, "orchestrator", "dagu")
+    if orch in ("buildbot", "both"):
+        units = units + BB_UNITS
+    if orch == "buildbot":
+        units = tuple(u for u in units if u != "testorchestrator-dagu")
     if getattr(args, "frontend", "caddy") == "cheroot":
-        return tuple(u for u in UNITS if u != "testorchestrator-caddy")
-    return UNITS
+        units = tuple(u for u in units
+                      if u != "testorchestrator-caddy")
+    return units
 
 
 def _systemctl(*argv, check=True):
@@ -381,11 +435,13 @@ def enable_services(args, config: Path) -> bool:
         "/etc/systemd/system/testorchestrator-web.service")
     web_changed = (not installed_web.exists()
                    or installed_web.read_bytes() != staged_web)
-    for u in UNITS:
+    for u in units:
         src = config / "dagu" / f"{u}.service" if "dagu" in u \
             else config / f"{u}.service"
         if src.exists():
             shutil.copy2(src, f"/etc/systemd/system/{u}.service")
+        else:
+            print(f"[install] WARNING: unit source missing for {u}")
     subprocess.check_call(["systemctl", "daemon-reload"])
     web_active = _systemctl("is-active", "--quiet",
                             "testorchestrator-web",

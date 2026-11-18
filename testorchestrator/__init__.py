@@ -408,6 +408,59 @@ def register_cli(app: Flask) -> None:
                     "testorchestrator-execution workflow is not installed "
                     "in the Dagu dags directory")
 
+    @app.cli.command("buildbot-config")
+    @click.option("--endpoint", default="http://127.0.0.1:8010",
+                help="loopback REST endpoint the adapter talks to")
+    @click.option("--username", default="to-api")
+    @click.option("--credential-ref", required=True,
+                  help="SecretRef holding the REST API password")
+    @click.option("--home", "bb_home", required=True,
+                  help="master dir (master.cfg/secrets.json/staging/)")
+    @click.option("--pidfile", default="",
+                  help="twistd.pid used to signal reconfig")
+    @click.option("--pb-port", type=int, default=9989)
+    @click.option("--www-port", type=int, default=8010)
+    @click.option("--backend/--no-backend", default=True,
+                  help="switch orchestrator_backend to buildbot")
+    @click.option("--check", is_flag=True,
+                  help="Probe /api/v2/masters after saving")
+    def buildbot_config(endpoint, username, credential_ref, bb_home,
+                        pidfile, pb_port, www_port, backend, check):
+        """Point the portal at the Buildbot master. The REST API is
+        loopback-only — the adapter is its sole client. The credential
+        is referenced by SecretRef NAME only."""
+        from . import settings as settings_mod
+        from .adapters.buildbot import BuildbotAdapter
+        from .secrets_store import read_secret
+        try:
+            read_secret(app, credential_ref)
+        except Exception as exc:
+            raise click.ClickException(
+                f"credential reference unusable: {exc}")
+        upd = {
+            "buildbot_endpoint": endpoint.rstrip("/"),
+            "buildbot_username": username,
+            "buildbot_credential_ref": credential_ref,
+            "buildbot_home": bb_home,
+            "buildbot_pidfile": pidfile or str(
+                Path(bb_home) / "master" / "twistd.pid"),
+            "buildbot_pb_port": pb_port,
+            "buildbot_www_port": www_port,
+        }
+        if backend:
+            upd["orchestrator_backend"] = "buildbot"
+        settings_mod.update(upd)
+        click.echo(f"saved buildbot_endpoint={endpoint.rstrip('/')} "
+                   f"home={bb_home} backend="
+                   f"{upd.get('orchestrator_backend', 'dagu')}")
+        if check:
+            try:
+                info = BuildbotAdapter.from_settings().health()
+            except Exception as exc:
+                raise click.ClickException(
+                    f"Buildbot health check failed: {exc}")
+            click.echo(f"health: masters={info.get('masters')}")
+
     @app.cli.command("caddy-rollback")
     def caddy_rollback():
         """Local recovery: restore the last known good Caddy config when
