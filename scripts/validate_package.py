@@ -22,6 +22,8 @@ def _worker_assets(pkg: Path) -> None:
         f"no buildbot=={m.group(1)} wheel in bundle"
     assert any(n.startswith("buildbot_worker") for n in names), \
         "buildbot-worker wheel missing from bundle"
+    assert any(n.startswith("buildbot_www") for n in names), \
+        "buildbot-www wheel missing (master web UI dep)"
     assert any(n.startswith("paramiko") for n in names), \
         "paramiko wheel missing (SSH dispatcher dep)"
 
