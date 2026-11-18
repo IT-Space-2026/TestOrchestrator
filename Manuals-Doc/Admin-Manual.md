@@ -1,7 +1,9 @@
-# TestOrchestrator 2.0.3 — Administrator Manual
+# TestOrchestrator 2.5.0 — Administrator Manual
 
-Applies to released **TestOrchestrator 2.0.3** (tag `v2.0.3`, source
-commit `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`).
+Applies to **TestOrchestrator 2.5.0** (verified build commit
+`1adf71b8d5f8`, branch `feature/cheroot-frontend`). Procedures older
+than the 2.5 additions were written against the 2.0.x releases and are
+marked accordingly.
 
 **How to read the validation markers** — every procedure carries one:
 
@@ -35,6 +37,7 @@ recaptured on 2.0.3).
   - [4.6 Ports and network flows](#46-ports-and-network-flows)
   - [4.7 Service management and logs](#47-service-management-and-logs)
   - [4.8 Uninstall](#48-uninstall)
+  - [4.9 Choosing the HTTPS frontend — Caddy (default) or Cheroot **[verified]**](#49-choosing-the-https-frontend--caddy-default-or-cheroot-verified)
 - [5. Windows installation **[code/CI — not locally validated]**](#5-windows-installation-codeci--not-locally-validated)
   - [5.1 Install and first access](#51-install-and-first-access)
   - [5.2 Certificate trust (what the installer does for you)](#52-certificate-trust-what-the-installer-does-for-you)
@@ -533,6 +536,62 @@ Stops to take, in order:
 
 Removing the payload never deletes data; deleting data is always an
 explicit separate step.
+
+### 4.9 Choosing the HTTPS frontend — Caddy (default) or Cheroot **[verified]**
+
+The public HTTPS edge has two implementations:
+
+| Tier | What it is | Selected by |
+|---|---|---|
+| **Caddy** (default) | Bundled reverse proxy in its own process; the app renders and staged-applies its Caddyfile | fresh installs, or `--frontend caddy` |
+| **Cheroot** (Linux opt-in) | TLS terminated inside the app process; Waitress stays on loopback for internal probes | `--frontend cheroot` at install or switch |
+
+Windows ships **Caddy only** — Cheroot is not validated and not
+selectable there.
+
+**Selection semantics** — `--frontend` accepts `auto` (default),
+`caddy`, `cheroot`:
+
+- `auto` keeps the choice recorded by a previous install
+  (`<config>/frontend`); on a fresh install it resolves to Caddy.
+  **Reruns and upgrades never silently switch frontends.**
+- An explicit `--frontend caddy|cheroot` switches tiers, rewrites the
+  unit set, and records the new marker.
+
+**Switching and rollback** — stop the services, rerun `install.sh`
+with the other `--frontend` value and the same `--payload/--data/
+--config` dirs, start the new unit set. Verified Caddy → Cheroot →
+Caddy on 2.5.0:
+
+- The Dagu coordinator credential is **preserved** — an installer
+  rerun reuses the provisioned credential instead of regenerating it,
+  so dispatch keeps working across reruns and switches with no
+  resync step.
+- `web.env` (`TO_SECRET_KEY`, `TO_INSTALL_ID`) is preserved, so
+  sessions and install identity survive the round trip.
+- Managed/imported certificates are served by whichever tier is
+  active; Caddy's own internal CA state is untouched by the Cheroot
+  tier, and rollback serves the same previously applied certificate.
+- Execution history, reports, and artifacts remain accessible after
+  rollback, and a new Dagu → KRE dispatch works on each tier.
+
+**Certificate Apply under Cheroot** — the same
+**Network & certificates** page handles generate and import; Apply
+reloads the in-process TLS context. Verified by fingerprint changes
+on fresh connections for both generate and import.
+
+**Frontend behavior differences** (verified; do not weaken host
+checks to change them):
+
+- Unrecognized `Host` header: Cheroot answers **421**; Caddy passes
+  the request through to the app. Both are intentional.
+- Backend down: Caddy answers **502** (no branded body); under
+  Cheroot the public listener is part of the app process, so the
+  connection is **refused** — no HTTP page is served at all.
+- **404**: both tiers render the app's error page (branded for
+  authenticated users) with the correct 404 status. There is **no
+  branded 500 page and no branded backend-down page** — do not
+  promise one.
 
 ## 5. Windows installation **[code/CI — not locally validated]**
 
@@ -1201,7 +1260,9 @@ and `update()` only accepts keys listed here.
 ### 14.3 Installer flags (one-time — `install.sh`)
 
 `--payload` / `--data` / `--config` (directories), `--https-port` /
-`--http-port` (Caddy listeners), `--service-user` (unit user),
+`--http-port` (public listeners), `--service-user` (unit user),
+`--frontend {auto,caddy,cheroot}` (public HTTPS tier — §4.9; `auto`
+keeps the recorded selection, fresh installs resolve to Caddy),
 `--no-service-start` (provision only), `--yes` (noninteractive —
 still requires `TO_LICENCE_CODE`), `--dry-run` (print the plan),
 `--upgrade` semantics: re-running on an occupied port refuses a
@@ -1211,8 +1272,8 @@ fresh install. §4.2.
 
 | Flow | Initiator → destination | Port (default) | Protocol | AuthN | Expose beyond localhost? | Verify |
 |---|---|---|---|---|---|---|
-| Browser → portal | Browser → **Caddy** | 443 (+8080 redirect) | HTTPS | session cookie (CSRF per form) | **yes** — the public edge | `curl -Ik https://<host>` |
-| Proxy → app | Caddy → **Waitress** | 127.0.0.1:18080 | HTTP | none — loopback + host allowlist | never | `curl -s 127.0.0.1:18080/login` |
+| Browser → portal | Browser → **Caddy** (default) or **Cheroot** (opt-in, §4.9) | 443 (+8080 redirect) | HTTPS | session cookie (CSRF per form — HTTPS posts need a matching `Referer`) | **yes** — the public edge | `curl -Ik https://<host>` |
+| Proxy → app | Caddy → **Waitress** (Cheroot tier: app serves publicly in-process; Waitress stays loopback) | 127.0.0.1:18080 | HTTP | none — loopback + host allowlist | never | `curl -s 127.0.0.1:18080/login` |
 | Portal → coordinator | Flask → **Dagu API** | 8096/`dagu_endpoint` | HTTP | basic-auth user, password via `dagu_credential_ref` **or** Bearer token | coordinator host only | `curl -u <u>:<p> <ep>/api/v1/dags` → 200/401 |
 | Worker → coordinator | `dagu worker` → coordinator | 50055/`dagu_coordinator_url` | **gRPC** | coordinator credentials file (0600) provisioned at install | worker-reachable hosts | worker log: `connected`/poll OK; portal shows heartbeat |
 | Portal → repositories | app → git remote | 22 or 443 | SSH/HTTPS | deploy key or token from **Credentials** | no (outbound) | binding **Sync**; check fetched SHA |
@@ -1348,7 +1409,7 @@ audited decision by design.
 |---|---|---|---|
 | Repository deploy key/token | **Credentials** (encrypted under `secret.key`) | Edit the credential; bindings pick it up next sync | no |
 | Worker agent token | runner record — SHA-256 only | **Issue token** re-generates; old token revoked | worker restart with new token |
-| Coordinator credential | `config/dagu/credentials` (0600) + portal `dagu_credential_ref` | update both together — provision via `TO_DAGU_PROVISION_PASSWORD` at install or rotate manually | dagu + web |
+| Coordinator credential | `config/dagu/credentials` (0600) + portal `dagu_credential_ref` | installer reruns **preserve** the provisioned credential (rerun/switch needs no resync); to rotate deliberately, provision via `TO_DAGU_PROVISION_PASSWORD` or update both sides together | dagu + web |
 | KRE licence/API key | **worker host only** (never the portal — `credential_file` carries just a path) | on the worker per Katalon's docs | worker executions pick it up next run |
 | TLS certificate | `data/certs/` + `certificate_*` settings | **Network & certificates** → generate/import → Apply (`previous_good` rollback if the new config breaks) | via staged apply |
 | `TO_SECRET_KEY` | `web.env` | rotate only if you're willing to invalidate all sessions | web |
@@ -1398,6 +1459,8 @@ execution's evidence export is a different, later operation.
 | 2.0.2 → 2.0.3 | Linux | **[verified]** CI `upgrade-from-v202` + the live doc environment upgraded this way | auto | **automatically repairs the 2.0.1/2.0.2 reportingLabs omission** and removes a superseded root-level `payload/reporting_labs` |
 | 1.0.2 → 2.0.3 | Windows | **[code/CI]** `upgrade-from-v102` | auto | |
 | 2.0.2 → 2.0.3 | Windows | **[code/CI]** `upgrade-from-v202` | auto | |
+| — → 2.5.0 | Linux | **[verified]** fresh install, same-version reruns, Caddy↔Cheroot switching and rollback | `db-upgrade` applies; idempotent | reruns preserve the coordinator credential, `web.env` secrets, certs, and the recorded frontend choice |
+| 2.0.x → 2.5.0 | any | not validated | — | 2.0.3 was never deployed; no upgrade path is claimed — install fresh |
 
 Rules: **back up `data/` first** (§16). Re-running the installer on
 the same directories performs the in-place upgrade; running an app

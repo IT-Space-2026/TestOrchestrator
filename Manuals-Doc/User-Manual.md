@@ -1,7 +1,7 @@
-# TestOrchestrator 2.0.2 — User Manual
+# TestOrchestrator 2.5.0 — User Manual
 
-Applies to released **TestOrchestrator 2.0.2** (tag `v2.0.2`, source
-commit `574860d08124411692b141643da0ad87e576100d`).
+Applies to **TestOrchestrator 2.5.0** (verified build commit
+`1adf71b8d5f8`).
 
 All screenshots were captured from a real Linux installation of the
 published release package using safe demonstration data. Where a
@@ -475,20 +475,30 @@ The execution page shows lifecycle state, outcome, worker, suite,
 timestamps, a results table, artifacts, and provenance.
 
 States you will see: `queued` → `dispatched`/`running` → a terminal
-state (`completed`, `failed`, `canceled`). **Outcome** (`passed`,
-`failed`, …) is computed from the returned test results — it is
-distinct from the lifecycle state. A run can be `completed` with
-outcome `failed` (tests ran and failed) or `failed` with no outcome
-(the machinery broke).
+state (`completed`, `failed`, `canceled`). A run you cancel sits in
+`cancel_requested` until the coordinator confirms termination. A run
+whose outcome the portal cannot determine lands in `unknown` — that
+is honest uncertainty, never silently retried; check its error text
+and audit trail before deciding to rerun it manually. **Outcome**
+(`passed`, `failed`, …) is computed from the returned test results —
+it is distinct from the lifecycle state. A run can be `completed`
+with outcome `failed` (tests ran and failed) or `failed` with no
+outcome (the machinery broke).
 
 ![Execution detail — imported run with provenance](Screenshot-Doc/user/execution-detail-imported.png)
 
 ### 4.4 Cancellation, retry, and deletion
 
 - **Cancel** — requests cancellation per selected execution (the bulk
-  bar on the Executions page, or per execution). Cancelling asks the
-  coordinator to stop; it does **not** guarantee a remote process has
-  already halted — the page says so explicitly.
+  bar on the Executions page, or per execution). The execution moves
+  to `cancel_requested` while the portal asks the coordinator to stop
+  the workflow run; once the coordinator confirms the abort, the
+  execution settles in terminal `canceled` and both steps appear in
+  the audit trail. A cancel request is honored quickly — the brief
+  `cancel_requested` window is the stop propagating, not a stuck
+  state. If the coordinator itself was unreachable, the run can land
+  in `unknown` instead of `canceled` — treat that as "termination
+  unconfirmed" and check the audit trail.
 - **Retry** — re-queues a finished execution with its recorded run
   configuration, linked as a new attempt.
 - **Delete** — marks the execution for deletion. The portal first
