@@ -1036,7 +1036,9 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         remote = runner.ssh_workdir.rstrip("/") + "/" + ex.id
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
-            project_path=remote + "/proj",
+            # source.tar holds a top-level src/ — the remote project
+            # root after untar is <workdir>/proj/src.
+            project_path=remote + "/proj/src",
             suite_path=_snapshot_suite_path(ex),
             report_dir=remote + "/Reports",
             profile=rc.get("profile", "default"),

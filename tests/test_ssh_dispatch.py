@@ -58,7 +58,10 @@ def _spec(tmp: Path, server: TestSSHServer, exe: Path,
         "remote_workdir": str(workdir),
         "source_tar": str(_source_tar(tmp)),
         "executable": str(exe),
-        "args": ["-runMode=console"],
+        # Mirrors dispatch's arg construction: -reportFolder is an
+        # ABSOLUTE path inside the remote run dir.
+        "args": ["-runMode=console",
+                 f"-reportFolder={workdir}/Reports"],
         "report_rel": "Reports",
         "timeout_s": 60,
     }
@@ -77,8 +80,10 @@ def test_fresh_run_collects(tmp_path):
     server = TestSSHServer(Path("/"))
     exe = _runner_exec(
         tmp_path,
-        'mkdir -p Reports && echo "<testsuite tests=\'1\'/>" '
-        '> Reports/junit.xml && echo stub-done && exit 0\n')
+        'for a in "$@"; do case "$a" in -reportFolder=*) '
+        'RF="${a#-reportFolder=}";; esac; done\n'
+        'mkdir -p "$RF" && echo "<testsuite tests=\'1\'/>" '
+        '> "$RF/junit.xml" && echo stub-done && exit 0\n')
     spec = _spec(tmp_path, server, exe, tmp_path / "rd1")
     work = tmp_path / "dwork1"
     work.mkdir()

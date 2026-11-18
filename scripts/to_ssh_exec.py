@@ -244,9 +244,10 @@ def _collect(client, spec, local_dir: Path) -> None:
     try:
         _get("run.out", "run.out")
         _get("exit_code", "exit_code")
-        # run.sh cds into <wd>/proj — the report tree lands under it
+        # The runner's -reportFolder is an ABSOLUTE path under the run
+        # dir (dispatch passes <wd>/<report_rel>) — collect from there.
         report_rel = (spec.get("report_rel") or "Reports").strip("/")
-        _walk(f"{wd}/proj/{report_rel}", report_rel)
+        _walk(f"{wd}/{report_rel}", report_rel)
     finally:
         sftp.close()
 
