@@ -145,7 +145,7 @@ def main() -> int:
                     if bb_sources else None,
             },
             "stale_guard": "release dir cleaned at build start; "
-                           "worker-payload and older worker exes rebuilt",
+                           "bb-worker-payload and older worker exes rebuilt",
         }
         # The worker exe is built (step 2/5) and ships INSIDE the
         # tarball — the portal serves it as a download. It is no
