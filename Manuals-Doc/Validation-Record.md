@@ -199,4 +199,6 @@ environment. Cypress/Playwright/Robot Framework: **not applicable** —
 not shipped in 2.5.0.
 
 **Not exercised:** root/system-scope `:443`, real reboot, root-required
-`installed-validate` steps, system-scope upgrade, Windows Cheroot.
+`installed-validate` steps, Windows Cheroot. System-scope upgrade was
+dropped from the checklist — 2.0.3 was never deployed, so no upgrade
+path is claimed for 2.5.0.

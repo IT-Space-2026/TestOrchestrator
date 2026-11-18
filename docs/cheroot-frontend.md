@@ -114,7 +114,8 @@ managed files on both tiers, so no client change is needed there.
 | Linux x86_64, systemd, unprivileged or root install | supported opt-in |
 | Linux other distros/arch | not tested |
 | Windows | not validated — Caddy only |
-| Root system-scope on :443, reboot, upgrade from released build | release-gate checks; tracked in the 2.5 PR |
+| Root system-scope on :443, real reboot | not exercised — no root in the test environment |
+| Upgrade from a released build | removed from the release checklist — 2.0.3 was never deployed, so no upgrade path is claimed; install fresh |
 
 ## Operational notes
 

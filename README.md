@@ -18,14 +18,14 @@ resolves to commit `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`
 
 ## Manuals
 
-- **[User manual](Manuals-Doc/User-Manual.md)** — sign-in, roles,
+- **[User manual](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/User-Manual.md)** — sign-in, roles,
   projects and repository bindings, worker runs, historical-result
   import, reports and evidence.
-- **[Admin manual](Manuals-Doc/Admin-Manual.md)** — installation,
+- **[Admin manual](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/Admin-Manual.md)** — installation,
   configuration, workers, security, backup/upgrade, maintenance,
   troubleshooting.
-- **[Screenshot index](Manuals-Doc/Screenshot-Doc/Screenshot-Index.md)**
-  and **[validation record](Manuals-Doc/Validation-Record.md)** —
+- **[Screenshot index](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/Screenshot-Doc/Screenshot-Index.md)**
+  and **[validation record](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/Validation-Record.md)** —
   screenshots were captured on the released 2.0.2 package; the record
   states which procedures were verified on which version.
 
