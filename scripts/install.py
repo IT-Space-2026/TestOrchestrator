@@ -502,6 +502,9 @@ def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
     for stale in dst_dir.glob(
             "TestOrchestrator-Buildbot-Worker-Setup-*.exe"):
         stale.unlink()
+    for stale in dst_dir.glob(
+            "TestOrchestrator-Buildbot-Sources-*.tar.gz"):
+        stale.unlink()
     if not exes:
         print("[install] WARNING: no buildbot-worker installer in the "
               "package — Windows worker download will show the "
@@ -510,6 +513,13 @@ def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
     dst = dst_dir / exes[-1].name
     shutil.copy2(exes[-1], dst)
     print(f"[install] worker installer asset: {dst.name}")
+    # The corresponding-source archive must sit beside the .exe — the
+    # Admin-UI download serves it from this same directory and the
+    # §3(a) pairing is broken (404) if the installer strands it.
+    for src in sorted(src_dir.glob(
+            "TestOrchestrator-Buildbot-Sources-*.tar.gz")):
+        shutil.copy2(src, dst_dir / src.name)
+        print(f"[install] corresponding-sources asset: {src.name}")
     return dst
 
 
