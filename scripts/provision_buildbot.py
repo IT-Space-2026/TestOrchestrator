@@ -160,22 +160,25 @@ def main(argv=None):
 
     # systemd unit staging — Type=simple nodaemon; activation needs the
     # service manager (user-scope for tests, system scope for installs).
+    # NOTE: `python -m buildbot.scripts.runner` imports the module but
+    # never calls run() (no __main__ guard) — silent exit. The venv's
+    # console entry points are the supported invocation.
     pydir = str(Path(py).parent)
     units = {
         "testorchestrator-buildbot-master.service": _unit(
             "testorchestrator-buildbot-master",
-            "TestOrchestrator Buildbot master", py,
-            f"-m buildbot.scripts.runner start --nodaemon {master_dir}",
+            "TestOrchestrator Buildbot master", "",
+            f"{pydir}/buildbot start --nodaemon {master_dir}",
             master_dir),
         "testorchestrator-buildbot-local.service": _unit(
             "testorchestrator-buildbot-local",
-            "TestOrchestrator Buildbot local worker", py,
-            f"-m buildbot_worker.scripts.runner start --nodaemon "
+            "TestOrchestrator Buildbot local worker", "",
+            f"{pydir}/buildbot-worker start --nodaemon "
             f"{local_dir}", local_dir),
         "testorchestrator-buildbot-ssh.service": _unit(
             "testorchestrator-buildbot-ssh",
-            "TestOrchestrator Buildbot SSH dispatcher", py,
-            f"-m buildbot_worker.scripts.runner start --nodaemon "
+            "TestOrchestrator Buildbot SSH dispatcher", "",
+            f"{pydir}/buildbot-worker start --nodaemon "
             f"{disp_dir}", disp_dir),
     }
     for name, text in units.items():

@@ -68,7 +68,10 @@ def ensure_orchestrator_settings() -> bool:
     updates = {}
     for env_key, setting_key in mapping.items():
         val = os.environ.get(env_key, "").strip()
-        if val and not settings_mod.get(setting_key):
+        # INSERT-ONLY on the raw row — get() would mask "unset" behind
+        # the schema default and the env seed would never land.
+        row = db.session.get(settings_mod.Setting, setting_key)
+        if val and row is None:
             updates[setting_key] = (
                 int(val) if setting_key.endswith("_port") else val)
     if updates:

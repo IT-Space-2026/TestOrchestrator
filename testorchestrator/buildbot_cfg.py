@@ -172,14 +172,57 @@ def trigger_reconfig() -> bool:
     no restart. Missing/stale pidfile returns False; the UI surfaces it."""
     import signal
     pidfile = settings_mod.get("buildbot_pidfile") or ""
-    if not pidfile:
+    pid = _master_pid(pidfile)
+    if pid is None:
         return False
     try:
-        pid = int(Path(pidfile).read_text().strip())
         os.kill(pid, signal.SIGHUP)
         return True
-    except (OSError, ValueError):
+    except OSError:
         return False
+
+
+def _master_pid(pidfile: str) -> int | None:
+    """Resolve the running master pid. twistd only writes its pidfile
+    when daemonizing — the shipped unit runs ``--nodaemon`` under
+    systemd, so fall back to the service manager's MainPID, then a
+    /proc scan for a process whose cmdline names the master dir."""
+    if pidfile:
+        try:
+            pid = int(Path(pidfile).read_text().strip())
+            os.kill(pid, 0)
+            return pid
+        except (OSError, ValueError):
+            pass
+    import subprocess
+    for unit in ("testorchestrator-buildbot-master.service",):
+        for scope in ("--user", ""):
+            try:
+                out = subprocess.run(
+                    ["systemctl", *([scope] if scope else []),
+                     "show", "-p", "MainPID", "--value", unit],
+                    capture_output=True, text=True, timeout=5)
+                pid = int(out.stdout.strip() or 0)
+                if pid > 0:
+                    return pid
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                continue
+    home = settings_mod.get("buildbot_home") or ""
+    if home:
+        master = str(Path(home) / "master")
+        proc = Path("/proc")
+        if proc.is_dir():
+            for p in proc.iterdir():
+                if not p.name.isdigit():
+                    continue
+                try:
+                    cmd = (p / "cmdline").read_bytes().replace(
+                        b"\0", b" ").decode(errors="replace")
+                    if "buildbot" in cmd and master in cmd:
+                        return int(p.name)
+                except (OSError, ValueError):
+                    continue
+    return None
 
 
 def sync() -> dict:

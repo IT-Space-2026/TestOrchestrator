@@ -248,7 +248,7 @@ def main() -> None:
         # Service units: web (Cheroot in-process tier), dispatch
         # worker, buildbot master + workers — full lifecycle wiring,
         # activation needs root on the target host.
-        _stage_web_unit(config)
+        _stage_web_unit(config, payload, data)
         _write_web_env(config, data, args.https_port,
                        args.http_port)
         (config / "testorchestrator-worker.service").write_text(
@@ -258,12 +258,28 @@ def main() -> None:
             f"WorkingDirectory={payload}\n"
             f"EnvironmentFile={config}/web.env\n"
             f"Environment=FLASK_APP=wsgi:app\n"
+            f"ExecStartPre={payload}/venv/bin/python "
+            "-m testorchestrator db-upgrade\n"
             f"ExecStart={payload}/venv/bin/flask worker\n"
             f"Restart=on-failure\nRestartSec=5\n"
             f"NoNewPrivileges=true\nPrivateTmp=true\n"
             f"ProtectSystem=strict\nProtectHome=true\n"
             f"ReadWritePaths={data}\n\n"
             f"[Install]\nWantedBy=multi-user.target\n")
+
+        # Migrate now so the first service start doesn't race an empty
+        # DB (the web/worker units also carry ExecStartPre=db-upgrade).
+        if not args.dry_run:
+            env = dict(os.environ)
+            for line in (config / "web.env").read_text().splitlines():
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    env[k.strip()] = v
+            subprocess.check_call(
+                [str(payload / "venv" / "bin" / "python"),
+                 "-m", "testorchestrator", "db-upgrade"],
+                cwd=payload, env=env)
+            print("[install] database migrated to head")
 
         # Enable + start when authorized; --no-service-start or non-root
         # leaves units staged under config for manual activation.
@@ -344,11 +360,22 @@ BB_UNITS = (
 )
 
 
-def _stage_web_unit(config: Path) -> None:
+def _stage_web_unit(config: Path, payload: Path, data: Path) -> None:
     """Stage the web unit under its canonical name — the Cheroot
-    in-process tier is the only shipped frontend."""
-    shutil.copy2(REPO / "deploy" / "testorchestrator-web.service",
-                 config / "testorchestrator-web.service")
+    in-process tier is the only shipped frontend. The deploy template
+    carries the default /opt paths; substitute the requested dirs."""
+    text = (REPO / "deploy" / "testorchestrator-web.service").read_text()
+    text = (text
+            .replace("/opt/testorchestrator", str(payload))
+            .replace("/etc/testorchestrator", str(config))
+            .replace("/var/lib/testorchestrator", str(data))
+            # Fresh install must not crash-loop the services on an
+            # unmigrated DB — migrate before every web start (matches
+            # the frozen toctl unit's ExecStartPre).
+            .replace("ExecStart=",
+                     f"ExecStartPre={payload}/venv/bin/python "
+                     "-m testorchestrator db-upgrade\nExecStart=", 1))
+    (config / "testorchestrator-web.service").write_text(text)
 
 
 def _enabled_units(args) -> tuple:

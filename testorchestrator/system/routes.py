@@ -1352,7 +1352,8 @@ def issue_bb_secret(runner_id):
     ref = f"buildbot-worker-{worker}"
     password = _secrets.token_urlsafe(24)
     store_secret(current_app._get_current_object(), ref, "buildbot",
-                 password, {"purpose": "pb worker password"})
+                 password, {"purpose": "pb worker password"},
+                 internal=True)
     runner.bb_credential_ref = ref
     db.session.commit()
     buildbot_cfg.sync()

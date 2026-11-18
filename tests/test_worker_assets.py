@@ -44,7 +44,16 @@ def _wheels(dirpath: Path, version: str = "4.3.0") -> None:
     d.mkdir(parents=True, exist_ok=True)
     (d / f"buildbot-{version}-py3-none-any.whl").write_bytes(b"w")
     (d / f"buildbot_worker-{version}-py3-none-any.whl").write_bytes(b"w")
+    (d / f"buildbot_www-{version}-py3-none-any.whl").write_bytes(b"w")
     (d / "paramiko-3.5.0-py3-none-any.whl").write_bytes(b"w")
+    # §3(a) corresponding-source archive beside the exe + licence texts
+    (dirpath / "packaging" / "windows").mkdir(parents=True, exist_ok=True)
+    (dirpath / "packaging" / "windows" /
+     "TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz").write_bytes(b"s")
+    lic = dirpath / "3rdparty" / "licenses"
+    lic.mkdir(parents=True, exist_ok=True)
+    (lic / "buildbot-COPYING").write_bytes(b"l")
+    (lic / "paramiko-LICENSE").write_bytes(b"l")
 
 
 # ------------------------------------------------------------------

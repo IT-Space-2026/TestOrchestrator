@@ -29,6 +29,13 @@ if __name__ == "__main__":
         # back to schema defaults, which match the packaged defaults.
         with app.app_context():
             try:
+                # Env→DB bridge must run BEFORE the listeners bind:
+                # before_request is too late — a migrated-but-unseeded
+                # install would otherwise bind the packaged defaults
+                # instead of the installer's ports.
+                from testorchestrator.bootstrap import (
+                    ensure_orchestrator_settings)
+                ensure_orchestrator_settings()
                 settings = settings_mod.all_settings()
             except Exception:
                 app.logger.warning(
