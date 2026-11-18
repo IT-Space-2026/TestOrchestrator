@@ -666,6 +666,48 @@ def worker_launcher(worker_id, kre_label):
                              f"attachment; filename={name}"})
 
 
+def _bb_worker_installer_asset() -> dict | None:
+    """The bundled offline Buildbot-worker Windows installer — the
+    standalone .exe the admin downloads and runs on the remote host.
+    Missing artifact -> the UI shows an explicit error, not a broken
+    link (§3 of the replacement contract)."""
+    import hashlib
+    from pathlib import Path
+    d = (Path(current_app.root_path).parent / "packaging" / "windows")
+    for p in sorted(d.glob("TestOrchestrator-Buildbot-Worker-Setup-"
+                           "*.exe")):
+        h = hashlib.sha256()
+        with p.open("rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        ver = re.search(r"Setup-(\d+\.\d+\.\d+)", p.name)
+        return {"file": p.name, "size": p.stat().st_size,
+                "version": ver.group(1) if ver else "?",
+                "sha256": h.hexdigest()}
+    return None
+
+
+@system_bp.route("/infrastructure/buildbot-worker-installer/"
+                 "<filename>")
+@role_required(Role.ADMIN)
+def buildbot_worker_installer_download(filename):
+    """Serve the bundled offline Buildbot worker installer — no
+    credentials in the URL or the artifact; workername/password come
+    from the target record, entered at install time."""
+    import re
+    from pathlib import Path
+    if not re.fullmatch(
+            r"TestOrchestrator-Buildbot-Worker-Setup-"
+            r"\d+\.\d+\.\d+(-UNSIGNED)?\.exe", filename):
+        abort(404)
+    path = (Path(current_app.root_path).parent
+            / "packaging" / "windows" / filename)
+    if not path.exists():
+        abort(404)
+    return send_file(path, as_attachment=True,
+                     download_name=filename)
+
+
 @system_bp.route("/infrastructure/dagu-worker-installer/<filename>")
 @role_required(Role.ADMIN)
 def dagu_worker_installer_download(filename):
@@ -1062,6 +1104,12 @@ def _render_infrastructure(runner_form, runtime_form):
             per_runner.setdefault(rt.runner_id, []).append(rt)
         else:
             unbound.append(rt)
+    from ..secrets_store import list_secret_meta
+    try:
+        secret_names = sorted(
+            s["name"] for s in list_secret_meta())
+    except Exception:
+        secret_names = []
     return render_template(
         "system/infrastructure.html",
         runners=runners, runtimes=runtimes,
@@ -1071,30 +1119,318 @@ def _render_infrastructure(runner_form, runtime_form):
         runner_choices=[(r.id, r.name) for r in Runner.query.all()],
         dagu_assets=_dagu_worker_assets(),
         worker_installer=_worker_installer_asset(),
+        bb_installer=_bb_worker_installer_asset(),
+        secret_names=secret_names,
     )
 
 
 @system_bp.route("/infrastructure/runners", methods=["POST"])
 @role_required(Role.ADMIN)
 def create_runner():
+    """Add an execution target. target_type picks the delivery path:
+
+    - ``local``            portal-host runner (unchanged behaviour)
+    - ``buildbot-worker``  Windows/Linux worker — a unique PB
+      workername + per-worker password are generated; the password is
+      shown ONCE in the flash, only its secret ref persists.
+    - ``ssh``              agentless host — connectivity config only;
+      key material goes to the secrets store, host identity needs an
+      explicit approve step before the target is usable.
+    """
     import json
+    import secrets as _secrets
+    from .. import buildbot_cfg
     from ..execution import Project, Runner
+    from ..secrets_store import SecretError, store_secret
     form = RunnerForm()
     form.allowed_projects.choices = [
         (p.id, p.name) for p in Project.query.all()]
     if form.validate_on_submit():
-        db.session.add(Runner(
+        kind = form.target_type.data or "local"
+        runner = Runner(
             name=form.name.data.strip(),
             description=form.description.data or "",
             os_arch=form.os_arch.data or "",
-            connection_mode=form.connection_mode.data,
+            connection_mode="local" if kind == "local" else "remote",
+            target_type=kind,
             workspace_root=form.workspace_root.data or "",
             max_slots=form.max_slots.data or 1,
-            allowed_projects=json.dumps(form.allowed_projects.data or []),
-        ))
+            allowed_projects=json.dumps(
+                form.allowed_projects.data or []),
+        )
+        if kind == "buildbot-worker":
+            db.session.add(runner)
+            db.session.flush()
+            worker = buildbot_cfg.ensure_worker_name(runner)
+            ref = f"buildbot-worker-{worker}"
+            password = _secrets.token_urlsafe(24)
+            try:
+                store_secret(current_app._get_current_object(), ref,
+                             "buildbot", password,
+                             {"purpose": "pb worker password"})
+            except SecretError as exc:
+                db.session.rollback()
+                flash(f"Worker credential could not be stored — {exc}",
+                      "error")
+                return redirect(url_for("system.infrastructure"))
+            runner.bb_credential_ref = ref
+            db.session.commit()
+            buildbot_cfg.sync()
+            record_audit(current_user.username, "runner.created",
+                         runner.name)
+            flash(
+                f"Buildbot worker credentials for {runner.name} — "
+                f"copy now, never shown again. workername: {worker} · "
+                f"password: {password}", "info")
+            return redirect(url_for("system.infrastructure"))
+        if kind == "ssh":
+            host = (form.ssh_host.data or "").strip()
+            user = (form.ssh_username.data or "").strip()
+            if not host or not user:
+                flash("SSH targets require a host and SSH username.",
+                      "error")
+                return redirect(url_for("system.infrastructure"))
+            runner.ssh_host = host
+            runner.ssh_port = form.ssh_port.data or 22
+            runner.ssh_username = user
+            runner.ssh_workdir = (form.ssh_workdir.data or "").strip()
+            key_text = (form.ssh_key.data or "").strip()
+            ref = (form.ssh_credential_ref.data or "").strip()
+            if key_text:
+                ref = f"ssh-{runner.name[:24]}"
+                try:
+                    store_secret(current_app._get_current_object(),
+                                 ref, "ssh", key_text,
+                                 {"purpose": "ssh target private key"})
+                except SecretError as exc:
+                    db.session.rollback()
+                    flash(f"SSH key could not be stored — {exc}",
+                          "error")
+                    return redirect(url_for("system.infrastructure"))
+            if not ref:
+                flash("SSH targets need a credential — select an "
+                      "existing secret or paste a private key.",
+                      "error")
+                return redirect(url_for("system.infrastructure"))
+            runner.ssh_credential_ref = ref
+            db.session.add(runner)
+            db.session.commit()
+            record_audit(current_user.username, "runner.created",
+                         runner.name)
+            flash("SSH target saved — run Test Connection and approve "
+                  "the host key before dispatch.", "info")
+            return redirect(url_for("system.infrastructure"))
+        db.session.add(runner)
         db.session.commit()
         record_audit(current_user.username, "runner.created",
-                     form.name.data.strip())
+                     runner.name)
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/infrastructure/runners/<runner_id>/toggle",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def toggle_runner(runner_id):
+    """Enable/disable a target. Disabled = excluded from assignment —
+    queued rows already assigned stay bound to it (never silently
+    retargeted); running work is untouched."""
+    from ..execution import Runner
+    ApplyForm().validate_on_submit()
+    runner = db.session.get(Runner, runner_id)
+    if runner is None:
+        abort(404)
+    runner.enabled = not runner.enabled
+    db.session.commit()
+    record_audit(current_user.username, "runner.toggle", runner.name)
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/infrastructure/runners/<runner_id>/remove",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def remove_runner(runner_id):
+    """Remove a target — refused while any non-terminal execution
+    references it or a runtime is still bound. The admin disables and
+    unbinds first; nothing is silently redirected or abandoned."""
+    from ..execution import (Execution, ExecutionState, Runner,
+                             RuntimeConnection)
+    ApplyForm().validate_on_submit()
+    runner = db.session.get(Runner, runner_id)
+    if runner is None:
+        abort(404)
+    bound = RuntimeConnection.query.filter_by(
+        runner_id=runner.id).count()
+    if bound:
+        flash(f"Cannot remove {runner.name} — {bound} runtime "
+              "installation(s) still bound. Remove or rebind them "
+              "first.", "error")
+        return redirect(url_for("system.infrastructure"))
+    active = Execution.query.filter(
+        Execution.runner_id == runner.id,
+        Execution.state.in_([
+            ExecutionState.QUEUED, ExecutionState.DISPATCHED,
+            ExecutionState.PREPARING, ExecutionState.RUNNING,
+            ExecutionState.COLLECTING, ExecutionState.NORMALIZING,
+            ExecutionState.FINALIZING, ExecutionState.CANCEL_REQUESTED,
+        ])).count()
+    if active:
+        flash(f"Cannot remove {runner.name} — {active} execution(s) "
+              "still reference it. Cancel or let them finish first.",
+              "error")
+        return redirect(url_for("system.infrastructure"))
+    name = runner.name
+    db.session.delete(runner)
+    db.session.commit()
+    record_audit(current_user.username, "runner.removed", name)
+    flash(f"Target {name} removed.", "info")
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/infrastructure/runners/<runner_id>/test",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def test_runner(runner_id):
+    """Admin 'Test' per target type — records check_status/error/at:
+
+    - local            trivially ok (the portal host itself)
+    - buildbot-worker  PB worker currently connected?
+      unregistered/unreachable are distinct from ok.
+    - ssh              staged probe: reachability -> host-key ->
+      authentication -> workdir -> sftp -> runner prerequisites.
+      A first-contact host returns its fingerprint for approval —
+      that is a required step, not a failure.
+    """
+    from ..execution import Runner, RuntimeConnection, utcnow
+    ApplyForm().validate_on_submit()
+    runner = db.session.get(Runner, runner_id)
+    if runner is None:
+        abort(404)
+    runner.check_at = utcnow()
+    if runner.target_type == "local":
+        runner.check_status, runner.check_error = "ok", ""
+        flash("Local target — always available on this host.", "info")
+    elif runner.target_type == "buildbot-worker":
+        try:
+            from ..adapters.buildbot import BuildbotAdapter
+            online = {w.get("name") for w in
+                      BuildbotAdapter.from_settings().workers()
+                      if w.get("connected_to")}
+        except Exception as exc:
+            runner.check_status, runner.check_error = (
+                "fail", f"master unreachable — {exc}")
+            flash(f"Worker check failed: {exc}", "error")
+        else:
+            if runner.bb_worker_name in online:
+                runner.check_status, runner.check_error = "ok", ""
+                runner.health, runner.heartbeat_at = "ok", utcnow()
+                flash(f"Worker {runner.bb_worker_name} connected.",
+                      "info")
+            else:
+                runner.check_status = "unregistered"
+                runner.check_error = ("worker has not connected — "
+                                      "install/run it on the host "
+                                      "first")
+                runner.health = "unreachable"
+                flash("Worker not connected — the portal record "
+                      "exists but no worker has registered.",
+                      "error")
+    elif runner.target_type == "ssh":
+        try:
+            from .. import ssh_check
+            rts = RuntimeConnection.query.filter_by(
+                runner_id=runner.id, enabled=True).all()
+            res = ssh_check.check_target(runner, rts)
+        except Exception as exc:
+            runner.check_status, runner.check_error = (
+                "fail", f"check unavailable — {exc}")
+            flash(f"SSH check could not run: {exc}", "error")
+        else:
+            runner.check_status = res.status
+            runner.check_error = res.error
+            if res.status == "ok":
+                runner.health, runner.heartbeat_at = "ok", utcnow()
+                flash("SSH connection verified — all checks passed.",
+                      "info")
+            elif res.status == "unverified":
+                # The discovered fingerprint is what the admin
+                # approves — stored in check_error so the Approve
+                # action can pin exactly the displayed key (re-fetched
+                # and matched server-side at approval).
+                runner.check_error = res.fingerprint
+                flash(f"Host key needs approval — {res.key_alg} "
+                      f"{res.fingerprint}. Verify it against the "
+                      "host's known key, then Approve.", "error")
+            else:
+                runner.health = "unreachable"
+                flash(f"SSH check failed at {res.stage}: "
+                      f"{res.error}", "error")
+    db.session.commit()
+    record_audit(current_user.username, "runner.test", runner.name)
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/infrastructure/runners/<runner_id>/approve-hostkey",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def approve_hostkey(runner_id):
+    """Pin the displayed host key — the admin saw the fingerprint in
+    the check output; we re-fetch and require it to match the value
+    shown, so a key swapped between display and approval is rejected."""
+    from ..execution import Runner, utcnow
+    ApplyForm().validate_on_submit()
+    runner = db.session.get(Runner, runner_id)
+    if runner is None or runner.target_type != "ssh":
+        abort(404)
+    expected = (request.form.get("fingerprint") or "").strip()
+    try:
+        from .. import ssh_check
+        alg, fp = ssh_check.probe_host_key(
+            runner.ssh_host, runner.ssh_port or 22)
+    except Exception as exc:
+        flash(f"Could not fetch host key — {exc}", "error")
+        return redirect(url_for("system.infrastructure"))
+    if not expected or fp != expected:
+        flash(f"Refusing to pin — displayed fingerprint "
+              f"{expected or '(none)'} does not match the host's "
+              f"current key {fp}. Re-run Test Connection.", "error")
+        return redirect(url_for("system.infrastructure"))
+    runner.ssh_host_key_alg = alg
+    runner.ssh_host_key_fingerprint = fp
+    runner.check_status, runner.check_error = "", ""
+    runner.check_at = utcnow()
+    db.session.commit()
+    record_audit(current_user.username, "runner.hostkey_approved",
+                 runner.name)
+    flash(f"Host key pinned: {alg} {fp}", "info")
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/infrastructure/runners/<runner_id>/issue-bb-secret",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def issue_bb_secret(runner_id):
+    """(Re)issue the per-worker PB password — plaintext shown once,
+    same pattern as the agent token. Old password stops working."""
+    import secrets as _secrets
+    from .. import buildbot_cfg
+    from ..execution import Runner
+    from ..secrets_store import store_secret
+    ApplyForm().validate_on_submit()
+    runner = db.session.get(Runner, runner_id)
+    if runner is None or runner.target_type != "buildbot-worker":
+        abort(404)
+    worker = buildbot_cfg.ensure_worker_name(runner)
+    ref = f"buildbot-worker-{worker}"
+    password = _secrets.token_urlsafe(24)
+    store_secret(current_app._get_current_object(), ref, "buildbot",
+                 password, {"purpose": "pb worker password"})
+    runner.bb_credential_ref = ref
+    db.session.commit()
+    buildbot_cfg.sync()
+    record_audit(current_user.username, "runner.bb_secret_issued",
+                 runner.name)
+    flash(f"New Buildbot worker password for {runner.name} — copy "
+          f"now: {password}", "info")
     return redirect(url_for("system.infrastructure"))
 
 
@@ -1105,7 +1441,14 @@ def create_runtime():
     form = RuntimeForm()
     is_remote = request.form.get("exec_location") == "remote"
     worker_label = (form.worker_label.data or "").strip()
-    if is_remote:
+    # Buildbot/SSH targets bind by runner — the dagu worker label only
+    # applies to legacy dagu remote runners.
+    _sel = db.session.get(Runner, (form.runner_id.data or "").strip()) \
+        if (form.runner_id.data or "").strip() else None
+    needs_label = is_remote and (
+        _sel is None or _sel.target_type not in
+        ("buildbot-worker", "ssh"))
+    if needs_label:
         # A remote installation is bound to exactly one Dagu worker —
         # the label must match the worker's --worker.labels kre=<tag>
         # and must be unique across installations (dispatch refuses
@@ -1155,7 +1498,9 @@ def create_runtime():
             name=form.name.data.strip(),
             description=form.description.data or "",
             runner_id=_runner.id,
-            transport=("dagu-worker" if is_remote else "local"),
+            transport=("dagu-worker" if is_remote and worker_label
+                       else (_runner.target_type
+                             if is_remote else "local")),
             executable_path=form.executable_path.data.strip(),
             workspace_root=form.workspace_root.data or "",
             git_ssh_key_path=form.git_ssh_key_path.data or "",
@@ -1266,15 +1611,52 @@ def edit_runner(runner_id):
     ls = request.form.get("license_slots")
     if ls is not None:
         runner.license_slots = int(ls) if ls.strip() else None
+    if runner.target_type == "ssh":
+        # SSH connectivity edits — a host/port/user change means the
+        # pinned host key and last check no longer describe the same
+        # machine: clear approval and re-verify.
+        changed_identity = False
+        for field_name, attr in (("ssh_host", "ssh_host"),
+                                 ("ssh_username", "ssh_username"),
+                                 ("ssh_workdir", "ssh_workdir")):
+            v = request.form.get(field_name)
+            if v is not None and v.strip() != getattr(runner, attr):
+                if attr != "ssh_workdir":
+                    changed_identity = True
+                setattr(runner, attr, v.strip())
+        sp = request.form.get("ssh_port")
+        if sp:
+            port = int(sp)
+            if port != (runner.ssh_port or 22):
+                changed_identity = True
+                runner.ssh_port = port
+        ref = request.form.get("ssh_credential_ref")
+        if ref is not None and ref.strip():
+            runner.ssh_credential_ref = ref.strip()
+        key_text = (request.form.get("ssh_key") or "").strip()
+        if key_text:
+            from ..secrets_store import store_secret
+            new_ref = f"ssh-{runner.name[:24]}-{runner.id[:8]}"
+            store_secret(current_app._get_current_object(), new_ref,
+                         "ssh", key_text,
+                         {"purpose": "ssh target private key"})
+            runner.ssh_credential_ref = new_ref
+        if changed_identity:
+            runner.ssh_host_key_alg = ""
+            runner.ssh_host_key_fingerprint = ""
+            runner.check_status = "unverified"
+            runner.check_error = ("identity changed — re-approve the "
+                                  "host key")
+            flash("SSH identity changed — the host key must be "
+                  "re-approved before dispatch.", "info")
     if (runner.os_arch != old_arch or
             runner.workspace_root != old_ws):
-        from ..execution import RuntimeConnection
+        from ..execution import RuntimeConnection, utcnow
         for rt in RuntimeConnection.query.filter_by(
                 runner_id=runner.id):
             rt.detected_version = ""
-            from ..execution import utcnow
-        rt.last_check_at = utcnow()
-        rt.last_diagnostic = (
+            rt.last_check_at = utcnow()
+            rt.last_diagnostic = (
                 "re-check required — runner config changed")
     db.session.commit()
     record_audit(current_user.username, "runner.edited", runner.name)

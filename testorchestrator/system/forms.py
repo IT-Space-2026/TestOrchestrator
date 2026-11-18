@@ -134,6 +134,29 @@ class RunnerForm(FlaskForm):
                  ("remote", "Remote (pending agent transport)")],
         default="local",
     )
+    target_type = RadioField(
+        "Target type",
+        choices=[("local", "This host"),
+                 ("buildbot-worker", "Buildbot worker"),
+                 ("ssh", "Agentless Linux SSH")],
+        default="local",
+    )
+    ssh_host = StringField("SSH host", validators=[Optional(),
+                                                 Length(max=256)])
+    ssh_port = IntegerField("SSH port", validators=[Optional(),
+                                                  NumberRange(1, 65535)])
+    ssh_username = StringField("SSH username", validators=[Optional(),
+                                                         Length(max=64)])
+    ssh_workdir = StringField("Remote working directory",
+                              validators=[Optional(), Length(max=512)])
+    ssh_credential_ref = StringField("SSH credential (existing secret)",
+                                     validators=[Optional(),
+                                                 Length(max=64)])
+    ssh_key = TextAreaField(
+        "New SSH private key",
+        validators=[Optional()],
+        description="PEM private key — stored encrypted under a "
+                    "generated reference; never shown again.")
     workspace_root = StringField("Workspace root", validators=[Optional()])
     max_slots = IntegerField("Max concurrent slots", default=1)
     allowed_projects = SelectMultipleField("Allowed projects",

@@ -56,46 +56,68 @@ def _fingerprints(key) -> dict:
     }
 
 
-def _connect(spec) -> paramiko.SSHClient:
+class _Client:
+    """Thin wrapper so the rest of the dispatcher keeps its
+    SSHClient-shaped call sites (exec_command/open_sftp/close) while
+    the connect path verifies the pinned key itself."""
+
+    def __init__(self, transport):
+        self._t = transport
+
+    def exec_command(self, cmd, timeout=30):
+        chan = self._t.open_session(timeout=timeout)
+        chan.settimeout(timeout)
+        chan.exec_command(cmd)
+        return chan, chan.makefile("rb"), chan.makefile_stderr("rb")
+
+    def open_sftp(self):
+        return paramiko.SFTPClient.from_transport(self._t)
+
+    def close(self):
+        self._t.close()
+
+
+def _connect(spec) -> _Client:
     """Connect + verify the host key against the ADMIN-APPROVED
-    fingerprint — an unexpected key is a hard failure (re-verify in
-    the portal), never a silent accept."""
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.RejectPolicy())
+    fingerprint BEFORE authenticating — an unexpected key is a hard
+    failure (re-verify in the portal), never a silent accept."""
     key_file = spec.get("key_file") or None
-    kwargs = {}
-    if key_file and Path(key_file).is_file():
-        pkey = None
-        last_exc = None
-        for cls in (paramiko.Ed25519Key, paramiko.RSAKey,
-                    paramiko.ECDSAKey, paramiko.DSSKey):
-            try:
-                pkey = cls.from_private_key_file(key_file)
-                break
-            except paramiko.SSHException as exc:
-                last_exc = exc
-        if pkey is None:
-            raise SystemExit(f"ssh key unreadable: {last_exc}")
-        kwargs["pkey"] = pkey
-    else:
+    if not (key_file and Path(key_file).is_file()):
         raise SystemExit("spec has no usable key_file")
-    client.connect(spec["host"], port=int(spec.get("port") or 22),
-                   username=spec["username"], timeout=20,
-                   banner_timeout=20, auth_timeout=20,
-                   look_for_keys=False, allow_agent=False, **kwargs)
-    transport = client.get_transport()
-    remote_key = transport.get_remote_server_key()
-    fps = _fingerprints(remote_key)
-    approved = spec.get("host_key_fingerprint") or ""
-    if approved and approved not in fps.values():
+    pkey = None
+    last_exc = None
+    for cls in (paramiko.Ed25519Key, paramiko.RSAKey,
+                paramiko.ECDSAKey, paramiko.DSSKey):
+        try:
+            pkey = cls.from_private_key_file(key_file)
+            break
+        except paramiko.SSHException as exc:
+            last_exc = exc
+    if pkey is None:
+        raise SystemExit(f"ssh key unreadable: {last_exc}")
+    import socket as _sock
+    transport = paramiko.Transport(_sock.create_connection(
+        (spec["host"], int(spec.get("port") or 22)), timeout=20))
+    try:
+        transport.start_client(timeout=20)
+        remote_key = transport.get_remote_server_key()
+        fps = _fingerprints(remote_key)
+        approved = spec.get("host_key_fingerprint") or ""
+        if approved and approved not in fps.values():
+            raise SystemExit(
+                "HOST KEY MISMATCH: approved fingerprint "
+                f"{approved!r} but host presented "
+                f"{fps['SHA256']} — re-verify the target in the "
+                "portal before running")
+        print(f"TO-SSH: host key verified {fps['SHA256']}")
+        transport.auth_publickey(spec["username"], pkey)
+    except SystemExit:
         transport.close()
-        raise SystemExit(
-            "HOST KEY MISMATCH: approved fingerprint "
-            f"{approved!r} but host presented "
-            f"{fps['SHA256']} — re-verify the target in the portal "
-            "before running")
-    print(f"TO-SSH: host key verified {fps['SHA256']}")
-    return client
+        raise
+    except Exception:
+        transport.close()
+        raise
+    return _Client(transport)
 
 
 def _exec(client, cmd: str, timeout: float = 30) -> tuple:
@@ -222,7 +244,9 @@ def _collect(client, spec, local_dir: Path) -> None:
     try:
         _get("run.out", "run.out")
         _get("exit_code", "exit_code")
-        _walk(wd + "/Reports", "Reports")
+        # run.sh cds into <wd>/proj — the report tree lands under it
+        report_rel = (spec.get("report_rel") or "Reports").strip("/")
+        _walk(f"{wd}/proj/{report_rel}", report_rel)
     finally:
         sftp.close()
 
