@@ -108,6 +108,7 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 | Ubuntu x86_64 (central server) | **2.5.0 released** | `testorchestrator-2.5.0-linux-x86_64.tar.gz` / `.run` (GitHub release assets + `SHA256SUMS.txt` + `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz`) |
 | Windows amd64 (central server) | **2.5.0, unsigned** | `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe` — Cheroot portal + Buildbot on Scheduled Tasks |
 | Windows amd64 (execution host) | **2.5.0, unsigned** | `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` — bundled in the packages + Admin UI |
+| Linux x86_64 (execution host) | **2.5.0** | `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` — install script + offline wheels, bundled + Admin UI |
 The worker installer (`TestOrchestrator-Buildbot-Worker-Setup-`
 `4.3.0-UNSIGNED.exe`) is **bundled inside the packages** — download
 it from the installed portal under **Admin → Workers & runtimes**

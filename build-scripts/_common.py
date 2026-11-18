@@ -377,6 +377,62 @@ _GPL_SOURCE_PKGS = ("buildbot", "buildbot-worker", "buildbot-www",
                     "paramiko")
 
 
+def build_linux_worker_bundle(build_dir: Path, log: Log) -> Path:
+    """Self-contained Linux worker bundle: install_linux_worker.sh +
+    bb-wheels/ holding the pinned buildbot-worker wheel closure for
+    linux/x86_64 across Python 3.10-3.12 — the worker host needs no
+    network and no pip access at all. Tarred beside the Windows .exe
+    so the Admin UI offers all worker installs from one place."""
+    bbver = ASSETS["buildbot_worker"]["version"]
+    staging = build_dir / "bb-linux-worker-pkg"
+    if staging.exists():
+        shutil.rmtree(staging)
+    wheels = staging / "bb-wheels"
+    wheels.mkdir(parents=True)
+    dl = build_dir / "downloads"
+    dl.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(REPO / "scripts" / "install_linux_worker.sh",
+                 staging / "install_linux_worker.sh")
+    # get-pip embeds the pip wheel itself — offline bootstrap when the
+    # worker host's python lacks ensurepip (install script falls back
+    # to it automatically).
+    shutil.copy2(fetch(ASSETS["get_pip"]["url"], dl / "get-pip.py",
+                       ASSETS["get_pip"]["sha256"], log),
+                 staging / "get-pip.py")
+    vpy = venv_python(build_dir, log)
+    ensure_pip(vpy, log)
+    # no --platform: resolves for the linux/amd64 build host; the
+    # --python-version sweep covers the compiled wheels (autobahn,
+    # cffi, msgpack, ...) for every supported host interpreter.
+    for pyver in ("3.10", "3.11", "3.12"):
+        per = build_dir / f"bbw-dl-{pyver.replace('.', '')}"
+        run([str(vpy), "-m", "pip", "download",
+             "--only-binary=:all:", "--python-version", pyver,
+             "-d", str(per), f"buildbot-worker=={bbver}"], log)
+        for w in per.glob("*.whl"):
+            shutil.move(str(w), wheels / w.name)
+        shutil.rmtree(per)
+    log.write(f"  linux worker wheels: "
+              f"{len(list(wheels.iterdir()))} wheels "
+              f"(py3.10-3.12)")
+    name = f"TestOrchestrator-Buildbot-Worker-{bbver}-linux-x86_64.tar.gz"
+    out = build_dir / name
+    if out.exists():
+        out.unlink()
+    import tarfile
+    with tarfile.open(out, "w:gz") as t:
+        t.add(staging / "install_linux_worker.sh",
+              arcname="install_linux_worker.sh")
+        t.add(wheels, arcname="bb-wheels")
+        t.add(staging / "get-pip.py", arcname="get-pip.py")
+    # beside the Windows .exe — the Admin UI serves every worker
+    # install asset from this directory.
+    shutil.copy2(out, REPO / "packaging" / "windows" / name)
+    log.write(f"  linux worker bundle: {out.name} "
+              f"({out.stat().st_size:,} B) + packaging/windows/ copy")
+    return out
+
+
 def build_corresponding_sources(build_dir: Path, log: Log) -> Path:
     """Corresponding-source archive for the GPL/LGPL-covered components
     actually shipped: source distributions + the build/install scripts

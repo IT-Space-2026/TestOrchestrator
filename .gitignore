@@ -23,4 +23,5 @@ reporting-labs.history.json
 3rdparty/licenses/
 packaging/windows/bb-worker-payload/
 packaging/windows/TestOrchestrator-Buildbot-Sources-*.tar.gz
+packaging/windows/TestOrchestrator-Buildbot-Worker-*.tar.gz
 3rdparty/python/

@@ -142,3 +142,59 @@ def test_build_windows_stages_controller_not_only_worker():
                   "app-installer.nsi", "site-packages",
                   "check_payload", "TO_BUILDBOT_GPL_APPROVED"):
         assert token in src
+
+
+# ---------- Linux worker bundle (offline install asset) ----------
+
+LINUX_BUNDLE_RE = (r"TestOrchestrator-Buildbot-Worker-\d+\.\d+\.\d+"
+                   r"-linux-x86_64\.tar\.gz")
+
+
+def test_linux_worker_bundle_route_and_template():
+    """The Admin UI must serve the linux worker bundle beside the .exe
+    — strict filename regex, no path traversal."""
+    routes = (REPO / "testorchestrator" / "system" / "routes.py")         .read_text()
+    assert "buildbot-worker-linux" in routes
+    assert "_bb_linux_worker_asset" in routes
+    tpl = (REPO / "testorchestrator" / "templates" / "system"
+           / "infrastructure.html").read_text()
+    assert "buildbot_worker_linux_download" in tpl
+    assert "bb_linux_worker" in tpl
+
+
+def test_linux_worker_script_is_offline_first():
+    """install_linux_worker.sh must default to the bundled wheels and
+    carry the get-pip fallback — PyPI is opt-in (--online) only."""
+    sh = (REPO / "scripts" / "install_linux_worker.sh").read_text()
+    assert "--no-index --find-links" in sh
+    assert "get-pip.py" in sh
+    assert "--without-pip" in sh
+
+
+def test_build_stages_linux_worker_bundle():
+    """Both build pipelines must produce the linux bundle and stage it
+    beside the .exe for the Admin UI."""
+    common = (REPO / "build-scripts" / "_common.py").read_text()
+    assert "def build_linux_worker_bundle" in common
+    for script in ("build_linux.py", "build_windows.py"):
+        src_ = (REPO / "build-scripts" / script).read_text()
+        assert "build_linux_worker_bundle" in src_, script
+    # install.py stages it into the served payload dir
+    inst = (REPO / "scripts" / "install.py").read_text()
+    assert "linux-x86_64.tar.gz" in inst
+
+
+def test_linux_worker_bundle_contents_if_built():
+    """When the bundle artifact exists in the tree it must contain the
+    script, the wheel dir, and get-pip."""
+    import tarfile
+    bundles = sorted((REPO / "packaging" / "windows").glob(
+        "TestOrchestrator-Buildbot-Worker-*-linux-x86_64.tar.gz"))
+    if not bundles:
+        pytest.skip("linux worker bundle not staged in this checkout")
+    with tarfile.open(bundles[-1]) as t:
+        names = set(t.getnames())
+    assert "install_linux_worker.sh" in names
+    assert "get-pip.py" in names
+    assert any(n.startswith("bb-wheels/buildbot_worker")
+               for n in names)

@@ -31,6 +31,21 @@ def _worker_assets(pkg: Path) -> None:
         "TestOrchestrator-Buildbot-Sources-*.tar.gz"))
     assert len(srcs) == 1, \
         f"corresponding-source archive missing/dup: {srcs}"
+    # self-contained Linux worker bundle: script + offline wheels must
+    # accompany the Windows .exe offer
+    import tarfile
+    lnx = sorted((pkg / "packaging" / "windows").glob(
+        "TestOrchestrator-Buildbot-Worker-*-linux-x86_64.tar.gz"))
+    assert len(lnx) == 1, f"linux worker bundle missing/dup: {lnx}"
+    with tarfile.open(lnx[0]) as t:
+        names = set(t.getnames())
+    assert "install_linux_worker.sh" in names, \
+        "linux worker bundle lacks the install script"
+    assert any(n.startswith("bb-wheels/buildbot_worker")
+               for n in names), \
+        "linux worker bundle lacks the buildbot-worker wheel"
+    assert any(n.startswith("bb-wheels/twisted") for n in names), \
+        "linux worker bundle lacks twisted (worker runtime)"
     # license texts bundled for the GPL/LGPL stack
     lic_names = {p.name.lower() for p in
                  (pkg / "3rdparty" / "licenses").iterdir()}

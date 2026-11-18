@@ -76,6 +76,9 @@ Initial public release.
 - Windows amd64 Buildbot worker: unsigned offline `.exe` served
   from the installed portal next to its matching
   corresponding-source archive.
+- Linux x86_64 Buildbot worker: `install_linux_worker.sh` + offline
+  wheel closure (py3.10–3.12) + `get-pip.py` fallback in one
+  downloadable bundle — the worker host needs no network.
 - GPL third-party components ship as separate processes with
   licence texts, notices, and a written corresponding-source offer
   fulfilled by IT-Space Kft. (see `3rdparty/CORRESPONDING-SOURCES.txt`

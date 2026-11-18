@@ -39,7 +39,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (ASSETS, BUILD_ROOT, BuildError, Log, PARAMIKO_VERSION,
                      REPO, build_buildbot_worker_installer,
-                     build_corresponding_sources, clean_release_dir,
+                     build_corresponding_sources, build_linux_worker_bundle,
+                     clean_release_dir,
                      ensure_makensis, ensure_pip, fetch,
                      finalise, git_info, release_version, run,
                      unzip_safely, venv_python)
@@ -122,6 +123,8 @@ def stage_app_payload(vpy: Path, dl: Path, log: Log) -> None:
     pkg_win = PAYLOAD / "packaging" / "windows"
     pkg_win.mkdir(parents=True, exist_ok=True)
     for pattern in ("TestOrchestrator-Buildbot-Worker-Setup-*.exe",
+                    "TestOrchestrator-Buildbot-Worker-*-linux-x86_64"
+                    ".tar.gz",
                     "TestOrchestrator-Buildbot-Sources-*.tar.gz"):
         matches = sorted((REPO / "packaging" / "windows").glob(pattern))
         if len(matches) != 1:
@@ -174,6 +177,8 @@ def check_payload(log: Log) -> dict:
     for pattern in (
             "packaging/windows/"
             "TestOrchestrator-Buildbot-Worker-Setup-*.exe",
+            "packaging/windows/"
+            "TestOrchestrator-Buildbot-Worker-*-linux-x86_64.tar.gz",
             "packaging/windows/"
             "TestOrchestrator-Buildbot-Sources-*.tar.gz"):
         if not list(PAYLOAD.glob(pattern)):
@@ -251,8 +256,11 @@ def main() -> int:
         worker_exe = build_buildbot_worker_installer(
             BUILD_ROOT / "windows", log)
 
-        log.step("2/5 build corresponding-source archive")
+        log.step("2/5 build corresponding-source archive + linux "
+                 "worker bundle")
         sources_tar = build_corresponding_sources(
+            BUILD_ROOT / "windows", log)
+        linux_worker_tar = build_linux_worker_bundle(
             BUILD_ROOT / "windows", log)
 
         log.step("3/5 stage application payload")

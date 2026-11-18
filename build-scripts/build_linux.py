@@ -34,7 +34,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (ASSETS, BUILD_ROOT, BuildError, Log, REPO,
                      build_buildbot_worker_installer,
-                     build_corresponding_sources, clean_release_dir,
+                     build_corresponding_sources, build_linux_worker_bundle,
+                     clean_release_dir,
                      fetch_buildbot_linux_wheels,
                      finalise, git_info, release_version,
                      run, safe_extract, venv_python)
@@ -73,11 +74,16 @@ def main() -> int:
             # Controller-side stack: linux wheels install.py turns into
             # payload/buildbot-venv offline (master + local/ssh workers).
             fetch_buildbot_linux_wheels(BUILD_ROOT / "linux", log)
+            # self-contained Linux worker bundle: script + offline
+            # wheels for py3.10-3.12 — the worker host needs no network
+            bb_linux_worker = build_linux_worker_bundle(
+                BUILD_ROOT / "linux", log)
             # GPLv2 §3(a): corresponding source accompanies the binaries
             bb_sources = build_corresponding_sources(
                 BUILD_ROOT / "linux", log)
         else:
             bb_worker_exe = None
+            bb_linux_worker = None
             bb_sources = None
             log.write("  buildbot worker installer + wheels SKIPPED — "
                       "set TO_BUILDBOT_GPL_APPROVED=1 after GPL "

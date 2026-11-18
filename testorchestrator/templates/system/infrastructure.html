@@ -358,10 +358,10 @@ or license KRE.</p>
 </section>
 
 <section class="card" id="buildbot-worker-download">
-  <h2>Windows worker installer</h2>
-  <p class="muted">A remote Windows host runs the bundled
-    <strong>Buildbot worker</strong> — download the offline installer,
-    run it on the remote machine as administrator, and enter the
+  <h2>Remote worker installers</h2>
+  <p class="muted">A remote host runs the bundled
+    <strong>Buildbot worker</strong> — download the offline package for
+    its platform, run it on the remote machine, and enter the
     controller address, workername, and per-worker password shown when
     the target was added. The worker connects outbound to the
     controller — no inbound port on the remote host.</p>
@@ -371,12 +371,20 @@ or license KRE.</p>
       <th>SHA-256</th><th></th></tr></thead>
     <tbody><tr>
       <td>{{ bb_installer.version }}</td>
-      <td>windows/amd64 — offline installer</td>
+      <td>windows/amd64 — offline installer (.exe)</td>
       <td>{{ "%.1f"|format(bb_installer.size / 1048576) }} MB</td>
       <td><code class="checksum">{{ bb_installer.sha256 }}</code></td>
       <td><a class="button secondary sm"
         href="{{ url_for('system.buildbot_worker_installer_download', filename=bb_installer.file) }}">Download</a></td>
     </tr>
+    {% if bb_linux_worker %}<tr>
+      <td>{{ bb_linux_worker.version }}</td>
+      <td>linux/amd64 — install script + offline wheels (py3.10–3.12)</td>
+      <td>{{ "%.1f"|format(bb_linux_worker.size / 1048576) }} MB</td>
+      <td><code class="checksum">{{ bb_linux_worker.sha256 }}</code></td>
+      <td><a class="button secondary sm"
+        href="{{ url_for('system.buildbot_worker_linux_download', filename=bb_linux_worker.file) }}">Download</a></td>
+    </tr>{% endif %}
     {% if bb_sources %}<tr>
       <td colspan="3"><small><strong>Corresponding source</strong> —
         GPL/LGPL-covered packages inside the installer
@@ -392,7 +400,7 @@ or license KRE.</p>
     installs only the execution worker, never the controller, KRE, or
     a licence.</p>
   {% else %}
-  <p class="muted"><strong>No Windows worker installer bundled.</strong>
+  <p class="muted"><strong>No worker installer bundled.</strong>
     The packaged build did not include
     <code>TestOrchestrator-Buildbot-Worker-Setup-*.exe</code> — rebuild
     the package with the worker assets before onboarding Windows

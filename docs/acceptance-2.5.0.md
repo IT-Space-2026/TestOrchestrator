@@ -83,7 +83,17 @@ unset until approval is explicit.
 - [ ] Uninstall retains data by default; `/PURGEDATA=1` removes it;
       the per-install CA is untrusted and tasks deleted
 
-### 4b. Windows worker
+### 4b. Linux worker bundle
+
+- [ ] `TestOrchestrator-Buildbot-Worker-<v>-linux-x86_64.tar.gz` served
+      from Admin → Infrastructure with matching SHA-256
+- [ ] Offline install on a clean Linux host — no PyPI access,
+      `python3` 3.10–3.12 only; venv + pinned worker + systemd unit
+- [ ] Host without `python3-venv`/ensurepip: `--without-pip` +
+      bundled `get-pip.py` path installs the worker
+- [ ] Registration → outbound PB attach → targeted run + cancel
+
+### 4c. Windows worker
 
 - [ ] Download the exact bundled `.exe` from Admin UI (version +
       SHA-256 shown match the recorded artifact)

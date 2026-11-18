@@ -59,7 +59,8 @@ for req in MASTER NAME PASSWD_FILE; do
 done
 [ -r "$PASSWD_FILE" ] || { echo "passwd file unreadable: $PASSWD_FILE" >&2; exit 2; }
 
-command -v python3 >/dev/null || { echo "python3 >=3.9 required" >&2; exit 2; }
+command -v python3 >/dev/null || { echo "python3 >=3.10 required" >&2; exit 2; }
+python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" || { echo "python3 >=3.10 required (bundled wheels cover 3.10-3.12)" >&2; exit 2; }
 if [ "$ONLINE" -eq 0 ] && [ ! -d "$WHEELS" ]; then
   echo "offline wheels dir missing: $WHEELS (or pass --online)" >&2; exit 2
 fi
@@ -73,7 +74,14 @@ mkdir -p "$HOME_DIR" "$DATA_DIR"
 chown "$SVC_USER":"$SVC_USER" "$DATA_DIR"
 
 # venv + pinned worker (offline wheels or PyPI — same pin either way).
-python3 -m venv "$HOME_DIR/venv"
+# Debian/Ubuntu hosts may lack ensurepip (python3-venv): fall back to
+# --without-pip + the bundled get-pip.py (offline — it embeds pip).
+if ! python3 -m venv "$HOME_DIR/venv" 2>/dev/null; then
+  GET_PIP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/get-pip.py"
+  [ -f "$GET_PIP" ] || { echo "venv ensurepip missing and no bundled get-pip.py" >&2; exit 2; }
+  python3 -m venv --without-pip "$HOME_DIR/venv"
+  "$HOME_DIR/venv/bin/python" "$GET_PIP" --quiet
+fi
 PIP=("$HOME_DIR/venv/bin/pip" --no-input)
 if [ "$ONLINE" -eq 1 ]; then
   "${PIP[@]}" install "buildbot-worker==$BUILDBOT_VERSION"

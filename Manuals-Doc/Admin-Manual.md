@@ -668,13 +668,27 @@ running work to another target — pinned runs fail visibly.
 
 ### 6.2 Native Linux Buildbot worker
 
-1. Fetch `install_linux_worker.sh` (bundled / release asset).
+1. Fetch `TestOrchestrator-Buildbot-Worker-<ver>-linux-x86_64.tar.gz`
+   from **System → Infrastructure → Remote worker installers** (the
+   same row block as the Windows `.exe`, shown with its SHA-256 —
+   verify before running). The bundle is fully offline:
+   `install_linux_worker.sh` + `bb-wheels/` (pinned
+   buildbot-worker closure for python 3.10–3.12) + `get-pip.py`
+   (ensurepip fallback). No PyPI access is needed on the worker host.
 2. Create the target record (**Add target** → *Linux Buildbot worker*)
    and record the generated worker name + one-time password.
-3. On the worker host: `sudo ./install_linux_worker.sh --master <portal-host>:9989 --name <worker> --password <pw> [--user to-worker]`.
-   It creates a reproducible `buildbot-worker` venv, writes a systemd
-   unit, and starts it — the worker registers outbound; no inbound
-   portal port needed on the worker.
+3. Extract on the worker host and run:
+   `sudo ./install_linux_worker.sh --master <portal-host>:9989
+   --name <worker> --passwd-file <file> [--user to-worker]
+   [--home /opt/to-buildbot-worker] [--data /var/lib/to-buildbot-worker]`.
+   It creates a dedicated `to-worker` system account, a venv from the
+   host python3 (≥3.10; `--online` is available only if you choose to
+   use PyPI instead of the bundled wheels), installs the pinned
+   buildbot-worker, writes `to-buildbot-worker.service`, and starts it
+   — the worker registers outbound; no inbound portal port needed.
+4. Uninstall: `systemctl disable --now to-buildbot-worker`, remove the
+   unit, and delete `$HOME`/`$DATA` explicitly — workspaces are never
+   removed implicitly.
 4. Registration, credentials, runner discovery, and capacity are then
    managed from the Admin UI (rotate the secret with **Issue secret**;
    drain before maintenance).

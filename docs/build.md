@@ -48,6 +48,9 @@ fetched by the script.
 4. stages `packaging/windows/bb-worker-payload/` and compiles the
    Windows **Buildbot worker installer** via NSIS — it ships inside
    the Linux package and is served by the installed portal
+4b. builds `TestOrchestrator-Buildbot-Worker-<v>-linux-x86_64.tar.gz`
+   — `install_linux_worker.sh` + `bb-wheels/` (offline closure for
+   py3.10–3.12) + `get-pip.py`; served beside the `.exe`
 5. `scripts/build_bundle.py` → `dist/testorchestrator-<v>-linux-x86_64.tar.gz`
 6. `scripts/build_linux_installer.py` → self-extracting `.run`
 7. validates: `scripts/validate_package.py` on the extracted tarball

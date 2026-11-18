@@ -500,6 +500,9 @@ def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
     for stale in dst_dir.glob(
             "TestOrchestrator-Buildbot-Sources-*.tar.gz"):
         stale.unlink()
+    for stale in dst_dir.glob(
+            "TestOrchestrator-Buildbot-Worker-*-linux-x86_64.tar.gz"):
+        stale.unlink()
     if not exes:
         print("[install] WARNING: no buildbot-worker installer in the "
               "package — Windows worker download will show the "
@@ -515,6 +518,11 @@ def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
             "TestOrchestrator-Buildbot-Sources-*.tar.gz")):
         shutil.copy2(src, dst_dir / src.name)
         print(f"[install] corresponding-sources asset: {src.name}")
+    # the self-contained Linux worker bundle (script + offline wheels)
+    for src in sorted(src_dir.glob(
+            "TestOrchestrator-Buildbot-Worker-*-linux-x86_64.tar.gz")):
+        shutil.copy2(src, dst_dir / src.name)
+        print(f"[install] linux worker bundle asset: {src.name}")
     return dst
 
 
