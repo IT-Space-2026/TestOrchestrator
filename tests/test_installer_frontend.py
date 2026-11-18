@@ -48,8 +48,18 @@ def test_no_dagu_or_caddy_units_in_repo():
 
 
 def test_stage_web_unit_writes_canonical_name(tmp_path):
-    inst._stage_web_unit(tmp_path)
-    assert (tmp_path / "testorchestrator-web.service").is_file()
+    cfg, payload, data = (tmp_path / p for p in ("config", "payload", "data"))
+    for d in (cfg, payload, data):
+        d.mkdir()
+    inst._stage_web_unit(cfg, payload, data)
+    unit = cfg / "testorchestrator-web.service"
+    assert unit.is_file()
+    text = unit.read_text()
+    # requested dirs replace the deploy template's production paths,
+    # and the unit re-migrates before every start
+    assert str(payload) in text and str(data) in text and str(cfg) in text
+    assert "/opt/testorchestrator" not in text
+    assert "ExecStartPre=" in text and "db-upgrade" in text
 
 
 def test_web_env_written_with_buildbot_wiring(tmp_path):

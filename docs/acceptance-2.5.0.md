@@ -133,7 +133,15 @@ acceptance), **10** (repeat on candidate), **12** (actual totals):
       (`ssh-keygen -lf` match).
 - [~] §9 items: manual targeted runs passed on SSH + native worker;
       scheduled runs, cancel, and disconnect recovery still open.
-- [ ] §12 `pytest` totals not yet re-run against this candidate.
+- [x] §12 `pytest` actual totals (suite run at `fed8c93`+doc/test
+      commits, code-identical candidate tree): **636 passed,
+      1 failed, 1 skipped** — the failure is
+      `test_production_key_auto_loaded` (external licence-issuer
+      private key — blocked by design, key never committed); the skip
+      is `test_git_packaging.py`'s cli-backend fallback case
+      (`pytest.skip` — payload not staged in this config). One stale
+      test (`test_stage_web_unit_writes_canonical_name`) was updated
+      for the `7a6e28c` `_stage_web_unit` signature before the run.
 
 Two more defects found during this pass, fixed at `fed8c93`
 (post-artifact): `[""]` blank-scope on runner create (broke targeted
