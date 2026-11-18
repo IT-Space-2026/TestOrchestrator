@@ -54,13 +54,13 @@ def _existing_passwords(secrets_path: Path) -> dict:
                 "worker_passwords": {}}
 
 
-def _unit(name: str, desc: str, python: str, module_cmd: str,
+def _unit(name: str, desc: str, exec_cmd: str,
           workdir: Path, env: dict = None) -> str:
     lines = [f"[Unit]\nDescription={desc}\nAfter=network.target\n",
              "[Service]\nType=simple\n"]
     for k, v in (env or {}).items():
         lines.append(f"Environment={k}={v}\n")
-    lines.append(f"ExecStart={python} {module_cmd}\n"
+    lines.append(f"ExecStart={exec_cmd}\n"
                  f"WorkingDirectory={workdir}\n"
                  "Restart=on-failure\nRestartSec=5\n"
                  "[Install]\nWantedBy=multi-user.target\n")
@@ -167,17 +167,17 @@ def main(argv=None):
     units = {
         "testorchestrator-buildbot-master.service": _unit(
             "testorchestrator-buildbot-master",
-            "TestOrchestrator Buildbot master", "",
+            "TestOrchestrator Buildbot master",
             f"{pydir}/buildbot start --nodaemon {master_dir}",
             master_dir),
         "testorchestrator-buildbot-local.service": _unit(
             "testorchestrator-buildbot-local",
-            "TestOrchestrator Buildbot local worker", "",
+            "TestOrchestrator Buildbot local worker",
             f"{pydir}/buildbot-worker start --nodaemon "
             f"{local_dir}", local_dir),
         "testorchestrator-buildbot-ssh.service": _unit(
             "testorchestrator-buildbot-ssh",
-            "TestOrchestrator Buildbot SSH dispatcher", "",
+            "TestOrchestrator Buildbot SSH dispatcher",
             f"{pydir}/buildbot-worker start --nodaemon "
             f"{disp_dir}", disp_dir),
     }

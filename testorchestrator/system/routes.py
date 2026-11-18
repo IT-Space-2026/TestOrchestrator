@@ -1082,8 +1082,11 @@ def create_runner():
             target_type=kind,
             workspace_root=form.workspace_root.data or "",
             max_slots=form.max_slots.data or 1,
+            # An empty multi-select posts [""], not [] — strip blanks
+            # or the empty string becomes a one-entry scope that
+            # excludes every real project.
             allowed_projects=json.dumps(
-                form.allowed_projects.data or []),
+                [p for p in (form.allowed_projects.data or []) if p]),
         )
         if kind == "buildbot-worker":
             db.session.add(runner)
