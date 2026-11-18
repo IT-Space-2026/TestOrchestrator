@@ -450,6 +450,50 @@ def _claim_for_start(ex: Execution,
     return bool(n)
 
 
+def _select_runner_runtime(ex: Execution):
+    """Resolve the (runner, runtime) pair honoring an explicit
+    run_config pick: an unavailable explicit pick is an error the
+    caller must surface — never a silent retarget. Returns
+    (runner, runtime, error): error non-empty -> fail the execution;
+    runner None -> stay queued and retry next tick."""
+    rc = ex.snapshot().get("run_config") or {}
+    req_runner = rc.get("requested_runner") or ""
+    req_runtime = rc.get("requested_runtime") or ""
+    if req_runner:
+        runner = db.session.get(Runner, req_runner)
+        rn_allowed = (json.loads(runner.allowed_projects or "[]")
+                      if runner else [])
+        if (not runner or not runner.enabled or runner.draining
+                or (rn_allowed and ex.project_id not in rn_allowed)):
+            return None, None, (
+                f"explicitly selected runner {req_runner[:12]}… is "
+                "unavailable or out of scope for this project — no "
+                "fallback to another target")
+    else:
+        runner = ex.runner or pick_runner(ex)
+        if runner is None:
+            return None, None, ""
+    if req_runtime:
+        runtime = db.session.get(RuntimeConnection, req_runtime)
+        rt_allowed = (json.loads(runtime.allowed_projects or "[]")
+                      if runtime else [])
+        if (not runtime or not runtime.enabled
+                or runtime.runner_id != runner.id
+                or (rt_allowed and ex.project_id not in rt_allowed)):
+            return None, None, (
+                f"explicitly selected runtime {req_runtime[:12]}… is "
+                "unavailable or incompatible with the selected "
+                "runner — no fallback")
+    else:
+        runtime = ex.runtime or pick_runtime(ex, runner)
+        if runtime is None:
+            return None, None, (
+                "no enabled compatible runtime connection on runner "
+                f"{runner.name!r} — register an existing KRE "
+                "installation")
+    return runner, runtime, ""
+
+
 def run_execution(execution_id: str) -> None:
     """Run one execution through the full state machine. Any infra error is
     recorded; test failures do not stop collection (§7)."""
@@ -490,45 +534,14 @@ def run_execution(execution_id: str) -> None:
                   "no longer in the binding's inventory — run rejected "
                   "(no retargeting)")
             return
-    req_runner = rc.get("requested_runner") or ""
-    req_runtime = rc.get("requested_runtime") or ""
-    if req_runner:
-        runner = db.session.get(Runner, req_runner)
-        rn_allowed = (json.loads(runner.allowed_projects or "[]")
-                      if runner else [])
-        if (not runner or not runner.enabled or runner.draining
-                or (rn_allowed and ex.project_id not in rn_allowed)):
-            _fail(ex, "infrastructure",
-                  f"explicitly selected runner {req_runner[:12]}… is "
-                  "unavailable or out of scope for this project — no "
-                  "fallback to another target")
-            return
-    else:
-        runner = ex.runner or pick_runner(ex)
-        if runner is None:
-            # Stay QUEUED — retry the next worker tick; do NOT mark
-            # DISPATCHED (the assignment CAS requires QUEUED).
-            return
-    if req_runtime:
-        runtime = db.session.get(RuntimeConnection, req_runtime)
-        rt_allowed = (json.loads(runtime.allowed_projects or "[]")
-                      if runtime else [])
-        if (not runtime or not runtime.enabled
-                or runtime.runner_id != runner.id
-                or (rt_allowed and ex.project_id not in rt_allowed)):
-            _fail(ex, "infrastructure",
-                  f"explicitly selected runtime {req_runtime[:12]}… is "
-                  "unavailable or incompatible with the selected "
-                  "runner — no fallback")
-            return
-    else:
-        runtime = ex.runtime or pick_runtime(ex, runner)
-        if runtime is None:
-            _fail(ex, "infrastructure",
-                  "no enabled compatible runtime connection on runner "
-                  f"{runner.name!r} — register an existing KRE "
-                  "installation")
-            return
+    runner, runtime, sel_err = _select_runner_runtime(ex)
+    if sel_err:
+        _fail(ex, "infrastructure", sel_err)
+        return
+    if runner is None:
+        # Stay QUEUED — retry the next worker tick; do NOT mark
+        # DISPATCHED (the assignment CAS requires QUEUED).
+        return
     if runner.connection_mode != "local":
         # Remote transport (§6): the assigned agent picks the task up via
         # /api/agent/tasks; the portal holds the lease, heartbeats renew
@@ -925,15 +938,12 @@ def _handle_event(event: OutboxEvent) -> None:
                 # durable, or its single poll sees nothing and the lease
                 # decays to UNKNOWN without the task ever being claimed.
                 if ex and _dagu_mandatory():
-                    runner = pick_runner(ex)
-                    runtime = (ex.runtime
-                               or (pick_runtime(ex, runner)
-                                   if runner else None))
-                    if not runner or not runtime:
-                        _fail(ex, "infrastructure",
-                              "no eligible runner/runtime for "
-                              "dagu-coordinated dispatch")
+                    runner, runtime, sel_err = _select_runner_runtime(ex)
+                    if sel_err:
+                        _fail(ex, "infrastructure", sel_err)
                         return
+                    if runner is None:
+                        return   # stays queued — next tick retries
                     if not _assign_runner(ex, runner, runtime):
                         return   # lost race — stays queued, next tick
                                  # retries

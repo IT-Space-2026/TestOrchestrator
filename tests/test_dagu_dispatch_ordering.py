@@ -179,3 +179,45 @@ def test_requested_cancel_with_failed_run_stays_unknown(app,
         assert d.reconcile_dagu_runs() == 1
         db.session.refresh(ex)
         assert ex.state == ExecutionState.UNKNOWN
+
+
+def test_explicit_runtime_honored_in_dagu_dispatch(app, monkeypatch):
+    """run_config.requested_runtime must reach the assignment — the
+    dagu path may not silently pick another eligible runtime."""
+    stub = _OrderProbe()
+    with app.app_context():
+        rtid, diid = _env(app, monkeypatch, stub)
+        rt2 = RuntimeConnection(name="kre-explicit", runner_id=db.session
+                                .query(Runner).first().id,
+                                executable_path="/opt/kre2", enabled=True)
+        db.session.add(rt2); db.session.commit()
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rt2.id},
+            source_item=db.session.get(DiscoveredItem, diid))
+        d._handle_event(_event_for(ex))
+        db.session.refresh(ex)
+        assert ex.runtime_id == rt2.id
+        assert stub.row_at_submit["runtime_id"] == rt2.id
+
+
+def test_explicit_runtime_unavailable_fails_visibly(app, monkeypatch):
+    """An explicit runtime pick that is valid at queue time but becomes
+    unavailable before dispatch rejects visibly — never a retarget to
+    another eligible runtime."""
+    stub = _OrderProbe()
+    with app.app_context():
+        rtid, diid = _env(app, monkeypatch, stub)
+        rt2 = RuntimeConnection(name="kre-explicit", runner_id=db.session
+                                .query(Runner).first().id,
+                                executable_path="/opt/kre2", enabled=True)
+        db.session.add(rt2); db.session.commit()
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rt2.id},
+            source_item=db.session.get(DiscoveredItem, diid))
+        rt2.enabled = False
+        db.session.commit()
+        d._handle_event(_event_for(ex))
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert "no fallback" in ex.error_text
+        assert stub.submits == 0
