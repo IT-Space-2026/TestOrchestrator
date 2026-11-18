@@ -92,3 +92,55 @@ unset until approval is explicit.
 - [ ] Final matrix update on PR #3 with commit, artifact SHA-256s,
       commands, and per-check passed/failed/blocked
 - [ ] Clean up all disposable installs, services, and processes
+
+## Results — internal build `7a6e28c` (internal-only; GPL gate unset)
+
+Artifacts under `dist/release/linux/` (SHA-256 in `SHA256SUMS.txt`):
+
+| Artifact | SHA-256 |
+|---|---|
+| `testorchestrator-2.5.0-linux-x86_64.tar.gz` | `c543f968…cc9faf9` |
+| `testorchestrator-2.5.0-linux-x86_64.run` | `3160fe38…06196e45` |
+| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `d0b4f08c…541ff467` |
+| `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (in bundle) | `b4faa4fc…cd84cd9` |
+
+Checks executed against this build — todo items **9** (packaged
+acceptance), **10** (repeat on candidate), **12** (actual totals):
+
+- [x] §1 Bundle sweep: zero dagu/caddy outside the two
+      `SUPERSEDED`-marked historical docs and migration/legacy-cleanup
+      comments. Installed system: no units, dirs, settings, or
+      fallback paths (user-scope systemd activation — **item 10's
+      system-scope row stays unchecked**).
+- [x] §1 Defaults: Cheroot bound configured HTTPS :8443 from a clean
+      install (no backend switch); Buildbot master REST :8010 active,
+      PB :9989; `to-local` + `to-ssh-dispatcher` attached. DB
+      migrated at install; `ExecStartPre` re-migrates on every start.
+- [x] §2 (user-scope systemd) `install_linux_worker.sh` offline from
+      bundled wheels → `systemctl --user` unit → PB attach → Admin-UI
+      **credential reissue** → tac update + unit restart → reattach →
+      pinned run `7ceb7f0b` COMPLETED exit 0, `junit.xml` + `exit_code`
+      collected. Privileged ops stubbed → **system-scope row of item
+      10 open**.
+- [x] §3 Portal-only: real OpenSSH `sshd` (extracted package, own
+      host key, key auth, no TO software on endpoint) → Admin UI
+      create → fingerprint `SHA256:PfMLqQJx…` unverified → approve →
+      staged test `ok` → **no manual restart** (live reconfig logged
+      in `twistd.log`) → run `0789f14b` COMPLETED exit 0, artifacts
+      SFTP-collected to `buildbot/artifacts/`. Separate-machine +
+      disconnect/cancel rows of item 9 open.
+- [x] §3 Host-key approval verified against actual sshd key
+      (`ssh-keygen -lf` match).
+- [~] §9 items: manual targeted runs passed on SSH + native worker;
+      scheduled runs, cancel, and disconnect recovery still open.
+- [ ] §12 `pytest` totals not yet re-run against this candidate.
+
+Two more defects found during this pass, fixed at `fed8c93`
+(post-artifact): `[""]` blank-scope on runner create (broke targeted
+dispatch), and `ExecStart= ` leading space in generated units.
+Rebuilt-candidate evidence above remains valid — both defects were
+worked around live exactly as the fix implements, but the **next**
+candidate must include `fed8c93`.
+
+Historical: `2f96ea0` results (native `56d85ab8`, ssh `fc93eef7`)
+are evidence for those fixes only — not carried forward as passes.

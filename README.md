@@ -112,9 +112,19 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 | Ubuntu x86_64 (central server) | **2.5.0 candidate** | `testorchestrator-2.5.0-linux-x86_64.tar.gz` / `.run` |
 | Windows amd64 (portal + worker) | **released, unsigned** | `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` |
 The worker installer (`TestOrchestrator-Buildbot-Worker-Setup-`
-`2.27.0-setup-UNSIGNED.exe`) is **bundled inside both packages** —
-download it from the installed portal under *Workers & runtimes*;
-it is not a separate release asset.
+`4.3.0-UNSIGNED.exe`) is **bundled inside the packages** — download
+it from the installed portal under **Admin → Workers & runtimes**
+(the matching `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz`
+corresponding-source archive is offered next to it); it is not a
+separate release asset.
+
+**Ships in the package vs. installed separately:** the bundle carries
+the portal (Cheroot), the Buildbot master + controller workers, the
+Windows/Linux worker installers, and all Python dependencies — but
+**not** Katalon Runtime Engine or a licence: install and license KRE
+on each execution host separately, then register the installation in
+the portal as a runtime connection. Agentless SSH targets need only
+`sshd` + the runtime on the host.
 
 The Windows executable is **unsigned** — expect SmartScreen /
 publisher warnings; verify the SHA-256 below instead.
