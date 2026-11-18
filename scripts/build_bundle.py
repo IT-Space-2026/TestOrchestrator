@@ -97,7 +97,8 @@ def _excluded(rel: Path) -> bool:
         return True
     if name.endswith((".tar.gz", ".7z.exe")) and \
             "python" not in parts and \
-            not name.startswith("TestOrchestrator-Buildbot-Sources-"):
+            not name.startswith(("TestOrchestrator-Buildbot-Sources-",
+                                 "TestOrchestrator-Buildbot-Worker-")):
         return True
     return False
 

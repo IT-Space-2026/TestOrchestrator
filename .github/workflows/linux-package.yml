@@ -58,7 +58,12 @@ jobs:
           SRCS=$(ls /tmp/ci-payload/packaging/windows/TestOrchestrator-Buildbot-Sources-*.tar.gz 2>/dev/null | wc -l)
           test "$SRCS" -eq 1 || {
             echo "expected exactly 1 corresponding-source archive, found $SRCS"; exit 1; }
-          echo "PASS installed payload serves worker installer + sources"
+          LNX=$(ls /tmp/ci-payload/packaging/windows/TestOrchestrator-Buildbot-Worker-*-linux-x86_64.tar.gz 2>/dev/null | wc -l)
+          test "$LNX" -eq 1 || {
+            echo "expected exactly 1 linux worker bundle, found $LNX"; exit 1; }
+          tar tzf /tmp/ci-payload/packaging/windows/TestOrchestrator-Buildbot-Worker-*-linux-x86_64.tar.gz \
+            | grep -q "install_linux_worker.sh" || { echo "linux bundle lacks install script"; exit 1; }
+          echo "PASS installed payload serves worker installer + linux bundle + sources"
       - name: installed payload includes + resolves reporting_labs
         run: |
           set -e
