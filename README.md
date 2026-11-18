@@ -3,51 +3,62 @@
 <p align="center"><img src="assets/branding/iT-space-logo-400x400.png" alt="IT-Space Kft. logo" width="120"></p>
 
 Test orchestration web application for **IT-Space Kft.** — Flask + Jinja2
-server-rendered UI, Waitress WSGI, Dagu workflow orchestration, Katalon
-Runtime Engine (KRE) execution via remote workers, and reporting-labs
-single-file reports — a pure-Python backend with no bundled Node.js.
+server-rendered UI, an in-process Cheroot HTTPS frontend, Buildbot
+execution orchestration, Katalon Runtime Engine (KRE) execution via
+managed execution targets, and reporting-labs single-file reports —
+a pure-Python backend with no bundled Node.js.
 
-**Status: released — v2.0.3** ([release notes](docs/release-notes-2.0.3.md) ·
-[CHANGELOG](CHANGELOG.md)). The release tag `v2.0.3` resolves to commit
-`be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`; published binaries were built
-from exactly that clean commit. See the
-[GitHub release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/v2.0.3).
-2.0.3 repairs the Linux installer's omission of the vendored
-reporting-labs package, relocates it to `3rdparty/reporting_labs`, and
-corrects the licence-expiry label and release scope picker.
+**Status: 2.5.0 release candidate** ([CHANGELOG](CHANGELOG.md)).
+2.5.0 replaces Dagu with Buildbot as the sole execution orchestrator
+(local workers, remote Buildbot workers, and agentless SSH targets —
+all managed from Admin → Execution Targets) and makes the in-process
+Cheroot tier the shipped frontend; neither Dagu nor Caddy ships. Prior released line: **v2.0.3** — the tag
+resolves to commit `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`
+([release notes](docs/release-notes-2.0.3.md) ·
+[GitHub release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/v2.0.3)).
 
 ## Manuals
 
-- **[User manual](Manuals-Doc/User-Manual.md)** — sign-in, roles,
+- **[User manual](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/User-Manual.md)** — sign-in, roles,
   projects and repository bindings, worker runs, historical-result
   import, reports and evidence.
-- **[Admin manual](Manuals-Doc/Admin-Manual.md)** — installation,
+- **[Admin manual](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/Admin-Manual.md)** — installation,
   configuration, workers, security, backup/upgrade, maintenance,
   troubleshooting.
-- **[Screenshot index](Manuals-Doc/Screenshot-Doc/Screenshot-Index.md)**
-  and **[validation record](Manuals-Doc/Validation-Record.md)** —
+- **[Screenshot index](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/Screenshot-Doc/Screenshot-Index.md)**
+  and **[validation record](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/Validation-Record.md)** —
   screenshots were captured on the released 2.0.2 package; the record
   states which procedures were verified on which version.
 
 ## Architecture
 
 ```text
-Browser ──HTTPS──> Caddy ──loopback HTTP──> Waitress ──WSGI──> Flask app
+Browser ──HTTPS──> Cheroot (in-process) ──> Flask app
                                             │
    ┌ worker (toctl worker) ─ outbox/dispatch ─┤
-   └ dagu (orchestration)  ─ execution runs ──┘
+   └ buildbot master + workers ─ execution ───┘
 ```
 
-Two roles:
+TestOrchestrator owns schedules, run IDs, portal status, reports, and
+evidence; Buildbot owns queuing and the execution lifecycle behind a
+loopback-only REST API (`127.0.0.1:8010`) that only the adapter
+talks to. Three execution-target types are managed entirely from
+**Admin → Infrastructure → Execution Targets**:
+
+- **local** — the controller's own `to-local` Buildbot worker;
+- **buildbot-worker** — a remote worker (Windows or Linux) installed
+  from the bundled offline installer, connecting outbound over PB
+  (per-worker credentials, no inbound portal port needed);
+- **ssh** — agentless: the controller-side `to-ssh-dispatcher` worker
+  runs the job over SSH/SFTP on a host that needs only SSH + the test
+  runtime — no installed agent or callback listener.
 
 - **Central server** (this package): web UI, outbox/dispatch, results,
-  reporting, Dagu coordinator, Caddy, bundled git — runs on one Linux
-  host or a Windows host.
-- **Remote KRE host** (execution worker): a pinned Dagu worker service
-  runs on the machine where KRE is installed, connects outbound to the
-  portal's coordinator (no inbound port needed), and executes the
-  registered KRE there. Onboarding uses a generated **`to-worker`**
-  launcher (coordinator address + worker label baked in, validated and
+  reporting, Buildbot master + controller workers, bundled git —
+  runs on one Linux host or a Windows host.
+- **Remote KRE host** (execution target): a Buildbot worker service
+  installed from the bundled offline installer on the machine where
+  KRE lives — or, for agentless Linux hosts, only an SSH account.
   safely encoded) — operators do not assemble raw backend flags.
   Installations are bound to a unique `kre=<label>`; remote executable
   paths are never invoked on the portal host. The internal coordinator
@@ -98,12 +109,22 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 
 | Platform | Status | Package |
 |---|---|---|
-| Ubuntu x86_64 (central server) | **released** | `testorchestrator-2.0.3-linux-x86_64.tar.gz` / `.run` |
+| Ubuntu x86_64 (central server) | **2.5.0 candidate** | `testorchestrator-2.5.0-linux-x86_64.tar.gz` / `.run` |
 | Windows amd64 (portal + worker) | **released, unsigned** | `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` |
-The remote-worker installer (`testorchestrator-dagu-worker-`
-`2.27.0-setup-UNSIGNED.exe`) is **bundled inside both packages** —
-download it from the installed portal under *Workers & runtimes*;
-it is not a separate release asset.
+The worker installer (`TestOrchestrator-Buildbot-Worker-Setup-`
+`4.3.0-UNSIGNED.exe`) is **bundled inside the packages** — download
+it from the installed portal under **Admin → Workers & runtimes**
+(the matching `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz`
+corresponding-source archive is offered next to it); it is not a
+separate release asset.
+
+**Ships in the package vs. installed separately:** the bundle carries
+the portal (Cheroot), the Buildbot master + controller workers, the
+Windows/Linux worker installers, and all Python dependencies — but
+**not** Katalon Runtime Engine or a licence: install and license KRE
+on each execution host separately, then register the installation in
+the portal as a runtime connection. Agentless SSH targets need only
+`sshd` + the runtime on the host.
 
 The Windows executable is **unsigned** — expect SmartScreen /
 publisher warnings; verify the SHA-256 below instead.
@@ -111,10 +132,10 @@ publisher warnings; verify the SHA-256 below instead.
 ## Installing (Linux)
 
 ```text
-tar xzf testorchestrator-2.0.3-linux-x86_64.tar.gz
-cd testorchestrator-2.0.3-linux-x86_64
+tar xzf testorchestrator-2.5.0-linux-x86_64.tar.gz
+cd testorchestrator-2.5.0-linux-x86_64
 sudo ./install.sh            # → toctl install (frozen payload)
-# or: ./testorchestrator-2.0.3-linux-x86_64.run  (self-extracting)
+# or: ./testorchestrator-2.5.0-linux-x86_64.run  (self-extracting)
 ```
 
 `install.sh` locates its own payload, checks Linux/x86_64, and runs
@@ -122,11 +143,11 @@ sudo ./install.sh            # → toctl install (frozen payload)
 migrations, systemd unit staging/enable — with **no external python,
 pip, flask CLI, or venv** required.
 
-Options: `--payload --data --config --https-port --service-user
---no-service-start --yes --dry-run`. Exit codes:
+Options: `--payload --data --config --https-port --frontend
+--service-user --no-service-start --yes --dry-run`. Exit codes:
 0 ok · 1 usage/platform · 2 install failure · 3 readiness failure.
-Reruns are safe — payload is overwritten, `web.env` keys are replaced,
-data is never deleted.
+Reruns are safe — payload is overwritten, `web.env` secrets and the
+Buildbot credentials are preserved, data is never deleted.
 
 ## Installing (Windows)
 
@@ -136,10 +157,10 @@ portal + worker services. See the Admin Manual §5 (Windows installation, certif
 trust, service tasks, uninstall).
 
 For a remote KRE host only, download the bundled
-`testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` from the
+`TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` from the
 installed portal (**Workers & runtimes → download**, SHA-256 shown
 next to the link) — a minimal worker-only install aligned to the
-coordinator's Dagu 2.27.0, shipped inside the app packages rather
+controller's Buildbot 4.3.0, shipped inside the app packages rather
 than published standalone.
 
 ## Application commands (`toctl`)
@@ -159,7 +180,8 @@ One frozen binary implements every runtime role — no system python:
 | `toctl evidence-prune [--apply]` | dry-run report of orphan evidence dirs under managed roots; `--apply` removes them (never shared/unmanaged files) |
 
 Services (systemd): `testorchestrator-web`, `testorchestrator-worker`,
-`testorchestrator-dagu`, `testorchestrator-caddy`. Units ExecStart the
+`testorchestrator-buildbot-master`, `-buildbot-local`,
+`-buildbot-ssh`. Units ExecStart the
 frozen binary only. Logs: `journalctl -u testorchestrator-*`.
 Persistent data (`db`, evidence, certs, backups, imported evidence)
 lives outside the payload — `/var/lib/testorchestrator` by default.
@@ -171,68 +193,37 @@ no remote KRE API. Dispatch, cancellation (process-tree kill), and
 reconciliation belong to this application. KRE stays operator-installed
 and licensed; a version probe is never claimed as a licensed run.
 
-## Remote execution (Dagu worker)
+## Execution targets (Buildbot)
 
-A remote KRE installation runs through the bundled, pinned **Dagu
-2.27.0** coordinator/worker pair — the coordinator (in the portal
-package) and every shipped worker installer use the same version —
-never through a portal-host invocation and never through a custom
-agent.
+Every execution target is registered and managed in the Admin UI —
+no controller files, commands, restarts, or Buildbot UI needed.
+Administrators add, edit, test, enable, disable, and remove targets;
+queued/running jobs on a disabled target are never silently
+redirected. Enabled targets are selectable in both manual and
+scheduled runs; run details show the actual host, execution type,
+and runtime.
 
-Setup sequence:
+- **Windows Buildbot worker** — download
+  `TestOrchestrator-Buildbot-Worker-Setup-<ver>-UNSIGNED.exe` from
+  **System → Infrastructure** (the portal shows its version and
+  SHA-256). The offline installer needs no preinstalled Python, does
+  not install the controller, and bundles no KRE/licence. The admin
+  creates the target record first, then enters the worker name +
+  per-worker password shown once at creation. The target shows
+  `Awaiting registration` until the worker connects.
+- **Linux Buildbot worker** — `install_linux_worker.sh` (or the
+  release equivalent) installs the worker + systemd unit; register it
+  as a target the same way.
+- **Agentless Linux SSH** — host/port/user, an SSH credential
+  (SecretRef — values are never revealed back), remote workdir, and
+  concurrency are configured in the UI. First contact requires
+  explicit host-key fingerprint approval; later key changes are
+  rejected until re-verified. **Test SSH Connection** stages
+  reachability, host-key, auth, workdir, SFTP, and runner-prereq
+  checks — which stage failed is shown without exposing secrets.
+  Cancellation reports `CANCELED` only after the remote process tree
+  is confirmed dead.
 
-1. Install KRE on the test computer (operator-installed + licensed —
-   KRE is not redistributed).
-2. Download the Dagu worker asset for that computer's platform from
-   **System → KRE installations → Download Dagu worker** (bundled,
-   checksum-verified Linux amd64 + Windows amd64 archives and the
-   Windows worker installer; SHA-256 is published next to each
-   download).
-3. On the KRE computer, start the worker pointing at the portal's
-   coordinator address — **not** `localhost` for a different machine:
-
-   ```bash
-   ./dagu worker --worker.coordinators=<portal-host>:50055 \
-     --worker.labels kre=<unique-label> --worker.id <worker-name>
-   ```
-
-   The worker polls outbound over coordinator gRPC; no inbound port is
-   required on the KRE machine.
-4. Register the installation in the portal as **On another machine**
-   with the same `kre=<label>`; labels must be unique per installation
-   (dispatch rejects ambiguous or unmatched labels).
-5. Verify and execute.
-
-Delivery + lifecycle: each execution is submitted as an ad-hoc workflow
-spec with `dagRunId` pinned to the execution id (idempotent, singleton),
-routed by `workerSelector` to the labelled worker, which
-`git.checkout`s the recorded source revision into a per-execution
-workspace and runs the registered executable with reports written to
-the run's artifact store. The portal downloads artifacts and runs the
-same collect/normalize pipeline as local execution. Cancellation uses
-HTTP stop; a worker loss/shutdown abort is recorded as infrastructure
-failure with cause marked undetermined — never as user cancellation.
-Workspaces are cleaned via a bounded portal-driven cleanup run, not
-the workflow's exit handler (which does not run on abort).
-
-Security boundaries: HTTPS git credentials are **not** embedded in
-stored workflow specs — remote dispatch accepts unauthenticated
-remotes and worker-side `ssh_key_path` only. `ssh_passphrase` is a
-literal value field — do not pass real passphrases through the spec;
-prefer worker-local keys + ssh-agent with operator-managed host-key
-verification. The worker account needs only: read access to the
-checkout destination, execute on the KRE binary, write under the
-workspace root, and outbound gRPC to the coordinator.
-
-- Multiple workers register per-project with probe/drain/lease handling.
-- **Slots vs licences are separate limits**: `Runner.max_slots` is
-  hardware; `Runner.license_slots` is an **operator-declared per-worker
-  floating-seat allowance**. Dispatch ceiling = `min(slots, seats)` —
-  seats are never probed or assumed. Enforcement is
-  **operator-partitioned allowances** — there is no shared-pool
-  enforcement and no visibility into sessions started outside the app.
-- Readiness ladder: worker reachable → KRE probeable → prereqs →
-  licence/auth → approved execution.
 
 ## Plans & scheduling
 
@@ -338,7 +329,8 @@ conservative three-way merge (disjoint-path divergence merges;
 same-path conflicts surface — never force-push), non-force push with
 rejection handling, isolated `checkout` for import staging, and
 branch/tag/exact-sha resolution. Verified on local/bare remotes; HTTPS
-auth uses SecretRef `user:pass` secrets; SSH uses host ssh/agent.
+auth uses SecretRef `user:pass` secrets; SSH targets use stored
+key credentials with explicit host-key approval.
 HTTPS/proxy/custom-CA and Azure DevOps interoperability remain gated on
 an authorized repository. The `cli` backend (bundled/host git
 subprocess) stays as the opt-in fallback for source builds; selecting
@@ -424,7 +416,7 @@ schedule's run_config (no per-entry override exists).
 
 ## Configuration
 
-Integration settings live in **System → Integrations** — Dagu
+Integration settings live in **System → Integrations** — Buildbot
 (endpoint, credential ref, auth username) and Git export (repo,
 credential ref, ref) each in their own labelled section with inline
 help, examples, and required/optional markers. Secrets are referenced
@@ -479,7 +471,7 @@ Plus `SHA256SUMS`, `build-manifest-linux.json`, and
 `sha256sum -c SHA256SUMS` next to the downloaded files. `dist/` is
 never tracked in the repo.
 
-The `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe` worker
+The `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` worker
 installer is **bundled inside both packages** (tarball
 `packaging/windows/` + inside the Windows app installer) and is
 served by the installed portal — it is no longer published as a
@@ -507,7 +499,7 @@ all jobs success):
   superseded root-level copy removed, previously failed report
   regenerated, data/users/history/evidence/reports preserved.
 - Package inventory reconciled: coordinator and worker both pin
-  **Dagu 2.27.0**; vendored `reporting_labs==0.1.14` + `LICENSE` +
+  **Buildbot 4.3.0**; vendored `reporting_labs==0.1.14` + `LICENSE` +
   `VENDORED.md` present exactly once per runtime payload.
 - Test suite: **637 passed, 1 skipped** — including installer
   payload-completeness, vendored-resolution, no-masking, and

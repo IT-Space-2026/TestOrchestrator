@@ -675,39 +675,6 @@ def test_two_jobs_one_slot_sequential_release(tmp_path):
         dispatch.run_execution(q.id)
         db.session.refresh(q)
         assert q.state == ExecutionState.COMPLETED
-
-
-def test_remote_pickup_claim_exactly_once(app, client, tmp_path):
-    """Agent pickup is a CAS: first claim DISPATCHED->RUNNING wins and
-    is scoped to the owning runner; a second claim gets 409, and a
-    non-DISPATCHED or foreign-runner claim never wins."""
-    from testorchestrator.agent_api import issue_agent_token
-    from testorchestrator.execution import Runner
-    with app.app_context():
-        p = Project(name="P"); db.session.add(p); db.session.flush()
-        s = Suite(project_id=p.id, name="S"); db.session.add(s)
-        db.session.flush()
-        r = Runner(name="rem", connection_mode="remote", enabled=True)
-        db.session.add(r); db.session.flush()
-        token = issue_agent_token(r)
-        r2 = Runner(name="rem2", connection_mode="remote", enabled=True)
-        db.session.add(r2); db.session.flush()
-        token2 = issue_agent_token(r2)
-        ex = dispatch.create_execution("m", s)
-        ex.runner_id = r.id
-        ex.state = ExecutionState.DISPATCHED
-        db.session.commit()
-        eid = ex.id
-    h = {"Authorization": f"Bearer {token}"}
-    h2 = {"Authorization": f"Bearer {token2}"}
-    r_ok = client.post(f"/api/agent/tasks/{eid}/claim", headers=h)
-    assert r_ok.status_code == 200 and r_ok.get_json()["claimed"]
-    r_dup = client.post(f"/api/agent/tasks/{eid}/claim", headers=h)
-    assert r_dup.status_code == 409
-    r_wrong = client.post(f"/api/agent/tasks/{eid}/claim", headers=h2)
-    assert r_wrong.status_code == 409
-
-
 def test_resolve_unknown_releases_capacity(app, client, login_as,
                                            tmp_path):
     """UNKNOWN holds a slot; admin resolve (with confirmation) marks it
@@ -756,50 +723,3 @@ def test_resolve_unknown_releases_capacity(app, client, login_as,
             follow_redirects=True)
         ex = db.session.get(Execution, eid)
         assert ex.state == ExecutionState.FAILED       # unchanged
-
-
-def test_agent_capability_gate(app, client, tmp_path):
-    """Only agents that advertise task-claim receive work; old agents
-    get an explicit incompatibility marker, not tasks."""
-    from testorchestrator.agent_api import issue_agent_token
-    from testorchestrator.execution import Runner
-    with app.app_context():
-        p = Project(name="P"); db.session.add(p); db.session.flush()
-        s = Suite(project_id=p.id, name="S"); db.session.add(s)
-        db.session.flush()
-        r = Runner(name="rem", connection_mode="remote", enabled=True)
-        db.session.add(r); db.session.flush()
-        token = issue_agent_token(r)
-        ex = dispatch.create_execution("m", s)
-        ex.runner_id = r.id
-        ex.state = ExecutionState.DISPATCHED
-        db.session.commit()
-        eid = ex.id
-    h = {"Authorization": f"Bearer {token}"}
-    # register WITHOUT capabilities — pre-claim agent
-    client.post("/api/agent/register",
-                json={"agent_version": "0.1"}, headers=h)
-    resp = client.get("/api/agent/tasks", headers=h)
-    d = resp.get_json()
-    assert d["tasks"] == [] and d["incompatible"]
-    # register WITH the capability — work flows
-    client.post("/api/agent/register",
-                json={"agent_version": "0.2",
-                      "capabilities": ["task-claim"]}, headers=h)
-    resp = client.get("/api/agent/tasks", headers=h)
-    assert len(resp.get_json()["tasks"]) == 1
-    # claim still works on the listed task
-    assert client.post(f"/api/agent/tasks/{eid}/claim",
-                       headers=h).status_code == 200
-
-
-def test_agent_run_config_wiring(tmp_path):
-    """The agent must receive the resolved timeout + remote-webdriver
-    fields from the immutable snapshot — not adapter defaults."""
-    import inspect
-    import testorchestrator.agent as agent_mod
-    src = inspect.getsource(agent_mod.run_task)
-    assert "remote_webdriver_url" in src
-    assert "remote_webdriver_type" in src
-    assert 'timeout_seconds' in src
-    assert "3600" in src                     # same default as portal

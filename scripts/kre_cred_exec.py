@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Worker-side KRE credential resolver + output scrubber.
 
-Invoked by the Dagu execution DAG instead of the raw KRE executable.
+Invoked by the Buildbot execution spec instead of the raw KRE executable.
 It reads a worker-local credential file, launches KRE with an argv
 LIST (no shell anywhere in the chain — file contents and paths are
 data, never executable input), and pumps the child's stdout/stderr
-through a byte-level scrub so the credential cannot land in Dagu's
+through a byte-level scrub so the credential cannot land in Buildbot step
 own step capture — redaction is applied BEFORE output is persisted
 or streamed, at the source, not only when the portal collects it.
 

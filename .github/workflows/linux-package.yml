@@ -83,3 +83,29 @@ jobs:
           ./venv/bin/python report_serving_check.py seed
           ./venv/bin/python report_serving_check.py check
           echo "PASS installer payload generates + serves reportingLabs reports"
+      - name: cheroot opt-in installs + persists across rerun
+        run: |
+          set -e
+          TB=$(find candidate -name "testorchestrator-*-linux-x86_64.tar.gz" | head -1)
+          cd $(echo /tmp/cand-inst/testorchestrator-*-linux-x86_64)
+          bash install.sh --frontend cheroot \
+            --payload /tmp/ci-payload-ch --data /tmp/ci-data-ch \
+            --config /tmp/ci-config-ch \
+            --https-port 8444 --no-service-start --yes
+          # canonical web unit is the cheroot tier; caddy staged but
+          # not selected; marker persists the choice
+          grep -q "TO_FRONTEND=cheroot" \
+            /tmp/ci-config-ch/testorchestrator-web.service
+          grep -q "cheroot" /tmp/ci-config-ch/frontend
+          test -f /tmp/ci-config-ch/testorchestrator-caddy.service
+          # rerun WITHOUT --frontend must keep cheroot (auto resolves
+          # the marker) — upgrades never silently switch frontends
+          bash install.sh \
+            --payload /tmp/ci-payload-ch --data /tmp/ci-data-ch \
+            --config /tmp/ci-config-ch \
+            --https-port 8444 --no-service-start --yes
+          grep -q "TO_FRONTEND=cheroot" \
+            /tmp/ci-config-ch/testorchestrator-web.service
+          # the installed venv must carry the offline wheels
+          /tmp/ci-payload-ch/venv/bin/python -c "import cheroot; print('cheroot', cheroot.__version__)"
+          echo "PASS cheroot opt-in install + upgrade persistence"

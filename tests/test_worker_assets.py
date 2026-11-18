@@ -1,14 +1,16 @@
-"""Worker-download assets: bundled into both packages, installed into
+"""Worker-download assets: bundled into the package, installed into
 the payload, and served by the portal from local files only — never
-fetched from GitHub at runtime.
+fetched remotely at runtime.
 
 Covers three layers:
-- scripts/install.py: packaging/windows worker installer lands in the
-  installed payload (and superseded versions are removed on upgrade)
-- scripts/validate_package.py: the assembled-package gate rejects
-  missing/mismatched/skewed assets
-- the two /infrastructure download routes serve fabricated payload
-  bytes — proving local-file serving with no remote fetch
+- scripts/install.py: packaging/windows Buildbot-worker installer
+  lands in the installed payload (superseded versions removed on
+  upgrade; a dev package without the artifact warns, never crashes)
+- scripts/validate_package.py: the assembled-package gate requires the
+  worker .exe and the controller-side buildbot wheels
+- the /infrastructure/buildbot-worker-installer route serves
+  fabricated payload bytes — proving local-file serving with a strict
+  filename policy and admin-only access
 """
 import hashlib
 import importlib.util
@@ -17,6 +19,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
+EXE_GLOB = "TestOrchestrator-Buildbot-Worker-Setup-*.exe"
 
 
 def _load(name: str, rel: str):
@@ -26,12 +29,31 @@ def _load(name: str, rel: str):
     return mod
 
 
-def _worker_exe(dirpath: Path, version: str = "2.27.0") -> Path:
-    exe = dirpath / ("testorchestrator-dagu-worker-"
-                     f"{version}-setup-UNSIGNED.exe")
+def _worker_exe(dirpath: Path, version: str = "4.3.0",
+                unsigned=True) -> Path:
+    suffix = "-UNSIGNED" if unsigned else ""
+    exe = dirpath / ("TestOrchestrator-Buildbot-Worker-Setup-"
+                     f"{version}{suffix}.exe")
     exe.parent.mkdir(parents=True, exist_ok=True)
     exe.write_bytes(b"MZ-fake-worker-installer")
     return exe
+
+
+def _wheels(dirpath: Path, version: str = "4.3.0") -> None:
+    d = dirpath / "3rdparty" / "buildbot-wheels"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"buildbot-{version}-py3-none-any.whl").write_bytes(b"w")
+    (d / f"buildbot_worker-{version}-py3-none-any.whl").write_bytes(b"w")
+    (d / f"buildbot_www-{version}-py3-none-any.whl").write_bytes(b"w")
+    (d / "paramiko-3.5.0-py3-none-any.whl").write_bytes(b"w")
+    # §3(a) corresponding-source archive beside the exe + licence texts
+    (dirpath / "packaging" / "windows").mkdir(parents=True, exist_ok=True)
+    (dirpath / "packaging" / "windows" /
+     "TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz").write_bytes(b"s")
+    lic = dirpath / "3rdparty" / "licenses"
+    lic.mkdir(parents=True, exist_ok=True)
+    (lic / "buildbot-COPYING").write_bytes(b"l")
+    (lic / "paramiko-LICENSE").write_bytes(b"l")
 
 
 # ------------------------------------------------------------------
@@ -52,21 +74,22 @@ class TestInstallWorkerInstallerAsset:
 
     def test_upgrade_replaces_superseded_version(self, tmp_path):
         repo = tmp_path / "pkg"
-        _worker_exe(repo / "packaging" / "windows", "2.28.0")
+        _worker_exe(repo / "packaging" / "windows", "4.4.0")
         payload = tmp_path / "payload"
-        old = _worker_exe(payload / "packaging" / "windows", "2.27.0")
+        old = _worker_exe(payload / "packaging" / "windows", "4.3.0")
         out = self._mod().install_worker_installer_asset(repo, payload)
         assert not old.exists(), "stale worker installer must be removed"
-        assert "2.28.0" in out.name
-        assert len(list(out.parent.glob(
-            "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe"))) == 1
+        assert "4.4.0" in out.name
+        assert len(list(out.parent.glob(EXE_GLOB))) == 1
 
-    def test_missing_installer_refuses_install(self, tmp_path):
+    def test_missing_installer_warns_not_crashes(self, tmp_path):
+        """Dev builds without GPL approval legitimately lack the exe —
+        warn and continue (release validation is the hard gate)."""
         repo = tmp_path / "pkg"
         (repo / "packaging" / "windows").mkdir(parents=True)
-        with pytest.raises(SystemExit):
-            self._mod().install_worker_installer_asset(
-                repo, tmp_path / "payload")
+        out = self._mod().install_worker_installer_asset(
+            repo, tmp_path / "payload")
+        assert out is None
 
 
 # ------------------------------------------------------------------
@@ -78,39 +101,24 @@ class TestPackageWorkerAssetsGate:
         return _load("to_validate", "scripts/validate_package.py"
                      )._worker_assets
 
-    def _pkg(self, tmp_path, dagu_ver="2.27.0", skewed=False,
-             corrupt=False, drop_archive=False, exes=1):
+    def _pkg(self, tmp_path, version="4.3.0", exes=1, wheels=True):
         pkg = tmp_path / "pkg"
-        dagu = pkg / "3rdparty" / "dagu"
-        dagu.mkdir(parents=True)
-        pins = []
-        for i, os_ in enumerate(("linux", "windows")):
-            ver = f"2.28.{i}" if skewed else dagu_ver
-            name = f"dagu_{ver}_{os_}_amd64.tar.gz"
-            data = b"corrupt" if (corrupt and i == 0) else \
-                f"archive-{os_}".encode()
-            if not (drop_archive and i == 0):
-                (dagu / name).write_bytes(data)
-            pins.append((name, hashlib.sha256(
-                f"archive-{os_}".encode()).hexdigest()))
-        (dagu / "dagu.sha256").write_text(
-            "".join(f"{h}  {n}\n" for n, h in pins))
         for i in range(exes):
             _worker_exe(pkg / "packaging" / "windows",
-                        dagu_ver if i == 0 else "9.9.9")
+                        version if i == 0 else "9.9.9")
+        if wheels:
+            _wheels(pkg, version)
         return pkg
 
     def test_complete_package_passes(self, tmp_path):
         self._gate()(self._pkg(tmp_path))
 
-    @pytest.mark.parametrize("fault", ["drop_archive", "corrupt",
-                                       "skewed", "no_exe", "two_exes"])
+    @pytest.mark.parametrize("fault", ["no_exe", "two_exes",
+                                       "no_wheels"])
     def test_incomplete_package_rejected(self, tmp_path, fault):
-        kw = {"drop_archive": fault == "drop_archive",
-              "corrupt": fault == "corrupt",
-              "skewed": fault == "skewed",
-              "exes": 0 if fault == "no_exe"
-                      else 2 if fault == "two_exes" else 1}
+        kw = {"exes": 0 if fault == "no_exe"
+                      else 2 if fault == "two_exes" else 1,
+              "wheels": fault != "no_wheels"}
         with pytest.raises(AssertionError):
             self._gate()(self._pkg(tmp_path, **kw))
 
@@ -121,36 +129,17 @@ class TestPackageWorkerAssetsGate:
 
 def _fabricate_payload(app, monkeypatch, tmp_path):
     """Redirect current_app.root_path at a fabricated installed layout:
-    root/testorchestrator (package dir) + 3rdparty/dagu + packaging."""
+    root/testorchestrator (package dir) + packaging/windows exe."""
     root = tmp_path / "installed"
     pkg_dir = root / "testorchestrator"
     pkg_dir.mkdir(parents=True)
-    dagu = root / "3rdparty" / "dagu"
-    dagu.mkdir(parents=True)
-    (dagu / "dagu_9.9.9_linux_amd64.tar.gz").write_bytes(
-        b"linux-worker-archive")
-    (dagu / "dagu_9.9.9_windows_amd64.tar.gz").write_bytes(
-        b"windows-worker-archive")
     exe = _worker_exe(root / "packaging" / "windows")
     monkeypatch.setattr(app, "root_path", str(pkg_dir))
     return root, exe
 
 
 class TestWorkerDownloads:
-    URL_A = "/system/infrastructure/dagu-worker/{}"
-    URL_I = "/system/infrastructure/dagu-worker-installer/{}"
-
-    def test_archives_served_from_installed_payload(
-            self, app, client, login_as, monkeypatch, tmp_path):
-        login_as("admin")
-        _fabricate_payload(app, monkeypatch, tmp_path)
-        for os_, body in (("linux", b"linux-worker-archive"),
-                          ("windows", b"windows-worker-archive")):
-            r = client.get(self.URL_A.format(
-                f"dagu_9.9.9_{os_}_amd64.tar.gz"))
-            assert r.status_code == 200
-            assert r.get_data() == body   # local bytes — no remote fetch
-            assert "attachment" in r.headers["Content-Disposition"]
+    URL_I = "/system/infrastructure/buildbot-worker-installer/{}"
 
     def test_installer_served_from_installed_payload(
             self, app, client, login_as, monkeypatch, tmp_path):
@@ -159,24 +148,14 @@ class TestWorkerDownloads:
         r = client.get(self.URL_I.format(exe.name))
         assert r.status_code == 200
         assert r.get_data() == b"MZ-fake-worker-installer"
+        assert "attachment" in r.headers["Content-Disposition"]
 
     @pytest.mark.parametrize("name", [
-        "../dagu_9.9.9_linux_amd64.tar.gz",
-        "..%2F..%2Fetc%2Fpasswd",
-        "dagu_9.9.9_freebsd_amd64.tar.gz",
-        "dagu_9.9.9_linux_amd64.zip",
-        "evil.tar.gz",
-    ])
-    def test_archive_name_outside_policy_rejected(
-            self, app, client, login_as, monkeypatch, tmp_path, name):
-        login_as("admin")
-        _fabricate_payload(app, monkeypatch, tmp_path)
-        assert client.get(self.URL_A.format(name)).status_code == 404
-
-    @pytest.mark.parametrize("name", [
-        "testorchestrator-dagu-worker-9.9.9-setup.exe",
-        "testorchestrator-dagu-worker-9.9.9-setup-UNSIGNED.msi",
-        "../testorchestrator-dagu-worker-9.9.9-setup-UNSIGNED.exe",
+        "TestOrchestrator-Buildbot-Worker-Setup-4.3.0.exe",
+        "TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.msi",
+        "../TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe",
+        "testorchestrator-dagu-worker-4.3.0-setup-UNSIGNED.exe",
+        "evil.exe",
     ])
     def test_installer_name_outside_policy_rejected(
             self, app, client, login_as, monkeypatch, tmp_path, name):
@@ -188,54 +167,42 @@ class TestWorkerDownloads:
             self, app, client, login_as, monkeypatch, tmp_path):
         login_as("admin")
         _fabricate_payload(app, monkeypatch, tmp_path)
-        assert client.get(self.URL_A.format(
-            "dagu_8.8.8_linux_amd64.tar.gz")).status_code == 404
         assert client.get(self.URL_I.format(
-            "testorchestrator-dagu-worker-8.8.8-setup-UNSIGNED.exe"
+            "TestOrchestrator-Buildbot-Worker-Setup-8.8.8-UNSIGNED.exe"
         )).status_code == 404
 
     def test_admin_only(self, app, client, login_as,
                         monkeypatch, tmp_path):
         login_as("tester")
         _, exe = _fabricate_payload(app, monkeypatch, tmp_path)
-        assert client.get(self.URL_A.format(
-            "dagu_9.9.9_linux_amd64.tar.gz")).status_code in (302, 403)
         assert client.get(self.URL_I.format(exe.name)
                           ).status_code in (302, 403)
 
 
 class TestWorkerAssetListing:
-    """The infrastructure page's asset inventory reads the same local
-    payload dirs — checksums come from the shipped pin manifest."""
+    """The infrastructure page's asset metadata reads the local payload
+    — version from the filename, checksum computed from shipped bytes."""
 
     def test_installer_listing_metadata(
             self, app, monkeypatch, tmp_path):
         _, exe = _fabricate_payload(app, monkeypatch, tmp_path)
         from testorchestrator.system.routes import \
-            _worker_installer_asset
+            _bb_worker_installer_asset
         with app.app_context():
-            a = _worker_installer_asset()
+            a = _bb_worker_installer_asset()
         assert a["file"] == exe.name
-        assert a["version"] == "2.27.0"
+        assert a["version"] == "4.3.0"
         assert a["sha256"] == hashlib.sha256(
             b"MZ-fake-worker-installer").hexdigest()
         assert a["size"] == len(b"MZ-fake-worker-installer")
 
-    def test_archive_listing_uses_pin_manifest(
+    def test_listing_absent_when_unbundled(
             self, app, monkeypatch, tmp_path):
-        root, _ = _fabricate_payload(app, monkeypatch, tmp_path)
-        dagu = root / "3rdparty" / "dagu"
-        (dagu / "dagu.sha256").write_text(
-            f"{hashlib.sha256(b'linux-worker-archive').hexdigest()}  "
-            "dagu_9.9.9_linux_amd64.tar.gz\n")
-        from testorchestrator.system.routes import _dagu_worker_assets
+        root = tmp_path / "installed"
+        (root / "testorchestrator").mkdir(parents=True)
+        monkeypatch.setattr(app, "root_path",
+                            str(root / "testorchestrator"))
+        from testorchestrator.system.routes import \
+            _bb_worker_installer_asset
         with app.app_context():
-            assets = _dagu_worker_assets()
-        by_name = {a["file"]: a for a in assets}
-        lin = by_name["dagu_9.9.9_linux_amd64.tar.gz"]
-        assert lin["os"] == "linux" and lin["version"] == "9.9.9"
-        assert lin["sha256"] == hashlib.sha256(
-            b"linux-worker-archive").hexdigest()
-        # unpinned archive still listed, but without a manifest checksum
-        assert by_name["dagu_9.9.9_windows_amd64.tar.gz"
-                       ]["sha256"] == ""
+            assert _bb_worker_installer_asset() is None

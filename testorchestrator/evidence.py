@@ -9,7 +9,7 @@ Ownership rules
   ``instance/workspaces/<exec-id>/``) — owned by that Execution;
   contains ``Reports/``, ``logs/`` and the checked-out source.
 - ``instance/remote-runs/<exec-id>/`` — materialised coordinator-side
-  artifacts of remote (dagu-worker) executions; owned likewise.
+  artifacts of remote executions; owned likewise.
 - A directory under a managed root is an ORPHAN iff no Execution row
   owns it — i.e. its top-level name is not an existing execution id
   and no ``report_dir``/``workspace_path`` points inside it.

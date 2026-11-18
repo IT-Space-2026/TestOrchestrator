@@ -51,8 +51,6 @@ def test_second_runner_selected_persists(pg):
     pg.locator('form[action$="infrastructure/runtimes"] input#executable_path') \
         .fill("/opt/katalonc")
     pg.locator('form[action$="infrastructure/runtimes"] input#loc-remote').check()
-    pg.locator('form[action$="infrastructure/runtimes"] input#worker_label') \
-        .fill("wl-sel2")
     pg.locator('form[action$="infrastructure/runtimes"] button[type=submit]').click()
     pg.wait_for_timeout(1200)
     # the runtime row should show the second runner's name
@@ -70,8 +68,6 @@ def test_runner_selection_survives_validation_error(pg):
     # omit required executable_path -> validation error
     pg.locator('form[action$="infrastructure/runtimes"] input#name').fill("rt-bad")
     pg.locator('form[action$="infrastructure/runtimes"] input#loc-remote').check()
-    pg.locator('form[action$="infrastructure/runtimes"] input#worker_label') \
-        .fill("wl-bad")
     pg.locator('form[action$="infrastructure/runtimes"] button[type=submit]').click()
     pg.wait_for_timeout(1200)
     assert sel.input_value() == opt2.get_attribute("value")

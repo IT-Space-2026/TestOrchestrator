@@ -27,7 +27,7 @@ def test_schtasks_default_units_when_env_empty():
         assert cfg["scope"] == "schtasks"
         assert cfg["units"] == ["TestOrchestratorWeb",
                                 "TestOrchestratorWorker",
-                                "TestOrchestratorDagu"]
+                                "TestOrchestratorBuildbotMaster"]
 
 
 def test_invalid_scope_rejected():

@@ -14,7 +14,7 @@ Exclusions from the runtime distribution (kept in the source repo):
 - tests/, caches (__pycache__, .pytest_cache), instance data, venvs,
   dist/, and any other build-only content.
 
-KRE stays external by requirement. Bundled Python/Caddy/Dagu/Allure are
+KRE stays external by requirement. Bundled Python/Buildbot/Allure are
 the agreed offline payload. Bundled git remains only in the standard
 build (opt-in cli backend); the frozen candidate is Dulwich-only.
 """
@@ -50,10 +50,8 @@ INCLUDE = [
     # --frozen candidate swaps the two entries above for the onedir.
     # Bundled git removed: all workflows run on the Dulwich backend
     # (dulwich==1.2.20); TO_GIT_BACKEND=cli falls back to host git as a
-    # declared prerequisite. Remote worker checkouts use go-git inside
-    # the dagu binary.
-    ("3rdparty/caddy", "caddy"),
-    ("3rdparty/dagu", "dagu"),
+    # declared prerequisite.
+    ("3rdparty/buildbot-wheels", "buildbot-wheels"),
     # java-runtime removed: the JRE was shipped solely for Allure 2.
     # Allure 3 is Node-based; KRE carries its own runtime.
     ("3rdparty/licenses", "docs"),
@@ -63,12 +61,13 @@ INCLUDE = [
 REQUIRED = [
     "wsgi.py", "testorchestrator/__init__.py", "requirements.txt",
     "release/release.json", "install.sh", "scripts/install.py",
-    "migrations", "deploy/Caddyfile",
-    "3rdparty/caddy/caddy",
+    "migrations", "deploy/testorchestrator-web.service",
+    "deploy/buildbot/master.cfg",
+    "scripts/provision_buildbot.py",
+    "scripts/to_ssh_exec.py",
     "3rdparty/reporting_labs/__init__.py",
     "3rdparty/reporting_labs/LICENSE",
     "3rdparty/python-runtime/python/bin/python3",  # swapped for app/toctl under --frozen
-    "3rdparty/dagu",
 ]
 
 EXCLUDE_DIRS = {"__pycache__", ".pytest_cache", "instance", "dist",
@@ -88,14 +87,17 @@ def _excluded(rel: Path) -> bool:
         return True
     # Product-identity allowlist: the full Windows application
     # installer must never ride inside the Linux package. The
-    # supplementary dagu-worker installer IS an intended download
-    # asset. Nested package archives and staging dirs are excluded.
+    # supplementary buildbot-worker installer IS an intended download
+    # asset. Nested archives and staging dirs are excluded.
     name = rel.name
-    if name.endswith(".exe") and "-setup" in name \
-            and "dagu-worker" not in name:
+    lname = name.lower()
+    if name.endswith(".exe") and ("-setup" in lname
+                                 or "setup-" in lname) \
+            and "buildbot-worker" not in lname:
         return True
     if name.endswith((".tar.gz", ".7z.exe")) and \
-            "dagu_" not in name and "python" not in parts:
+            "python" not in parts and \
+            not name.startswith("TestOrchestrator-Buildbot-Sources-"):
         return True
     return False
 
@@ -182,7 +184,7 @@ DEPENDENCIES = {
     "git": {
         "required_for": "none — workflows run on the Dulwich backend "
                         "(pure python, dulwich==1.2.20); remote worker "
-                        "checkouts use go-git inside the dagu binary. "
+                        "checkouts are portal-staged source archives. "
                         "Only the opt-in TO_GIT_BACKEND=cli path needs "
                         "host git, and ssh:// portal remotes need host "
                         "ssh — declared prerequisites, not bundled",
@@ -221,16 +223,6 @@ def main():
         stale = check_frozen_fresh()
         if stale:
             raise SystemExit(f"bundle build FAILED — {stale}")
-    # Dagu archives are fetched, not tracked: materialize the pinned
-    # pair via checksum-verified download when absent.
-    dagu_dir = REPO / "3rdparty" / "dagu"
-    if not list(dagu_dir.glob("dagu_*_amd64.tar.gz")):
-        r = subprocess.run(["bash", str(REPO / "scripts" / "fetch_dagu.sh")],
-                           capture_output=True, text=True)
-        if r.returncode != 0:
-            raise SystemExit("bundle build FAILED — dagu archives "
-                             "missing and fetch_dagu.sh failed:\n"
-                             + r.stderr + r.stdout)
     files, missing = collect(frozen=args.frozen)
     if missing:
         raise SystemExit(f"bundle build FAILED — required files missing: "
@@ -260,8 +252,8 @@ def main():
     if not args.frozen:
         bundled["git"] = "vendored ubuntu-resolute-amd64 rootfs (cli-backend fallback)"
     bundled |= {
-        "caddy": "pinned binary + licence + sha256",
-        "dagu": "pinned 2.27.0 release tarball",
+        "buildbot-wheels": "pinned controller orchestration stack "
+                           "(present only in GPL-approved builds)",
     }
     if args.frozen:
         bundled["frozen-app"] = ("PyInstaller onedir — toctl "

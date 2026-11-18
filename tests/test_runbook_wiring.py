@@ -1,12 +1,12 @@
+import json
 """Runbook wiring tests: probe-only smoke semantics, explicit-exec CLI,
-Dagu config command, Admin agent-token issuance, state-monitor endpoint,
+buildbot-config command, state-monitor endpoint,
 and argv sanitization (A01 review)."""
 
 import shutil
 from pathlib import Path
 
 from testorchestrator import dispatch
-from testorchestrator.agent_api import issue_agent_token
 from testorchestrator.execution import (ExecutionState, Project, Runner,
                                         RuntimeConnection, Suite, SuiteEntry)
 from testorchestrator.extensions import db
@@ -66,42 +66,29 @@ def test_kre_exec_requires_explicit_suite(app, tmp_path):
     assert "-runMode=console" in inv.read_text()
 
 
-def test_dagu_config_saves_settings(app):
+def test_buildbot_config_saves_settings(app):
     runner = app.test_cli_runner()
-    res = runner.invoke(args=["dagu-config", "--endpoint",
-                              "http://127.0.0.1:29987/",
-                              "--username", "orchestrator",
+    res = runner.invoke(args=["buildbot-config", "--endpoint",
+                              "http://127.0.0.1:8010/",
+                              "--username", "to-api",
+                              "--home", "/tmp/bb-home",
                               "--credential-ref", "missing"])
     assert res.exit_code != 0  # credential ref must resolve
 
-    res = runner.invoke(args=["dagu-config", "--endpoint",
-                              "http://127.0.0.1:29987/",
-                              "--username", "orchestrator"])
+    with app.app_context():
+        from testorchestrator.secrets_store import store_secret
+        store_secret(app, "buildbot-api", "buildbot", "pw")
+    res = runner.invoke(args=["buildbot-config", "--endpoint",
+                              "http://127.0.0.1:8010/",
+                              "--username", "to-api",
+                              "--home", "/tmp/bb-home",
+                              "--credential-ref", "buildbot-api"])
     assert res.exit_code == 0, res.output
     with app.app_context():
-        assert settings_mod.get("dagu_endpoint") == "http://127.0.0.1:29987"
-        assert settings_mod.get("dagu_username") == "orchestrator"
-
-
-def test_issue_agent_token_admin_only(client, login_as, app):
-    with app.app_context():
-        db.session.add(Runner(name="r1", connection_mode="local"))
-        db.session.commit()
-        rid = Runner.query.filter_by(name="r1").first().id
-
-    login_as("tester")
-    assert client.post(
-        f"/system/infrastructure/runners/{rid}/issue-token"
-    ).status_code == 403
-
-    login_as("admin")
-    resp = client.post(f"/system/infrastructure/runners/{rid}/issue-token",
-                       follow_redirects=True)
-    assert resp.status_code == 200
-    with app.app_context():
-        runner = db.session.get(Runner, rid)
-        assert runner.agent_token_hash  # digest persisted, plaintext flashed
-    assert b"toa_" in resp.data
+        assert settings_mod.get("buildbot_endpoint") == \
+            "http://127.0.0.1:8010"
+        assert settings_mod.get("buildbot_username") == "to-api"
+        assert settings_mod.get("buildbot_home") == "/tmp/bb-home"
 
 
 # ---------- state monitor endpoint + reconcile wiring ----------
@@ -124,85 +111,32 @@ def _mk_execution(app, runner_id, state=ExecutionState.DISPATCHED):
         return ex.id
 
 
-def _token(app, runner_id):
-    with app.app_context():
-        return issue_agent_token(db.session.get(Runner, runner_id))
-
-
-def test_state_endpoint_scoping(client, app):
-    """State labels: own runner OR any local-mode runner; foreign remote
-    runners are refused (404), unauthenticated 401."""
-    with app.app_context():
-        remote = Runner(name="rem", connection_mode="remote")
-        other_remote = Runner(name="rem2", connection_mode="remote")
-        local = Runner(name="loc", connection_mode="local")
-        db.session.add_all([remote, other_remote, local])
-        db.session.commit()
-        ids = (remote.id, other_remote.id, local.id)
-    ex_id = _mk_execution(app, ids[0])
-    t_remote = _token(app, ids[0])
-    t_other = _token(app, ids[1])
-    t_local = _token(app, ids[2])
-    auth = lambda t: {"Authorization": f"Bearer {t}"}
-    assert client.get(f"/api/agent/state/{ex_id}").status_code == 401
-    # Owning remote runner reads its own execution.
-    r = client.get(f"/api/agent/state/{ex_id}", headers=auth(t_remote))
-    assert r.status_code == 200 and r.json["state"] == "dispatched"
-    # A foreign remote runner does not.
-    assert client.get(f"/api/agent/state/{ex_id}",
-                      headers=auth(t_other)).status_code == 404
-    # The local (orchestration-host) runner observes it for the Dagu step.
-    assert client.get(f"/api/agent/state/{ex_id}",
-                      headers=auth(t_local)).status_code == 200
-
-
-def test_reconcile_dagu_runs_wired_and_running_not_masked(app, monkeypatch):
-    """worker_once drives dagu reconciliation when configured; a 'running'
-    dagu run must NOT extend the execution lease (agent disconnect still
-    reconciles via expiry)."""
+def test_reconcile_buildbot_runs_wired(app):
+    """worker_once drives buildbot reconciliation when configured: a
+    live buildrequest renews the lease; a lost/absent buildrequest
+    leaves the row for the lease sweep — expired -> UNKNOWN, never
+    blind re-dispatch."""
     from datetime import timedelta
-    from testorchestrator.execution import utcnow
+    from testorchestrator.execution import utcnow, Execution as E
 
-    class FakeDagu:
-        label = "running"
-        @classmethod
-        def from_settings(cls):
-            return cls()
-        def status(self, _id):
-            return {"statusLabel": self.label}
-
-    monkeypatch.setattr(dispatch, "DaguAdapter", FakeDagu)
     with app.app_context():
-        settings_mod.update({"dagu_endpoint": "http://dagu.local"})
         r = Runner(name="r", connection_mode="remote")
         db.session.add(r); db.session.commit()
         rid = r.id
+        # br "bb:99" does not exist on the (stubbed) master -> the
+        # reconcile skips it; the expired lease then resolves UNKNOWN.
         ex = _mk_execution(app, rid)
-        from testorchestrator.execution import Execution as E
         e = db.session.get(E, ex)
-        e.dispatch_id = "run1"
+        e.dispatch_id = "bb:99"
         e.lease_expires_at = utcnow() - timedelta(seconds=5)
+        snap = e.snapshot(); snap["dispatch_transport"] = "buildbot"
+        e.snapshot_json = json.dumps(snap)
         db.session.commit()
 
     with app.app_context():
         dispatch.worker_once()
     with app.app_context():
-        from testorchestrator.execution import Execution as E
-        e = db.session.get(E, ex)
-        # Expired lease -> UNKNOWN despite dagu run still 'running'.
-        assert e.state == ExecutionState.UNKNOWN
-
-    # Finished dagu run without portal result -> UNKNOWN as well.
-    FakeDagu.label = "succeeded"
-    with app.app_context():
-        ex2 = _mk_execution(app, rid)
-        e2 = db.session.get(E, ex2)
-        e2.dispatch_id = "run2"
-        db.session.commit()
-    with app.app_context():
-        dispatch.worker_once()
-    with app.app_context():
-        assert db.session.get(E, ex2).state == ExecutionState.UNKNOWN
+        assert db.session.get(E, ex).state == ExecutionState.UNKNOWN
 
 
 # ---------- argv sanitization ----------
@@ -210,7 +144,6 @@ def test_reconcile_dagu_runs_wired_and_running_not_masked(app, monkeypatch):
 def test_secret_bearing_arg_never_reaches_evidence(app, tmp_path, monkeypatch):
     """A runtime credential VALUE must be scrubbed from invocation log,
     captured stdout/stderr, artifacts, audit rows, and the Git export."""
-    monkeypatch.setenv("TO_SECRET_KEY_FILE", str(tmp_path / "k"))
     fake = tmp_path / "kre"
     fake.write_text(
         "#!/usr/bin/env bash\n"
@@ -274,9 +207,9 @@ def test_secret_bearing_arg_never_reaches_evidence(app, tmp_path, monkeypatch):
 # ---------- runbook fixture path (previously broken entry points) ----------
 
 def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
-    """The runbook's UI/CLI steps stay covered: dagu-config -> runner +
-    token -> runtime -> project + binding -> suite create -> run form ->
-    worker -> completed execution with recorded argv + results."""
+    """The runbook's UI/CLI steps stay covered: runner -> runtime ->
+    project + binding -> suite create -> run form -> worker ->
+    completed execution with recorded argv + results."""
     fake = tmp_path / "katalonc"
     fake.write_text(
         "#!/usr/bin/env bash\n"
@@ -306,9 +239,6 @@ def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
     assert resp.status_code == 302
     with app.app_context():
         rid = Runner.query.filter_by(name="local-1").first().id
-    resp = client.post(f"/system/infrastructure/runners/{rid}/issue-token",
-                       follow_redirects=True)
-    assert b"toa_" in resp.data
     resp = client.post("/system/infrastructure/runtimes", data={
         "name": "kre-1", "description": "", "runner_id": rid,
         "executable_path": str(fake),

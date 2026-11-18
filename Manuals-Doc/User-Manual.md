@@ -1,7 +1,7 @@
-# TestOrchestrator 2.0.2 — User Manual
+# TestOrchestrator 2.5.0 — User Manual
 
-Applies to released **TestOrchestrator 2.0.2** (tag `v2.0.2`, source
-commit `574860d08124411692b141643da0ad87e576100d`).
+Applies to **TestOrchestrator 2.5.0** (verified build commit
+`1adf71b8d5f8`).
 
 All screenshots were captured from a real Linux installation of the
 published release package using safe demonstration data. Where a
@@ -61,8 +61,8 @@ and records automated test runs for Katalon Studio projects:
 - It checks out a bound Git repository, discovers test cases, test
   suites, and test-suite collections, and launches them through
   **Katalon Runtime Engine (KRE)**.
-- Execution can be delegated through a **Dagu** coordinator to
-  registered **worker** machines, so tests run next to the KRE
+- Execution is delegated through **Buildbot** to registered
+  **execution targets**, so tests run next to the KRE
   installation that owns them.
 - Results — JUnit outcomes, logs, screenshots, and native Katalon
   reports — are collected back and stored as **evidence** attached to
@@ -78,13 +78,13 @@ and records automated test runs for Katalon Studio projects:
 | Component | Role |
 |---|---|
 | **TestOrchestrator portal** | Web UI + API. Owns projects, Git bindings, users, the execution database, evidence, and reports. Serves the worker installer and the Linux worker archive to authenticated users. |
-| **Dagu coordinator** | Bundled workflow engine (v2.27.0). Accepts dispatched jobs from the portal and hands them to a matching registered worker. Runs as a separate process (`dagu start-all`). |
-| **Worker** | A `dagu worker` process on any host with labels (capabilities) such as `kre=<label>`. Polls the coordinator and executes jobs locally. |
+| **Buildbot master** | Bundled orchestrator (v4.3.0). Accepts dispatched jobs from the portal and hands them to the selected execution target. Its REST API is loopback-only. |
+| **Execution target** | A local controller worker, a remote `buildbot-worker` (Windows/Linux), or an agentless SSH host. Managed entirely in Admin → Infrastructure. |
 | **KRE** | Katalon Runtime Engine — the licensed test executor. It must be installed and licensed **on the worker/host** where the suite actually runs. TestOrchestrator invokes it; it does not license it. |
 | **reportingLabs** | Bundled report generator (vendored, MIT). Converts stored results + evidence into a static HTML report per execution. |
 
 The portal never executes tests itself when a remote runtime is
-selected — the worker does. The portal orchestrates, records, and
+selected — the target does. The portal orchestrates, records, and
 serves the results.
 
 ### 1.3 Live execution vs. historical-result import
@@ -428,16 +428,16 @@ Missed/blocked targets surface the same way as manual runs — check
 A run needs all of the following — an administrator sets these up
 (**Admin → Infrastructure** and **Admin → Workers & runtimes**):
 
-1. **A runner** — a worker destination. `remote` runners are reached
-   through the Dagu coordinator.
-2. **A registered worker** — a `dagu worker` process connected to the
+1. **A runner** — an execution-target destination. `remote` runners
+   are Buildbot workers or agentless SSH targets.
+2. **A registered target** — an enabled execution target in
    coordinator, advertising labels such as `kre=<label>` (plus
    automatic `os`/`arch` labels).
 3. **A runtime connection (KRE installation)** — the registered path
-   to a KRE executable *on that worker*, its workspace root, and the
-   `worker_label` that selects the worker.
+   to a KRE executable *on that target*, its workspace root, and the
+   runner binding that selects the target.
 
-![Infrastructure — worker and KRE registration](Screenshot-Doc/admin/infrastructure.png)
+![Infrastructure — execution targets and KRE registration](Screenshot-Doc/admin/infrastructure.png)
 
 > **KRE licences.** Katalon Runtime Engine requires a valid Katalon
 > licence or API key *on the execution host*. TestOrchestrator
@@ -475,20 +475,30 @@ The execution page shows lifecycle state, outcome, worker, suite,
 timestamps, a results table, artifacts, and provenance.
 
 States you will see: `queued` → `dispatched`/`running` → a terminal
-state (`completed`, `failed`, `canceled`). **Outcome** (`passed`,
-`failed`, …) is computed from the returned test results — it is
-distinct from the lifecycle state. A run can be `completed` with
-outcome `failed` (tests ran and failed) or `failed` with no outcome
-(the machinery broke).
+state (`completed`, `failed`, `canceled`). A run you cancel sits in
+`cancel_requested` until the coordinator confirms termination. A run
+whose outcome the portal cannot determine lands in `unknown` — that
+is honest uncertainty, never silently retried; check its error text
+and audit trail before deciding to rerun it manually. **Outcome**
+(`passed`, `failed`, …) is computed from the returned test results —
+it is distinct from the lifecycle state. A run can be `completed`
+with outcome `failed` (tests ran and failed) or `failed` with no
+outcome (the machinery broke).
 
 ![Execution detail — imported run with provenance](Screenshot-Doc/user/execution-detail-imported.png)
 
 ### 4.4 Cancellation, retry, and deletion
 
 - **Cancel** — requests cancellation per selected execution (the bulk
-  bar on the Executions page, or per execution). Cancelling asks the
-  coordinator to stop; it does **not** guarantee a remote process has
-  already halted — the page says so explicitly.
+  bar on the Executions page, or per execution). The execution moves
+  to `cancel_requested` while the portal asks the coordinator to stop
+  the workflow run; once the coordinator confirms the abort, the
+  execution settles in terminal `canceled` and both steps appear in
+  the audit trail. A cancel request is honored quickly — the brief
+  `cancel_requested` window is the stop propagating, not a stuck
+  state. If the coordinator itself was unreachable, the run can land
+  in `unknown` instead of `canceled` — treat that as "termination
+  unconfirmed" and check the audit trail.
 - **Retry** — re-queues a finished execution with its recorded run
   configuration, linked as a new attempt.
 - **Delete** — marks the execution for deletion. The portal first
@@ -503,7 +513,7 @@ outcome `failed` (tests ran and failed) or `failed` with no outcome
 | Symptom | Classification | What it means |
 |---|---|---|
 | `completed` + outcome `failed`, cases listed with `<failure>` messages | **Test failure** | KRE ran; assertions failed. This is a real test result. |
-| `failed`, no cases, worker log shows `No Offline License … Activation failed` | **Licence/activation failure** | KRE launched but could not activate — missing licence/API key on the worker. Not a test verdict. |
+| `failed`, no cases, run log shows `No Offline License … Activation failed` | **Licence/activation failure** | KRE launched but could not activate — missing licence/API key on the target host. Not a test verdict. |
 | `failed`, no cases, dispatch/checkout/workspace errors | **Infrastructure failure** | The job never reached test execution. |
 | `incompleted`/partial results, `framework=unknown` artifacts | **Incomplete** | Output was cut short or produced by an unrecognized tool; treat with care. |
 
@@ -529,8 +539,8 @@ administrator can record a licence at **System → Licence** to clear
 the notice, but is not required to.
 
 This is the **application** licence — separate from the KRE licence
-that must exist on each execution worker (§4.1). An
-`Activation failed` result (§4.5) means the worker's KRE licence, not
+that must exist on each execution target (§4.1). An
+`Activation failed` result (§4.5) means the target's KRE licence, not
 the portal's application licence.
 
 ---
@@ -623,7 +633,7 @@ retryable candidates remain.
 ### 6.1 Execution history
 
 **Executions** lists every run with filters for ID prefix, project,
-lifecycle state, outcome, worker, schedule, date range, origin
+lifecycle state, outcome, target, schedule, date range, origin
 (live/imported), and framework. Fifty per page.
 
 ![Execution history](Screenshot-Doc/user/execution-history.png)
@@ -647,7 +657,7 @@ Report generation states (`rl_status`):
 
 The execution page lists retained **artifacts**: JUnit XML, Katalon
 `execution.uuid`, execution/console logs, screenshots, HAR files,
-native Katalon HTML/CSV reports, and (for live runs) the worker run
+native Katalon HTML/CSV reports, and (for live runs) the target run
 log. **Download** options provide a report ZIP and an artifacts ZIP.
 
 Evidence lives under managed directories owned by executions (see
@@ -671,6 +681,6 @@ Linux. Live-execution screens used a **fixture** KRE stand-in
 emitting genuine Katalon-format output — they demonstrate dispatch,
 registration, execution plumbing, result/evidence return, and report
 generation, **not licensed KRE execution**. Licensed-KRE execution
-requires a valid Katalon licence/API key on the worker and was not
+requires a valid Katalon licence/API key on the target host and was not
 validated in this environment. Imported-execution screens show
 **real Katalon 11.7.0 output** produced by a licensed run elsewhere.

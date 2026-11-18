@@ -9,19 +9,23 @@ Prerequisites (the only ones):
   - network access for pinned assets not already cached
   - NSIS (makensis) — auto-installed via apt-get when missing;
     sudo may prompt for a password on first run
+  - TO_BUILDBOT_GPL_APPROVED=1 — required for release builds; the
+    Buildbot stack (GPL) is bundled only after redistribution approval
 
 Produces in dist/release/linux/:
   testorchestrator-<ver>-linux-x86_64.tar.gz
   testorchestrator-<ver>-linux-x86_64.run
   SHA256SUMS.txt + build-manifest.json + per-run log
 
-The dagu-worker NSIS installer is still built (the tarball embeds it
-under packaging/windows/ for portal-side download) but is no longer
-published as a standalone release artifact.
+The buildbot-worker NSIS installer is built when
+TO_BUILDBOT_GPL_APPROVED=1 (the tarball embeds it under
+packaging/windows/ for portal-side download) — never published as a
+standalone release asset.
 
 Never tags, publishes, or touches git state.
 """
 import io
+import os
 import sys
 import tarfile
 import tempfile
@@ -29,8 +33,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (ASSETS, BUILD_ROOT, BuildError, Log, REPO,
-                     build_worker_installer, clean_release_dir,
-                     fetch_all_dagu, finalise, git_info, release_version,
+                     build_buildbot_worker_installer,
+                     build_corresponding_sources, clean_release_dir,
+                     fetch_buildbot_linux_wheels,
+                     finalise, git_info, release_version,
                      run, safe_extract, venv_python)
 
 
@@ -47,11 +53,37 @@ def main() -> int:
         clean_release_dir("linux")
         vpy = venv_python(BUILD_ROOT / "linux", log)
 
-        log.step("1/5 provision pinned dagu archives")
-        fetch_all_dagu(log)
-
-        log.step("2/5 build dagu-worker Windows installer (NSIS)")
-        worker_exe = build_worker_installer(log, ASSETS["dagu"]["version"])
+        # Buildbot worker .exe + controller wheels — GPL redistribution
+        # gate. Two flags:
+        #   TO_BUILDBOT_GPL_APPROVED=1   customer-redistribution approval
+        #                                (recorded in the manifest)
+        #   TO_BUILDBOT_INTERNAL_BUILD=1 internal-only packaging test —
+        #                                builds everything but marks the
+        #                                artifact NOT approved for
+        #                                distribution
+        gpl_approved = os.environ.get("TO_BUILDBOT_GPL_APPROVED") == "1"
+        internal_build = (os.environ.get("TO_BUILDBOT_INTERNAL_BUILD")
+                          == "1")
+        if gpl_approved or internal_build:
+            log.step("2/5 build buildbot-worker Windows installer (NSIS) "
+                     "+ controller wheels + corresponding sources"
+                     + ("" if gpl_approved else " [INTERNAL TEST ONLY]"))
+            bb_worker_exe = build_buildbot_worker_installer(
+                BUILD_ROOT / "linux", log)
+            # Controller-side stack: linux wheels install.py turns into
+            # payload/buildbot-venv offline (master + local/ssh workers).
+            fetch_buildbot_linux_wheels(BUILD_ROOT / "linux", log)
+            # GPLv2 §3(a): corresponding source accompanies the binaries
+            bb_sources = build_corresponding_sources(
+                BUILD_ROOT / "linux", log)
+        else:
+            bb_worker_exe = None
+            bb_sources = None
+            log.write("  buildbot worker installer + wheels SKIPPED — "
+                      "set TO_BUILDBOT_GPL_APPROVED=1 after GPL "
+                      "redistribution approval "
+                      "(or TO_BUILDBOT_INTERNAL_BUILD=1 for internal "
+                      "packaging tests)")
 
         log.step("3/5 build release tarball + self-extracting installer")
         run([vpy, "scripts/build_bundle.py"], log)
@@ -75,7 +107,7 @@ def main() -> int:
         checks.append({"name": "validate_package",
                        "detail": "offline deps install + vendored "
                                  "reporting-labs + worker assets "
-                                 "(dagu archives checksum-verified, "
+                                 "assets checksum-verified, "
                                  "worker installer aligned)",
                        "ok": True})
         # .run round-trip: payload behind the marker must untar to the
@@ -98,22 +130,31 @@ def main() -> int:
 
         log.step("5/5 publish release outputs")
         manifest_extra = {
-            "worker_assets": {
+            "worker_assets": {},
+            "buildbot_worker_assets": {
                 "windows_installer_inside_package":
-                    f"packaging/windows/{worker_exe.name}",
-                "dagu_version": ASSETS["dagu"]["version"],
-                "coordinator_worker_aligned": True,
-                "publication": "bundled inside this package for "
-                               "portal-side download — not published "
-                               "as a standalone release asset",
+                    f"packaging/windows/{bb_worker_exe.name}"
+                    if bb_worker_exe else None,
+                "buildbot_version": ASSETS["buildbot_worker"]["version"],
+                "gpl_approved": gpl_approved,
+                "internal_test_build":
+                    internal_build and not gpl_approved,
+                "corresponding_sources":
+                    (f"{bb_sources.name} (inside package at "
+                     f"packaging/windows/ + beside release artifacts)")
+                    if bb_sources else None,
             },
             "stale_guard": "release dir cleaned at build start; "
                            "worker-payload and older worker exes rebuilt",
         }
         # The worker exe is built (step 2/5) and ships INSIDE the
         # tarball — the portal serves it as a download. It is no
-        # longer published as a standalone release asset.
-        finalise(log, "linux", gi, [tb, run_sh],
+        # longer published as a standalone release asset. The
+        # corresponding-source archive IS published beside the
+        # controller package (GPLv2 §3(a) accompanying source) AND
+        # inside packaging/windows/ for the Admin-UI download.
+        finalise(log, "linux", gi,
+                 [tb, run_sh] + ([bb_sources] if bb_sources else []),
                  manifest_extra, checks)
         log.close()
         return 0

@@ -26,7 +26,7 @@
 <section class="card">
   <h2>Start execution</h2>
   <p class="muted">An immutable snapshot of the entries below (v{{ suite.version }},
-     pinned source above) is dispatched through Dagu to an eligible
+     pinned source above) is dispatched through Buildbot to an eligible
      registered worker/runtime.</p>
   <form method="post" action="{{ url_for('portal.launch_execution', suite_id=suite.id) }}">
     {{ plain_form.csrf_token }}

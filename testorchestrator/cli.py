@@ -268,8 +268,6 @@ def cmd_install(args) -> int:
                 shutil.rmtree(stale, ignore_errors=True)
         data.mkdir(parents=True, exist_ok=True)
         config.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(pkg / "deploy" / "Caddyfile",
-                     config / "Caddyfile")
 
     # 2) web.env — app-scoped config; writable data lives outside payload
     env_file = config / "web.env"

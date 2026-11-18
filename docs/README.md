@@ -14,6 +14,8 @@ TestOrchestrator.
 | `licensing.md` | developer | `TO1.` licence format, payload fields, Ed25519 verification, enforcement points |
 | `integration-contracts.md` | developer | Version pins + endpoint shapes for external integrations (referenced from `testorchestrator/dispatch.py`) |
 | `dagu-verified-api.md` | developer | Dagu API surface verified against the bundled 2.27.0 binary |
+| `cheroot-frontend.md` | developer | Cheroot opt-in HTTPS frontend: install, switch/rollback, platform support, limits |
+| `spike-cheroot-frontend.md` | evidence | Caddy↔Cheroot parity matrix, benchmark data, gap analysis behind the opt-in |
 | `security-review.md` | evidence | First-party security review findings + dispositions |
 | `report-serving-security.md` | developer | Report-serving trust boundary — including the same-origin limitation that is NOT a sandbox boundary |
 | `release-notes-2.0.1.md` … `release-notes-2.0.3.md`, `release-summary-2.0.0.md` | release records | Per-version release documentation |

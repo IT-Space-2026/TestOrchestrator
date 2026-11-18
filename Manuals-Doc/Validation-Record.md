@@ -171,3 +171,34 @@ the doc env now runs the **be5d133** payload (all prior
 2.0.2 evidence remains as recorded above — provenance is per-frame in
 the Screenshot-Index). Additional throwaway instances running for the
 new captures: web `:8098`/`:8099`, coordinator `:29877`.
+## 8. Follow-on validation — 2.5.0 (`1adf71b8`)
+
+The 2.5.0 candidate was built from `1adf71b8d5f8`
+(`feature/cheroot-frontend`) and exercised on a disposable isolated
+install (`/tmp/to-e2e2`, user-scope — no root, no VM). What was
+verified there:
+
+| Procedure | Status | Result |
+|---|---|---|
+| Fresh install, no `--frontend` | EXEC | resolves to **Caddy**; marker `config/frontend=caddy`; `web.env` written with `TO_SECRET_KEY`/`TO_INSTALL_ID` |
+| No-flag installer rerun (×3, across builds) | EXEC | `[dagu] reusing already-provisioned coordinator credential`; `web.env` secrets preserved; credential hash unchanged; dispatch works with no resync |
+| Caddy → Cheroot → Caddy switch | EXEC | only the selected tier owns the public ports; redirects + healthz verified; sessions survive (`TO_SECRET_KEY` preserved); coordinator credential hash identical before/after each switch |
+| Real dispatch via UI on each tier | EXEC | UI → outbox → worker → Dagu run → agent claim → real KRE `katalonc` 11.7.0 invocation → portal state + `kre-invocation/stdout/stderr` evidence. Runs `93ba940c`, `0160e56f` (Cheroot), `a900c20f` (post-rollback Caddy) — all licence-gated `failed` (see blocked item) |
+| Explicit runner/runtime pick under Dagu | EXEC | `runtime_id` honored by the dispatch path — stub-runtime run `30e27bfa` assigned the selected runtime |
+| Cancellation, controlled runner | EXEC | `30e27bfa`: `cancel_requested` → Dagu run `aborted` → terminal `canceled` in ~4 s; audit shows `execution.cancel_requested` + `execution.cancel_acknowledged` |
+| Assignment-before-submit ordering | EXEC | no run stranded `UNKNOWN` since the fix; the earlier reproduction (`567b446d`) is superseded by assignment-committed-before-submit + `tests/test_dagu_dispatch_ordering.py` |
+| Branded 404, both tiers | EXEC | authenticated 404 renders the IT-Space-branded error page with status 404; anonymous 404 keeps status 404; logo asset decodes in-DOM |
+| Foreign `Host` header | EXEC | Cheroot **421**; Caddy passes through to the app — intentional asymmetry, not weakened |
+| Backend down | EXEC | Cheroot: connection refused (no HTTP page); Caddy: 502 unbranded. No branded 500/backend-down page exists — not claimed in the manuals |
+
+**Blocked:** a *successful* real KRE run on each frontend — the probe
+KRE 11.7.0 activates with **0 valid offline licences** and no
+recoverable API key; every real run reaches `katalonc` and fails at
+activation (`exit 2`, `infrastructure`). Requires a licensed test
+environment. Cypress/Playwright/Robot Framework: **not applicable** —
+not shipped in 2.5.0.
+
+**Not exercised:** root/system-scope `:443`, real reboot, root-required
+`installed-validate` steps, Windows Cheroot. System-scope upgrade was
+dropped from the checklist — 2.0.3 was never deployed, so no upgrade
+path is claimed for 2.5.0.

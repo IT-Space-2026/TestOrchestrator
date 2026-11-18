@@ -7,6 +7,7 @@ Flask-Migrate==4.1.0
 Flask-WTF==1.3.0
 argon2-cffi==25.1.0
 waitress==3.0.2
+cheroot==11.1.2
 SQLAlchemy==2.1.8
 alembic==1.20.1
 Werkzeug==3.1.9
@@ -27,6 +28,7 @@ cryptography==50.0.2
 # opt-in fallback using bundled/host git via subprocess)
 dulwich==1.2.21
 requests==2.34.2
+paramiko==2.12.0
 urllib3==2.8.0
 certifi==2026.10.23
 charset-normalizer==3.5.2

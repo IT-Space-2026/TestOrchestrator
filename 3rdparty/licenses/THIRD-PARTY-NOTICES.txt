@@ -13,6 +13,16 @@ Python runtime components (see requirements.txt for pinned versions):
   typing_extensions — PSF
   waitress — ZPL-2.1-derived (see waitress-*-LICENSE.txt)
 
-Reverse proxy / TLS terminator (binary, see 3rdparty/caddy/):
-  Caddy — Apache License 2.0
+Public HTTPS/redirect frontend (in-process WSGI server):
+  cheroot — BSD-3-Clause
   cryptography — Apache-2.0 OR BSD-3-Clause (dual-licensed, see files)
+
+Orchestration stack (separate buildbot-venv; see 3rdparty/buildbot-wheels/
+for the exact wheels and 3rdparty/CORRESPONDING-SOURCES.txt for the
+corresponding-source offer and archive):
+  buildbot, buildbot-worker, buildbot-www — GPL-2.0
+  paramiko — LGPL-2.1-or-later
+  twisted, autobahn, zope.interface, automat, incremental, hyperlink,
+    constantly, txaio, msgpack, pyopenssl, idna, typing-extensions,
+    packaging, six, ujson, cbor2 — MIT / Apache-2.0 / BSD-3-Clause /
+    ZPL-2.1 (see per-wheel licence files in 3rdparty/licenses/)

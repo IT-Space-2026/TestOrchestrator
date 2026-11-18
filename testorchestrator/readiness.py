@@ -54,8 +54,8 @@ def _admin_set() -> bool:
 
 
 def _coord_fp() -> str:
-    return _fp(_get("dagu_coordinator_url", ""),
-               _cred_fp(_get("dagu_credential_ref", "")))
+    return _fp(_get("buildbot_endpoint", ""),
+               _cred_fp(_get("buildbot_credential_ref", "")))
 
 
 def _coordinator_ok() -> bool:
@@ -165,7 +165,7 @@ def components() -> list:
          "detail": "bootstrap replaced" if _admin_set() else
                   "bootstrap password must be replaced",
          "link": "system.settings_home"},
-        {"key": "coordinator", "label": "Orchestration (Dagu coordinator)",
+        {"key": "coordinator", "label": "Orchestration (Buildbot master)",
          "status": "verified" if _coordinator_ok() else "configured",
          "detail": "health check bound to endpoint+credential",
          "link": "system.integrations_page"},

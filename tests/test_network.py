@@ -2,8 +2,8 @@
 
 import pytest
 
-from testorchestrator.caddyconf import (CaddyApplyError, apply_config,
-                                        render_caddyfile)
+from testorchestrator.netconf import (NetApplyError, apply_config,
+                                      rollback_config)
 from testorchestrator.config import Config
 from testorchestrator.network import (ValidationError, access_links,
                                       build_url, check_port_conflicts,
@@ -73,32 +73,22 @@ def test_net03_candidates_are_suggestions():
         assert isinstance(c.is_private, bool)
 
 
-# NET04 — rendered HTTP listener redirects to the configured secure address
-# and never reflects the inbound Host header.
-def test_net04_redirect_target_is_configured(tmp_path):
-    rendered = render_caddyfile(dict(DEFAULTS), tmp_path, "127.0.0.1:18080")
-    assert "redir https://localhost{uri}" in rendered
-    assert "{host}" not in rendered
-    assert "reverse_proxy 127.0.0.1:18080" in rendered
-    assert "admin off" in rendered
+# NET04 — listener changes are flagged restart-required; cert changes
+# live-reload (netconf has no intermediate config file to stage).
+def test_net04_apply_flags_restart(app):
+    with app.app_context():
+        result = apply_config(app, all_settings())
+        assert result["status"] == "applied"
+        assert result["restart_required"] is True
 
 
-def test_net04_no_http_listener_when_disabled(tmp_path):
-    settings = dict(DEFAULTS, http_mode="disabled")
-    rendered = render_caddyfile(settings, tmp_path, "127.0.0.1:18080")
-    assert "http://" not in rendered.split("reverse_proxy")[0].replace(
-        "https://", ""
-    )
-
-
-def test_net04_no_automatic_port_80(tmp_path):
-    rendered = render_caddyfile(dict(DEFAULTS), tmp_path, "127.0.0.1:18080")
-    # Exactly one http:// listener (the configured 8080 redirect) — no
-    # implicit port-80 listener is opened.
-    assert rendered.count("http://localhost:") == 1
-    assert "http://localhost:8080" in rendered
-    assert "http://localhost:80 " not in rendered
-    assert "auto_https disable_redirects" in rendered
+def test_net04_apply_snapshots_previous_good(app):
+    with app.app_context():
+        v0 = all_settings()["network_config_version"]
+        apply_config(app, dict(all_settings(), https_port=8443))
+        prev = all_settings()["previous_good_config"]
+        assert prev["https_port"] == DEFAULTS["https_port"]
+        assert all_settings()["network_config_version"] == v0 + 1
 
 
 # NET05 — invalid/conflicting ports rejected; failed apply keeps prior state.
@@ -111,28 +101,24 @@ def test_net05_port_validation():
         check_port_conflicts({"https": 443, "http": 443})
 
 
-def test_net05_failed_apply_preserves_previous(app, tmp_path):
-    """A rejected candidate leaves settings and active config untouched."""
-    app.config["CADDY_BIN"] = str(tmp_path / "no-such-caddy")
-    app.config["CADDY_CONFIG_DIR"] = tmp_path / "caddycfg"
+def test_net05_apply_and_rollback(app):
+    """Apply snapshots previous-good; rollback restores it + bumps version."""
     with app.app_context():
-        before = all_settings()["network_config_version"]
-        with pytest.raises(CaddyApplyError):
-            apply_config(app, dict(all_settings(), https_port=8443))
-        assert all_settings()["network_config_version"] == before
-        # No active Caddyfile was installed.
-        assert not (tmp_path / "caddycfg" / "Caddyfile").exists()
+        apply_config(app, dict(all_settings(), https_port=8443))
+        v = all_settings()["network_config_version"]
+        out = rollback_config(app)
+        assert out["status"] == "rolled-back"
+        assert all_settings()["https_port"] == DEFAULTS["https_port"]
+        assert all_settings()["network_config_version"] == v + 1
 
 
-def test_net05_apply_succeeds_with_bundled_caddy(app, tmp_path):
-    """Staged render + real `caddy validate` + install works end-to-end."""
-    app.config["CADDY_CONFIG_DIR"] = tmp_path / "caddycfg"
+def test_net05_rollback_without_snapshot_errors(app):
     with app.app_context():
-        result = apply_config(app, all_settings())
-        assert result["status"] == "applied"
-        assert (tmp_path / "caddycfg" / "Caddyfile").exists()
-        text = (tmp_path / "caddycfg" / "Caddyfile").read_text()
-        assert "reverse_proxy 127.0.0.1:18080" in text
+        from testorchestrator import settings as sm
+        sm.set("previous_good_config", {})
+        sm.db.session.commit()
+        with pytest.raises(NetApplyError):
+            rollback_config(app)
 
 
 def test_network_page_admin_only(client, login_as):

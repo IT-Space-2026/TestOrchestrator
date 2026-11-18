@@ -244,6 +244,36 @@ class Runner(db.Model):
     agent_version = db.Column(db.String(32), nullable=False, default="")
     agent_capabilities = db.Column(db.String(256), nullable=False,
                                    default="[]")
+    # Execution-target kind (docs/orchestration-replacement.md):
+    #   "local"            portal-host runner (drives KRE on this host)
+    #   "buildbot-worker"  Windows/Linux Buildbot worker over PB
+    #   "ssh"              agentless host — the controller's ssh
+    #                      dispatcher connects, runs, collects; nothing
+    #                      TO-side executes on the remote host.
+    target_type = db.Column(db.String(20), nullable=False,
+                            default="local")
+    # Buildbot worker identity: unique workername + per-worker password
+    # (secret ref). Empty for local/ssh targets.
+    bb_worker_name = db.Column(db.String(64), nullable=False, default="")
+    bb_credential_ref = db.Column(db.String(64), nullable=False,
+                                  default="")
+    # Agentless SSH target configuration — connectivity details only;
+    # key material lives in the secrets store, never on the runner row.
+    ssh_host = db.Column(db.String(256), nullable=False, default="")
+    ssh_port = db.Column(db.Integer, nullable=True)     # None -> 22
+    ssh_username = db.Column(db.String(64), nullable=False, default="")
+    ssh_credential_ref = db.Column(db.String(64), nullable=False,
+                                   default="")
+    ssh_host_key_alg = db.Column(db.String(32), nullable=False,
+                                 default="")
+    ssh_host_key_fingerprint = db.Column(db.String(128), nullable=False,
+                                         default="")
+    ssh_workdir = db.Column(db.String(512), nullable=False, default="")
+    # Last Admin-UI connection check outcome (unregistered worker /
+    # unreachable host / host missing runner are distinct states).
+    check_status = db.Column(db.String(16), nullable=False, default="")
+    check_error = db.Column(db.String(512), nullable=False, default="")
+    check_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
 
 class RuntimeConnection(db.Model):
@@ -267,14 +297,14 @@ class RuntimeConnection(db.Model):
     enabled = db.Column(db.Boolean, nullable=False, default=True)
     last_diagnostic = db.Column(db.Text, nullable=False, default="")
     last_check_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    # remote: the unique Dagu worker.labels tag the installation is
+    # remote: the unique worker label the legacy installation was
     # bound to — empty => local (portal-host) execution.
     worker_label = db.Column(db.String(128), nullable=False, default="")
     # Worker-side SSH deploy-key path for ssh:// bindings — a path on
     # the worker host; key material never enters the portal.
     git_ssh_key_path = db.Column(db.String(512), nullable=False,
                                  default="")
-    # Worker-local credential FILE path for Dagu-dispatched KRE — the
+    # Worker-local credential FILE path for orchestrated KRE — the
     # coordinator spec carries this path only; the worker-side
     # resolver (scripts/kre_cred_exec.py) reads the value on the
     # worker immediately before exec. Admin-configured; an execution
@@ -286,7 +316,7 @@ class RuntimeConnection(db.Model):
 
 class ExecutionState(str, enum.Enum):
     QUEUED = "queued"
-    DISPATCHED = "dispatched"      # handed to Dagu/outbox, awaiting runner
+    DISPATCHED = "dispatched"      # handed to the orchestrator, awaiting runner
     PREPARING = "preparing"
     RUNNING = "running"
     COLLECTING = "collecting"      # continues after failed tests (§7)
@@ -515,7 +545,7 @@ class OutboxEvent(db.Model):
 
     __tablename__ = "outbox_events"
     id = db.Column(db.String(32), primary_key=True, default=new_id)
-    kind = db.Column(db.String(32), nullable=False)      # dagu-dispatch|local-dispatch|git-sync|rp-publish|binding-sync|runner-heartbeat
+    kind = db.Column(db.String(32), nullable=False)      # orchestrator-dispatch|git-sync|rp-publish|binding-sync|runner-heartbeat
     payload_json = db.Column(db.Text, nullable=False, default="{}")
     status = db.Column(db.String(16), nullable=False, default="pending")
     attempts = db.Column(db.Integer, nullable=False, default=0)
@@ -536,7 +566,7 @@ class SecretRef(db.Model):
     __tablename__ = "secret_refs"
     id = db.Column(db.String(32), primary_key=True, default=new_id)
     name = db.Column(db.String(64), nullable=False, unique=True)
-    kind = db.Column(db.String(32), nullable=False)      # git|dagu|runner|runtime
+    kind = db.Column(db.String(32), nullable=False)      # git|buildbot|ssh|runner|runtime
     encrypted = db.Column(db.LargeBinary, nullable=False)
     meta_json = db.Column(db.Text, nullable=False, default="{}")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)

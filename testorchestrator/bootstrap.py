@@ -49,6 +49,37 @@ def is_loopback(remote_addr) -> bool:
         return True
 
 
+def ensure_orchestrator_settings() -> bool:
+    """Seed Buildbot settings from the installer's environment on first
+    boot — a clean install must be orchestrator-ready without any
+    ``flask buildbot-config`` run. INSERT-ONLY: existing DB values
+    (admin edits, buildbot-config, prior boot) always win; the env
+    bridge only fills empty keys. Returns True when it wrote."""
+    import os
+    mapping = {
+        "TO_BUILDBOT_ENDPOINT": "buildbot_endpoint",
+        "TO_BUILDBOT_HOME": "buildbot_home",
+        "TO_BUILDBOT_PIDFILE": "buildbot_pidfile",
+        "TO_BUILDBOT_PB_PORT": "buildbot_pb_port",
+        "TO_BUILDBOT_WWW_PORT": "buildbot_www_port",
+        "TO_HTTPS_PORT": "https_port",
+        "TO_HTTP_PORT": "http_port",
+    }
+    updates = {}
+    for env_key, setting_key in mapping.items():
+        val = os.environ.get(env_key, "").strip()
+        # INSERT-ONLY on the raw row — get() would mask "unset" behind
+        # the schema default and the env seed would never land.
+        row = db.session.get(settings_mod.Setting, setting_key)
+        if val and row is None:
+            updates[setting_key] = (
+                int(val) if setting_key.endswith("_port") else val)
+    if updates:
+        settings_mod.update(updates)
+        return True
+    return False
+
+
 def ensure_bootstrap_admin() -> bool:
     """Create Admin/Admin on a fresh install. Idempotent and safe to call on
     every request: it is a no-op once any user exists, and upgrades/
@@ -128,8 +159,12 @@ def install_gates(app) -> None:
 
         ensure_bootstrap_admin()
         try:
-            from .secrets_store import ensure_coordinator_credential
+            from .secrets_store import (
+                ensure_coordinator_credential,
+                ensure_internal_worker_credentials)
+            ensure_orchestrator_settings()
             ensure_coordinator_credential(current_app)
+            ensure_internal_worker_credentials(current_app)
         except Exception:
             pass  # pre-migration; retry on next request
 

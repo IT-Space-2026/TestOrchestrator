@@ -30,6 +30,19 @@ RELEASE_DIR = REPO / "dist" / "release"
 ASSETS = json.loads((Path(__file__).parent / "assets.json").read_text())
 
 
+def _requirements_pin(name: str) -> str:
+    for line in (REPO / "requirements.txt").read_text().splitlines():
+        line = line.strip()
+        if line.startswith(f"{name}=="):
+            return line.split("==", 1)[1]
+    raise ValueError(f"{name} not pinned in requirements.txt")
+
+
+# The buildbot-venv's paramiko (used by the ssh-dispatcher worker)
+# must match the app venv pin — one SSH stack, one version.
+PARAMIKO_VERSION = _requirements_pin("paramiko")
+
+
 class BuildError(RuntimeError):
     """Actionable build failure — message is shown to the user."""
 
@@ -126,23 +139,6 @@ def read_pin_file(path: Path) -> dict[str, str]:
     return pins
 
 
-def fetch_dagu(arch: str, log: Log) -> Path:
-    """Materialise a pinned dagu release archive into 3rdparty/dagu/.
-    Digest source: 3rdparty/dagu/dagu.sha256 (authoritative, read by
-    validate_package.py inside the shipped package)."""
-    spec = ASSETS["dagu"]
-    name = spec["archives"][arch]
-    pins = read_pin_file(REPO / spec["sha256_file"])
-    if name not in pins:
-        raise BuildError(f"{spec['sha256_file']} has no pin for {name}")
-    dest = REPO / "3rdparty" / "dagu" / name
-    return fetch(f"{spec['release_url_base']}/{name}", dest,
-                 pins[name], log)
-
-
-def fetch_all_dagu(log: Log) -> None:
-    for arch in ASSETS["dagu"]["archives"]:
-        fetch_dagu(arch, log)
 
 
 def git_info() -> dict:
@@ -275,48 +271,194 @@ def _extract_nsis_debs(log: Log) -> None:
         log.write(f"  user-space makensis ready: {_local_makensis()}")
 
 
-def stage_worker_payload(log: Log) -> Path:
-    """Extract dagu.exe + LICENSE + README.md from the pinned windows
-    dagu archive into packaging/windows/worker-payload/ — the payload
-    for the NSIS worker installer (replaces build_worker_installer.sh's
-    tar/sha256sum steps so Windows hosts need no git-bash)."""
-    archive = fetch_dagu("windows_amd64", log)
-    pins = read_pin_file(REPO / "3rdparty" / "dagu" / "dagu.sha256")
-    assert sha256_file(archive) == pins[archive.name]
-    out = REPO / "packaging" / "windows" / "worker-payload"
+def stage_buildbot_worker_payload(build_dir: Path, log: Log) -> Path:
+    """Stage packaging/windows/bb-worker-payload/ — embed Python +
+    pinned buildbot-worker wheels + bootstrap script, the offline
+    payload for the NSIS Buildbot-worker installer."""
+    out = REPO / "packaging" / "windows" / "bb-worker-payload"
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    want = {"dagu.exe", "LICENSE", "README.md"}
-    with tarfile.open(archive, "r:gz") as tar:
-        for m in tar.getmembers():
-            if Path(m.name).name in want and m.isfile():
-                m.name = Path(m.name).name          # strip any dirs
-                tar.extract(m, out, filter="data")
-    missing = want - {p.name for p in out.iterdir()}
-    if missing:
-        raise BuildError(f"worker payload incomplete: {missing} "
-                         f"not found in {archive.name}")
-    log.write(f"  worker payload staged: {sorted(p.name for p in out.iterdir())}")
+    spec = ASSETS["python_embed_windows"]
+    unzip_safely(fetch(spec["url"],
+                       REPO / "3rdparty" / "python" / "python-embed-amd64.zip",
+                       spec["sha256"], log),
+                 out / "python-embed")
+    fetch(ASSETS["get_pip"]["url"], out / "get-pip.py",
+          ASSETS["get_pip"]["sha256"], log)
+    shutil.copy2(REPO / "packaging" / "windows" / "bb-worker-payload-src"
+                 / "setup-worker.py", out / "setup-worker.py")
+    wheels = out / "wheels"
+    wheels.mkdir()
+    vpy = venv_python(build_dir, log)
+    ensure_pip(vpy, log)
+    bbver = ASSETS["buildbot_worker"]["version"]
+    # Windows-amd64 wheels for the embedded py3.12 — downloaded for the
+    # target platform, never executed on the build host. Pure-python
+    # wheels satisfy the platform filter, so one resolve covers both.
+    run([str(vpy), "-m", "pip", "download", "--only-binary=:all:",
+         "--platform", "win_amd64", "--python-version", "312",
+         "--implementation", "cp", "--abi", "cp312",
+         "-d", str(wheels), f"buildbot-worker=={bbver}",
+         "pywin32"], log)
+    # GPL/LGPL notices travel inside the .exe payload too
+    lic = out / "licenses"
+    lic.mkdir(exist_ok=True)
+    shutil.copy2(REPO / "3rdparty" / "CORRESPONDING-SOURCES.txt",
+                 lic / "CORRESPONDING-SOURCES.txt")
+    import zipfile
+    for whl in wheels.glob("*.whl"):
+        try:
+            with zipfile.ZipFile(whl) as z:
+                for name in z.namelist():
+                    base = name.rsplit("/", 1)[-1].upper()
+                    if ".dist-info/" in name and (
+                            base.startswith("LICEN") or
+                            base.startswith("COPYING") or
+                            base == "NOTICE"):
+                        (lic / (whl.name.split("-")[0] + "-" +
+                                name.rsplit("/", 1)[-1])
+                         ).write_bytes(z.read(name))
+        except zipfile.BadZipFile:
+            pass
+    log.write(f"  bb worker payload staged: {sorted(p.name for p in out.iterdir())}")
     return out
 
 
-def build_worker_installer(log: Log, dagu_version: str) -> Path:
-    """makensis the dagu-worker NSIS installer. Output:
-    packaging/windows/testorchestrator-dagu-worker-<v>-setup-UNSIGNED.exe"""
+def fetch_buildbot_linux_wheels(build_dir: Path, log: Log) -> Path:
+    """Stage 3rdparty/buildbot-wheels/ — linux amd64 wheels for the
+    controller-side Buildbot stack (master + workers + paramiko).
+    install.py builds payload/buildbot-venv from them offline.
+    Also extracts each wheel's license into 3rdparty/licenses/."""
+    out = REPO / "3rdparty" / "buildbot-wheels"
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    vpy = venv_python(build_dir, log)
+    ensure_pip(vpy, log)
+    bbver = ASSETS["buildbot_worker"]["version"]
+    run([str(vpy), "-m", "pip", "download",
+         "-d", str(out), f"buildbot[bundled]=={bbver}",
+         f"buildbot-worker=={bbver}", f"buildbot-www=={bbver}",
+         f"paramiko=={PARAMIKO_VERSION}"], log)
+    log.write(f"  linux bb wheels staged: {len(list(out.iterdir()))} wheels")
+    extract_wheel_licenses(out, log)
+    return out
+
+
+def extract_wheel_licenses(wheels_dir: Path, log: Log) -> int:
+    """Copy every staged wheel's dist-info license file(s) into
+    3rdparty/licenses/ — GPL/LGPL notices must travel with binaries."""
+    import zipfile
+    lic_dir = REPO / "3rdparty" / "licenses"
+    lic_dir.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for whl in sorted(wheels_dir.glob("*.whl")):
+        try:
+            with zipfile.ZipFile(whl) as z:
+                for name in z.namelist():
+                    base = name.rsplit("/", 1)[-1].upper()
+                    if ".dist-info/" in name and (
+                            base.startswith("LICEN") or
+                            base.startswith("COPYING") or
+                            base == "NOTICE"):
+                        dest = lic_dir / (
+                            whl.name.split("-")[0] + "-" +
+                            name.rsplit("/", 1)[-1])
+                        dest.write_bytes(z.read(name))
+                        n += 1
+        except zipfile.BadZipFile:
+            log.write(f"  WARN unreadable wheel for license: {whl.name}")
+    log.write(f"  extracted {n} license files -> 3rdparty/licenses/")
+    return n
+
+
+_GPL_SOURCE_PKGS = ("buildbot", "buildbot-worker", "buildbot-www",
+                    "paramiko")
+
+
+def build_corresponding_sources(build_dir: Path, log: Log) -> Path:
+    """Corresponding-source archive for the GPL/LGPL-covered components
+    actually shipped: source distributions + the build/install scripts
+    that turn them into the shipped artifacts. Emitted beside the
+    controller package AND inside packaging/windows/ so the Admin UI
+    can offer it next to the worker .exe download."""
+    bbver = ASSETS["buildbot_worker"]["version"]
+    staging = build_dir / "bb-corresponding-sources"
+    if staging.exists():
+        shutil.rmtree(staging)
+    sdist_dir = staging / "sdists"
+    sdist_dir.mkdir(parents=True)
+    # Fetch the sdists verbatim from PyPI's JSON API — pip download
+    # --no-binary tries to BUILD them (buildbot-www's sdist requires
+    # buildbot_pkg to even read its metadata).
+    import json as _json
+    import urllib.request
+    for pkg in _GPL_SOURCE_PKGS:
+        if pkg == "paramiko":
+            # match the version actually staged in buildbot-wheels
+            whl = next((REPO / "3rdparty" / "buildbot-wheels").glob(
+                "paramiko-*.whl"), None)
+            ver = whl.name.split("-")[1] if whl else None
+        else:
+            ver = bbver
+        meta_url = (f"https://pypi.org/pypi/{pkg}/{ver}/json" if ver
+                    else f"https://pypi.org/pypi/{pkg}/json")
+        with urllib.request.urlopen(meta_url, timeout=30) as r:
+            meta = _json.loads(r.read())
+        files = meta["urls"]
+        sdist = next(f for f in files if f["packagetype"] == "sdist")
+        log.write(f"  sdist {pkg}: {sdist['filename']} "
+                  f"({sdist['url']})")
+        run(["curl", "-fSL", "-o",
+             str(sdist_dir / sdist["filename"]), sdist["url"]], log)
+    scripts = staging / "build-and-install"
+    scripts.mkdir()
+    for src, dst in [
+            ("scripts/provision_buildbot.py", "provision_buildbot.py"),
+            ("deploy/buildbot/master.cfg", "master.cfg"),
+            ("scripts/install_linux_worker.sh", "install_linux_worker.sh"),
+            ("packaging/windows/bb-worker-payload-src/setup-worker.py",
+             "setup-worker.py"),
+            ("packaging/windows/buildbot-worker-installer.nsi",
+             "buildbot-worker-installer.nsi")]:
+        shutil.copy2(REPO / src, scripts / dst)
+    name = f"TestOrchestrator-Buildbot-Sources-{bbver}.tar.gz"
+    out = build_dir / name
+    if out.exists():
+        out.unlink()
+    import tarfile
+    with tarfile.open(out, "w:gz") as t:
+        t.add(sdist_dir, arcname="sdists")
+        t.add(scripts, arcname="build-and-install")
+        t.add(REPO / "3rdparty" / "CORRESPONDING-SOURCES.txt",
+              arcname="CORRESPONDING-SOURCES.txt")
+    # companion copy beside the worker .exe — the Admin UI serves it
+    # from packaging/windows/ next to the installer download.
+    shutil.copy2(out, REPO / "packaging" / "windows" / name)
+    log.write(f"  corresponding sources: {out.name} "
+              f"({out.stat().st_size:,} B) + packaging/windows/ copy")
+    return out
+
+
+def build_buildbot_worker_installer(build_dir: Path, log: Log) -> Path:
+    """makensis the buildbot-worker NSIS installer. Output:
+    packaging/windows/testorchestrator-buildbot-worker-<v>-setup-UNSIGNED.exe"""
     makensis = ensure_makensis(log)
-    stage_worker_payload(log)
+    stage_buildbot_worker_payload(build_dir, log)
     win_dir = REPO / "packaging" / "windows"
-    for stale in win_dir.glob("testorchestrator-dagu-worker-*.exe"):
-        stale.unlink()        # never keep an older build's exe
-    run([makensis, "-V2", f"-DVERSION={dagu_version}",
-         "worker-installer.nsi"], log, cwd=win_dir)
+    bbver = ASSETS["buildbot_worker"]["version"]
+    for stale in win_dir.glob("TestOrchestrator-Buildbot-Worker-*.exe"):
+        stale.unlink()
+    run([makensis, "-V2", f"-DVERSION={bbver}",
+         "buildbot-worker-installer.nsi"], log, cwd=win_dir)
     exes = sorted(win_dir.glob(
-        f"testorchestrator-dagu-worker-{dagu_version}-setup-UNSIGNED.exe"))
+        f"TestOrchestrator-Buildbot-Worker-Setup-{bbver}-UNSIGNED.exe"))
     if not exes:
-        raise BuildError("makensis produced no worker installer")
+        raise BuildError("makensis produced no buildbot worker installer")
     log.write(f"  built {exes[0].name} ({exes[0].stat().st_size:,} B, unsigned)")
     return exes[0]
+
 
 
 def safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
@@ -406,8 +548,8 @@ def tool_versions() -> dict:
     return {
         "python": sys.version.split()[0],
         "makensis": _v([mk, "-VERSION"]) if mk else "absent",
-        "dagu": ASSETS["dagu"]["version"],
-        "caddy": ASSETS["caddy_linux"]["version"],
+        "buildbot_worker": ASSETS.get("buildbot_worker", {}).get(
+            "version", "unpinned"),
         "python_embed_windows": ASSETS["python_embed_windows"]["version"],
     }
 
