@@ -305,7 +305,8 @@ def fetch_buildbot_linux_wheels(build_dir: Path, log: Log) -> Path:
     bbver = ASSETS["buildbot_worker"]["version"]
     run([str(vpy), "-m", "pip", "download",
          "-d", str(out), f"buildbot[bundled]=={bbver}",
-         f"buildbot-worker=={bbver}", "paramiko"], log)
+         f"buildbot-worker=={bbver}", f"buildbot-www=={bbver}",
+         "paramiko"], log)
     log.write(f"  linux bb wheels staged: {len(list(out.iterdir()))} wheels")
     return out
 

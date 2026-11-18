@@ -226,7 +226,7 @@ def main() -> None:
                     [bb_py, "-m", "pip", "install", "--no-index",
                      "--find-links", str(bb_wheels),
                      "buildbot[bundled]", "buildbot-worker",
-                     "paramiko"])
+                     "buildbot-www", "paramiko"])
             else:
                 bb_py = os.environ.get("TO_BUILDBOT_PYTHON") or ""
         sys.path.insert(0, str(REPO / "scripts"))
@@ -249,7 +249,8 @@ def main() -> None:
         # worker, buildbot master + workers — full lifecycle wiring,
         # activation needs root on the target host.
         _stage_web_unit(config)
-        _write_web_env(config, data)
+        _write_web_env(config, data, args.https_port,
+                       args.http_port)
         (config / "testorchestrator-worker.service").write_text(
             f"[Unit]\nDescription=TestOrchestrator dispatch worker\n"
             f"After=network.target\n\n[Service]\nType=simple\n"
@@ -301,7 +302,9 @@ def bundled_python(payload: Path) -> Path:
 UNITS = ("testorchestrator-web", "testorchestrator-worker")
 
 
-def _write_web_env(config: Path, data: Path) -> None:
+def _write_web_env(config: Path, data: Path,
+                   https_port: int = 443,
+                   http_port: int = 8080) -> None:
     """Write the EnvironmentFile the staged units require. Secret values
     already on disk are PRESERVED across reruns — regenerating
     TO_SECRET_KEY would silently invalidate every session and
@@ -326,7 +329,9 @@ def _write_web_env(config: Path, data: Path) -> None:
         f"TO_BUILDBOT_HOME={data}/buildbot\n"
         f"TO_BUILDBOT_PIDFILE={data}/buildbot/master/twistd.pid\n"
         f"TO_BUILDBOT_PB_PORT=9989\n"
-        f"TO_BUILDBOT_WWW_PORT=8010\n")
+        f"TO_BUILDBOT_WWW_PORT=8010\n"
+        f"TO_HTTPS_PORT={https_port}\n"
+        f"TO_HTTP_PORT={http_port}\n")
     os.chmod(env_file, 0o640)
     print(f"[install] web.env: {env_file} "
           f"(secrets {'preserved' if preserved else 'generated'})")

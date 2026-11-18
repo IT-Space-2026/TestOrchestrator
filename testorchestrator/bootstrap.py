@@ -62,6 +62,8 @@ def ensure_orchestrator_settings() -> bool:
         "TO_BUILDBOT_PIDFILE": "buildbot_pidfile",
         "TO_BUILDBOT_PB_PORT": "buildbot_pb_port",
         "TO_BUILDBOT_WWW_PORT": "buildbot_www_port",
+        "TO_HTTPS_PORT": "https_port",
+        "TO_HTTP_PORT": "http_port",
     }
     updates = {}
     for env_key, setting_key in mapping.items():

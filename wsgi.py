@@ -1,6 +1,7 @@
 """Production WSGI entry point.
 
-Deployed behind Caddy; Waitress binds loopback only:
+Production WSGI entry point — Waitress binds loopback for internal
+probes; the in-process Cheroot tier owns the public listeners:
 
     waitress-serve --listen=127.0.0.1:8080 wsgi:app
 
@@ -34,6 +35,13 @@ if __name__ == "__main__":
                     "frontend: settings unreadable (database not "
                     "migrated yet?) — using defaults")
                 settings = dict(settings_mod.DEFAULTS)
+                # First boot before the DB exists: the installer's
+                # env still wins for the listener ports so a custom
+                # --https-port install binds correctly on first start.
+                for env_key, skey in (("TO_HTTPS_PORT", "https_port"),
+                                      ("TO_HTTP_PORT", "http_port")):
+                    if os.environ.get(env_key):
+                        settings[skey] = int(os.environ[env_key])
             fh = frontend.serve(app, settings)
     try:
         serve(app, listen=app.config["WAITRESS_LISTEN"])
