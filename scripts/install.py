@@ -243,6 +243,7 @@ def main() -> None:
         args.frontend = _resolve_frontend(args, config)
         print(f"[install] frontend: {args.frontend}")
         _stage_frontend_units(args.frontend, config)
+        _write_web_env(config, data)
         (config / "testorchestrator-worker.service").write_text(
             f"[Unit]\nDescription=TestOrchestrator dispatch worker\n"
             f"After=network.target\n\n[Service]\nType=simple\n"
@@ -306,6 +307,32 @@ def _resolve_frontend(args, config: Path) -> str:
         if saved in ("caddy", "cheroot"):
             return saved
     return "caddy"
+
+
+def _write_web_env(config: Path, data: Path) -> None:
+    """Write the EnvironmentFile the staged units require. Secret values
+    already on disk are PRESERVED across reruns — regenerating
+    TO_SECRET_KEY would silently invalidate every session and
+    TO_INSTALL_ID identifies the install location, not the build."""
+    env_file = config / "web.env"
+    kept = {}
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            key, _, val = line.partition("=")
+            if key.strip() in ("TO_SECRET_KEY", "TO_INSTALL_ID"):
+                kept[key.strip()] = val.strip()
+    preserved = "TO_SECRET_KEY" in kept
+    kept.setdefault("TO_SECRET_KEY", os.urandom(24).hex())
+    kept.setdefault("TO_INSTALL_ID", os.urandom(12).hex())
+    env_file.write_text(
+        f"TO_INSTANCE_DIR={data}\n"
+        f"TO_CONFIG_DIR={config}\n"
+        "TO_SECURE_COOKIES=1\n"
+        f"TO_SECRET_KEY={kept['TO_SECRET_KEY']}\n"
+        f"TO_INSTALL_ID={kept['TO_INSTALL_ID']}\n")
+    os.chmod(env_file, 0o640)
+    print(f"[install] web.env: {env_file} "
+          f"(secrets {'preserved' if preserved else 'generated'})")
 
 
 def _stage_frontend_units(frontend: str, config: Path) -> None:

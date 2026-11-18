@@ -84,3 +84,69 @@ def test_provision_and_basic_auth_roundtrip(tmp_path):
     finally:
         proc.terminate()
         proc.wait(timeout=15)
+
+
+def _fake_bin(tmp_path):
+    exe = tmp_path / "dagu-bin"
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    return exe
+
+
+def test_rerun_preserves_provisioned_credential(tmp_path, monkeypatch):
+    """Regression: an installer rerun (upgrade or frontend switch) must
+    not rotate the coordinator credential out from under the app's
+    ``coordinator-agent`` secret — dispatch 401s until resynced."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    import provision_dagu
+    monkeypatch.delenv("TO_DAGU_PROVISION_PASSWORD", raising=False)
+    home, cfg = tmp_path / "home", tmp_path / "cfg"
+    exe = _fake_bin(tmp_path)
+    provision_dagu.main([
+        "--home", str(home), "--config", str(cfg),
+        "--port", "29979", "--binary", str(exe)])
+    first = (cfg / "credentials").read_text().split("password=", 1)[1]
+    provision_dagu.main([
+        "--home", str(home), "--config", str(cfg),
+        "--port", "29979", "--binary", str(exe)])
+    second = (cfg / "credentials").read_text().split("password=", 1)[1]
+    assert first == second
+    assert f"password: {first.strip()}" in (cfg / "server.yaml").read_text()
+
+
+def test_env_override_rotates_preserved_credential(tmp_path, monkeypatch):
+    sys.path.insert(0, str(REPO / "scripts"))
+    import provision_dagu
+    monkeypatch.delenv("TO_DAGU_PROVISION_PASSWORD", raising=False)
+    home, cfg = tmp_path / "home", tmp_path / "cfg"
+    exe = _fake_bin(tmp_path)
+    provision_dagu.main([
+        "--home", str(home), "--config", str(cfg),
+        "--port", "29979", "--binary", str(exe)])
+    first = (cfg / "credentials").read_text().split("password=", 1)[1]
+    monkeypatch.setenv("TO_DAGU_PROVISION_PASSWORD", "rotated-secret")
+    provision_dagu.main([
+        "--home", str(home), "--config", str(cfg),
+        "--port", "29979", "--binary", str(exe)])
+    second = (cfg / "credentials").read_text().split("password=", 1)[1]
+    assert second.strip() == "rotated-secret" != first.strip()
+
+
+def test_preserve_falls_back_to_server_yaml(tmp_path, monkeypatch):
+    """If only server.yaml survived (credentials file lost), its
+    password is still reused rather than regenerated."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    import provision_dagu
+    monkeypatch.delenv("TO_DAGU_PROVISION_PASSWORD", raising=False)
+    home, cfg = tmp_path / "home", tmp_path / "cfg"
+    exe = _fake_bin(tmp_path)
+    provision_dagu.main([
+        "--home", str(home), "--config", str(cfg),
+        "--port", "29979", "--binary", str(exe)])
+    first = (cfg / "credentials").read_text().split("password=", 1)[1]
+    (cfg / "credentials").unlink()
+    provision_dagu.main([
+        "--home", str(home), "--config", str(cfg),
+        "--port", "29979", "--binary", str(exe)])
+    second = (cfg / "credentials").read_text().split("password=", 1)[1]
+    assert first == second

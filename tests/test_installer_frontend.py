@@ -88,3 +88,25 @@ def test_cheroot_unit_templates_ship_in_repo():
                  "testorchestrator-web-cheroot.service",
                  "testorchestrator-caddy.service"):
         assert (REPO / "deploy" / name).is_file(), name
+
+
+def test_web_env_written_and_secrets_preserved(tmp_path):
+    """The staged units require EnvironmentFile=web.env — it must be
+    written by the installer, and a rerun (upgrade/frontend switch)
+    must preserve TO_SECRET_KEY + TO_INSTALL_ID rather than silently
+    invalidating sessions and install identity."""
+    cfg = tmp_path / "config"; cfg.mkdir()
+    data = tmp_path / "data"
+    inst._write_web_env(cfg, data)
+    first = (cfg / "web.env").read_text()
+    assert f"TO_INSTANCE_DIR={data}" in first
+    assert f"TO_CONFIG_DIR={cfg}" in first
+    assert "TO_SECRET_KEY=" in first and "TO_INSTALL_ID=" in first
+    key1 = [l for l in first.splitlines()
+            if l.startswith("TO_SECRET_KEY=")][0]
+    inst._write_web_env(cfg, data)
+    second = (cfg / "web.env").read_text()
+    key2 = [l for l in second.splitlines()
+            if l.startswith("TO_SECRET_KEY=")][0]
+    assert key1 == key2
+    assert oct((cfg / "web.env").stat().st_mode & 0o777) == "0o640"

@@ -5,6 +5,45 @@ Honest scaffold — writes artifacts; service activation needs root."""
 import argparse, os, secrets, shutil, sys
 from pathlib import Path
 
+def _read_existing_password(cfg: Path) -> str:
+    """Recover the credential already provisioned in ``cfg`` so an
+    installer rerun preserves the pair the portal's ``coordinator-agent``
+    secret was synced to. Checks the installer-owned ``credentials``
+    file first, then ``server.yaml``."""
+    cred = cfg / "credentials"
+    if cred.exists():
+        for line in cred.read_text().splitlines():
+            if line.startswith("password="):
+                return line.split("=", 1)[1].strip()
+    srv = cfg / "server.yaml"
+    if srv.exists():
+        for line in srv.read_text().splitlines():
+            s = line.strip()
+            if s.startswith("password:"):
+                return s.split(":", 1)[1].strip()
+    return ""
+
+def _resolve_token(cfg: Path) -> tuple:
+    """auth.mode: basic (verified vs bundled 2.27.0 — builtin's
+    token.secret is a JWT signing secret, not a static bearer
+    credential). Source the credential the portal adapter already
+    provisioned so the coordinator validates the SAME secret
+    Orchestrator will send — never a second random token the portal
+    doesn't know. Precedence: explicit env override (rotation) >
+    already-provisioned credential (rerun/switch/upgrade) > fresh
+    random (first install)."""
+    token = os.environ.get("TO_DAGU_PROVISION_PASSWORD")
+    if token:
+        return token, "env"
+    token = _read_existing_password(cfg)
+    if token:
+        return token, "preserved"
+    print("[dagu] WARNING: TO_DAGU_PROVISION_PASSWORD not set — "
+          "coordinator gets a credential the portal can't match. "
+          "Provision via the app's credential store instead.",
+          file=sys.stderr)
+    return "to-dagu-" + secrets.token_urlsafe(32), "generated"
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", default="/var/lib/dagu")
@@ -15,18 +54,9 @@ def main(argv=None):
     a = ap.parse_args(argv)
     home, cfg = Path(a.home), Path(a.config)
     user = "testorchestrator"
-    # auth.mode: basic (verified vs bundled 2.27.0 — builtin's token.secret
-    # is a JWT signing secret, not a static bearer credential).
-    # Source the credential the portal adapter already provisioned so the
-    # coordinator validates the SAME secret Orchestrator will send —
-    # never a second random token the portal doesn't know.
-    token = os.environ.get("TO_DAGU_PROVISION_PASSWORD")
-    if not token:
-        print("[dagu] WARNING: TO_DAGU_PROVISION_PASSWORD not set — "
-              "coordinator gets a credential the portal can't match. "
-              "Provision via the app's credential store instead.",
-              file=sys.stderr)
-        token = "to-dagu-" + secrets.token_urlsafe(32)
+    token, source = _resolve_token(cfg)
+    if source == "preserved":
+        print("[dagu] reusing already-provisioned coordinator credential")
     steps = [
         ("mkdirs", home/"dags", home/"data"),
         ("install binary", cfg/"dagu"),
