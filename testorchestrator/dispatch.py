@@ -1256,17 +1256,22 @@ def _redrive_queued_remote(limit: int = 10) -> int:
 
 
 def worker_once() -> int:
-    n = (reconcile_stale() + fire_due_schedules() + process_outbox()
-         + enforce_plan_policies()
-         + _heartbeat_local_runners() + _redrive_queued_remote())
-    # Dagu-side reconciliation (§7): a finished dagu run with no portal
-    # result is ambiguous -> UNKNOWN, never a blind re-dispatch. Agent
-    # heartbeats — not dagu run state — own lease renewal.
+    # Dagu-side reconciliation (§7) runs BEFORE the lease sweep: an
+    # aborted run with a pending cancel request must resolve to
+    # CANCELED from the coordinator's authoritative status — not to
+    # UNKNOWN merely because the lease elapsed first in the same tick.
+    # A finished dagu run with no portal result is ambiguous ->
+    # UNKNOWN, never a blind re-dispatch. Agent heartbeats — not dagu
+    # run state — own lease renewal.
+    n = 0
     if _dagu_configured():
         try:
             n += reconcile_dagu_runs()
         except Exception:
             pass  # orchestrator unreachable — retry next cycle
+    n += (reconcile_stale() + fire_due_schedules() + process_outbox()
+          + enforce_plan_policies()
+          + _heartbeat_local_runners() + _redrive_queued_remote())
     return n
 
 
@@ -1741,7 +1746,8 @@ def reconcile_dagu_runs() -> int:
             fixed += _poll_remote_run(adapter, ex)
             continue
         remote = adapter.status(ex.dispatch_id)
-        label = (remote.get("statusLabel") or remote.get("status"))
+        d = remote.get("dagRunDetails") or remote.get("dagRun") or {}
+        label = d.get("statusLabel") or d.get("status")
         if label in ("aborted", "canceled") and (
                 ex.state == ExecutionState.CANCEL_REQUESTED
                 or ex.cancel_reason):

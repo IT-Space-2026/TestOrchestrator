@@ -106,3 +106,43 @@ def test_audit_history_persists_transitions(app, env):
         ex = db.session.get(Execution, ex.id)
         assert AuditEvent.query.filter_by(
             event="execution.reconciled_unknown").count() >= 1
+
+
+def test_cancel_acknowledged_via_nested_dagrun_status(app, env, monkeypatch):
+    """reconcile_dagu_runs must unwrap the dagu status envelope
+    ({dagRun: {...}}): an aborted run with CANCEL_REQUESTED resolves
+    to CANCELED — the user-requested cause is known — not UNKNOWN."""
+    from testorchestrator.adapters.dagu import DaguAdapter
+
+    class _A:
+        def status(self, dispatch_id):
+            return {"dagRun": {"statusLabel": "aborted"}}
+
+    monkeypatch.setattr(DaguAdapter, "from_settings",
+                        staticmethod(lambda: _A()))
+    with app.app_context():
+        ex = _mk(env, ExecutionState.CANCEL_REQUESTED,
+                 dispatch_id="run-abc")
+        assert dispatch.reconcile_dagu_runs() == 1
+        ex = db.session.get(Execution, ex.id)
+        assert ex.state == ExecutionState.CANCELED
+
+
+def test_finished_dagu_run_without_result_becomes_unknown(app, env,
+                                                          monkeypatch):
+    """A finished dagu run the portal never saw resolve stays UNKNOWN —
+    ambiguous, never silently re-dispatched or miscounted."""
+    from testorchestrator.adapters.dagu import DaguAdapter
+
+    class _A:
+        def status(self, dispatch_id):
+            return {"dagRunDetails": {"statusLabel": "failed"}}
+
+    monkeypatch.setattr(DaguAdapter, "from_settings",
+                        staticmethod(lambda: _A()))
+    with app.app_context():
+        ex = _mk(env, ExecutionState.DISPATCHED, dispatch_id="run-xyz")
+        assert dispatch.reconcile_dagu_runs() == 1
+        ex = db.session.get(Execution, ex.id)
+        assert ex.state == ExecutionState.UNKNOWN
+        assert "ended 'failed'" in ex.error_text
