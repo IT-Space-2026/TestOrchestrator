@@ -152,3 +152,62 @@ candidate must include `fed8c93`.
 
 Historical: `2f96ea0` results (native `56d85ab8`, ssh `fc93eef7`)
 are evidence for those fixes only — not carried forward as passes.
+
+## Results — internal build `0ee9ed1` (internal-only; GPL gate unset)
+
+Includes `fed8c93` (blank scope + `ExecStart`), `a32dbf8` (stale test),
+`aff2a21` (regression tests), README 2.5 update, and `0ee9ed1`
+(agentless-SSH launch/cancel fixes).
+
+Artifacts under `dist/release/linux/` (SHA-256 in `SHA256SUMS.txt`):
+
+| Artifact | SHA-256 |
+|---|---|
+| `testorchestrator-2.5.0-linux-x86_64.tar.gz` | `1136b29b12359ef1bf313a6bed44a5b388f2c18de220d038de78e1ccab8e7d27` |
+| `testorchestrator-2.5.0-linux-x86_64.run` | `026118fb31bcb6f119d9f66b1ce1c5eeb58fe80e2b5f10656ccc74e40e9ea570` |
+| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `c21015000117f5808a6f1a61e582a56abea799c59e46e47ac25cbfefba6b8cd6` |
+| `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (in bundle) | `911b7e4e372dbe923fc5d3835bda3824359647d76f826d91d2d25da886e0198d` |
+
+Checks executed against this build — todo items **8–10**:
+
+- [x] §1 Clean install: `install.sh` → "database migrated to head" at
+      install; Cheroot bound configured HTTPS :8443; Buildbot master +
+      `to-local` + `to-ssh-dispatcher` units active and attached under
+      real `systemctl --user` (**user scope only**).
+- [x] §1 Dagu/Caddy sweep: zero services/configs/installers/fallbacks
+      in bundle + installed system — only the two `SUPERSEDED` docs,
+      migration comments, and cert-bundle substring false positives.
+- [x] §2 Regression: blank `allowed_projects` POST persists `[]`
+      (verified live in the Admin UI); generated units carry
+      `ExecStart=/path/buildbot…` with no leading space.
+- [x] §3 Portal-only SSH onboarding: Admin UI create → `unverified`
+      fingerprint `SHA256:OCqjlcjG…` matched the real OpenSSH `sshd`
+      host key via `ssh-keygen -lf` → approve → retest `ok` → builder
+      added via live reconfig at 20:17 (**no manual restart**) → run
+      `b1c2b627` **COMPLETED/PASSED**, `junit.xml` SFTP-collected and
+      normalized to a PASSED test result. Same-host `sshd` caveat —
+      separate physical machine still untested.
+- [x] §3 Cancellation: slow-KRE run `0fbc2ef6` → portal cancel →
+      portal-side remote process-group kill confirmed → state
+      `CANCELED` with `[ssh remote group terminated]`; no remote
+      processes survived (verified via `pgrep`). Prior defect — builds
+      killed by SIGKILL bypassed the dispatcher's SIGTERM handler and
+      `run.pid` held a subshell pid — fixed in `0ee9ed1`.
+- [x] §3 Disconnect/recovery: dispatcher `to_ssh_exec` SIGKILLed
+      mid-run; remote detached run continued; a second dispatcher
+      reattached — "reattaching to existing remote run — not launching
+      a duplicate" → `exit_code=0`, artifacts collected.
+- [x] §3 Scheduled run: interval schedule (5 min) created via Admin UI
+      fired automatically → run `5e5300e0` COMPLETED; `next_run_at`
+      advanced +5 min.
+- [ ] §1 System-wide systemd activation — **blocked**: no passwordless
+      sudo/root on this host; user-scope result stands as a
+      scope-limited pass, not system-wide.
+- [x] §10 `pytest` actual totals at `0ee9ed1`: **639 passed,
+      1 failed, 1 skipped** — failure is
+      `test_production_key_auto_loaded` (external licence-issuer
+      private key, blocked by design); skip is the git-packaging
+      cli-backend case. 16 browser tests initially errored on
+      `ERR_CONNECTION_REFUSED` (disposable preview :39995 absent —
+      environmental); all 16 passed after the preview was stood up
+      with fixtures.
