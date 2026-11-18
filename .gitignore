@@ -19,3 +19,8 @@ allure-results/
 # blocked by pytest.ini)
 reporting-labs/
 reporting-labs.history.json
+3rdparty/buildbot-wheels/
+3rdparty/licenses/
+packaging/windows/bb-worker-payload/
+packaging/windows/TestOrchestrator-Buildbot-Sources-*.tar.gz
+3rdparty/python/

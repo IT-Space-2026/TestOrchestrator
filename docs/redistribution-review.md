@@ -67,40 +67,52 @@ redistribution, which is what this review covers.
 | msgpack | 1.2.4 | Apache-2.0 | notice only |
 | pyopenssl, hyperlink, idna, constantly, pynacl, bcrypt, txaio, ujson, typing-extensions, packaging, six, PyYAML, pyjwt | resolved at staging | MIT/Apache/BSD | notice only |
 
-## 4. Proposed notices and corresponding-source delivery
+## 4. Notices and corresponding-source delivery — as implemented
 
-1. **License texts** — at wheel staging
-   (`fetch_buildbot_linux_wheels` / `stage_buildbot_worker_payload`),
-   extract each wheel's `dist-info` license into
-   `3rdparty/licenses/` alongside the existing per-package files.
-   Required minimum: `GPL-2.0` full text once, plus per-package
-   notices.
-2. **`3rdparty/CORRESPONDING-SOURCES.txt`** (this PR adds the file) —
-   names every bundled third-party package + exact version +
-   upstream source location (PyPI project / git tag). GPLv2 §3(b)
-   written offer: *"Corresponding source for the GPL-2.0 components
-   (buildbot 4.3.0, buildbot-worker 4.3.0, buildbot-www 4.3.0) and
-   the LGPL-2.1+ component (paramiko 2.12.0) is the unmodified
-   upstream source at the versions listed, available from the
-   locations below; a written offer valid three years from delivery
-   is available on request via the support channel."*
-3. **`3rdparty/licenses/THIRD-PARTY-NOTICES.txt`** — append a
-   Buildbot/paramiko block: name, version, license, upstream URL,
-   and the unmodified-verbatim-copy statement.
-4. **No source modifications** — because we ship verbatim wheels,
-   "corresponding source" is exactly upstream's; hosting a mirror is
-   optional, not required, but the written offer stays valid either
-   way (proposed: keep the offer in the file, satisfy via support
-   channel on request).
-5. **Windows .exe** — same notices inside the installer payload
-   (`3rdparty/licenses/` staged into the install dir by the NSIS
-   script) so the GPL/LGPL terms travel with the artifact.
+**Primary route: GPLv2 §3(a) — source accompanies the binaries.**
+
+- `build_corresponding_sources()` (build-scripts/_common.py) emits
+  `TestOrchestrator-Buildbot-Sources-<ver>.tar.gz`: sdists of the
+  GPL/LGPL-covered packages (`buildbot`, `buildbot-worker`,
+  `buildbot-www`, `paramiko` — `--no-binary` source distributions,
+  no-deps) + `build-and-install/` (provision_buildbot.py, master.cfg,
+  install_linux_worker.sh, setup-worker.py, the NSIS script) +
+  `CORRESPONDING-SOURCES.txt`. It is published **beside the
+  controller package** and copied into `packaging/windows/` where
+  the Admin UI serves it **next to the worker .exe download**
+  (`system.buildbot_sources_download` + a Source link on the
+  download card).
+- License texts are extracted from every staged wheel into
+  `3rdparty/licenses/` (controller bundle) and into
+  `bb-worker-payload/licenses/` (inside the .exe) — notices travel
+  with both artifacts.
+
+**Residual route: GPLv2 §3(b) written offer** — retained only for
+copies distributed *without* the archive (e.g., a customer shares
+the .exe onward, or an ad-hoc transfer). `CORRESPONDING-SOURCES.txt`
+carries the offer; **fulfillment owner: IT-Space Kft. — the support
+contact published with the product (About page / Admin Manual)**.
+Terms per GPLv2: valid ≥3 years, to any third party, at no more
+than the physical cost of source distribution. The offer names the
+published support channel — the release must not ship without that
+contact present.
+
+**Boundary remains as §1** — no linking, no modified sources; the
+§3(a) archive makes verification direct (no upstream-link reliance).
+
+**Inventory verification** (`validate_package.py`): asserts the
+worker .exe, the controller wheels dir incl. `buildbot-www`, and —
+added with this change — the sources archive + license files.
+The .exe payload additionally carries embed-Python + pywin32 +
+the resolved win_amd64 wheels; the review of the actual staged
+artifacts happens at RC-build time per docs/acceptance-2.5.0.md.
 
 ## 5. Approval checklist
 
 - [ ] Confirm the separate-process/wire-protocol boundary is the
       intended posture (it is — no linking, no modified sources)
-- [ ] Accept GPLv2 §3(b) written-offer route (vs. hosting source
-      mirrors)
+- [ ] Accept the GPLv2 §3(a) accompanying-source route (archive ships
+      beside every binary offer) with the §3(b) written offer retained
+      only as residual for onward copies
 - [ ] Approve notice files above
 - [ ] Then: `TO_BUILDBOT_GPL_APPROVED=1` for the RC build only

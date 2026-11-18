@@ -30,6 +30,19 @@ RELEASE_DIR = REPO / "dist" / "release"
 ASSETS = json.loads((Path(__file__).parent / "assets.json").read_text())
 
 
+def _requirements_pin(name: str) -> str:
+    for line in (REPO / "requirements.txt").read_text().splitlines():
+        line = line.strip()
+        if line.startswith(f"{name}=="):
+            return line.split("==", 1)[1]
+    raise ValueError(f"{name} not pinned in requirements.txt")
+
+
+# The buildbot-venv's paramiko (used by the ssh-dispatcher worker)
+# must match the app venv pin — one SSH stack, one version.
+PARAMIKO_VERSION = _requirements_pin("paramiko")
+
+
 class BuildError(RuntimeError):
     """Actionable build failure — message is shown to the user."""
 
@@ -288,6 +301,26 @@ def stage_buildbot_worker_payload(build_dir: Path, log: Log) -> Path:
          "--implementation", "cp", "--abi", "cp312",
          "-d", str(wheels), f"buildbot-worker=={bbver}",
          "pywin32"], log)
+    # GPL/LGPL notices travel inside the .exe payload too
+    lic = out / "licenses"
+    lic.mkdir(exist_ok=True)
+    shutil.copy2(REPO / "3rdparty" / "CORRESPONDING-SOURCES.txt",
+                 lic / "CORRESPONDING-SOURCES.txt")
+    import zipfile
+    for whl in wheels.glob("*.whl"):
+        try:
+            with zipfile.ZipFile(whl) as z:
+                for name in z.namelist():
+                    base = name.rsplit("/", 1)[-1].upper()
+                    if ".dist-info/" in name and (
+                            base.startswith("LICEN") or
+                            base.startswith("COPYING") or
+                            base == "NOTICE"):
+                        (lic / (whl.name.split("-")[0] + "-" +
+                                name.rsplit("/", 1)[-1])
+                         ).write_bytes(z.read(name))
+        except zipfile.BadZipFile:
+            pass
     log.write(f"  bb worker payload staged: {sorted(p.name for p in out.iterdir())}")
     return out
 
@@ -295,7 +328,8 @@ def stage_buildbot_worker_payload(build_dir: Path, log: Log) -> Path:
 def fetch_buildbot_linux_wheels(build_dir: Path, log: Log) -> Path:
     """Stage 3rdparty/buildbot-wheels/ — linux amd64 wheels for the
     controller-side Buildbot stack (master + workers + paramiko).
-    install.py builds payload/buildbot-venv from them offline."""
+    install.py builds payload/buildbot-venv from them offline.
+    Also extracts each wheel's license into 3rdparty/licenses/."""
     out = REPO / "3rdparty" / "buildbot-wheels"
     if out.exists():
         shutil.rmtree(out)
@@ -306,8 +340,104 @@ def fetch_buildbot_linux_wheels(build_dir: Path, log: Log) -> Path:
     run([str(vpy), "-m", "pip", "download",
          "-d", str(out), f"buildbot[bundled]=={bbver}",
          f"buildbot-worker=={bbver}", f"buildbot-www=={bbver}",
-         "paramiko"], log)
+         f"paramiko=={PARAMIKO_VERSION}"], log)
     log.write(f"  linux bb wheels staged: {len(list(out.iterdir()))} wheels")
+    extract_wheel_licenses(out, log)
+    return out
+
+
+def extract_wheel_licenses(wheels_dir: Path, log: Log) -> int:
+    """Copy every staged wheel's dist-info license file(s) into
+    3rdparty/licenses/ — GPL/LGPL notices must travel with binaries."""
+    import zipfile
+    lic_dir = REPO / "3rdparty" / "licenses"
+    lic_dir.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for whl in sorted(wheels_dir.glob("*.whl")):
+        try:
+            with zipfile.ZipFile(whl) as z:
+                for name in z.namelist():
+                    base = name.rsplit("/", 1)[-1].upper()
+                    if ".dist-info/" in name and (
+                            base.startswith("LICEN") or
+                            base.startswith("COPYING") or
+                            base == "NOTICE"):
+                        dest = lic_dir / (
+                            whl.name.split("-")[0] + "-" +
+                            name.rsplit("/", 1)[-1])
+                        dest.write_bytes(z.read(name))
+                        n += 1
+        except zipfile.BadZipFile:
+            log.write(f"  WARN unreadable wheel for license: {whl.name}")
+    log.write(f"  extracted {n} license files -> 3rdparty/licenses/")
+    return n
+
+
+_GPL_SOURCE_PKGS = ("buildbot", "buildbot-worker", "buildbot-www",
+                    "paramiko")
+
+
+def build_corresponding_sources(build_dir: Path, log: Log) -> Path:
+    """Corresponding-source archive for the GPL/LGPL-covered components
+    actually shipped: source distributions + the build/install scripts
+    that turn them into the shipped artifacts. Emitted beside the
+    controller package AND inside packaging/windows/ so the Admin UI
+    can offer it next to the worker .exe download."""
+    bbver = ASSETS["buildbot_worker"]["version"]
+    staging = build_dir / "bb-corresponding-sources"
+    if staging.exists():
+        shutil.rmtree(staging)
+    sdist_dir = staging / "sdists"
+    sdist_dir.mkdir(parents=True)
+    # Fetch the sdists verbatim from PyPI's JSON API — pip download
+    # --no-binary tries to BUILD them (buildbot-www's sdist requires
+    # buildbot_pkg to even read its metadata).
+    import json as _json
+    import urllib.request
+    for pkg in _GPL_SOURCE_PKGS:
+        if pkg == "paramiko":
+            # match the version actually staged in buildbot-wheels
+            whl = next((REPO / "3rdparty" / "buildbot-wheels").glob(
+                "paramiko-*.whl"), None)
+            ver = whl.name.split("-")[1] if whl else None
+        else:
+            ver = bbver
+        meta_url = (f"https://pypi.org/pypi/{pkg}/{ver}/json" if ver
+                    else f"https://pypi.org/pypi/{pkg}/json")
+        with urllib.request.urlopen(meta_url, timeout=30) as r:
+            meta = _json.loads(r.read())
+        files = meta["urls"]
+        sdist = next(f for f in files if f["packagetype"] == "sdist")
+        log.write(f"  sdist {pkg}: {sdist['filename']} "
+                  f"({sdist['url']})")
+        run(["curl", "-fSL", "-o",
+             str(sdist_dir / sdist["filename"]), sdist["url"]], log)
+    scripts = staging / "build-and-install"
+    scripts.mkdir()
+    for src, dst in [
+            ("scripts/provision_buildbot.py", "provision_buildbot.py"),
+            ("deploy/buildbot/master.cfg", "master.cfg"),
+            ("scripts/install_linux_worker.sh", "install_linux_worker.sh"),
+            ("packaging/windows/bb-worker-payload-src/setup-worker.py",
+             "setup-worker.py"),
+            ("packaging/windows/buildbot-worker-installer.nsi",
+             "buildbot-worker-installer.nsi")]:
+        shutil.copy2(REPO / src, scripts / dst)
+    name = f"TestOrchestrator-Buildbot-Sources-{bbver}.tar.gz"
+    out = build_dir / name
+    if out.exists():
+        out.unlink()
+    import tarfile
+    with tarfile.open(out, "w:gz") as t:
+        t.add(sdist_dir, arcname="sdists")
+        t.add(scripts, arcname="build-and-install")
+        t.add(REPO / "3rdparty" / "CORRESPONDING-SOURCES.txt",
+              arcname="CORRESPONDING-SOURCES.txt")
+    # companion copy beside the worker .exe — the Admin UI serves it
+    # from packaging/windows/ next to the installer download.
+    shutil.copy2(out, REPO / "packaging" / "windows" / name)
+    log.write(f"  corresponding sources: {out.name} "
+              f"({out.stat().st_size:,} B) + packaging/windows/ copy")
     return out
 
 

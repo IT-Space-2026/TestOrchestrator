@@ -26,6 +26,17 @@ def _worker_assets(pkg: Path) -> None:
         "buildbot-www wheel missing (master web UI dep)"
     assert any(n.startswith("paramiko") for n in names), \
         "paramiko wheel missing (SSH dispatcher dep)"
+    # GPLv2 §3(a): corresponding-source archive ships beside the exe
+    srcs = sorted((pkg / "packaging" / "windows").glob(
+        "TestOrchestrator-Buildbot-Sources-*.tar.gz"))
+    assert len(srcs) == 1, \
+        f"corresponding-source archive missing/dup: {srcs}"
+    # license texts bundled for the GPL/LGPL stack
+    lic_names = {p.name.lower() for p in
+                 (pkg / "3rdparty" / "licenses").iterdir()}
+    for stem in ("buildbot", "paramiko"):
+        assert any(n.startswith(stem) for n in lic_names), \
+            f"no license text bundled for {stem}"
 
 
 def main():

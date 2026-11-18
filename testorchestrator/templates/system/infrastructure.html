@@ -376,7 +376,16 @@ or license KRE.</p>
       <td><code class="checksum">{{ bb_installer.sha256 }}</code></td>
       <td><a class="button secondary sm"
         href="{{ url_for('system.buildbot_worker_installer_download', filename=bb_installer.file) }}">Download</a></td>
-    </tr></tbody>
+    </tr>
+    {% if bb_sources %}<tr>
+      <td colspan="3"><small><strong>Corresponding source</strong> —
+        GPL/LGPL-covered packages inside the installer
+        ({{ bb_sources.file }}, sha256
+        <code class="checksum">{{ bb_sources.sha256[:16] }}…</code>)</small></td>
+      <td><a class="button secondary sm"
+        href="{{ url_for('system.buildbot_sources_download', filename=bb_sources.file) }}">Source</a></td>
+    </tr>{% endif %}
+    </tbody>
   </table>
   <p class="muted">The installer carries no credentials — workername
     and password come from the target record at install time. It

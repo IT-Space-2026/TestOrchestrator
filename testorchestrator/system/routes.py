@@ -623,6 +623,39 @@ def buildbot_worker_installer_download(filename):
                      download_name=filename)
 
 
+def _bb_sources_asset() -> dict | None:
+    """Corresponding-source archive offered next to the worker .exe —
+    GPLv2 §3(a) delivery: source accompanies the binary download."""
+    import hashlib
+    from pathlib import Path
+    d = (Path(current_app.root_path).parent / "packaging" / "windows")
+    for p in sorted(d.glob("TestOrchestrator-Buildbot-Sources-*"
+                           ".tar.gz")):
+        h = hashlib.sha256(p.read_bytes()).hexdigest()
+        return {"file": p.name, "size": p.stat().st_size,
+                "sha256": h}
+    return None
+
+
+@system_bp.route("/infrastructure/buildbot-sources/<filename>")
+@role_required(Role.ADMIN)
+def buildbot_sources_download(filename):
+    """Corresponding source for the GPL/LGPL-covered worker packages —
+    served beside the binary installer so every .exe offer is
+    accompanied by its source offer."""
+    import re
+    from pathlib import Path
+    if not re.fullmatch(r"TestOrchestrator-Buildbot-Sources-"
+                        r"\d+\.\d+\.\d+\.tar\.gz", filename):
+        abort(404)
+    path = (Path(current_app.root_path).parent
+            / "packaging" / "windows" / filename)
+    if not path.exists():
+        abort(404)
+    return send_file(path, as_attachment=True,
+                     download_name=filename)
+
+
 @system_bp.route("/settings")
 @role_required(Role.ADMIN)
 def settings_home():
@@ -1013,6 +1046,7 @@ def _render_infrastructure(runner_form, runtime_form):
         runner_form=runner_form, runtime_form=runtime_form,
         runner_choices=[(r.id, r.name) for r in Runner.query.all()],
         bb_installer=_bb_worker_installer_asset(),
+        bb_sources=_bb_sources_asset(),
         secret_names=secret_names,
     )
 

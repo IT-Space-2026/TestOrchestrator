@@ -1,5 +1,8 @@
 # Dagu architecture decision — APPROVED: Option B
 
+> **SUPERSEDED (2.5.0):** Dagu was replaced by Buildbot 4.3.0 as the sole orchestrator (see `docs/orchestration-replacement.md`). This document is retained for history only and does not describe the shipped architecture.
+
+
 Owner decision (2026-11-03): **Dagu is the mandatory, active orchestration
 backend.** Not an optional seam; the custom worker must not independently
 orchestrate a competing KRE path.

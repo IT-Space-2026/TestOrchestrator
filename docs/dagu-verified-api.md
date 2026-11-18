@@ -1,5 +1,8 @@
 # Dagu API — verified against the bundled binary (pin now 2.27.0)
 
+> **SUPERSEDED (2.5.0):** Dagu was replaced by Buildbot 4.3.0 as the sole orchestrator (see `docs/orchestration-replacement.md`). This document is retained for history only and does not describe the shipped architecture.
+
+
 Originally verified 2026-11-03 vs bundled 2.25.2; re-verified
 2026-11-06 vs bundled 2.25.8 — `/api/v1/health` reports
 `{"status":"healthy","version":"2.25.8"}`, `/api/v1/version` still 404,

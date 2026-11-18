@@ -33,7 +33,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (ASSETS, BUILD_ROOT, BuildError, Log, REPO,
-                     build_buildbot_worker_installer, clean_release_dir,
+                     build_buildbot_worker_installer,
+                     build_corresponding_sources, clean_release_dir,
                      fetch_buildbot_linux_wheels,
                      finalise, git_info, release_version,
                      run, safe_extract, venv_python)
@@ -53,22 +54,36 @@ def main() -> int:
         vpy = venv_python(BUILD_ROOT / "linux", log)
 
         # Buildbot worker .exe + controller wheels — GPL redistribution
-        # gate: only built (and thereby bundled via packaging/windows/
-        # and 3rdparty/buildbot-wheels/) when TO_BUILDBOT_GPL_APPROVED=1
-        # records the approval decision.
-        if os.environ.get("TO_BUILDBOT_GPL_APPROVED") == "1":
+        # gate. Two flags:
+        #   TO_BUILDBOT_GPL_APPROVED=1   customer-redistribution approval
+        #                                (recorded in the manifest)
+        #   TO_BUILDBOT_INTERNAL_BUILD=1 internal-only packaging test —
+        #                                builds everything but marks the
+        #                                artifact NOT approved for
+        #                                distribution
+        gpl_approved = os.environ.get("TO_BUILDBOT_GPL_APPROVED") == "1"
+        internal_build = (os.environ.get("TO_BUILDBOT_INTERNAL_BUILD")
+                          == "1")
+        if gpl_approved or internal_build:
             log.step("2/5 build buildbot-worker Windows installer (NSIS) "
-                     "+ controller wheels")
+                     "+ controller wheels + corresponding sources"
+                     + ("" if gpl_approved else " [INTERNAL TEST ONLY]"))
             bb_worker_exe = build_buildbot_worker_installer(
                 BUILD_ROOT / "linux", log)
             # Controller-side stack: linux wheels install.py turns into
             # payload/buildbot-venv offline (master + local/ssh workers).
             fetch_buildbot_linux_wheels(BUILD_ROOT / "linux", log)
+            # GPLv2 §3(a): corresponding source accompanies the binaries
+            bb_sources = build_corresponding_sources(
+                BUILD_ROOT / "linux", log)
         else:
             bb_worker_exe = None
+            bb_sources = None
             log.write("  buildbot worker installer + wheels SKIPPED — "
                       "set TO_BUILDBOT_GPL_APPROVED=1 after GPL "
-                      "redistribution approval")
+                      "redistribution approval "
+                      "(or TO_BUILDBOT_INTERNAL_BUILD=1 for internal "
+                      "packaging tests)")
 
         log.step("3/5 build release tarball + self-extracting installer")
         run([vpy, "scripts/build_bundle.py"], log)
@@ -121,15 +136,25 @@ def main() -> int:
                     f"packaging/windows/{bb_worker_exe.name}"
                     if bb_worker_exe else None,
                 "buildbot_version": ASSETS["buildbot_worker"]["version"],
-                "gpl_approved": bb_worker_exe is not None,
+                "gpl_approved": gpl_approved,
+                "internal_test_build":
+                    internal_build and not gpl_approved,
+                "corresponding_sources":
+                    (f"{bb_sources.name} (inside package at "
+                     f"packaging/windows/ + beside release artifacts)")
+                    if bb_sources else None,
             },
             "stale_guard": "release dir cleaned at build start; "
                            "worker-payload and older worker exes rebuilt",
         }
         # The worker exe is built (step 2/5) and ships INSIDE the
         # tarball — the portal serves it as a download. It is no
-        # longer published as a standalone release asset.
-        finalise(log, "linux", gi, [tb, run_sh],
+        # longer published as a standalone release asset. The
+        # corresponding-source archive IS published beside the
+        # controller package (GPLv2 §3(a) accompanying source) AND
+        # inside packaging/windows/ for the Admin-UI download.
+        finalise(log, "linux", gi,
+                 [tb, run_sh] + ([bb_sources] if bb_sources else []),
                  manifest_extra, checks)
         log.close()
         return 0

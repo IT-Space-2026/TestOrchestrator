@@ -13,10 +13,20 @@ buildbot-worker   4.3.0    GPL-2.0    https://github.com/buildbot/buildbot  (tag
 buildbot-www      4.3.0    GPL-2.0    https://github.com/buildbot/buildbot  (tag v4.3.0; PyPI: buildbot-www)
 paramiko          2.12.0   LGPL-2.1+  https://github.com/paramiko/paramiko  (tag v2.12.0; PyPI: paramiko)
 
-WRITTEN OFFER: complete corresponding machine-readable source for
-the components above is available on request from IT-Space Kft.
-support for three (3) years from the date of delivery, at no more
-than the cost of distribution. Source is likewise published by the
+ACCOMPANYING SOURCE: the corresponding source for the components
+above is distributed together with the binaries in the archive
+TestOrchestrator-Buildbot-Sources-<ver>.tar.gz — beside the
+controller package, inside the package at packaging/windows/, and
+next to the offline Windows worker installer download in the Admin
+UI. The archive contains the exact upstream sdists plus the build
+and installation scripts that produce the shipped artifacts.
+
+WRITTEN OFFER: for any copy received without that archive, complete
+corresponding machine-readable source for the components above is
+available on request from IT-Space Kft. support (the support
+contact published with the product) for three (3) years from the
+date of delivery, to any third party, at no more than the physical
+cost of source distribution. Source is likewise published by the
 respective upstream projects at the locations above.
 
 Other bundled components (permissive licenses — notices in
