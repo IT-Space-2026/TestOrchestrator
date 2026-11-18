@@ -46,7 +46,7 @@ class ParsedRun:
     producer_skipped: int = 0
     partial: bool = False          # parse problems encountered
     discrepant: bool = False       # producer totals ≠ counted cases
-    # Suite identity metadata (2.0.1) — one entry per <testsuite>
+    # Suite identity metadata — one entry per <testsuite>
     # element: {id, name, timestamp, hostname}. Katalon writes exactly
     # one suite per JUnit_Report.xml; generic junit may carry several.
     suites: list = field(default_factory=list)

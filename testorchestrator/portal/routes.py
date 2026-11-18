@@ -2273,7 +2273,7 @@ def _discovery_summary(project_id: str) -> dict:
             "warnings": warns}
 
 
-# ---------- repository-result import (2.0.1) ----------
+# ---------- repository-result import ----------
 
 @portal_bp.route("/projects/<project_id>/imports/new")
 @role_required(*EDIT_ROLES)

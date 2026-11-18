@@ -529,8 +529,8 @@ or otherwise not valid, the login page shows the notice:
 
 ![Login page showing the unsupported-version notice — form fully usable](Screenshot-Doc/user/login-unsupported.png)
 
-*Login with no valid application licence — tested on the 2.0.4
-candidate; the notice is informational and sign-in works normally.*
+*Login with no valid application licence — the notice is
+informational and sign-in works normally.*
 
 That is all it does. You can still sign in normally and every
 feature — projects, runs, schedules, imports, reports — works
@@ -676,8 +676,9 @@ owns; evidence another execution also references is kept.
 
 ## 7. Fixture-vs-licensed statement for these screenshots
 
-All screens in this manual come from the published 2.0.2 package on
-Linux. Live-execution screens used a **fixture** KRE stand-in
+All screens in this manual were captured on a packaged Linux
+installation during documentation work (some frames predate the
+final 2.5.0 UI). Live-execution screens used a **fixture** KRE stand-in
 emitting genuine Katalon-format output — they demonstrate dispatch,
 registration, execution plumbing, result/evidence return, and report
 generation, **not licensed KRE execution**. Licensed-KRE execution

@@ -154,7 +154,7 @@ class TestWorkerDownloads:
         "TestOrchestrator-Buildbot-Worker-Setup-4.3.0.exe",
         "TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.msi",
         "../TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe",
-        "testorchestrator-dagu-worker-4.3.0-setup-UNSIGNED.exe",
+        "testorchestrator-legacy-worker-4.3.0-setup-UNSIGNED.exe",
         "evil.exe",
     ])
     def test_installer_name_outside_policy_rejected(

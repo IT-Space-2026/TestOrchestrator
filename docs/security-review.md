@@ -17,9 +17,9 @@ targeted manual review — NOT a penetration test or proof of absence.
 
 ## Corrections to earlier overstatements
 - **CSRF ≠ hidden-key rejection:** CSRF is enforced by Flask-WTF
-  `csrf` on state-changing POSTs (see `extensions.py`); the `dagu_*`
-  hidden-key rejection is a separate server-side field filter, not a
-  CSRF mechanism. Both verified.
+  `csrf` on state-changing POSTs (see `extensions.py`); the
+  unknown-settings-key rejection is a separate server-side field
+  filter, not a CSRF mechanism. Both verified.
 - **Subprocess list-arg ≠ generated-script safety:** list-form args
   prevent shell injection in `subprocess`; the generated `to-worker`
   shell/batch is separately validated (identity/label regex, baked

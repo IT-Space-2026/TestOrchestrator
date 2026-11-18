@@ -1,4 +1,4 @@
-"""Repository-result import (2.0.1) — detection, parsing, dedup, commit.
+"""Repository-result import — detection, parsing, dedup, commit.
 
 Pipeline (framework-independent; katalon is the first registered
 parser):
@@ -225,7 +225,7 @@ def fingerprint_live(ex: Execution) -> tuple[str, str]:
     """Fingerprint an existing execution from its stored report dir —
     lazily computed for rows that predate fingerprint stamping.
 
-    2.0.2: the computed values are PERSISTED on the row (content_hash,
+    The computed values are PERSISTED on the row (content_hash,
     suite_keys_json, and run_uuid when it doesn't collide with the
     project-unique index) so the lazy cost is paid once, not on every
     import. A row with no readable evidence is stamped
@@ -419,7 +419,7 @@ def classify(project_id: str, pi: ParsedImport) -> tuple[str, str, list]:
       producer identity → ambiguous, never auto-merged.
     - Suite+timestamp subset overlap without full equality → ambiguous.
 
-    2.0.2: indexed lookups first (run_uuid is unique-indexed,
+    Indexed lookups first (run_uuid is unique-indexed,
     content_hash is a lookup index); the residual scan only pays
     lazy-fingerprint cost for never-fingerprinted rows — stamped rows
     compare persisted suite_keys in memory. Match precedence is

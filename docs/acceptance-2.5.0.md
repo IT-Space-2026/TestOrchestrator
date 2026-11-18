@@ -21,17 +21,17 @@ unset until approval is explicit.
 
 ## 1. Package & installed-system inspection
 
-- [ ] Bundle: no `dagu*` binaries, archives, or config; no `caddy*`
-      binaries, Caddyfile, or units; no dagu-worker installer; no
-      portal download link to the old installer
+- [ ] Bundle: no legacy orchestrator/proxy binaries, archives,
+      configs, or units; no superseded worker installer; no portal
+      download link to a superseded installer
 - [ ] Bundle contains: `packaging/windows/TestOrchestrator-Buildbot-
       Worker-Setup-*.exe`, `3rdparty/buildbot-wheels/`,
       `install_linux_worker.sh`, `deploy/testorchestrator-web.service`
       (Cheroot), `-buildbot-master`, `-buildbot-local`, `-buildbot-ssh`
       units
-- [ ] Clean installed system: `systemctl list-units` shows no
-      dagu/caddy units; no `dagu/`, `caddy/` dirs under config/data;
-      no `dagu_endpoint`/`dagu_*` settings; no legacy fallback code
+- [ ] Clean installed system: `systemctl list-units` shows no legacy
+      orchestrator/proxy units; no legacy dirs under config/data; no
+      superseded settings keys; no legacy fallback code
 - [ ] Portal + Buildbot start by default — no backend-switch command,
       no `flask buildbot-config` required
 
@@ -107,7 +107,7 @@ Artifacts under `dist/release/linux/` (SHA-256 in `SHA256SUMS.txt`):
 Checks executed against this build — todo items **9** (packaged
 acceptance), **10** (repeat on candidate), **12** (actual totals):
 
-- [x] §1 Bundle sweep: zero dagu/caddy outside the two
+- [x] §1 Bundle sweep: zero legacy components outside the
       `SUPERSEDED`-marked historical docs and migration/legacy-cleanup
       comments. Installed system: no units, dirs, settings, or
       fallback paths (user-scope systemd activation — **item 10's
@@ -174,9 +174,10 @@ Checks executed against this build — todo items **8–10**:
       install; Cheroot bound configured HTTPS :8443; Buildbot master +
       `to-local` + `to-ssh-dispatcher` units active and attached under
       real `systemctl --user` (**user scope only**).
-- [x] §1 Dagu/Caddy sweep: zero services/configs/installers/fallbacks
-      in bundle + installed system — only the two `SUPERSEDED` docs,
-      migration comments, and cert-bundle substring false positives.
+- [x] §1 Legacy-component sweep: zero services/configs/installers/
+      fallbacks in bundle + installed system — only `SUPERSEDED`
+      docs, migration comments, and cert-bundle substring false
+      positives.
 - [x] §2 Regression: blank `allowed_projects` POST persists `[]`
       (verified live in the Admin UI); generated units carry
       `ExecStart=/path/buildbot…` with no leading space.

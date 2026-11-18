@@ -630,66 +630,6 @@ def test_wrapper_chunk_boundary_key_split(app, tmp_path):
 
 
 
-
-def _dagu_env(app, count=1):
-    """N QUEUED dagu-worker executions on one runner/runtime/binding —
-    enough for _submit_remote to reach the adapter when capacity frees."""
-    from testorchestrator.execution import (
-        GitBinding, Project, RuntimeConnection)
-    with app.app_context():
-        p = Project(name="PX"); db.session.add(p); db.session.flush()
-        b = GitBinding(project_id=p.id, name="b1", url="git://x",
-                       last_synced_sha="abc")
-        db.session.add(b)
-        r = Runner(name="r1", connection_mode="remote",
-                   max_slots=1, license_slots=1,
-                   agent_token_hash="x")
-        db.session.add(r); db.session.flush()
-        rt = RuntimeConnection(
-            name="kre", runner_id=r.id, transport="dagu-worker",
-            executable_path="/bin/true", worker_label="kre=x",
-            workspace_root="/tmp/kre-ws")
-        db.session.add(rt); db.session.flush()
-        ids = []
-        for _ in range(count):
-            ex = Execution(
-                project_id=p.id, binding_id=b.id,
-                snapshot_json=json.dumps({
-                    "dispatch_transport": "dagu-worker",
-                    "run_config": {"requested_runtime": rt.id}}),
-                state=ExecutionState.QUEUED)
-            db.session.add(ex); db.session.flush()
-            ids.append(ex.id)
-        db.session.commit()
-        return ids, r.id, rt.id
-
-
-def _fake_adapter(calls=None, code=None, run=None):
-    import requests
-
-    class A:
-        def remote_worker_names(self, k, v): return ["w1"]
-        def remote_kre_spec(self, **kw): return "spec-yaml"
-        def enqueue(self, **kw):
-            if code:
-                resp = requests.Response(); resp.status_code = code
-                raise requests.HTTPError(response=resp)
-            if calls is not None: calls.append(kw)
-            return kw["dag_run_id"]
-        def dag_run(self, n, i):
-            if run == "absent":
-                resp = requests.Response(); resp.status_code = 404
-                raise requests.HTTPError(response=resp)
-            if run == "inconclusive":
-                raise requests.Timeout()
-            return {"status": "running"}
-    return A()
-
-
-def _patch_adapter(monkeypatch, fake):
-    monkeypatch.setattr(
-        "testorchestrator.dispatch.DaguAdapter.from_settings",
-        classmethod(lambda cls, **kw: fake))
 def test_portal_schedule_repo_target(app, client, login_as):
     """POST a once-schedule with a repo:<item_id> target — persisted to
     targets_json; a foreign project's item is rejected visibly."""

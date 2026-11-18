@@ -5,12 +5,11 @@ Run with the package's OWN bundled python from the payload root:
     python report_serving_check.py seed
     python report_serving_check.py check
 
-Uses the installed app's own create_app() + test_client — the same
-in-process technique as packaging/windows/ci/licence_activate.py — so
-the shipped route code, auth model, containment, and database are the
-ones under test. The HTTPS/Caddy layer is covered separately by the
-cert-validated browser checks; this script verifies the application
-routes themselves.
+Uses the installed app's own create_app() + test_client so the
+shipped route code, auth model, containment, and database are the
+ones under test. The HTTPS/Cheroot layer is covered separately by
+the cert-validated browser checks; this script verifies the
+application routes themselves.
 
   seed   — schema, admin user, completed setup, an ephemeral-licence
            (pubkey persisted into the instance so a later process can

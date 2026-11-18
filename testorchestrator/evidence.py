@@ -1,4 +1,4 @@
-"""Evidence lifecycle (2.0.2): ownership, deletion, orphan cleanup.
+"""Evidence lifecycle: ownership, deletion, orphan cleanup.
 
 Ownership rules
 ---------------

@@ -1,21 +1,18 @@
 # TestOrchestrator 2.5.0 — Administrator Manual
 
-Applies to **TestOrchestrator 2.5.0** (verified build commit
-`1adf71b8d5f8`, branch `feature/cheroot-frontend`). Procedures older
-than the 2.5 additions were written against the 2.0.x releases and are
-marked accordingly.
+Applies to **TestOrchestrator 2.5.0** (release tag `2.5` — the
+initial public release).
 
 **How to read the validation markers** — every procedure carries one:
 
 | Marker | Means |
 |---|---|
-| **[verified]** | Executed against a released install package — details in [Validation-Record.md](Validation-Record.md) |
+| **[verified]** | Executed against the release install package — details in `docs/acceptance-2.5.0.md` |
 | **[code/CI]** | Documented from installer source and CI evidence; not interactively validated here |
 | **[doc-env]** | Demonstrated on the isolated documentation environment (fixture data) — procedure is real, values are not |
 
-Disclosed boundaries, up front: most screenshots were captured on the
-released **2.0.2** package (the index lists which frames were
-recaptured on 2.0.3).
+Disclosed boundaries, up front: some screenshots predate the final
+2.5.0 UI — the index lists each frame's provenance.
 
 ---
 
@@ -181,7 +178,7 @@ installer) creates three trees plus service definitions:
 
 | Location | Contents |
 |---|---|
-| **Payload** (`--payload`, default under the install root) | Application source (`testorchestrator/`, `wsgi.py`), `3rdparty/` (bundled `python-runtime`, `python-wheels` — including Buildbot wheels — `git`, `reporting_labs` — **since 2.0.3 at `3rdparty/reporting_labs`**), the app `venv/` built offline from the bundled wheels, `requirements.txt`, licences |
+| **Payload** (`--payload`, default under the install root) | Application source (`testorchestrator/`, `wsgi.py`), `3rdparty/` (bundled `python-runtime`, `python-wheels` — including Buildbot wheels — `git`, `reporting_labs`), the app `venv/` built offline from the bundled wheels, `requirements.txt`, licences |
 | **Config** (`--config`) | `web.env` (service settings — not secrets), `buildbot/` master+worker config and `secrets.json` (0600), staged systemd units (`testorchestrator-web`, `-worker`, `-buildbot-master`, `-buildbot-local`, `-buildbot-ssh`) |
 | **Data** (`--data`) | SQLite instance DB (Alembic-migrated on upgrade), `buildbot/` runtime state (master + workers, PB :9989, REST :8010), `evidence/` per-execution artifacts, `certs/`, `logs/`, `workspaces/` per-run checkouts |
 
@@ -309,60 +306,47 @@ them. Evidence that never reached the repository cannot be recreated
 
 ### 2.2 Windows
 
-- Windows amd64, installed via `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe`.
-  The Buildbot worker installer is bundled inside the app package —
-  download it from the installed portal (§6.1); it is not a
-  separate release download.
-- **[code/CI]** Documented from installer code + CI jobs
-  (`windows-installer` workflow: compile, installed-validate,
-  upgrade-from-v102, upgrade-from-v200). **No local Windows install
-  or interactive test was performed for this manual**, and both
-  installers are **unsigned** — expect SmartScreen warnings and plan
-  your own signing/trust policy before production rollout.
+- Windows amd64 **execution hosts** install the bundled Buildbot
+  worker — `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`
+  — downloaded from the installed portal (§6.1). There is no Windows
+  controller installer; the portal itself is Linux-only.
+- **[code/CI]** The worker installer is compiled and its payload
+  gate-checked in CI; **no interactive Windows walkthrough was
+  performed for this release** (post-release acceptance is tracked
+  separately). The installer is **unsigned** — expect SmartScreen
+  warnings and plan your own signing/trust policy before production
+  rollout.
 
 ## 3. Package selection and verification
 
-Download from the GitHub release `v2.0.3`:
+Download from the GitHub release `2.5`:
 
 | Asset | Use |
 |---|---|
-| `testorchestrator-2.0.3-linux-x86_64.tar.gz` | Linux payload + installer |
-| `testorchestrator-2.0.3-linux-x86_64.run` | Self-extracting variant of the same payload |
-| `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` | Windows app installer (**unsigned**) |
-| `SHA256SUMS.txt` | Checksums, one entry per binary |
-| `build-manifest-linux.json` / `build-manifest-windows.json` | Provenance: source commit, `dirty` flag, tool versions |
+| `testorchestrator-2.5.0-linux-x86_64.tar.gz` | Linux payload + installer |
+| `testorchestrator-2.5.0-linux-x86_64.run` | Self-extracting variant of the same payload |
+| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | Corresponding sources for the bundled GPL components |
+| `SHA256SUMS.txt` | Checksums — also covers the bundled worker `.exe` |
+| `build-manifest.json` | Provenance: source commit, `dirty` flag, tool versions |
 
-The Buildbot worker installer (`TestOrchestrator-Buildbot-Worker-Setup-`
-`2.27.0-setup-UNSIGNED.exe`) is **bundled inside both packages**
-— Linux tarball at `packaging/windows/…`, Windows installer at
-`packaging\\windows\\…` in the installed tree — and is served
-by the portal as a download (§6.1). It is no longer published as
-a standalone release asset.
+The Windows Buildbot worker installer
+(`TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`) is
+**bundled inside the packages** at `packaging/windows/…` and is
+served by the portal as a download (§6.1), next to the matching
+corresponding-source archive. It is not published as a standalone
+release asset.
 
 Verify before installing **[verified]**:
 
 ```bash
-curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/v2.0.3/SHA256SUMS.txt
-curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/v2.0.3/testorchestrator-2.0.3-linux-x86_64.tar.gz
+curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.5/SHA256SUMS.txt
+curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.5/testorchestrator-2.5.0-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
-# testorchestrator-2.0.3-linux-x86_64.tar.gz: OK
+# testorchestrator-2.5.0-linux-x86_64.tar.gz: OK
 ```
 
-Expected digests (from the release record — see `SHA256SUMS.txt`
-on the release page for the authoritative values):
-
-```
-2b4d9751…  testorchestrator-2.0.3-linux-x86_64.tar.gz
-7fef2b18…  testorchestrator-2.0.3-linux-x86_64.run
-ea7ec2fc…  testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe
-```
-
-The bundled Buildbot-worker installer is served by the portal at
-download time — **System → Workers & runtimes** shows its SHA-256
-next to the link.
-
-The manifests pin the exact source commit and the bundled Buildbot
-version (`2.27.0`).
+The manifest pins the exact source commit and the bundled Buildbot
+version (`4.3.0`).
 
 ## 4. Linux installation
 
@@ -378,8 +362,8 @@ version (`2.27.0`).
 ### 4.2 Tarball install **[verified]**
 
 ```bash
-tar -xzf testorchestrator-2.0.3-linux-x86_64.tar.gz
-cd testorchestrator-2.0.3-linux-x86_64
+tar -xzf testorchestrator-2.5.0-linux-x86_64.tar.gz
+cd testorchestrator-2.5.0-linux-x86_64
 
 # interactive — licence prompt is optional (Enter skips it)
 sudo bash install.sh
@@ -417,14 +401,6 @@ What the installer does, in order **[verified — every step observed]**:
    config dir. With root +
    systemd and no `--no-service-start`, they are enabled and started;
    otherwise they are left for manual activation.
-
-> **Known limitation of the released 2.0.2 payload copy** — the copy list
-> above omits `reporting_labs/` (the vendored report generator), so
-> an `install.sh`-installed 2.0.2 system cannot generate reports until
-> the workaround in §10 is applied. **Fixed in 2.0.3:** the
-> package lives at `3rdparty/reporting_labs`, arrives via the
-> `3rdparty` copy item, and the installer fails loudly if any required
-> payload file is missing.
 
 Other `install.sh` flags: `--dry-run` prints the plan;
 `--service-user` overrides the unit user.
@@ -577,123 +553,27 @@ restore the snapshot — the previous-good config is preserved
 across the failed apply.
 
 
-## 5. Windows installation **[code/CI — not locally validated]**
+## 5. Windows execution hosts **[code/CI — not interactively validated]**
 
-> **2.5.0 note:** the Windows *controller* installer predates the
-> Buildbot replacement — its internal TLS/service description below
-> reflects the last released build and is pending rework. The
-> supported Windows deliverable in 2.5.0 is the **Buildbot worker**
-> installer (§6.1).
+Windows hosts join a TestOrchestrator installation **only as
+execution targets** — the controller itself is Linux-only and there
+is no Windows controller installer.
 
-From the installer (`app-installer.nsi`, `build_app_installer.sh`,
-`packaging/windows/`):
-
-- `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` lays down
-  the embedded-Python payload, `toctl.exe`, and the same
-  `toctl install`/`toctl web` entry points (`python -m
-  testorchestrator` equivalent on source layouts). Follow the
-  installer's prompts; the app data lives in the configured instance
-  location.
-- The bundled `TestOrchestrator-Buildbot-Worker-Setup-`
-  `UNSIGNED.exe` (inside the app installer and the Linux tarball,
-  served via **System → Infrastructure**) installs the Buildbot
-  worker binary; register labels and the coordinator address per
-  §6.
-- **Both installers are unsigned.** Windows will warn; verify the
-  published SHA-256 before running, and sign them internally if your
-  policy requires it.
-- Windows CI proves compile + installed validation + upgrades
-  (v1.0.2→, v2.0.0→); interactive Windows use was **not** validated
-  for this manual.
-
-### 5.1 Install and first access
-
-1. Run the installer **elevated** (admin) — required for the
-   `%ProgramFiles%` payload, `%ProgramData%` state, Scheduled Tasks,
-   and machine trust.
-2. Unattended: `setup.exe /S [/D=<path>] [/PORT=8080]
-   [/ADDR=localhost]`.
-3. The installer registers and **immediately starts** four
-   SYSTEM/ONSTART Scheduled Tasks — `TestOrchestratorWeb` (Waitress,
-   `127.0.0.1:18080`), `…Worker`, `…Buildbot-*` (HTTPS `:443`).
-   No reboot is required; tasks also restart at boot.
-4. Browse to `https://localhost/` → sign in (bootstrap admin
-   credentials are printed by the installer) → use. If no application
-   licence is installed the login page shows the informational notice
-   *"This version is not supported"* — it does not restrict anything.
-
-### 5.2 Certificate trust (what the installer does for you)
-
-*This subsection describes the 2.0.3-line Windows controller
-package, whose frontend is Caddy — the 2.5.0 Linux frontend is
-Cheroot (§4.9) and this package is pending rework.*
-
-- Mode `tls internal`: Caddy generates a **fresh, per-installation
-  local CA** at first start under
-  `%ProgramData%\TestOrchestrator\caddy-home\Caddy\pki`. The private
-  key is created on the machine, never shipped in the package, never
-  shared between installations.
-- The installer waits for `…\authorities\local\root.crt` and runs
-  `certutil -addstore -f Root` — the CA lands in the **LocalMachine**
-  Trusted Root store, so Edge/Chrome and other system-store clients
-  validate `https://localhost/` **with no certificate bypass**.
-- **Firefox** uses its own trust store — the one unavoidable manual
-  step: import the same `root.crt` (Settings → Certificates →
-  Import), or use a system-store browser.
-- Leaf renewal is automatic — Caddy renews short-lived leafs while
-  running; the root CA (~10 y) outlives the install.
-- Upgrade: `caddy-home` persists under `%ProgramData%` → same CA →
-  trust carries over.
-- Uninstall removes **this** installation's CA by thumbprint (other
-  Caddy CAs untouched). Customer data under `%ProgramData%\TestOrchestrator`
-  is kept unless explicitly confirmed.
-
-### 5.3 Stop, restart, uninstall
-
-- Supported stop: `%ProgramData%\TestOrchestrator\stop_to.cmd` — ends
-  all four tasks **and** reaps orphaned child processes. Plain
-  `schtasks /End` only kills the `.cmd` host and leaves python/
-  worker children bound to their ports — do not use it alone.
-- Logs: `%ProgramData%\TestOrchestrator\logs\{web,worker,buildbot}.log`
-  (Task Scheduler provides no stdout capture; wrappers append here).
-- Uninstall entry points are registered under
-  `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator`:
-  - `UninstallString` → `uninstall.exe` (interactive NSIS flow:
-    prompts before deleting `%ProgramData%`; `/PURGEDATA=1` forces
-    removal).
-  - `QuietUninstallString` → `cmd /c "...uninstall_to.cmd"` — silent,
-    deterministic (the NSIS silent uninstaller is unreliable in
-    Session-0/headless contexts); requires elevation. **Retains data
-    by default.** Pass `/PURGE` (aliases `/PURGEDATA`,
-    `/PURGEDATA=1`) for full removal.
-- Both flows do the same cleanup — untrust this installation's CA
-  only, stop services and reap children, delete the four tasks,
-  remove the payload, remove the ARP registry entry — and the same
-  retention default (keep data unless purge is explicitly chosen).
-
-### 5.4 Remote access — separate deployment mode
-
-Local `https://localhost` needs none of this. For LAN/remote clients:
-
-- Install with `/ADDR=<hostname>` so generated config/redirects use
-  it.
-- The internal CA issues a leaf for the configured name only — remote
-  clients need the same `root.crt` imported, or provide a real
-  CA-issued certificate via the admin **Network & certificates** page
-  (`tls` file mode) — the recommended production posture.
-- Firewall: inbound 443 (and 8080 if the HTTP→HTTPS redirect is used)
-  must be opened by the client administrator.
-
-### 5.5 Validation gates — honest status
-
-Verified on disposable CI (`windows-latest`): silent install, payload
-completeness (including the worker-download assets — Buildbot wheels +
-bundled worker installer), task registration + start, HTTP readiness,
-task restart, HTTPS with real certificate validation, licence
-negative/positive/persistence, report generation. **Pending on an
-interactive Windows host:** GUI installer screens, real-browser
-activation flow, actual reboot persistence, upgrade-in-place, and
-uninstall UX.
+- The bundled `TestOrchestrator-Buildbot-Worker-Setup-
+  <ver>-UNSIGNED.exe` installs the Buildbot worker on a Windows amd64
+  host: offline, self-contained (embedded Python + dependencies), no
+  preinstalled Python and no KRE/licence required.
+- Download it from the installed portal — **System → Infrastructure**
+  shows the installer and its matching corresponding-source archive
+  side by side, each with its SHA-256. Verify the checksum before
+  running; the installer is **unsigned**, so SmartScreen will warn.
+- The worker authenticates to the controller over outbound PB :9989
+  with a per-worker password issued in the Admin UI — no inbound
+  portal port on the worker host.
+- Full install/register/rotate/uninstall procedure: §6.1.
+- **Honest status:** compiled and payload-gated in CI; the interactive
+  Windows walkthrough runs post-release on a real Windows host and is
+  not claimed as verified here.
 
 ## 6. Execution targets — installation and operation
 
@@ -857,8 +737,7 @@ consistent method — `toctl backup` while the app is stopped, or
 SQLite's own `VACUUM INTO`/`.backup` for a quiesced copy.
 
 `toctl recover --from <archive> --into <dir>` restores into a
-separate location **[verified — restore tested, see
-Validation-Record]**: the archive is unpacked beside the original so
+separate location **[verified]**: the archive is unpacked beside the original so
 you can diff/migrate before swapping it in. Restored users/settings
 come back as they were — recovery never reactivates a bootstrap
 credential. The complete end-to-end restore procedure — including
@@ -866,10 +745,10 @@ what a DB-only backup cannot recover — is §16.
 
 ### 8.2 Upgrades
 
-Verified path: released **2.0.1 → 2.0.2** on Linux
-(2.0.1 package checksum-verified, seeded history + config + evidence,
-then the 2.0.2 package pointed at the same instance dir +
-`db-upgrade`) **[verified]**.
+Upgrades are in-place and data-preserving: the installer merges the
+new payload, `db-upgrade` applies additive migrations, and stored
+data — executions, evidence, settings, credentials, schedules,
+workspaces — is never deleted.
 
 Procedure:
 
@@ -878,11 +757,8 @@ Procedure:
 3. Install the new package (new payload dir, or the same `--payload`
    — the installer merges; stale files from removed components are
    cleaned by name only).
-4. `toctl db-upgrade` — 2.0.2 applies exactly one additive migration
-   (`r8s9t0u1v2w3`: `executions.suite_keys_json`, `import_locks`).
+4. `toctl db-upgrade` — additive migrations only.
 5. Start services; verify `toctl readiness` and spot-check history.
-   Legacy rows are lazily fingerprinted on first use — no data
-   rewrite happens at migration time.
 
 **Recovery precautions.** There is no automatic DB downgrade —
 restoring a backup taken *before* the upgrade is the rollback path,
@@ -960,7 +836,7 @@ diagnostic commands is §21.
 | Coordinator `/api/v1/workers` → `503` | Coordinator's `--coordinator.advertise` address isn't bound/reachable — advertise an interface address, not a hostname that resolves elsewhere. |
 | Remote run fails staging the workdir | Verify the target's configured workspace root exists and is writable for the worker account — `Test SSH Connection`/`Test runner` reports the failing stage. |
 | Execution `failed` with `Activation failed` in the run log | KRE licence/API key missing on the worker — environment problem, fix on the worker. |
-| `rl_status=failed`, log shows `No module named 'reporting_labs'` | **Known defect in released 2.0.1/2.0.2:** the `install.sh` payload copy omits the vendored `reporting_labs/` directory (present in the tarball root and in the Windows payload). **Workaround for 2.0.2 installations:** copy `reporting_labs/` from the extracted tarball into the payload dir (or run generation once with `PYTHONPATH=<tarball-root>`), then **Regenerate**; original artifacts are untouched. **Fixed in 2.0.3:** the installer copies the vendored package — now located at `3rdparty/reporting_labs` in both the package and the installed payload — and the app resolves it automatically; upgrading also removes a superseded root-level `reporting_labs` copy, so no manual copy or PYTHONPATH is needed. See Validation-Record §4. |
+| `rl_status=failed`, log shows `No module named 'reporting_labs'` | The vendored package is missing from the installed payload — reinstall the package (the installer copies `3rdparty/reporting_labs` and aborts loudly if any required payload file is absent), then **Regenerate**; original artifacts are untouched. |
 | Import says `staging checkout expired` | Staging was cleaned — rerun the preview; pending candidates were not committed. |
 
 ## 11. Demonstrated worker flow used for these docs
@@ -1038,7 +914,7 @@ The application licence is verified **offline** — an Ed25519
 signature checked against the public key bundled in the payload
 (`release/licence_pubkey.pem`). No phone-home, no licence server.
 
-**The licence does not gate anything.** Since 2.0.4 the application
+**The licence does not gate anything.** The application
 licence is informational only: installation, startup, login,
 projects, dispatch, workers, imports, reports, admin operations, and
 the CLI all work with a missing, expired, or invalid licence. The
@@ -1137,12 +1013,6 @@ flags (one-time, at `install.sh`).
 | `TO_GIT_BACKEND` | `dulwich` \| `cli` git engine | `dulwich` | no | yes |
 
 | `TO_SEED_<ROLE>_PASSWORD` | Test/demo account seeding | unset | yes | first start |
-
-The 2.0.3-line **Windows controller payload** additionally honours
-`TO_CADDY_BIN`, `TO_CADDY_CONFIG_DIR`, and
-`TO_DAGU_PROVISION_PASSWORD` (Caddy/Dagu internals of that package).
-None exist in a 2.5.0 install — the frontend is in-process Cheroot
-and the orchestrator is Buildbot.
 
 ### 14.2 Persisted settings (DB — edited in the Admin UI)
 
@@ -1360,24 +1230,18 @@ execution's evidence export is a different, later operation.
 
 ## 20. Version and upgrade matrix
 
+2.5.0 is the initial public release — there are no earlier deployed
+versions to upgrade from.
+
 | Path | Platform | Evidence | Migrations | Notes |
 |---|---|---|---|---|
-| 2.0.1 → 2.0.2 | Linux | **[verified]** interactive upgrade | `db-upgrade` applies; idempotent | history/config/evidence preserved |
-| 2.0.1 → 2.0.3 | Linux | **[code/CI]** `upgrade-from-v201` job | auto via installer + `db-upgrade` | skips 2.0.2 — fine; includes repair below |
-| 2.0.2 → 2.0.3 | Linux | **[verified]** CI `upgrade-from-v202` + the live doc environment upgraded this way | auto | **automatically repairs the 2.0.1/2.0.2 reportingLabs omission** and removes a superseded root-level `payload/reporting_labs` |
-| 1.0.2 → 2.0.3 | Windows | **[code/CI]** `upgrade-from-v102` | auto | |
-| 2.0.2 → 2.0.3 | Windows | **[code/CI]** `upgrade-from-v202` | auto | |
 | — → 2.5.0 | Linux | **[verified]** fresh install, same-version reruns, network listener apply/rollback | `db-upgrade` applies; idempotent | reruns preserve Buildbot credentials, `web.env` secrets, certs, and network settings |
-| 2.0.x → 2.5.0 | any | not validated | — | 2.0.3 was never deployed; no upgrade path is claimed — install fresh |
 
-Rules: **back up `data/` first** (§16). Re-running the installer on
-the same directories performs the in-place upgrade; running an app
-directly from an **extracted tarball root** is *not* an install —
-the 2.0.1/2.0.2 reportingLabs defect never appears there because the
-tarball root itself is on `sys.path`, which is exactly what masked
-it. Rollback = restore the pre-upgrade backup; there are no
-downgrade migrations. Retired paths: 2.0.0 → * (source release was
-removed; historical results preserved in prior run logs).
+Rules for future upgrades: **back up `data/` first** (§16).
+Re-running the installer on the same directories performs the
+in-place upgrade; running an app directly from an **extracted
+tarball root** is *not* an install. Rollback = restore the
+pre-upgrade backup; there are no downgrade migrations.
 
 ## 21. Incident runbooks
 

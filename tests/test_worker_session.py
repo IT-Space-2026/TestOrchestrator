@@ -128,7 +128,7 @@ def test_committed_work_survives_session_release(app):
 
 
 def test_real_worker_once_leaves_no_blocker_after_release(app):
-    """Run the real worker_once (licence-bypassed, dagu off), then the
+    """Run the real worker_once (licence-bypassed), then the
     loop's release — another connection must write without contention."""
     path = _db_path(app)
     with app.app_context():

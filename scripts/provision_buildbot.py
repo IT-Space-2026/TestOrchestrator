@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Buildbot master + controller-local workers provisioning (installer step).
 
-Same contract as provision_dagu.py: idempotent, artifact-writing, and
-credential-PRESERVING on rerun — the API password and controller-local
-worker passwords already present in secrets.json are reused so the
-portal's stored secrets and the master's view never diverge (the exact
-regression fixed for Dagu in bea4874).
+Idempotent, artifact-writing, and credential-PRESERVING on rerun — the
+API password and controller-local worker passwords already present in
+secrets.json are reused so the portal's stored secrets and the master's
+view never diverge.
 
 Layout under <home> (default <instance>/buildbot):
   master.cfg       copied once from deploy/buildbot/master.cfg — it is

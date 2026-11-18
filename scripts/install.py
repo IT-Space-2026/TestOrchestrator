@@ -24,8 +24,8 @@ REPO = Path(__file__).resolve().parent.parent
 SERVICE_USER = "testorchestrator"
 
 # Everything the supported runtime needs — a missing or silently-skipped
-# item is an installer defect (2.0.2 shipped without reporting_labs and
-# report generation failed on installed systems). Every name must exist
+# item is an installer defect (a missing vendored package once left
+# report generation broken on installed systems). Every name must exist
 # at the package root; an absent source aborts the install instead of
 # producing a half-complete payload. Vendored reporting-labs arrives via
 # 3rdparty/reporting_labs inside the "3rdparty" item.
@@ -415,13 +415,8 @@ def enable_services(args, config: Path) -> bool:
     web_active = _systemctl("is-active", "--quiet",
                             "testorchestrator-web",
                             check=False).returncode == 0
-    # Tolerate a Caddy-era unit left by an older install — the shipped
-    # release has exactly one frontend (the in-process tier), so any
-    # stale proxy unit is stopped and disabled.
-    _systemctl("disable", "--now", "testorchestrator-caddy",
-               check=False)
     if web_active and web_changed:
-        # Unit content changed (frontend switch or template update) —
+        # Unit content changed (template update) —
         # enable --now alone never restarts a running service.
         subprocess.check_call(
             ["systemctl", "restart", "testorchestrator-web"])

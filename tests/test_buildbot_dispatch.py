@@ -1,5 +1,5 @@
 """Regression: buildbot dispatch must preserve the orchestration
-semantics fixed on the dagu path (docs/orchestration-replacement.md §3):
+semantics verified for the previous orchestration path:
 
 - assignment commits BEFORE the buildrequest exists (a claimed build
   can start executing immediately — the DISPATCHED row + runner

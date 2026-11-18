@@ -1,5 +1,5 @@
 name: linux-package
-on: {push: {branches: [main, "feature/2.0.1", "feature/2.0.2"]}, pull_request: {}, workflow_dispatch: {}}
+on: {push: {branches: [main]}, pull_request: {}, workflow_dispatch: {}}
 permissions: {contents: read}
 jobs:
   build:
@@ -49,21 +49,16 @@ jobs:
       - name: installed payload carries portal-served worker assets
         run: |
           set -e
-          # both pinned dagu archives + pin manifest + the bundled
-          # NSIS worker installer must land in the installed payload —
-          # the portal serves them locally, never fetches remotely.
-          test -f /tmp/ci-payload/3rdparty/dagu/dagu.sha256
-          for a in /tmp/ci-payload/3rdparty/dagu/dagu_*_amd64.tar.gz; do
-            test -f "$a"
-            # checksum-verify against the shipped pin file
-            grep -F "  $(basename "$a")" \
-              /tmp/ci-payload/3rdparty/dagu/dagu.sha256 \
-              | (cd /tmp/ci-payload/3rdparty/dagu && sha256sum -c -)
-          done
-          EXES=$(ls /tmp/ci-payload/packaging/windows/testorchestrator-dagu-worker-*-setup-UNSIGNED.exe 2>/dev/null | wc -l)
+          # the bundled Buildbot worker installer + its matching
+          # corresponding-source archive must land in the installed
+          # payload — the portal serves them locally, never remotely.
+          EXES=$(ls /tmp/ci-payload/packaging/windows/TestOrchestrator-Buildbot-Worker-Setup-*-UNSIGNED.exe 2>/dev/null | wc -l)
           test "$EXES" -eq 1 || {
             echo "expected exactly 1 bundled worker installer, found $EXES"; exit 1; }
-          echo "PASS installed payload serves both worker-asset types"
+          SRCS=$(ls /tmp/ci-payload/packaging/windows/TestOrchestrator-Buildbot-Sources-*.tar.gz 2>/dev/null | wc -l)
+          test "$SRCS" -eq 1 || {
+            echo "expected exactly 1 corresponding-source archive, found $SRCS"; exit 1; }
+          echo "PASS installed payload serves worker installer + sources"
       - name: installed payload includes + resolves reporting_labs
         run: |
           set -e
@@ -83,29 +78,26 @@ jobs:
           ./venv/bin/python report_serving_check.py seed
           ./venv/bin/python report_serving_check.py check
           echo "PASS installer payload generates + serves reportingLabs reports"
-      - name: cheroot opt-in installs + persists across rerun
+      - name: single in-process frontend; install reruns cleanly
         run: |
           set -e
-          TB=$(find candidate -name "testorchestrator-*-linux-x86_64.tar.gz" | head -1)
           cd $(echo /tmp/cand-inst/testorchestrator-*-linux-x86_64)
-          bash install.sh --frontend cheroot \
-            --payload /tmp/ci-payload-ch --data /tmp/ci-data-ch \
-            --config /tmp/ci-config-ch \
-            --https-port 8444 --no-service-start --yes
-          # canonical web unit is the cheroot tier; caddy staged but
-          # not selected; marker persists the choice
-          grep -q "TO_FRONTEND=cheroot" \
-            /tmp/ci-config-ch/testorchestrator-web.service
-          grep -q "cheroot" /tmp/ci-config-ch/frontend
-          test -f /tmp/ci-config-ch/testorchestrator-caddy.service
-          # rerun WITHOUT --frontend must keep cheroot (auto resolves
-          # the marker) — upgrades never silently switch frontends
           bash install.sh \
             --payload /tmp/ci-payload-ch --data /tmp/ci-data-ch \
             --config /tmp/ci-config-ch \
             --https-port 8444 --no-service-start --yes
-          grep -q "TO_FRONTEND=cheroot" \
-            /tmp/ci-config-ch/testorchestrator-web.service
+          # exactly one web unit — the in-process Cheroot tier; no
+          # proxy unit files are staged anywhere
+          test -f /tmp/ci-config-ch/testorchestrator-web.service
+          ! compgen -G "/tmp/ci-config-ch/*caddy*" > /dev/null
+          ! compgen -G "/tmp/ci-config-ch/*dagu*" > /dev/null
+          grep -qi "cheroot" /tmp/ci-config-ch/testorchestrator-web.service
+          # rerun is idempotent
+          bash install.sh \
+            --payload /tmp/ci-payload-ch --data /tmp/ci-data-ch \
+            --config /tmp/ci-config-ch \
+            --https-port 8444 --no-service-start --yes
+          test -f /tmp/ci-config-ch/testorchestrator-web.service
           # the installed venv must carry the offline wheels
           /tmp/ci-payload-ch/venv/bin/python -c "import cheroot; print('cheroot', cheroot.__version__)"
-          echo "PASS cheroot opt-in install + upgrade persistence"
+          echo "PASS single-frontend install + idempotent rerun"

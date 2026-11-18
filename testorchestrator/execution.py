@@ -436,7 +436,7 @@ class Execution(db.Model):
     deletion_status = db.Column(db.String(16), nullable=False,
                                 default="none")     # none|pending|failed
     deletion_error = db.Column(db.String(512), nullable=False, default="")
-    # ---- 2.0.1 result import (origin + provenance + dedup) ----
+    # ---- result import (origin + provenance + dedup) ----
     # live = dispatched by this app; imported = repository-result import.
     # The common history is the same table either way.
     origin = db.Column(db.String(16), nullable=False, default="live")
@@ -622,7 +622,7 @@ class DiscoveredItem(db.Model):
 
 
 class ImportSession(db.Model):
-    """Durable preview bookkeeping for repository-result import (2.0.1).
+    """Durable preview bookkeeping for repository-result import.
     Workflow state only — never an execution-history record. A preview
     can be re-confirmed after restart or safely retried after failure."""
     __tablename__ = "import_sessions"
@@ -689,7 +689,7 @@ class ImportCandidate(db.Model):
 
 
 class ImportLock(db.Model):
-    """Single-writer claim on a project's import-confirm path (2.0.2).
+    """Single-writer claim on a project's import-confirm path.
 
     Concurrent confirmations of the same candidate (same or different
     sessions) must not both insert executions — for uuid-less content

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import-matching benchmark (2.0.2) — measures classify/preview/confirm
+"""Import-matching benchmark — measures classify/preview/confirm
 cost against increasing project-history sizes.
 
 Generated datasets for scale; real-format KRE fixture for correctness.
@@ -7,7 +7,7 @@ Reports: preview+classify duration, confirm duration, DB query count,
 evidence-file reads, repeat-import behaviour, concurrent import.
 
 Usage:
-    python3 scripts/benchmark_import.py [--sizes 50 200 500] [--out docs/bench-2.0.2.md]
+    python3 scripts/benchmark_import.py [--sizes 50 200 500] [--out docs/bench-import.md]
 """
 import argparse
 import json
@@ -234,7 +234,7 @@ def main():
         rows.append(r)
         print(json.dumps(r))
 
-    report = ["# Import-matching benchmark — 2.0.2", "",
+    report = ["# Import-matching benchmark", "",
               f"Environment: {env}", "",
               "| history | preview_s | preview_q | preview_reads | "
               "confirm_s | confirm_q | confirm_reads | "

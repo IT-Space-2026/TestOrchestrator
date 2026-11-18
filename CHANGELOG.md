@@ -2,467 +2,74 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.5.0] — 2026-11-18
+## [2.5.0] — 2026-11-19
 
-Feature release: optional in-process HTTPS frontend plus dispatch
-integrity fixes verified end-to-end on the packaged Linux artifact.
+Initial public release.
 
-### Added — Cheroot HTTPS frontend (Linux opt-in)
+### Portal and frontend
 
-- `--frontend auto|caddy|cheroot` installer flag. **Caddy stays the
-  default** on every fresh install and `auto` keeps the recorded
-  selection across reruns and upgrades — an upgrade never silently
-  switches tiers. Cheroot terminates TLS inside the application
-  process while Waitress stays on loopback; explicit `--frontend`
-  values switch tiers and support rollback. Windows ships Caddy
-  only — Cheroot is not selectable there.
-- The admin **Network & certificates** page's generate/import →
-  Apply flow reloads the in-process TLS context under Cheroot;
-  managed certs and Caddy's internal CA state are preserved across
-  switching and rollback.
+- Flask/Jinja2 portal served over HTTPS by **Cheroot, in-process** —
+  no separate web-tier binary or unit. Waitress remains internal
+  loopback only.
+- **Admin → Network & certificates** manages TLS material, HTTPS
+  listener, and the optional HTTP→HTTPS redirect listener.
+  Certificate changes apply live; listener changes are staged
+  through a last-good snapshot with automatic rollback.
+- Session security: Argon2 password hashing, CSRF protection,
+  `Secure`/`HttpOnly` cookies, forced bootstrap password change,
+  role-based access (admin/operator/viewer).
 
-### Fixed — installer rerun broke Dagu dispatch (credential drift)
+### Orchestration — Buildbot 4.3.0
 
-- Re-running the installer (same-version rerun, frontend switch,
-  upgrade) regenerated the Dagu coordinator password on disk while
-  the portal's encrypted `coordinator-agent` secret kept the old
-  value → every subsequent dispatch failed with Dagu 401 until a
-  manual resync. Provisioning now reuses the already-provisioned
-  credential, and `web.env` (TO_SECRET_KEY / TO_INSTALL_ID) is
-  written and preserved so sessions and install identity survive
-  reruns. Verified: dispatch works through repeated reruns and
-  Caddy → Cheroot → Caddy with no resync.
+- **Buildbot master** on loopback REST (`:8010`) + PB (`:9989`),
+  provisioned and managed by the installer and the portal —
+  credentials are generated, stored encrypted, and preserved across
+  reruns.
+- Controller-side workers: `to-local` (local execution) and
+  `to-ssh-dispatcher` (agentless SSH).
+- Three execution modes, all managed from **Admin → Workers &
+  runtimes**:
+  1. **Local worker** — runs on the controller host.
+  2. **Remote Buildbot worker** — bundled offline installer
+     (Windows `.exe` / Linux script), outbound PB with per-worker
+     credentials issued and rotatable through the Admin UI.
+  3. **Agentless SSH** — `sshd` + the test runtime on the host;
+     controller-side dispatcher launches and monitors over SSH/SFTP
+     with Admin-UI host-key approval. No agent install.
+- Dispatch integrity: assignment commits before the buildrequest
+  exists, explicit runner/runtime picks are honored or visibly
+  rejected, cancel propagates to remote process groups with
+  confirmed or honestly-flagged termination, and recovery after
+  disconnect resumes in-flight work without duplicates.
+- Execution history is durable and never deleted by upgrades;
+  cancellation intent is preserved across reconciliation.
 
-### Fixed — dispatch races and reconciliation gaps
+### Evidence and reporting
 
-- **Assignment-before-submit**: the Dagu workflow's agent step could
-  poll `/api/agent/tasks` before the portal committed the runner
-  assignment, see nothing, and let the lease decay to `UNKNOWN`
-  without the task ever being claimed. The assignment now commits
-  before the workflow run is started.
-- **Cancel → UNKNOWN**: the Dagu-run reconciler read `statusLabel`
-  at the wrong level of the coordinator's status envelope, so a
-  user-requested cancel correctly aborted by Dagu fell through to
-  lease-expiry `UNKNOWN` instead of terminal `CANCELED`. The
-  envelope is unwrapped and the Dagu reconcile runs before the
-  lease sweep.
-- **Stranded QUEUED**: a local-Dagu execution whose dispatch event
-  was consumed while capacity was blocked stayed QUEUED forever.
-  The worker redrive now retries it while `dispatch_id` is still
-  empty — a state that provably means no run was started, so no
-  duplicate can occur.
-- **Explicit target picks ignored**: the Dagu dispatch path
-  replaced `run_config.requested_runner/requested_runtime` with any
-  eligible pair. Explicit picks are now honored or visibly
-  rejected, never silently retargeted.
+- Per-execution evidence collection (logs, JUnit, artifacts) with
+  configurable retention and `toctl evidence-prune`.
+- Vendored **reportingLabs** report generation served with
+  generation-scoped CSP sandboxing; idempotent regeneration.
+- Optional git-based evidence export.
+- Audit trail for administrative actions, independent of
+  operational logs.
 
-## [2.0.3] — 2026-11-17
+### Application licence
 
-Patch release. Tag `v2.0.3` → commit
-`22a1400f5f17afc153a351857c3bebad47a66eac`.
+- The application licence is **informational only** — it never
+  gates any feature. Without a valid licence the login page shows
+  an informational notice and nothing else changes.
 
-### Fixed — installed Linux payload omitted reporting-labs (2.0.x)
+### Packaging
 
-- `scripts/install.py` now ships the vendored report generator in the
-  installed payload and aborts loudly when any declared payload source
-  is missing; a post-copy gate verifies required files. Previously the
-  copy list omitted `reporting_labs`, so report generation failed on
-  systems installed through the supported installer
-  (`ModuleNotFoundError: No module named 'reporting_labs'`) — masked by
-  running the app from the extracted tarball root.
-- **Vendored source relocated** from repository-root `./reporting_labs`
-  to `3rdparty/reporting_labs` in both the checkout and every installed
-  payload (Linux `install.sh`/`.run`/tarball, Windows app payload,
-  frozen spec). The app resolves the `reporting_labs` import name via a
-  scoped vendored-source bootstrap in `testorchestrator/__init__.py` —
-  no PYTHONPATH or manual copy required.
-- `report_serving_check.py` now exercises real `generate_for`
-  report generation + serving, not only pre-seeded report files.
-- Upgrade from 2.0.1/2.0.2 repairs the defect automatically and
-  removes a superseded root-level `payload/reporting_labs` copy so
-  the package exists exactly once.
-- Licence page: expiry label now matches the enforced half-open
-  boundary (`now < valid_until`) — previously claimed the end date
-  was inclusive.
-- Release scope picker lists suites/collections only; discovered
-  test cases are no longer offered (adds were silently ignored).
-- **Installed Linux payload omitted the bundled worker installer** —
-  `install.sh` now copies `packaging/windows/testorchestrator-dagu-
-  worker-*-setup-UNSIGNED.exe` into the payload (removing superseded
-  versions on upgrade) so the portal's worker-installer download route
-  actually serves it; previously it shipped only in the tarball.
-- **Windows app payload omitted all worker-download assets** — the
-  app installer now bundles both pinned dagu archives
-  (`3rdparty/dagu/`, checksum-verified at staging) plus the NSIS
-  worker installer, matching the Linux package; `check_payload`
-  enforces the same completeness gate as `validate_package.py`.
-
-### Changed
-
-- The `testorchestrator-dagu-worker-*-setup-UNSIGNED.exe` worker
-  installer is **no longer published as a standalone release asset**.
-  It is still built, version-aligned, checksum-verified, and bundled
-  inside both application packages; the installed portal serves it
-  (alongside the pinned dagu archives) under
-  *System → Workers & runtimes* — never fetched remotely at runtime.
-
-### Added
-
-- User and administrator manuals under `Manuals-Doc/` (screenshots
-  captured on released 2.0.2, select frames recaptured on 2.0.3;
-  see `Manuals-Doc/Validation-Record.md`).
-- CI `installer-validate` job exercising the real `install.sh` path.
-
-## [2.0.0–2.0.2 — cumulative notes]
-
-### Changed — reporting-labs is the sole report backend (BREAKING)
-
-- **Allure 3 + bundled Node.js removed** throughout the application
-  and packaging: `allure_runtime.py`, `adapters/allure.py`, `/allure*`
-  routes (view/assets/zip/regenerate), `allure-probe`/`--no-allure`,
-  Allure settings/diagnostics, Node/Allure provisioning, payloads,
-  installer checks, and historical-serving tests.
-- **reporting-labs `0.1.14` is a pinned production dependency** —
-  pure Python, no Java/Node/npm. Generation-scoped assets, bounded
-  three-generation retention, embedded IT-Space logo (data URI),
-  offline/downloaded reports, authenticated access, failed-regen
-  preservation.
-- **Historical Allure reports are no longer opened or regenerated.**
-  No importer, fallback, or compatibility viewer. Files, execution
-  records, attachments, and evidence remain untouched on disk —
-  unsupported by the interface. In-place downgrade compatibility has
-  not been validated — the 2.0 migration drops database columns, so
-  preserved files alone do not establish that an older application
-  can safely reuse the upgraded database.
-- Migration `p6q7r8s9t0u1` drops `allure_status`, `allure_path`,
-  `allure_version`. Canonical execution/results/artifact data
-  preserved.
-- Upgrade removes ONLY application-owned runtime dirs
-  (`3rdparty/nodejs`, `3rdparty/allure3` under the payload/install
-  dir). System-wide Node.js is never touched.
-
-### Added — dashboards, reporting, operational logs, Allure 3
-
-- **Project dashboard** (`/projects/<id>/dashboard`): per-project
-  reporting with outcome/pass-rate/duration trends, top-failing-case
-  ranking, summary cards, period/suite/status filters, and
-  recent-executions drill-down. Aggregation in
-  `project_dashboard.py`, figures via `charts.py` → vendored
-  Plotly.js (offline, no CDN/Dash). Pass rate =
-  passed/(passed+failed+error) with skips tracked separately;
-  execution counts never mixed with test-case counts.
-- **Unified chart theme** (`charts.py`): shared Plotly palette,
-  base layout, and `TOCharts` client builder — the live poll now
-  updates charts via `Plotly.react` instead of legacy markup.
-- **Operational Logs** (`/system/logs`, admin-only): structured
-  component events with severity/component/category/project/
-  execution/worker/correlation fields, combined filters, bounded
-  pagination, pausable live-tail with freshness indicator, and
-  bounded secrets-redacted JSONL/CSV export. Independent retention
-  (`logs_retention_days`/`logs_max_rows`); audit kept separate.
-- **Allure 3 reporting** (replaces Allure 2): bundled Node.js +
-  npm `allure` package via `allure_runtime` — no Java, no system
-  node/npm/npx, no runtime downloads. Reports are multi-file
-  (`awesome/` entry) served under a permitted sandbox CSP with a
-  dedicated subtree-asset route; `allurerc` plugin config applies
-  the Orchestrator logo + "Orchestrator — Test Report" title.
-  ZIP downloads ship the whole report subtree.
-- **Build payload integrity** (`verify_acquisition` +
-  `verify_extracted_runtime`): pinned sha256/sha512 checks before
-  extraction, explicit failures on missing/mismatched payloads —
-  never silently falls back to system runtimes.
-- **Main dashboard** (`/`): TestOps-inspired overview — period
-  selector (7/30/90 d via `?days=`), KPI cards, side-by-side
-  outcome-per-day and duration-per-day charts, top-failing-case
-  table, projects rollup with pass rate, and recent executions.
-  New `chart_duration` + `top_failing` aggregates in
-  `dashboard.snapshot`.
-- **Coordinator credential provisioning**
-  (`ensure_coordinator_credential`): fresh-install generates the
-  internal coordinator basic-auth password through the protected
-  credential store (`kind="dagu"`, internal), wires
-  `dagu_credential_ref` + `dagu_username`, idempotent — restarts,
-  repairs, upgrades, and installer reruns do not regenerate or
-  overwrite. `provision_dagu.py` now sources the same password via
-  `TO_DAGU_PROVISION_PASSWORD` so the coordinator validates the
-  credential the portal sends (previously a second random token).
-- **`to-worker` launcher generation**: `worker_launcher_script()`
-  produces a `.sh`/`.bat` with the coordinator address + worker
-  label baked in, validated against safe identity/label regexes —
-  operators run the generated artifact instead of assembling raw
-  `dagu worker` flags. Admin-only download
-  (`/system/infrastructure/worker-launcher/<id>/<label>`).
-- **Execution source metadata**: nullable `Execution.source_ref`
-  (selected binding ref at creation) + `environment` (effective
-  run-config env), additive migration `m2n3o4p5q6r7`, snapshotted
-  so later binding/config edits do not rewrite history. The
-  existing `source_sha` remains the resolved-commit snapshot
-  driving checkout.
-- **Hidden-setting protection**: the normal `integrations_save`
-  POST now rejects manually injected `dagu_endpoint`,
-  `dagu_credential_ref`, and `dagu_username` — stored values are
-  preserved, the attempt is audited, and the operator is warned.
-
-### Changed
-
-- **Operational Logs UI**: grouped labelled filters (severity /
-  component / category / search), CSV/JSONL export as buttons,
-  expandable record details, Prev/Next pagination, live-tail
-  status states (live/paused/unavailable), readable white-on-color
-  severity badges, and tightened table/filter alignment.
-- **Allure report opens in a new tab** (`target="_blank"`
-  + `rel="noopener noreferrer"`) so the portal page state is
-  preserved; download actions unchanged.
-- **`Admin`/`Admin` bootstrap**: on a genuinely fresh install the
-  single admin starts with the shared temporary credential and
-  `must_change_password`; the forced change gate is enforced until
-  a strong password replaces it. Idempotent — installer reruns,
-  restarts, and upgrades never reset an existing account.
-
-### Removed
-
-- **Allure 2 + JRE-for-Allure**: the Java `allure-commandline`
-  jar, the bundled JRE shipped solely for it, `--java-home`/
-  `allure-java.json` install options, `detect_java_homes`/
-  `selected_java`/`java_version` helpers, `java_probe.py`, and the
-  "JRE + Allure" readiness gate are gone. KRE carries its own
-  runtime — the only Java consumer identified.
-
-
-### Added
-
-### Added — release dates, charts, schedule multi-targets (cont.)
-
-- **Release dates** — nullable `start_date`/`end_date` ("Start
-  date"/"Target end date") on create/edit; `end>=start` validation;
-  overdue badge for unreleased/non-archived past end; `released_at`
-  remains the separate actual timestamp. Dates exported in the
-  release manifest + `sync_dirty` on change. `today` UTC jinja
-  global for comparisons.
-- **Release timeline** — Releases tab: start→end bars, status
-  colors, today marker, detail links; empty state for undated
-  releases. Per-release progress (latest result per scoped target,
-  not all history — config-keyed, unexecuted/unavailable counted).
-- **Dashboard release overview** — active (draft/in_progress)
-  releases as timeline bars, undated list, overdue label, counts,
-  "View all releases" — labelled current state, not date-filtered.
-- **Schedule multi-targets** — `targets_json` on Schedule
-  (`h8a9b0c1d2e3`): repository suites/collections referenced
-  (`{kind, path, source_item_id, binding_id}`), never copied.
-  Two-panel selector on create + edit (prefilled); labelled
-  `name (kind) · binding · path`; App suites labelled "app-side".
-- **Plan removed from scheduling** — `target_type` "plan" gone from
-  create; new plan-targeted schedules rejected; existing Plan-backed
-  rows show "Unsupported legacy Test Plan target"; dispatch still
-  resolves preserved history.
-- **Schedule dispatch** — per-target `create_execution(source_item)`
-  with the schedule's profile/runner/runtime; project check on
-  dispatch; unavailable targets audited (`schedule.target_unavailable`)
-  not silently skipped; legacy single-target schedules still work.
-- **Selector** — `{v, l}` labelled options (visible label vs
-  submitted `repo:<id>` value); `esc` helper; try/catch per build;
-  `js_v` cache-buster; legacy `target_id` select hidden.
-- **UI** — outcome badge colors (passed/failed/running/none/
-  incomplete); status-badge colors (draft/in_progress/released/
-  archived); CSP-safe timeline geometry (`data-left`/`data-width`
-  via JS CSSOM — inline `style=` is blocked); dashboard executions
-  table outcome badges; forward-migration test stub fix.
-
-### Migrations
-- h7a8b9c0d1e2 (release start/end dates)
-- h8a9b0c1d2e3 (schedule targets_json)
-
-### Added — repository-native authoring, releases, dashboard
-
-- **Project Dashboard** (first/default tab): stat cards (total/
-  passed/failed/running/queued + pass rate), date filter, 14-day
-  passed/failed trend, recent executions, inventory + repo health,
-  publication pending/failed.
-- **Repository Suites** — discovered suites/collections shown with
-  type badges, member counts, direct Run, Edit (authoring-gated);
-  read-only badge only when authoring isn't enabled.
-- **Native authoring** — round-trip .ts parse/write: members + name +
-  verified settings only; comments/namespaces/unknown nodes preserved;
-  dynamic suites read-only. Per-owner drafts (base_sha, members,
-  settings, member_cfg); review-bound publish (signature covers
-  name+members+settings+cfg+destination+base); remote fetched before
-  conflict check; cleanup of abandoned drafts.
-- **Verified editable fields** — suite: description/tag/isRerun/
-  numberOfRerun/rerunImmediately/rerunFailedTestCasesOnly/
-  pageLoadTimeout; member: isRun/isReuseDriver/
-  usingDataBindingAtTestSuiteLevel; collection: executionMode/
-  delayBetweenInstances/maxConcurrentInstances + per-suite
-  runEnabled/profileName/runConfigurationId. Preserved-not-editable:
-  guid/testSuiteGuid/mailRecipient/hooks/groovy/unknown nodes.
-- **Publish -> auto-sync** — a git-sync outbox event follows a
-  successful publish so the new/edited definition is rediscovered
-  without a manual Sync.
-- **Create suite/collection** — one action each: name -> .ts path +
-  member selector -> native draft -> diff -> publish. App suites are
-  an explicitly labelled fallback ("not written to the repository");
-  "Sync to repository" exports App suites into the same draft flow.
-- **Plans removed** — routes/tab/panel/schedule targets gone;
-  rows/history preserved; restored create_schedule/create_release/
-  edit_release.
-- **Release workflow** — detail page (scope, run-scope, status
-  transitions, execution summary); scope items reference repo
-  definitions (not copies); run_release queues release_id-linked
-  executions with profile/runner/runtime; config-scoped latest
-  results; unavailable defs blocked; released_at stamps/clears on
-  reopen/restamps on re-release; exec.release link on detail.
-- **Release Sync to repository** — TestOrchestration/release/<slug>.json
-  (proposed app manifest): metadata + status + binding + scope refs;
-  signature-bound preview (content+path+binding+base); publish
-  rejects stale sig/base-tamper/upstream-advance; single/multi-binding
-  guards; sync_dirty on every edit; synced_sha = last successful
-  authoring commit; identical content -> no commit.
-- **Schedules** — Cancel button on the create form.
-- **UI** — enabled checkboxes in the case selector; status-badge
-  colors (draft/in_progress/released/archived); scope-add type
-  filter; css cache-buster (mtime).
-
-### Migrations
-- h3a4b5c6d7e8 (authoring drafts)
-- h4a5b6c7d8e9 (draft settings/member_cfg)
-- h5a6b7c8d9e0 (release_items + executions.release_id)
-- h6a7b8c9d0e1 (release sync state)
-- Direct execution of discovered repository suites/collections:
-  /discovered/<id> detail + Run (profile/runner/runtime selects);
-  executions.suite_id nullable + source_item link; durable
-  source_target snapshot — identity (binding,kind,path), sha is the
-  immutable revision; exactly-one-target enforced; removed/renamed/
-  type-changed defs reject visibly, never retarget; source_item_id
-  ON DELETE SET NULL preserves history.
-- Suites emit -testSuitePath; collections -testSuiteCollectionPath.
-- Report publication: TestOrchestrator/Reports/<id>/ at repo root,
-  manifest v1 + assets, digest-idempotent retry, outbox-driven.
-- Synchronized deletion: recorded-URL+branch commit-removal (a later
-  binding change can't redirect it), never force-push/history rewrite;
-  app deletion finalizes after remote; never-published deletes
-  immediately; deletion-requested blocks re-publication; the UI
-  confirmation states Git history is preserved.
-- git_bindings.report_writable admin opt-in; tags/detached rejected.
-- Single-worker report-op model via cross-process flock.
-- Project page: tab navigation + collapsible forms + edit binding.
-- Katalon inventory grouped by kind; suite/collection detail links.
-
-### Migrations
-- h0a1b2c3d4e5 (nullable suite_id + source_item_id)
-- h1a2b3c4d5e6 (report_pub_*/deletion_* fields)
-- h2a3b4c5d6e7 (source_item SET NULL + report_writable)
-
-### UI modernization
-- Control system: design tokens (spacing/radius/shadow/focus-ring,
-  dark variants) applied to inputs, selects, textareas, checkboxes,
-  buttons (primary/secondary/danger/ghost/icon/loading), badges,
-  tables, tabs, cards, dialogs, flashes, empty states, pagination.
-- Case selector (case-selector.js): two-panel available/selected —
-  search, bulk add/remove visible, per-row add/remove, keyboard
-  ordering, count; posts ordered case_refs[].
-- Suite editor: suite_new/suite_edit/save_suite pages — grouped
-  details + selector, inline field errors, binding-change warning,
-  unsaved-change guard, loading submit.
-- Server-side binding validation: posted case_refs validated against
-  the chosen binding's worktree (foreign/partial refs rejected;
-  SelectMultipleField silent-drop defect fixed).
-- Multi-binding projects get an explicit binding select.
-
-### Limitations
-- Report ops serialize per-binding on a shared filesystem lock —
-  same-host only; independent hosts/containers unsupported.
-- Repository-target scheduling/Plans deferred.
-- Claimed-event crash recovery untested.
-- Studio interoperability fixture-verified only. — post-candidate fine-tuning (NOT in candidate 10300832)
-
-### Added
-- **System → Integrations** page: subsystem-separated configuration
-  for Dagu (endpoint, credential ref, auth username) and Git export
-  (repo path/URL, credential ref, tracked ref) — each section its own
-  labelled card with per-field help (required/optional, format,
-  default, restart note), inline examples, and secret-by-name guidance.
-
-### Fixed
-- **Stale frozen payload** (`docs/incidents/2026-11-04-stale-frozen-payload.md`):
-  `build_bundle.py` collected a stale onedir; four revision-tagged
-  candidates rejected + quarantined. Collector targets the real output
-  and `check_frozen_fresh()` aborts on embedded-build mismatch
-  (regression-tested).
-- Atomic launch boundary: QUEUED|DISPATCHED → PREPARING CAS closes the
-  claim→cancel→launch race; enforcement cancel is CAS on the row.
-- Schedule CAS retries only sqlite lock/busy; unrelated DB failures
-  propagate.
-- KRE gated options reject the launch by default (opt-in allow-drop,
-  audited); gating log registered as evidence artifact.
-
-### Changed
-- Integration settings moved out of implicit DB writes into the
-  Integrations UI (keys unchanged — no migration needed).
-
-### Added — UI overhaul (unreleased, NOT in candidate 10300832)
-- **Operational dashboard** replaces the welcome page: live metric
-  cards (visible projects, active/queued executions, passed/failed
-  terminal attempts in a 14-day window, dispatch-eligible/healthy
-  runners, upcoming schedules), per-project table (latest outcome,
-  active work, pass rate over terminal *attempts*, next scheduled run),
-  recent-executions table, and a daily-outcomes bar chart — all real
-  data, honest empty states.
-- **Live updates:** `GET /dashboard/data` polled ≈ every 5 s
-  (near-real-time) — single in-flight request, backoff to 60 s on
-  errors, paused on hidden tabs, stale-data badge, in-place DOM patch
-  preserving filters/scroll. Same project-visibility scoping as the
-  page.
-- **Projects page:** card grid with search (name/description),
-  sort (name / latest activity), outcome badges, active-work and
-  execution counts, clear empty/no-results states.
-- **Audit:** server-side search + filters (free text over event/
-  detail/actor, event type, actor, related id, date range) with
-  pagination (50/page), preserved-filter links, deterministic ordering.
-- **Runners & runtime forms:** per-field help (required/optional,
-  format, runner-vs-host path semantics, credential references).
-- **Nav:** third-party notices moved to Admin → Third-party notices
-  & licences; URL unchanged (/about/notices) and still reachable by
-  every role via About.
-
-- **Browser selector:** supported-choice dropdown (suite run +
-  schedule forms) replaces the hard-coded Chrome default; remote
-  WebDriver URL/type fields override -browserType; platform validation
-  (Edge=Windows, Safari=macOS); choice persisted in the snapshot and
-  shown on the execution page. Scheduled Firefox verified end-to-end
-  as `-browserType=Firefox` on the fixture KRE.
-
-- **Remote execution safety:** atomic assignment CAS (capacity +
-  ownership) on all paths; `POST /api/agent/tasks/<id>/claim` pickup
-  CAS; agent passes timeout_seconds + remote-webdriver config;
-  UNKNOWN executions hold capacity until admin resolves them via the
-  new **Resolve UNKNOWN** action (audited); multi-process race tests.
-  (working records of that cycle; removed in the 2.0.3 docs
-  audit — the Validation-Record is the current evidence file).
-
-- **Execution controls (Legacy-parity round):** explicit runner/
-  runtime selectors (auto default, revalidated at dispatch, no
-  fallback); Run now on schedules (saved config, recurrence
-  preserved); per-schedule overlap policy (allow|skip, UNKNOWN
-  blocks); searchable/paginated /executions history with filters;
-  bulk cancel on selected rows; executions.schedule_id linkage
-  (migration e6f7a8b9c0d1).
-
-- **Katalon project onboarding:** `gitsync.discover_project` —
-  .prj root detection (bounded, containment-checked), typed
-  DiscoveredItem inventory (cases/suites/collections/profiles by
-  XML root tag), ordered membership refs, atomic replace per SHA,
-  stale-preserving failures, inventory UI section, suite-vs-collection
-  execution args (-testSuiteCollectionPath). Migrations
-  f8a9b0c1d2e3 + g9a0b1c2d3e4.
-
-### Fixed (unreleased)
-- **Remote WebDriver contract:** corrected to Katalon's documented
-  `-browserType=Remote` + `-remoteWebDriverUrl=` +
-  `-remoteWebDriverType=` (was dropping -browserType); URL credential
-  scrubbing; grid-browser selection documented as desired-capabilities
-  driven, not URL-driven.
-
-### Known limitations
-- `CANCEL_REQUESTED` running-process kill path recorded but not yet
-  verified on the frozen worker.
-- Root/systemd, licensed-KRE, second-host worker, Azure DevOps and
-  Windows remain unvalidated environment gates.
+- Linux x86_64: tarball + self-extracting `.run`, `install.sh`
+  (`toctl install`) with offline payload, install-time migrations,
+  systemd unit staging, idempotent reruns that preserve data,
+  credentials, and secrets.
+- Windows amd64 Buildbot worker: unsigned offline `.exe` served
+  from the installed portal next to its matching
+  corresponding-source archive.
+- GPL third-party components ship as separate processes with
+  licence texts, notices, and a written corresponding-source offer
+  fulfilled by IT-Space Kft. (see `3rdparty/CORRESPONDING-SOURCES.txt`
+  and `docs/redistribution-review.md`).

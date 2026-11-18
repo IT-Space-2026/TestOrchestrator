@@ -20,7 +20,7 @@ UTC, internally half-open `[valid_from, valid_until)`. States:
 missing / invalid / not-yet-valid / valid / expired. Relies on the
 host clock — no tamper-proof expiry is claimed.
 
-## Status is informational (since 2.0.4)
+## Status is informational
 The application licence is NOT an enforcement gate. Install, startup,
 login, dispatch, workers, imports, reports, admin routes, and the CLI
 all work with a missing/expired/invalid licence. The sole

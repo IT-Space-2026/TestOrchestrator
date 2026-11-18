@@ -141,14 +141,14 @@ def create_execution(username: str, suite: Suite = None,
         if _rt is None or not _rt.enabled:
             raise DispatchError(
                 "runtime connection unavailable or disabled")
-        # worker_label runtimes are legacy Dagu-worker bindings — that
-        # transport was removed with the orchestrator. They fail
-        # VISIBLY here rather than silently rerouting: the runtime must
-        # be re-registered against a Buildbot target.
+        # worker_label runtimes are bindings to a removed worker
+        # transport. They fail VISIBLY here rather than silently
+        # rerouting: the runtime must be re-registered against a
+        # Buildbot target.
         if _rt.worker_label:
             raise DispatchError(
                 "remote execution is not configured/available — "
-                "this installation is bound to a removed Dagu worker "
+                "this installation is bound to a removed worker "
                 "transport; re-register it against a Buildbot target")
         # Buildbot targets: the runner's target_type picks the
         # orchestrated transport.
@@ -893,7 +893,7 @@ def _normalize(ex: Execution) -> None:
     ex.outcome = Outcome(
         aggregate_outcome([c[0] for c in cases], completed=completed)
     )
-    # 2.0.1: stamp dedup fingerprints so repository imports match this
+    # Stamp dedup fingerprints so repository imports match this
     # live run — same canonicalisation the importer applies.
     try:
         from . import importer as _imp
@@ -1155,7 +1155,7 @@ def _handle_event(event: OutboxEvent) -> None:
         from .gitsync import delete_report
         delete_report(payload["execution_id"])
         return
-    if event.kind in ("local-dispatch", "dagu-dispatch",
+    if event.kind in ("local-dispatch",
                       "orchestrator-dispatch"):
         # Buildbot is the sole orchestrator; legacy in-flight event
         # kinds route to the same assign->submit path.

@@ -372,7 +372,7 @@ def test_bundle_exclusion_scopes():
     assert _excluded(Path("testorchestrator/__pycache__/x.py"))
     assert _excluded(Path("instance/x"))
     assert not _excluded(Path(
-        "3rdparty/dagu/dist/index.js"))
+        "3rdparty/python/dist/index.js"))
     assert not _excluded(Path("testorchestrator/dist/x"))
 
 

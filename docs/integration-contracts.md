@@ -1,31 +1,50 @@
 # Integration contracts
 
-Required by handoff §3. Version pins, endpoint shapes, and verification
-status per integration. "Unverified" means the client exists but has never
-been exercised against a live service — see `implementation-status.md`.
+Version pins, endpoint shapes, and verification status per integration.
+"Unverified" means the client exists but has never been exercised
+against a live service.
 
-## Dagu (orchestration) — `testorchestrator/adapters/dagu.py`
+## Buildbot (orchestration) — `testorchestrator/adapters/buildbot.py`
 
-- Role: workflow orchestration only; the portal owns immutable execution
-  definitions and authorization (§7).
-- Client: HTTP REST under `{dagu_endpoint}/api/v1/`. Auth: HTTP Basic
-  (`dagu_username` + `dagu_credential_ref` SecretRef holding the password)
-  **verified against bundled 2.25.8** (`auth.mode: basic`); alternatively a
-  builtin-mode Bearer API key via the same SecretRef. Timeout 30s.
-- Operations: `GET /health` (status+version), `GET /dags` (workflow
-  presence), `POST /dags/testorchestrator-execution/start`,
-  `GET .../dag-runs/{id}`, `GET .../log`; cancel via verified CLI
-  `dagu stop <dag> --run-id <id>` (HTTP cancel path unresolved on 2.25.8).
-- Contract: submission returns external run identity persisted in
-  `executions.dispatch_id` BEFORE any side effect; ambiguous timeout →
-  reconcile, never blind re-submit. Dispatch state is durable
-  (`outbox_events`), survives restart.
-- Pin: **2.25.8 bundled**; submit/status/cancel + basic-auth health
-  verified live (`docs/dagu-verified-api.md`, contract test).
+- Role: execution orchestration only; the portal owns immutable
+  execution definitions, scheduling, and authorization.
+- Master: **4.3.0 bundled**, loopback-only REST
+  (`http://127.0.0.1:8010/api/v2/`); PB listener on `:9989` for
+  workers. Provisioned at install by `scripts/provision_buildbot.py`
+  (idempotent, credential-preserving on rerun).
+- Auth: REST uses HTTP Basic (`buildbot_username` +
+  `buildbot_credential_ref` SecretRef); workers authenticate over PB
+  with per-worker passwords issued/rotatable via the Admin UI.
+- Operations: `POST` buildrequest (submit), `GET` build/buildrequest
+  (poll/reconcile), `POST` control cancel; assignment commits BEFORE
+  the buildrequest exists, so a claimed build can never outrun the
+  DISPATCHED row. Ambiguous timeout → reconcile, never blind
+  re-submit. Dispatch state is durable (`outbox_events`), survives
+  restart.
+- Workers: `to-local` (controller-local), `to-ssh-dispatcher`
+  (agentless SSH), remote `buildbot-worker` 4.3.0 hosts — all three
+  paths exercised end-to-end on a clean install.
+- Status: **verified live** on the 2.5.0 candidate
+  (`docs/acceptance-2.5.0.md`).
+
+## Agentless SSH — `scripts/to_ssh_exec.py`
+
+- The `to-ssh-dispatcher` worker launches a detached remote process
+  group (`setsid` session leader writes its PGID to `run.pid`),
+  monitors over the exec channel, and collects results over SFTP.
+  Channel fds are fully redirected so the exec channel closes
+  immediately — no remote shell holds it open for the run lifetime.
+- Host keys are pinned through the Admin UI (first-contact capture,
+  explicit approve, verified fingerprint before any auth).
+- Cancel: portal-side `_ssh_remote_cancel` verifies the approved
+  fingerprint, reads `run.pid`, and terminates the remote process
+  group (`TERM` then `KILL`, confirmed via `kill -0`) — a CANCELED
+  state is only recorded after confirmed termination, otherwise the
+  kill is logged as `UNCONFIRMED`.
 
 ## KRE (execution) — `testorchestrator/adapters/kre.py`
 
-- Boundary: connect-only. Never installs/imports/upgrades/licenses KRE (§5).
+- Boundary: connect-only. Never installs/imports/upgrades/licenses KRE.
   Executable presence ≠ licence readiness.
 - Invocation: subprocess argv array (no shell), `start_new_session=True`
   (process-group kill for tree cancellation), per-attempt isolated
@@ -44,38 +63,16 @@ been exercised against a live service — see `implementation-status.md`.
   to same-UID users on the runner host (`/proc/<pid>/cmdline`, `ps`)
   for the process lifetime. Mitigations in place: value is redacted
   from `kre-invocation.log`, stdout/stderr are scrubbed post-run, no
-  secret lands in artifacts/audit/Git export/UI; delivery to remote
-  agents only inside the authenticated scoped task; restricted host
-  permissions (0600 `agent.toml`/credential files) remain required.
-  If a vendor-supported non-argv mechanism is confirmed for the
-  operator's KRE version, adopt it — `run_invocation` already supports
+  secret lands in artifacts/audit/Git export/UI; restricted host
+  permissions (0600 credential files) remain required. If a
+  vendor-supported non-argv mechanism is confirmed for the operator's
+  KRE version, adopt it — `run_invocation` already supports
   `env_extra` injection.
-- Status: mechanics proven vs. fixture executable (`tests/test_pipeline.py`);
-  **real KRE CLI/flags/exit codes unverified** — pending operator binary.
+- Status: mechanics proven vs. fixture executable
+  (`tests/test_pipeline.py`); **real KRE CLI/flags/exit codes
+  unverified** — pending a licensed operator binary.
 
-## Local runner — `testorchestrator/dispatch.py`, `adapters/runner.py`
-
-- Registration fields per §6 (name/desc/os_arch/mode/projects/tags/
-  workspace/slots/health/heartbeat/drain/credential_ref).
-- Scheduling: enabled ∧ not draining ∧ allowed project ∧ free slots.
-  Leases (`lease_expires_at`, 60s) + heartbeats; expired lease → UNKNOWN,
-  never duplicate dispatch. Drain stops new work, lets active finish.
-- Remote transport: **not implemented** — decision recorded: secured Python
-  agent (§6 option A). Remote-mode runners are never assigned.
-
-## ReportPortal — `testorchestrator/adapters/reportportal.py`
-
-- Strategy: direct API publication (§9 option 1); JUnit-import path NOT
-  used (cannot map screenshots to attempts).
-- Client: `{rp_endpoint}/api/v1/{project}/launch|item|log/entry|finish`,
-  Bearer token via `reportportal_credential_ref`. Attachments carry MIME +
-  checksum-matched content; per-artifact `rp_state` + `rp_remote_id`.
-- Ambiguity: remote timeout may mean accepted — retries reconcile on
-  persisted IDs, never recreate hierarchy blindly.
-- Status: **implemented, unverified** — needs live RP instance. A02
-  (screenshot→case mapping in RP) unproven.
-
-## Git — `testorchestrator/gitsync.py` + `git_backend.py` (Dulwich default; GitPython removed)
+## Git — `testorchestrator/gitsync.py` + `git_backend.py` (Dulwich default)
 
 - Source bindings: clone/fetch into `instance/bindings/<id>`; read-only
   index (case/suite listing); no code execution, no auto submodules.

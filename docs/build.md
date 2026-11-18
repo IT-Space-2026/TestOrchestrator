@@ -1,12 +1,17 @@
-# Building a release — one command per platform
+# Building a release — one command
 
-Supported entry points (added in 2.0.1):
-
-    Windows:  python build-scripts\build_windows.py
-    Linux:    python3 build-scripts/build_linux.py
+    python3 build-scripts/build_linux.py
 
 Run from anywhere inside the checkout; paths resolve from the script's
-own location, not the caller's working directory.
+own location, not the caller's working directory. The single pipeline
+produces every release deliverable, including the Windows worker
+installer — the controller itself is Linux-only.
+
+`TO_BUILDBOT_GPL_APPROVED` gates the bundling of the GPL components
+(Buildbot packages + Paramiko) into customer artifacts. Unset, the
+build produces an internal-test package whose manifest marks the GPL
+payload unapproved; set `1` only after the redistribution checks in
+`docs/redistribution-review.md` are satisfied.
 
 ## Prerequisites — the complete list
 
@@ -15,77 +20,58 @@ own location, not the caller's working directory.
 | repository checkout | `git clone`; the build stamps the exact commit and reports a dirty tree — it never switches branches or fetches another revision |
 | Python ≥ 3.12 on PATH | stdlib only; `venv` module must exist (Debian/Ubuntu: `python3` is enough — a missing `ensurepip`/`python3-venv` is handled automatically) |
 | network access | pinned assets are downloaded on first build and cached in `build/downloads/` |
-| NSIS (`makensis`) | **optional to preinstall** — the script installs it: `apt-get install nsis` via sudo on Debian/Ubuntu, `choco install nsis` on Windows, or a no-root user-space extraction of the `nsis`+`nsis-common` debs into `build/tools/` (Linux) |
+| NSIS (`makensis`) | **optional to preinstall** — the script installs it: `apt-get install nsis` via sudo on Debian/Ubuntu, or a no-root user-space extraction of the `nsis`+`nsis-common` debs into `build/tools/` |
 
 No other tools are required. No git-bash, curl, unzip, sha256sum,
 pip preinstall, or manual staging — everything is Python stdlib or
 fetched by the script.
 
-## What each build does
+## What the build does
 
 `build_linux.py`:
 1. creates an isolated build venv under `build/linux/venv` (pip
    bootstrapped inside when ensurepip is absent)
-2. fetches the pinned dagu archives into `3rdparty/dagu/`
-   (sha256-verified against `3rdparty/dagu/dagu.sha256`)
-3. stages `worker-payload/` and compiles the Windows **dagu-worker
-   installer** via NSIS — it ships inside the Linux package
-4. `scripts/build_bundle.py` → `dist/testorchestrator-<v>-linux-x86_64.tar.gz`
-5. `scripts/build_linux_installer.py` → self-extracting `.run`
-6. validates: `scripts/validate_package.py` on the extracted tarball
-   (offline dep install, vendored reporting-labs, worker assets,
-   coordinator/worker version alignment) + `.run` payload round-trip
-7. publishes deliverables + `SHA256SUMS.txt` + `build-manifest.json`
-
-`build_windows.py`:
-1. isolated build venv under `build/windows/venv` (same bootstrap)
-2. fetches pinned Python-embeddable zip, Caddy-windows zip, and the
-   dagu Windows archive — all sha256-verified (`assets.json` +
-   `dagu.sha256`)
-3. stages `packaging/windows/app-payload/` entirely in Python:
-   runtimes, `dagu.exe`+`LICENSE`, app source, vendored
-   `3rdparty/reporting_labs/`, and every `requirements.txt` wheel resolved for
-   `win_amd64`/py3.12 into `site-packages/`
-4. payload completeness gate (runtimes, app dirs, every requirement
-   present — package dirs, dist-info, and module files)
-5. `makensis -DVERSION=<release.json version>` →
-   `testorchestrator-<v>-windows-amd64-setup-UNSIGNED.exe`
-6. dagu-worker installer via the same shared staging
-7. alignment check + deliverables + checksums + manifest
+2. fetches the pinned Buildbot/Paramiko sdists, the Windows
+   Python-embeddable zip, and the Windows worker wheel set — all
+   sha256-verified (`build-scripts/assets.json`)
+3. builds `TestOrchestrator-Buildbot-Sources-<v>.tar.gz` — the
+   corresponding-source archive (exact upstream sdists + packaging,
+   build, and install scripts + notices)
+4. stages `packaging/windows/bb-worker-payload/` and compiles the
+   Windows **Buildbot worker installer** via NSIS — it ships inside
+   the Linux package and is served by the installed portal
+5. `scripts/build_bundle.py` → `dist/testorchestrator-<v>-linux-x86_64.tar.gz`
+6. `scripts/build_linux_installer.py` → self-extracting `.run`
+7. validates: `scripts/validate_package.py` on the extracted tarball
+   (offline dep install, vendored reporting-labs, worker installer +
+   corresponding-source archive present, controller/worker Buildbot
+   version alignment) + `.run` payload round-trip
+8. publishes deliverables + `SHA256SUMS.txt` + `build-manifest.json`
 
 ## Output
 
-`dist/release/<platform>/` — final deliverables only:
+`dist/release/linux/` — final deliverables only:
 
-    dist/release/linux/    testorchestrator-<v>-linux-x86_64.tar.gz
-                           testorchestrator-<v>-linux-x86_64.run
-    dist/release/windows/  testorchestrator-<v>-windows-amd64-setup-UNSIGNED.exe
-    both:                  SHA256SUMS.txt, build-manifest.json
+    testorchestrator-<v>-linux-x86_64.tar.gz
+    testorchestrator-<v>-linux-x86_64.run
+    TestOrchestrator-Buildbot-Sources-<v>.tar.gz
+    SHA256SUMS.txt                     (incl. the bundled worker .exe)
+    build-manifest.json
 
-The dagu-worker NSIS installer is still built (it is bundled INSIDE
-both packages — `packaging/windows/` in the tarball, staged into the
-Windows app payload) so the installed portal can serve it, but it is
-no longer emitted as a standalone `dist/release/` artifact.
-    dist/release/logs/     per-run build logs
-
-`build/` holds transient staging (venvs, downloads cache, extracted
-NSIS). Both are gitignored; re-running needs no cleanup — previous
-deliverables for that platform are replaced, caches and other
-platforms' outputs are kept.
+`dist/release/logs/` holds per-run build logs. `build/` holds
+transient staging (venvs, downloads cache, extracted NSIS). Both are
+gitignored; re-running needs no cleanup.
 
 `build-manifest.json` records: release version, source commit +
-dirty flag + branch, tool versions (python, makensis, dagu, caddy,
-python-embed), every artifact's size + sha256, and the validation
-checks that ran.
+dirty flag + branch, tool versions, every artifact's size + sha256,
+the GPL-approval flag state, and the validation checks that ran.
 
 ## Version + pin sources
 
 | Pin | Authoritative source |
 |---|---|
 | release version | `release/release.json` → `version` |
-| dagu archives | `3rdparty/dagu/dagu.sha256` digests; URL/version in `build-scripts/assets.json` |
-| caddy (linux) | `3rdparty/caddy/caddy.sha256` |
-| caddy (windows), python-embed zip, get-pip | `build-scripts/assets.json` |
+| Buildbot/Paramiko sdists, python-embed zip, get-pip, Windows wheels | `build-scripts/assets.json` |
 | python deps | `requirements.txt` (exact `==` pins) |
 
 The `.nsi` scripts accept `-DVERSION=`; their inline defaults apply
@@ -93,18 +79,12 @@ only to manual makensis runs.
 
 ## Worker inventory reconciliation
 
-The Linux package's worker assets are gated by
-`scripts/validate_package.py`: both pinned dagu archives must exist,
-checksum-verify, and share one version; exactly one
-`testorchestrator-dagu-worker-<same version>-setup-UNSIGNED.exe` must
-be present under `packaging/windows/`. A missing/skewed worker asset
-fails the build — nothing is silently omitted. On the Windows side,
-`check_payload` enforces the same contract inside `app-payload` (both
-dagu archives + pin manifest + exactly one aligned worker exe) before
-`app-installer.nsi` compiles — and `build_windows.py` builds the worker
-installer before payload staging so the app installer embeds it. The
-worker installer is not published standalone anymore; both packages
-carry it for portal-side download.
+`scripts/validate_package.py` gates the package: exactly one
+`TestOrchestrator-Buildbot-Worker-Setup-<v>-UNSIGNED.exe` **and** one
+matching `TestOrchestrator-Buildbot-Sources-<v>.tar.gz` must exist
+under `packaging/windows/`, and the worker payload must pin the same
+Buildbot version as the controller. A missing/skewed asset fails the
+build — nothing is silently omitted.
 
 ## Failure behaviour
 
@@ -117,11 +97,6 @@ carry it for portal-side download.
 
 ## Known gaps
 
-- The Windows artifacts produced by `build_windows.py` are compiled
-  but not executed on this host — installation/startup smoke runs in
-  `windows-installer.yml` CI (installed-validate + upgrade-from-v102
-  jobs). Size differences vs CI-built installers reflect the NSIS
-  toolchain version, not payload differences (payload is gate-checked).
-- The legacy `packaging/windows/build_*.sh` scripts still work for
-  manual debugging but are superseded — pins may drift from
-  `assets.json`.
+- The Windows worker `.exe` is compiled on Linux and not executed
+  there — installed-payload checks run in CI and Windows acceptance
+  runs post-release on a real Windows host.

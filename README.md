@@ -10,13 +10,10 @@ a pure-Python backend with no bundled Node.js.
 
 **Status: 2.5.0 released** ([CHANGELOG](CHANGELOG.md) ·
 [release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.5)).
-2.5.0 replaces Dagu with Buildbot as the sole execution orchestrator
-(local workers, remote Buildbot workers, and agentless SSH targets —
-all managed from Admin → Execution Targets) and makes the in-process
-Cheroot tier the shipped frontend; neither Dagu nor Caddy ships. Prior released line: **v2.0.3** — the tag
-resolves to commit `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`
-([release notes](docs/release-notes-2.0.3.md) ·
-[GitHub release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/v2.0.3)).
+This is the initial public release. Execution orchestration is
+**Buildbot 4.3.0** — local workers, remote Buildbot workers, and
+agentless SSH targets, all managed from Admin → Execution Targets —
+and the public frontend is the in-process **Cheroot** HTTPS tier.
 
 ## Manuals
 
@@ -26,10 +23,8 @@ resolves to commit `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`
 - **[Admin manual](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/Admin-Manual.md)** — installation,
   configuration, workers, security, backup/upgrade, maintenance,
   troubleshooting.
-- **[Screenshot index](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/Screenshot-Doc/Screenshot-Index.md)**
-  and **[validation record](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/Validation-Record.md)** —
-  screenshots were captured on the released 2.0.2 package; the record
-  states which procedures were verified on which version.
+- **[Screenshot index](https://github.com/IT-Space-ltd/TestOrchestrator/blob/main/Manuals-Doc/Screenshot-Doc/Screenshot-Index.md)** —
+  captions and provenance for every frame embedded in the manuals.
 
 ## Architecture
 
@@ -111,7 +106,7 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 | Platform | Status | Package |
 |---|---|---|
 | Ubuntu x86_64 (central server) | **2.5.0 released** | `testorchestrator-2.5.0-linux-x86_64.tar.gz` / `.run` (GitHub release assets + `SHA256SUMS.txt` + `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz`) |
-| Windows amd64 (portal + worker) | **released, unsigned** | `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` |
+| Windows amd64 (execution host) | **2.5.0, unsigned** | `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` — bundled in the packages + Admin UI |
 The worker installer (`TestOrchestrator-Buildbot-Worker-Setup-`
 `4.3.0-UNSIGNED.exe`) is **bundled inside the packages** — download
 it from the installed portal under **Admin → Workers & runtimes**
@@ -152,7 +147,7 @@ sudo ./install.sh            # → toctl install (frozen payload)
 migrations, systemd unit staging/enable — with **no external python,
 pip, flask CLI, or venv** required.
 
-Options: `--payload --data --config --https-port --frontend
+Options: `--payload --data --config --https-port
 --service-user --no-service-start --yes --dry-run`. Exit codes:
 0 ok · 1 usage/platform · 2 install failure · 3 readiness failure.
 Reruns are safe — payload is overwritten, `web.env` secrets and the
@@ -160,17 +155,16 @@ Buildbot credentials are preserved, data is never deleted.
 
 ## Installing (Windows)
 
-Run `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe`
-(interactive or `/S` for silent NSIS install). It installs the frozen
-portal + worker services. See the Admin Manual §5 (Windows installation, certificate
-trust, service tasks, uninstall).
-
-For a remote KRE host only, download the bundled
-`TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` from the
+The controller runs on Linux only — there is no Windows controller
+installer. Windows hosts participate as **execution targets**: run
+the bundled `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`
+(interactive or `/S` for silent NSIS install), downloaded from the
 installed portal (**Workers & runtimes → download**, SHA-256 shown
-next to the link) — a minimal worker-only install aligned to the
-controller's Buildbot 4.3.0, shipped inside the app packages rather
-than published standalone.
+next to the link). It installs a minimal worker-only footprint
+aligned to the controller's Buildbot 4.3.0 and connects outbound
+over PB — no inbound portal port required. The matching
+corresponding-source archive is offered beside the download link.
+See the Admin Manual §6.1.
 
 ## Application commands (`toctl`)
 
@@ -269,7 +263,7 @@ requested semantics — explicit `kre_options_allow_drop`
 acknowledgement is required to continue, recorded in `kre-gating.log`
 evidence + audit).
 
-## Importing existing results (new in 2.0.1)
+## Importing existing results
 
 Project-scoped **Import** (project detail → *Import results*) brings
 external run history into the same `Execution`/`TestResult`/`Artifact`
@@ -441,85 +435,68 @@ and keeps the newest 10. `toctl recover` validates the archive before
 extracting.
 
 Upgrades are in-place: unpack the new payload over the install and run
-`toctl db-upgrade` (migrations are additive; `q7r8s9t0u1v2` adds the
-import schema in 2.0.1). Verified paths on v2.0.3 CI:
-
-- **2.0.1 → 2.0.3** and **2.0.2 → 2.0.3**: dedicated jobs on Linux —
-  both pass. Upgrading a 2.0.1/2.0.2 install affected by the
-  reporting-labs installer defect repairs it automatically (package
-  installed, superseded root-level copy removed, failed reports
-  regenerable).
-- **1.0.2 → 2.0.3** and **2.0.2 → 2.0.3**: dedicated jobs on Windows —
-  both pass.
-- Historical coverage (earlier CI): 1.0.2 → 2.0.1, 2.0.0 → 2.0.1,
-  1.0.2 → 2.0.2, and 2.0.0 → 2.0.2 on both platforms. The 2.0.0-based
-  jobs were retired when the v2.0.0 release was removed.
+`toctl db-upgrade`. Migrations are additive and never touch stored
+data — environments, executions, evidence, credentials, schedules,
+and workspaces are preserved.
 
 ## Release builds
 
-One command per platform — `python3 build-scripts/build_linux.py` /
-`python build-scripts\build_windows.py` — fetches pinned assets,
-compiles the worker installer, packages, validates, and emits
-checksums + manifest into `dist/release/<platform>/`. Prerequisites
-and output layout: `docs/build.md`.
+One command — `python3 build-scripts/build_linux.py` — fetches pinned
+assets, compiles the Windows worker installer, packages, validates,
+and emits checksums + manifest into `dist/release/linux/`.
+Prerequisites and output layout: `docs/build.md`.
 
-## Release assets & checksums (v2.0.3)
+## Release assets & checksums (2.5)
 
 Published at
-<https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/v2.0.3>
-— tag `v2.0.3` → commit `22a1400f5f17afc153a351857c3bebad47a66eac`,
-all binaries built from that exact clean commit:
+<https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.5>
+— tag `2.5` → commit `5123091fb0d12d59181822bb882582a1028ba282`,
+all binaries built from that tagged commit:
 
-| Asset | Bytes | SHA-256 |
-|---|---|---|
-| `testorchestrator-2.0.3-linux-x86_64.tar.gz` | 278,811,947 | `2b4d97515fdc8c3e0603eaedb6f14e5fb2ce2fac9054d0157f4943e81f77b263` |
-| `testorchestrator-2.0.3-linux-x86_64.run` | 278,813,951 | `7fef2b18812a17db0212f39d5f6dd7c133f9466cdbd8877ddadbb6f84bbab8de` |
-| `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` | 306,850,425 | `ea7ec2fc97a4982854740001a269e7af4a5d246b3fa84412bdd417192de909a6` |
-Plus `SHA256SUMS`, `build-manifest-linux.json`, and
-`build-manifest-windows.json` (distinct manifest names). Verify:
-`sha256sum -c SHA256SUMS` next to the downloaded files. `dist/` is
-never tracked in the repo.
+| Asset | SHA-256 |
+|---|---|
+| `testorchestrator-2.5.0-linux-x86_64.tar.gz` | `820e920883f5ce71ab5ca35861020229a7141e07e0f64a7f002855040804f7a3` |
+| `testorchestrator-2.5.0-linux-x86_64.run` | `4b27c2733d9ef0e2d1686d3bc21ea238a9fa9e121325f09a80487a56a8ff4715` |
+| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `0d4f6c83120bc4cae7ce99c258e6bca054195826a265d98da80acc66f54e371e` |
+
+Plus `SHA256SUMS.txt` (includes the bundled worker installer's
+checksum). Verify: `sha256sum -c SHA256SUMS.txt` next to the
+downloaded files. `dist/` is never tracked in the repo.
 
 The `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` worker
-installer is **bundled inside both packages** (tarball
-`packaging/windows/` + inside the Windows app installer) and is
-served by the installed portal — it is no longer published as a
-separate release asset.
+installer is **bundled inside the packages** and served by the
+installed portal next to its corresponding-source archive — it is
+not a separate release asset.
 
-## Validation (v2.0.3)
+## Validation (2.5)
 
-CI on the tagged commit
-([linux-package](https://github.com/IT-Space-ltd/TestOrchestrator/actions/runs/44092012798) ·
-[windows-installer](https://github.com/IT-Space-ltd/TestOrchestrator/actions/runs/44092018182) —
-all jobs success):
+Verified on a clean install of the tested build — details in
+`docs/acceptance-2.5.0.md`:
 
-- **Linux**: build · installer-validate (real `install.sh` +
-  payload-completeness gate — the job added to close the gap that hid
-  the reporting-labs defect) · installed-validate · upgrade-from-2.0.1
-  · upgrade-from-2.0.2.
-- **Windows**: compile · installed-validate · upgrade-from-1.0.2 ·
-  upgrade-from-2.0.2.
-- Clean-install verification (outside the checkout, no PYTHONPATH):
-  `reporting_labs` resolves from `payload/3rdparty/reporting_labs`,
-  report generation produces `reporting-labs/gen-*/index.html` and
-  serves it — including after restart.
-- Upgrade repair verified on a seeded defective 2.0.2 install
-  (`rl_status=failed`): vendored package installed automatically,
-  superseded root-level copy removed, previously failed report
-  regenerated, data/users/history/evidence/reports preserved.
-- Package inventory reconciled: coordinator and worker both pin
+- `install.sh` payload + install-time migrations; Cheroot HTTPS on
+  the configured port; all five units active under user-scope
+  systemd; Buildbot master + both controller workers attached.
+- All three execution paths exercised end-to-end through the Admin
+  UI: local worker, native Buildbot worker (offline install,
+  credential reissue, reattach), and agentless SSH (host-key
+  approval, live reconfig without restart).
+- Scheduled run, cancellation with confirmed remote process-group
+  termination, disconnect/recovery without duplicate execution,
+  JUnit artifact collection.
+- Package inventory reconciled: controller and worker both pin
   **Buildbot 4.3.0**; vendored `reporting_labs==0.1.14` + `LICENSE` +
   `VENDORED.md` present exactly once per runtime payload.
-- Test suite: **637 passed, 1 skipped** — including installer
-  payload-completeness, vendored-resolution, no-masking, and
-  upgrade-repair regression tests.
+- Test suite on the tested commit: **639 passed, 1 failed,
+  1 skipped** — the failure is the external licence-issuer test
+  (private key intentionally not committed); the skip is a
+  git-packaging configuration case.
 
 ## Deferred checks & limitations
 
 Explicitly deferred — **not** passed:
 
-- Windows interactive GUI walkthrough and real-corpus end-to-end
-  execution — deferred (as in 2.0.0).
+- Windows worker `.exe` interactive walkthrough and real-corpus
+  end-to-end execution on Windows — deferred to post-release testing.
 - Real licensed-KRE suite execution — not demonstrated (adapter is
   fixture-verified only).
 - Azure DevOps repo interoperability — gated on an authorized

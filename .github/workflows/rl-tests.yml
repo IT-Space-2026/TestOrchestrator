@@ -1,7 +1,7 @@
 name: rl-tests
 on:
   push:
-    branches: [feature/2.0-reporting-labs]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
