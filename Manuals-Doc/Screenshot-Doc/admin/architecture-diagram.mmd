@@ -3,40 +3,45 @@ flowchart LR
         BR["browser<br/>admin + end users"]
         GIT["Git repository"]
         KLS["Katalon licence service"]
+        SSHH["agentless SSH host<br/>sshd + KRE only"]
     end
 
     subgraph HOST["Portal host (single machine, systemd)"]
         direction TB
-        CDY["Caddy<br/>bundled binary<br/>TLS :443, :8080"]
         subgraph APPUNIT["app unit (testorchestrator-web)"]
+            CHR["Cheroot HTTPS :443<br/>+ optional :8080 redirect<br/>(in-process)"]
             APP["Flask + Waitress :18080<br/>Python 3.12 payload + offline venv"]
             RLAB["reporting_labs<br/>vendored package (MIT)"]
             DB[("SQLite<br/>Alembic-migrated")]
+            CHR --> APP
             APP --> RLAB
             APP --> DB
         end
-        subgraph DAGUNIT["coordinator unit (testorchestrator-dagu)"]
-            COORD["Dagu coordinator<br/>bundled 2.27.0<br/>UI/API :8097 - gRPC :50055"]
+        subgraph BB["Buildbot (controller-side)"]
+            BBM["buildbot master 4.3.0<br/>REST :8010 loopback only<br/>PB :9989"]
+            BBL["to-local worker"]
+            BBS["to-ssh-dispatcher worker"]
+            BBM --- BBL
+            BBM --- BBS
         end
         FS[/"instance data dir<br/>evidence - workspaces - staging -<br/>licence.json - certs - secret.key"/]
-        CDY --> APP
-        APP --> COORD
+        APP -->|REST submit/poll/cancel| BBM
         APP --> FS
+        BBL --> FS
     end
 
-    subgraph WH["Worker host(s)"]
+    subgraph WH["Remote worker host(s)"]
         direction TB
-        subgraph WUNIT["worker unit (testorchestrator-worker)"]
-            WKR["dagu worker<br/>bundled 2.27.0<br/>labels: kre=label, os, arch"]
-        end
+        WKR["buildbot-worker 4.3.0<br/>from bundled offline installer"]
         KRE["KRE / katalonc<br/>NOT SHIPPED - install<br/>and licence it yourself"]
         WWS["job workspace +<br/>worker credential file"]
         WKR --> KRE
         KRE --> WWS
     end
 
-    BR -->|HTTPS| CDY
-    WKR <-->|gRPC task poll| COORD
+    BR -->|HTTPS| CHR
+    WKR -->|"outbound PB :9989<br/>(per-worker password)"| BBM
+    BBS -->|"SSH exec + SFTP collect"| SSHH
     APP -->|clone/fetch SSH or HTTPS| GIT
     KRE -.->|activation| KLS
 
@@ -44,7 +49,7 @@ flowchart LR
     classDef external fill:#dbeafe,stroke:#1e40af,color:#0f172a
     classDef own fill:#fde68a,stroke:#92400e,color:#0f172a
     classDef data fill:#fef9c3,stroke:#a16207,color:#0f172a
-    class CDY,APP,RLAB,COORD,WKR bundled
-    class BR,GIT,KLS external
+    class CHR,APP,RLAB,BBM,BBL,BBS,WKR bundled
+    class BR,GIT,KLS,SSHH external
     class KRE,WWS own
     class DB,FS data

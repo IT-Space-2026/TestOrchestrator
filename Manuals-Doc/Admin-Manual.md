@@ -624,6 +624,10 @@ From the installer (`app-installer.nsi`, `build_app_installer.sh`,
 
 ### 5.2 Certificate trust (what the installer does for you)
 
+*This subsection describes the 2.0.3-line Windows controller
+package, whose frontend is Caddy — the 2.5.0 Linux frontend is
+Cheroot (§4.9) and this package is pending rework.*
+
 - Mode `tls internal`: Caddy generates a **fresh, per-installation
   local CA** at first start under
   `%ProgramData%\TestOrchestrator\caddy-home\Caddy\pki`. The private
@@ -1126,16 +1130,19 @@ flags (one-time, at `install.sh`).
 | `TO_WAITRESS_LISTEN` | Waitress bind (`host:port`) | `127.0.0.1:18080` | no | yes |
 | `TO_TRUSTED_PROXIES` | Comma-separated peers whose forwarding headers are honoured | `127.0.0.1,::1` | no | yes |
 | `TO_CERT_DIR` | Protected key/cert store (0700/0600) | `$TO_INSTANCE_DIR/certs` | no | yes |
-| `TO_CADDY_BIN` | Caddy binary path | `payload/3rdparty/caddy/caddy` | no | yes |
-| `TO_CADDY_CONFIG_DIR` | Rendered Caddyfile staging | `$TO_INSTANCE_DIR/caddy` | no | yes |
 | `TO_INSTALL_ID` | Install identity — written by the installer; `toctl` refuses to service a foreign install | generated | no | yes |
 | `TO_UPDATE_KEY` | Trusted public key path for signed update packages (`toctl update`) | unset | no | per-invocation |
 | `TO_SERVICE_UNITS` / `TO_SERVICE_SCOPE` | Unit names + `--user`/system scope used by **Health → Restart services** | `testorchestrator-*` / `system` | no | yes |
 | `TO_LICENCE_CODE` | Licence code for the installer (never logged) | required at install | yes | n/a |
-| `TO_DAGU_PROVISION_PASSWORD` | Coordinator credential planted at provision so the portal matches | unset → random token + warning | yes | install-time |
 | `TO_GIT_BACKEND` | `dulwich` \| `cli` git engine | `dulwich` | no | yes |
 
 | `TO_SEED_<ROLE>_PASSWORD` | Test/demo account seeding | unset | yes | first start |
+
+The 2.0.3-line **Windows controller payload** additionally honours
+`TO_CADDY_BIN`, `TO_CADDY_CONFIG_DIR`, and
+`TO_DAGU_PROVISION_PASSWORD` (Caddy/Dagu internals of that package).
+None exist in a 2.5.0 install — the frontend is in-process Cheroot
+and the orchestrator is Buildbot.
 
 ### 14.2 Persisted settings (DB — edited in the Admin UI)
 
@@ -1237,7 +1244,8 @@ TO_INSTANCE_DIR=/var/lib/testorchestrator venv/bin/python -m testorchestrator db
 (`TO_INSTANCE_DIR`, `TO_SECRET_KEY`), `buildbot/master.cfg` + the
 `buildbot_*` settings if the master
 moved, `advertised_base_url` + `external_host` for a new DNS name,
-and the Caddyfile. If `TO_SECRET_KEY` differs, every user session
+and the Cheroot listener/certificate settings under **Network &
+certificates** (§4.9). If `TO_SECRET_KEY` differs, every user session
 is invalidated — nothing else breaks.
 
 **Worker reconnection**: workers re-register on their coordinator
