@@ -128,7 +128,7 @@ Waitress backend on 127.0.0.1:18080, same instance data.
 | CSRF referrer check | POST without Referer | **skipped** — Waitress drops `X-Forwarded-Proto`; app sees `is_secure=False` | **enforced** — direct TLS → `is_secure=True` → 400 | **cheroot strictly better**; header-less POSTs to CSRF routes fail (correct) — agent API is csrf-exempt, unaffected |
 | Client-spoofed X-Forwarded-For | `-H 'X-Forwarded-For: 9.9.9.9'` | header reaches app; `licence-activate` limiter keys on raw header → bypassable | stripped in `_DirectPeer`; real peer used | **cheroot strictly better** (pre-existing weakness in caddy tier) |
 | HTTP/2 + HTTP/3 | `curl -D-` | h2 negotiated, `alt-svc: h3` | HTTP/1.1 only | **caddy advantage** — functional parity at h1; h2/h3 is a real gap |
-| Concurrent ×40 | 40 parallel GET /login | 0.19 s | 1.71 s | **caddy ~9× faster** (multiplex + no thread-per-conn cap) — fine for admin-portal load, material for heavy fan-out |
+| Concurrent ×40 | 40 parallel fresh-conn GETs | 0.12–0.16 s | 1.5–2.1 s (defaults) → **0.16–0.21 s after `request_queue_size=128`** | gap was listen-backlog, not throughput — §7 |
 | 64 MB download | worker-installer `.exe` | 0.10 s, 617 MB/s | 0.15 s, 428 MB/s | comparable |
 | Requests during live cert swap | 30× GET while admin generate | n/a (no hot reload) | all 200, no drops | pass |
 
@@ -139,7 +139,7 @@ Waitress backend on 127.0.0.1:18080, same instance data.
 | First generation | start on empty CERT_DIR | internal CA in own storage | `generate_local` → CERT_DIR | different anchors by design (documented) |
 | `local`/`imported` mode files | `tls <cert_dir>/fullchain.pem` | serves file | serves same file | identical anchor |
 | Admin generate → Apply → new cert on fresh conn | `/system/network/certificate/generate` + `/network/apply` | **stale until service restart** — `admin off` means `caddy reload` cannot even connect (`dial tcp 127.0.0.1:2019: refused`); file-watch did not fire within 75 s | **≤2 s, no restart** (watcher) | **cheroot strictly better** — the shipped caddy config has NO hot cert path; product semantics today are restart-to-apply |
-| Admin import via real route | multipart import form | (as above, restart needed) | ≤3 s new cert served | cheroot better |
+| Admin import → Apply → new cert on fresh conn | real multipart POST `/system/network/certificate/import` (self-signed leaf, SAN `localhost`) | (as above, restart needed) | **fingerprint proven**: served `E7:3A:CF:3B…` (local CA) → `49:44:D1:01…` = imported cert, ≤4 s, no restart; `-CAfile imp-cert.pem` verify OK | pass — cheroot applies without restart |
 | Intended client trust | `curl --cacert local-ca.pem` | n/a | `Verify: 0`, 200 | pass |
 | Corrupt live replacement | garbage PEM into fullchain | n/a | last-good served, `cert reload failed` logged, no key material | pass |
 | Mismatched key | wrong key file | n/a | last-good, `KEY_VALUES_MISMATCH` logged | pass |
@@ -181,7 +181,115 @@ the frontend and `os._exit(1)`s so the service manager restarts.
 - If Caddy were later removed: −17.7 MB compressed / −50.9 MB
   installed; venv adds ~1.6 MB (cheroot+deps).
 
-## 7. Rollback
+## 7. Concurrency follow-up (matched HTTP/1.1, commit with `request_queue_size=128`)
+
+**Question:** does the earlier ~9× gap (0.19 s vs 1.71 s) reproduce,
+and is it protocol (h2) or implementation?
+
+### 7.1 Reproducing the original result
+
+The earlier figures were **wall-clock batch times** for 40 parallel
+`curl` processes, each doing one fresh TLS connection + one GET:
+
+```bash
+# both tiers, same command — HTTPS :8443, HTTP/1.1+h2 negotiated by client
+for i in $(seq 1 40); do curl -sk https://localhost:8443/healthz -o /tmp/burst_$i.out & done; wait
+```
+
+Reproduced on the same packaged install (`/tmp/to-inst`), 3 runs each,
+all 40/40 returning HTTP 200 with the exact expected body
+`{"status":"ok",...}` — no errors, no timeouts:
+
+| frontend | run1 | run2 | run3 |
+|---|---|---|---|
+| Caddy | 129 ms | 119 ms | 160 ms |
+| Cheroot (defaults: `numthreads=10`, `request_queue_size=5`) | 2132 ms | 1505 ms | 1711 ms |
+
+→ **~10–13× gap reproduces**, but only on simultaneous *fresh-connection*
+bursts.
+
+### 7.2 Matched HTTP/1.1 matrix (validated bodies)
+
+Client: Python `http.client` harness (`/tmp/pbench.py`) — forced
+HTTP/1.1, per-request status + body verification, warmup + measured
+runs. `k` = connection reuse, `fresh` = new TLS handshake per request.
+Requests per case: `concurrency × 40`.
+
+`GET /healthz` (rps / median ms / p95 ms / p99 ms; errors 0 everywhere):
+
+| tier | mode | c1 | c10 | c40 |
+|---|---|---|---|---|
+| Caddy | k | 473 / 2.0 / 2.7 / 5.4 | 242 / 41 / 63 / 73 | 230 / 170 / 247 / 291 |
+| Cheroot q5 | k | 521 / 1.7 / 3.1 / 4.7 | 199 / 34 / 70 / 104 | 199 / 129 / 207 / **1544** |
+| Cheroot q128 | k | — | 189 / 50 / 87 / 112 | 200 / 189 / 265 / 579 |
+| Caddy | fresh | 102 / 9.7 / 14 / 14 | 277 / 34 / 61 / 77 | 285 / 134 / 188 / 217 |
+| Cheroot q5 | fresh | 177 / 4.9 / 11 / 12 | 288 / 19 / 30 / 35 | 260 / 17 / 35 / **2142** |
+| Cheroot q128 | fresh | — | 331 / 28 / 40 / 45 | 330 / 113 / 161 / 187 |
+
+`GET /system/network` (authenticated UI page, session cookie):
+
+| tier | mode | c1 | c10 | c40 |
+|---|---|---|---|---|
+| Caddy | k | 147 / 6.3 | 75 / 133 | 84 / 478 |
+| Cheroot q5 | k | 165 / 5.7 | 62 / 160 | 75 / 500 |
+| Caddy | fresh | — | 85 / 115 | 89 / 448 |
+| Cheroot q5 | fresh | 68 / 15.5 | 87 / 90 | 79 / 110 (p95 2154) |
+
+Waitress direct `http://127.0.0.1:18080` (defaults: `threads=4`,
+`backlog=2048`): c40 k 266 rps / med 149; c40 fresh 245 / med 159 /
+p99 258 — **no tail** (large backlog).
+
+Caddy h2 (`h2load -n1600 -c40 -m1`): 230 rps, 1600/1600 2xx —
+**no gain over h1 keep-alive** for single-request work.
+
+### 7.3 Root cause — one setting at a time
+
+40-way fresh-curl burst with a single knob changed on a side listener
+(`:8445`, same process/app):
+
+| variant | burst wall-clock |
+|---|---|
+| numthreads=10, queue=5 (defaults) | 1505–2132 ms |
+| numthreads=40, queue=5 | 1363–1537 ms |
+| numthreads=10, **queue=128** | **137–226 ms** |
+| numthreads=40, queue=128 | 162–212 ms |
+| Caddy (reference) | 119–160 ms |
+
+`request_queue_size=5` is Cheroot's `listen(backlog)` — a 40-conn burst
+overflows the accept queue, dropped SYNs cost clients ~1–2 s of TCP
+retransmit backoff. `numthreads` is irrelevant to the gap. Applied
+`request_queue_size=128` to both listeners in `frontend.py`; re-verified
+on the real systemd service: **157–212 ms, 40/40 ok** — Caddy parity.
+10/10 frontend tests still pass. Note: `ab` counts Cheroot's
+`Connection: close` responses as "length failures" — a client artifact;
+verbose mode shows complete bodies; excluded from the data above.
+
+### 7.4 Resource use (sustained c40 k, 2000 req / ~10 s)
+
+| tier | frontend CPU | backend CPU | total CPU | RSS |
+|---|---|---|---|---|
+| Caddy + Waitress | 0.99 s (caddy) | 11.94 s | 12.93 s | 61 + 87 = 148 MB |
+| Cheroot (in-process) | — | — | 12.49 s | **97 MB** |
+
+Same CPU; Cheroot uses less total memory (one process). `numthreads=40`
+cost ~+12 MB RSS for no throughput gain → **kept at default 10**.
+
+### 7.5 Verdict
+
+- The ~9× gap **does reproduce** under matched HTTP/1.1 — but only for
+  simultaneous fresh-connection bursts, and it was a Cheroot
+  **backlog misconfiguration**, not a protocol or throughput deficit.
+- With `request_queue_size=128`: steady-state h1 throughput is within
+  ~10–15% of Caddy (sometimes faster at c1), CPU equal, memory lower.
+- **Normal authenticated workflows were never affected**: the authed
+  page tops out at ~75–90 rps on *both* tiers at c40 (app-bound).
+- h2 measured (h2load): no throughput advantage here — Caddy's real
+  h2/h3 benefit is client-perceived (multiplexing, fewer connections),
+  not req/s on this workload.
+- Remaining Cheroot weakness: keep-alive c40 p99 tail (~0.6–2 s) from
+  thread-per-connection pinning — irrelevant at real loads, but real.
+
+## 8. Rollback
 
 No data migration — switch is env + service wiring only:
 
@@ -191,7 +299,7 @@ No data migration — switch is env + service wiring only:
 3. Caddy's own internal CA state under `caddy-home/` is untouched —
    reverting restores the original trust anchor.
 
-## 8. Recommendation — **Linux parity verified with gaps; Windows still untested**
+## 9. Recommendation — **Linux parity verified with gaps; Windows still untested**
 
 On the packaged install, Cheroot covers every Caddy responsibility
 the product actually uses — and on three points it is *stricter*
@@ -201,10 +309,13 @@ shipped config has no hot path at all — `admin off` prevents
 (`is_secure=True`), and client-supplied `X-Forwarded-*` cannot
 reach the app.
 
-Genuine gaps vs Caddy: **HTTP/2 + HTTP/3 absent** (h1 only),
-**~9× lower throughput on 40-way concurrency** (thread-per-connection),
-empty-200 vs 421 on foreign Host (cheroot's is arguably better but
-the status differs), and 502-vs-refused when the app is down.
+Genuine gaps vs Caddy: **HTTP/2 + HTTP/3 absent** (h1 only — though
+h2load shows no req/s advantage on this workload), a keep-alive c40
+p99 tail (~0.6–2 s vs Caddy ~0.3 s) from thread-per-connection
+pinning, empty-200 vs 421 on foreign Host (cheroot's is arguably
+better but the status differs), and 502-vs-refused when the app is
+down. The earlier ~9× burst gap traced to `request_queue_size=5` and
+is fixed; authed-route throughput is equal at real loads (§7).
 None blocks the required workflows; all are documented above.
 
 Still provisional: **Windows untested** (no inference), root/systemd

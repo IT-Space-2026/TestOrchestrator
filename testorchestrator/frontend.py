@@ -222,7 +222,10 @@ def serve(app, settings: dict) -> Frontend:
     for bind in (("::", https_port), ("0.0.0.0", https_port)):
         try:
             # Mask the Server header — parity with Caddy's `-Server`.
-            srv = WSGIServer(bind, gated, server_name="TestOrchestrator")
+            # Cheroot's default accept backlog (5) drops simultaneous
+            # connection bursts -> client SYN retransmit stalls ~1-2 s.
+            srv = WSGIServer(bind, gated, server_name="TestOrchestrator",
+                             request_queue_size=128)
             srv.ssl_adapter = adapter
             srv.prepare()
             bound = True
@@ -240,7 +243,8 @@ def serve(app, settings: dict) -> Frontend:
         for bind in (("::", http_port), ("0.0.0.0", http_port)):
             try:
                 rsrv = WSGIServer(bind, _redirect_app(target),
-                                  server_name="TestOrchestrator")
+                                  server_name="TestOrchestrator",
+                                  request_queue_size=128)
                 rsrv.prepare()
                 servers.append(rsrv)
                 break
