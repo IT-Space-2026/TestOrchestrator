@@ -173,3 +173,23 @@ removal commit.
 | Dagu-free clean build + smoke | pending — after acceptance only |
 
 Cypress / Playwright / Robot Framework: N/A — not shipped.
+
+## 9. Prototype verification (Buildbot 4.3.0, scratch master + worker)
+
+Verified live against `buildbot==4.3.0` + `buildbot-worker==4.3.0` +
+`buildbot-www==4.3.0` (the REST API is a separate distribution —
+`buildbot` alone does not provide it):
+
+| Contract point | Verified behavior |
+|---|---|
+| Submit | `POST /api/v2/forceschedulers/{name}` JSON-RPC `force` → `{"<builderid>": <brid>}`. `builderNames:["to-target-x"]` or `builderid` restricts to exactly one builder — per-run targeting works without per-target schedulers |
+| Correlation | `to_execution_id` declared as a `StringParameter` propagates to buildrequest AND build properties; `GET /buildrequests?property=to_execution_id` (value matched client-side) reconciles a lost response; `GET /buildrequests/{brid}/builds` maps brid→build |
+| Queued cancel | `POST /api/v2/buildrequests/{brid}` `cancel` → `complete=true`, `results=6` (CANCELLED) |
+| Running cancel | Same `cancel` call on a **claimed** brid stops the running build — results 6, remote `sleep` process confirmed killed on the worker. One cancel call covers both cases |
+| Logs | `GET /builds/{id}/steps` → `GET /steps/{id}/logs` → `GET /logs/{id}/contents` (line-prefixed `h`/`o` stream) |
+| Artifacts | `steps.DirectoryUpload(workersrc=…, masterdest=…)` lands worker files master-side under a portal-known dir — no second auth hop |
+| KRE argv | `@util.renderer` on `ShellCommand.command` renders a JSON property to an argv list master-side — no shell, no injection |
+| Dynamic config | `buildbot reconfig` applies a regenerated `master.cfg` in ~0.02 s — the UI→DB→reconfig model works; queued buildrequests survive it |
+| REST auth | `UserPasswordAuth` + basic-auth `GET /auth/login` → `TWISTED_SESSION` cookie; adapter re-authenticates on expiry. Bound to `127.0.0.1` |
+| Worker registry | `GET /api/v2/workers` shows `configured_on` vs `connected_to` — the UI's "Awaiting registration" vs "online" distinction |
+| **Telemetry** | `buildbotNetUsageData` phones home **by default** — packaged `master.cfg` MUST set `c['buildbotNetUsageData'] = None` |
