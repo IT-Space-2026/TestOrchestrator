@@ -171,13 +171,21 @@ def _prepare(client, spec) -> None:
 def _launch(client, spec) -> None:
     wd = spec["remote_workdir"]
     q = shlex.quote
-    # setsid detaches the run — SSH disconnects cannot kill it; the
-    # pid equals the process-group id for group cancellation.
+    # setsid detaches the run — SSH disconnects cannot kill it. The
+    # async job must be ONE simple command with redirected fds: a
+    # backgrounded compound (`cd && rm && setsid ... &`) forks a
+    # subshell that WAITS for the detached tree while holding the
+    # channel's pipes — the client read then times out for the run's
+    # entire lifetime. run.pid is written by the session leader
+    # itself ($$ inside the setsid'd sh), so it equals the
+    # process-group id used for group cancellation — never $! of an
+    # intermediate subshell.
     rc, out, err = _exec(
         client,
-        f"cd {q(wd)} && rm -f exit_code && "
-        f"setsid ./run.sh </dev/null >/dev/null 2>&1 & "
-        f"echo $! > {q(wd)}/run.pid && echo launched")
+        f"setsid sh -c 'cd {q(wd)} && rm -f exit_code run.pid && "
+        f"printf %s \"$$\" > {q(wd)}/run.pid && "
+        f"exec ./run.sh' </dev/null >{q(wd)}/launch.out 2>&1 & "
+        f"echo launched")
     if "launched" not in out:
         raise SystemExit(f"remote launch failed: {err.strip()[:400]}")
     print(f"TO-SSH: launched pid at {wd}/run.pid")

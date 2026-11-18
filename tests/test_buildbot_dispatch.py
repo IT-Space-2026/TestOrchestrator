@@ -307,3 +307,113 @@ def test_success_collects_and_completes(app, monkeypatch, tmp_path):
         db.session.refresh(ex)
         assert ex.state == ExecutionState.COMPLETED
         assert ex.outcome == Outcome.PASSED
+
+
+class _FakeChan:
+    def __init__(self, out=b"", rc=0):
+        self._out = out
+        self._rc = rc
+    def settimeout(self, t):
+        pass
+    def exec_command(self, cmd):
+        self.cmd = cmd
+    def makefile(self, mode):
+        import io
+        return io.BytesIO(self._out)
+    def makefile_stderr(self, mode):
+        import io
+        return io.BytesIO(b"")
+    def recv_exit_status(self):
+        return self._rc
+
+
+def test_ssh_remote_cancel_kills_process_group(app, monkeypatch, tmp_path):
+    """Regression: portal cancel must kill the detached remote process
+    group itself — the buildbot worker SIGKILLs to_ssh_exec before its
+    SIGTERM handler runs, so nothing else terminates the sshd-side run."""
+    import json as _json
+    from testorchestrator import dispatch as d, buildbot_cfg
+    with app.app_context():
+        rid, rtid, diid = _env(app, monkeypatch, _BBProbe())
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        specs = buildbot_cfg.run_specs_dir()
+        specs.mkdir(parents=True, exist_ok=True)
+        (specs / f"{ex.id}.json").write_text(_json.dumps({
+            "host": "127.0.0.1", "port": "22", "username": "u",
+            "key_file": str(tmp_path / "k"),
+            "host_key_fingerprint": "", "remote_workdir": "/w/e1"}))
+
+        # no paramiko transport needed at all -> None only without spec
+        import paramiko
+        (tmp_path / "k").write_text("x")
+        monkeypatch.setattr(paramiko.Ed25519Key, "from_private_key_file",
+                            classmethod(lambda cls, f: object()))
+        calls = []
+
+        class _T:
+            def __init__(self, sock):
+                pass
+            def start_client(self, timeout=0):
+                pass
+            def auth_publickey(self, u, k):
+                pass
+            def open_session(self, timeout=0):
+                # pid present on first exec (cat run.pid), dead on check
+                c = _FakeChan(b"4242\n" if not calls else b"dead\n")
+                calls.append(c)
+                return c
+            def close(self):
+                pass
+        import socket as _sock
+        monkeypatch.setattr(d, "_sock", None, raising=False)
+        import testorchestrator.dispatch as dd
+        # patch the socket create used inside _ssh_remote_cancel
+        orig = _sock.create_connection
+        monkeypatch.setattr(_sock, "create_connection",
+                            lambda *a, **k: object())
+        monkeypatch.setattr(paramiko, "Transport", _T)
+        monkeypatch.setattr(dd.time, "sleep", lambda s: None)
+
+        # first _run returns "4242" for every command; make the
+        # kill -0 check return dead by keying on command content
+        class _T2(_T):
+            def open_session(self, timeout=0):
+                c = _FakeChan(b"4242\n")
+                calls.append(c)
+                return c
+        # Simpler: sequence channels — cat run.pid, kill cmd, kill -0
+        seq = [b"4242\n", b"", b"dead\n"]
+        class _T3:
+            def __init__(self, sock): pass
+            def start_client(self, timeout=0): pass
+            def auth_publickey(self, u, k): pass
+            def open_session(self, timeout=0):
+                out = seq.pop(0) if seq else b"dead\n"
+                c = _FakeChan(out); calls.append(c)
+                return c
+            def close(self): pass
+        monkeypatch.setattr(paramiko, "Transport", _T3)
+
+        ok = d._ssh_remote_cancel(ex)
+        assert ok is True
+        kill_cmds = [c.cmd for c in calls]
+        assert any("kill -TERM -4242" in c for c in kill_cmds)
+        assert any("kill -0 4242" in c for c in kill_cmds)
+
+        # group still alive -> unconfirmed
+        seq2 = [b"4242\n", b"", b"alive\n"]
+        class _T4(_T3):
+            def open_session(self, timeout=0):
+                out = seq2.pop(0) if seq2 else b"alive\n"
+                c = _FakeChan(out); calls.append(c)
+                return c
+        monkeypatch.setattr(paramiko, "Transport", _T4)
+        assert d._ssh_remote_cancel(ex) is False
+
+        # no spec file at all -> None (non-SSH run)
+        ex2 = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        assert d._ssh_remote_cancel(ex2) is None

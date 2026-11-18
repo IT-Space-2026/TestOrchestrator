@@ -269,6 +269,74 @@ def _buildbot_configured() -> bool:
     return bool(settings_mod.get("buildbot_endpoint"))
 
 
+def _ssh_remote_cancel(ex: Execution) -> "bool | None":
+    """Kill the detached remote process GROUP of an agentless-SSH run.
+
+    The spec (host/user/key materialized at dispatch) lives in
+    run-specs/<exid>.json; the remote pgid is <workdir>/run.pid —
+    written by to_ssh_exec's setsid launch. Returns True only when
+    remote death is verified (or nothing was ever launched), False on
+    kill-attempted-but-unconfirmed, None when no SSH spec exists."""
+    spec_path = buildbot_cfg.run_specs_dir() / f"{ex.id}.json"
+    if not spec_path.is_file():
+        return None
+    try:
+        spec = json.loads(spec_path.read_text())
+        import base64
+        import hashlib
+        import shlex
+        import socket as _sock
+        import paramiko
+        pkey = None
+        for cls in (paramiko.Ed25519Key, paramiko.RSAKey,
+                    paramiko.ECDSAKey, paramiko.DSSKey):
+            try:
+                pkey = cls.from_private_key_file(spec["key_file"])
+                break
+            except paramiko.SSHException:
+                continue
+        if pkey is None:
+            return False
+        wd = spec["remote_workdir"]
+        qwd = shlex.quote(wd)
+        transport = paramiko.Transport(_sock.create_connection(
+            (spec["host"], int(spec.get("port") or 22)), timeout=15))
+        try:
+            transport.start_client(timeout=15)
+            approved = spec.get("host_key_fingerprint") or ""
+            if approved:
+                rk = transport.get_remote_server_key()
+                fp = ("SHA256:" + base64.b64encode(
+                    hashlib.sha256(rk.asbytes()).digest()
+                ).decode().rstrip("="))
+                if fp != approved:
+                    return False  # never authenticate to the wrong host
+            transport.auth_publickey(spec["username"], pkey)
+
+            def _run(cmd, timeout=15):
+                chan = transport.open_session(timeout=timeout)
+                chan.settimeout(timeout)
+                chan.exec_command(cmd)
+                out = chan.makefile("rb").read()
+                err = chan.makefile_stderr("rb").read()
+                return chan.recv_exit_status(), (
+                    out + err).decode(errors="replace").strip()
+
+            _, pid = _run(f"cat {qwd}/run.pid 2>/dev/null || true")
+            if not pid.isdigit():
+                return True  # never launched — nothing to kill
+            _run(f"kill -TERM -{pid} 2>/dev/null; sleep 1; "
+                 f"kill -KILL -{pid} 2>/dev/null; true", timeout=20)
+            time.sleep(1)
+            _, out = _run(f"kill -0 {pid} 2>/dev/null "
+                          "&& echo alive || echo dead")
+            return out == "dead"
+        finally:
+            transport.close()
+    except Exception:
+        return False
+
+
 def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
     """Cancel targets the actual process tree (§6); stays CANCEL_REQUESTED
     until termination is acknowledged — uncertainty is surfaced."""
@@ -288,6 +356,17 @@ def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
                 BuildbotAdapter.from_settings().cancel(_bb_brid(ex))
         except Exception:
             pass  # flag + lease expiry still bound the run
+    # Agentless-SSH runs detach via setsid and the buildbot worker
+    # SIGKILLs the dispatcher step (to_ssh_exec's SIGTERM handler never
+    # runs) — the remote group survives unless the portal kills it
+    # itself. CANCELED is only honest after remote death is confirmed.
+    ssh_kill = _ssh_remote_cancel(ex)
+    if ssh_kill is True:
+        reason = (reason + " " if reason else "") \
+            + "[ssh remote group terminated]"
+    elif ssh_kill is False:
+        reason = (reason + " " if reason else "") \
+            + "[ssh remote kill UNCONFIRMED]"
     ex.state = ExecutionState.CANCEL_REQUESTED
     ex.cancel_reason = reason[:256]
     db.session.commit()
@@ -1485,9 +1564,23 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
     buildbot_cfg.clear_staging(ex.id)
     has_results = bool(TestResult.query.filter_by(
         execution_id=ex.id).first())
-    if results_code == 6:      # CANCELLED
+    if results_code == 6 or (cancel_requested
+                             and not (results_code == 0 or has_results)):
+        # CANCELLED — or any non-success result after a cancel request:
+        # buildrequest cancel may surface as RETRY/FAILURE depending on
+        # where the worker was in the step, but the user intent was
+        # recorded and must govern the terminal state.
         if cancel_requested:
-            ex.state = ExecutionState.CANCELED
+            if "UNCONFIRMED" in (ex.cancel_reason or ""):
+                ex.state = ExecutionState.FAILED
+                ex.error_kind = "infrastructure"
+                ex.error_text = (
+                    f"cancellation requested but remote process-tree "
+                    f"death was not confirmed (buildbot run "
+                    f"{ex.dispatch_id} ended results={results_code}) — "
+                    "manual verification required")
+            else:
+                ex.state = ExecutionState.CANCELED
             ex.outcome = Outcome.INCOMPLETE
         else:
             # Unrequested abort — worker loss/external stop are
