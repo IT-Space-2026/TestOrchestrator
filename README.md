@@ -7,14 +7,14 @@ server-rendered UI, Waitress WSGI, Dagu workflow orchestration, Katalon
 Runtime Engine (KRE) execution via remote workers, and reporting-labs
 single-file reports — a pure-Python backend with no bundled Node.js.
 
-**Status: released — v2.0.3** ([release notes](docs/release-notes-2.0.3.md) ·
-[CHANGELOG](CHANGELOG.md)). The release tag `v2.0.3` resolves to commit
-`be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`; published binaries were built
-from exactly that clean commit. See the
-[GitHub release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/v2.0.3).
-2.0.3 repairs the Linux installer's omission of the vendored
-reporting-labs package, relocates it to `3rdparty/reporting_labs`, and
-corrects the licence-expiry label and release scope picker.
+**Status: 2.5.0 release candidate** ([CHANGELOG](CHANGELOG.md)).
+2.5.0 adds an opt-in Cheroot HTTPS frontend on Linux (Caddy stays
+the default; Windows stays on Caddy) and fixes Dagu credential
+drift on installer rerun plus several dispatch/reconcile races —
+see the changelog. Prior released line: **v2.0.3** — the tag
+resolves to commit `be5d1335bb82e9e49566a4d1f42fa710dd2cf6de`
+([release notes](docs/release-notes-2.0.3.md) ·
+[GitHub release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/v2.0.3)).
 
 ## Manuals
 
@@ -98,7 +98,7 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 
 | Platform | Status | Package |
 |---|---|---|
-| Ubuntu x86_64 (central server) | **released** | `testorchestrator-2.0.3-linux-x86_64.tar.gz` / `.run` |
+| Ubuntu x86_64 (central server) | **2.5.0 candidate** | `testorchestrator-2.5.0-linux-x86_64.tar.gz` / `.run` |
 | Windows amd64 (portal + worker) | **released, unsigned** | `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe` |
 The remote-worker installer (`testorchestrator-dagu-worker-`
 `2.27.0-setup-UNSIGNED.exe`) is **bundled inside both packages** —
@@ -111,10 +111,10 @@ publisher warnings; verify the SHA-256 below instead.
 ## Installing (Linux)
 
 ```text
-tar xzf testorchestrator-2.0.3-linux-x86_64.tar.gz
-cd testorchestrator-2.0.3-linux-x86_64
+tar xzf testorchestrator-2.5.0-linux-x86_64.tar.gz
+cd testorchestrator-2.5.0-linux-x86_64
 sudo ./install.sh            # → toctl install (frozen payload)
-# or: ./testorchestrator-2.0.3-linux-x86_64.run  (self-extracting)
+# or: ./testorchestrator-2.5.0-linux-x86_64.run  (self-extracting)
 ```
 
 `install.sh` locates its own payload, checks Linux/x86_64, and runs
@@ -122,11 +122,11 @@ sudo ./install.sh            # → toctl install (frozen payload)
 migrations, systemd unit staging/enable — with **no external python,
 pip, flask CLI, or venv** required.
 
-Options: `--payload --data --config --https-port --service-user
---no-service-start --yes --dry-run`. Exit codes:
+Options: `--payload --data --config --https-port --frontend
+--service-user --no-service-start --yes --dry-run`. Exit codes:
 0 ok · 1 usage/platform · 2 install failure · 3 readiness failure.
-Reruns are safe — payload is overwritten, `web.env` keys are replaced,
-data is never deleted.
+Reruns are safe — payload is overwritten, `web.env` secrets and the
+Dagu coordinator credential are preserved, data is never deleted.
 
 ## Installing (Windows)
 

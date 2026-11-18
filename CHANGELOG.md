@@ -2,6 +2,60 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.0] — 2026-11-18
+
+Feature release: optional in-process HTTPS frontend plus dispatch
+integrity fixes verified end-to-end on the packaged Linux artifact.
+
+### Added — Cheroot HTTPS frontend (Linux opt-in)
+
+- `--frontend auto|caddy|cheroot` installer flag. **Caddy stays the
+  default** on every fresh install and `auto` keeps the recorded
+  selection across reruns and upgrades — an upgrade never silently
+  switches tiers. Cheroot terminates TLS inside the application
+  process while Waitress stays on loopback; explicit `--frontend`
+  values switch tiers and support rollback. Windows ships Caddy
+  only — Cheroot is not selectable there.
+- The admin **Network & certificates** page's generate/import →
+  Apply flow reloads the in-process TLS context under Cheroot;
+  managed certs and Caddy's internal CA state are preserved across
+  switching and rollback.
+
+### Fixed — installer rerun broke Dagu dispatch (credential drift)
+
+- Re-running the installer (same-version rerun, frontend switch,
+  upgrade) regenerated the Dagu coordinator password on disk while
+  the portal's encrypted `coordinator-agent` secret kept the old
+  value → every subsequent dispatch failed with Dagu 401 until a
+  manual resync. Provisioning now reuses the already-provisioned
+  credential, and `web.env` (TO_SECRET_KEY / TO_INSTALL_ID) is
+  written and preserved so sessions and install identity survive
+  reruns. Verified: dispatch works through repeated reruns and
+  Caddy → Cheroot → Caddy with no resync.
+
+### Fixed — dispatch races and reconciliation gaps
+
+- **Assignment-before-submit**: the Dagu workflow's agent step could
+  poll `/api/agent/tasks` before the portal committed the runner
+  assignment, see nothing, and let the lease decay to `UNKNOWN`
+  without the task ever being claimed. The assignment now commits
+  before the workflow run is started.
+- **Cancel → UNKNOWN**: the Dagu-run reconciler read `statusLabel`
+  at the wrong level of the coordinator's status envelope, so a
+  user-requested cancel correctly aborted by Dagu fell through to
+  lease-expiry `UNKNOWN` instead of terminal `CANCELED`. The
+  envelope is unwrapped and the Dagu reconcile runs before the
+  lease sweep.
+- **Stranded QUEUED**: a local-Dagu execution whose dispatch event
+  was consumed while capacity was blocked stayed QUEUED forever.
+  The worker redrive now retries it while `dispatch_id` is still
+  empty — a state that provably means no run was started, so no
+  duplicate can occur.
+- **Explicit target picks ignored**: the Dagu dispatch path
+  replaced `run_config.requested_runner/requested_runtime` with any
+  eligible pair. Explicit picks are now honored or visibly
+  rejected, never silently retargeted.
+
 ## [2.0.3] — 2026-11-17
 
 Patch release. Tag `v2.0.3` → commit
