@@ -123,7 +123,8 @@ def _agent_owned(ex: Execution) -> bool:
     A dagu-worker transport owns its execution end-to-end — an agent
     touching it would create a second executor and conflicting
     authoritative results (§9 transport isolation)."""
-    return ex.snapshot().get("dispatch_transport") != "dagu-worker"
+    return ex.snapshot().get("dispatch_transport") not in (
+        "dagu-worker", "buildbot")
 
 
 @agent_bp.route("/tasks")

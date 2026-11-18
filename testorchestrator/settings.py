@@ -57,6 +57,20 @@ DEFAULTS = {
     # worker-facing coordinator transport (gRPC) — distinct from the
     # portal-side HTTP api dagu_endpoint. Backend-managed.
     "dagu_coordinator_url": "",
+    # Buildbot orchestration (docs/orchestration-replacement.md). The
+    # REST API is bound to loopback — the adapter is its only client.
+    # orchestrator_backend: "dagu" during transition | "buildbot".
+    "orchestrator_backend": "dagu",
+    "buildbot_endpoint": "",
+    "buildbot_username": "to-api",
+    "buildbot_credential_ref": "",
+    # Master directory (master.cfg/state.sqlite/targets.json/secrets.
+    # json/staging/artifacts) and the pidfile used to signal reconfig —
+    # backend-managed, set by the installer/provisioner.
+    "buildbot_home": "",
+    "buildbot_pidfile": "",
+    "buildbot_pb_port": 9989,
+    "buildbot_www_port": 8010,
     # Reporting settings (Admin -> Reporting page). reporting-labs is
     # the sole enhanced backend in 2.0; native-KRE reporting always on.
     "reportinglabs_enabled": False,

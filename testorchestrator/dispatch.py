@@ -22,7 +22,9 @@ from flask import current_app
 
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
+from .adapters.buildbot import BuildbotAdapter
 from .adapters.dagu import DaguAdapter
+from . import buildbot_cfg
 from .execution import (Artifact, DiscoveredItem, Execution,
                         ExecutionState, GitBinding,
                         OutboxEvent, Outcome, Plan, Release, Runner,
@@ -155,6 +157,13 @@ def create_execution(username: str, suite: Suite = None,
                     "this installation is bound to a Dagu worker but "
                     "no Dagu coordinator endpoint is configured")
             snapshot["dispatch_transport"] = "dagu-worker"
+        # Buildbot targets: the runner's target_type picks the
+        # orchestrated transport — worker_label runtimes keep the dagu
+        # remote path until the post-acceptance removal.
+        elif _buildbot_configured() and _rt.runner is not None \
+                and _rt.runner.target_type in (
+                    "local", "buildbot-worker", "ssh"):
+            snapshot["dispatch_transport"] = "buildbot"
     snapshot.update(extra_snapshot or {})
     execution = Execution(
         project_id=project_id,
@@ -180,11 +189,16 @@ def create_execution(username: str, suite: Suite = None,
     # dagu transport is stamped so capacity-blocked QUEUED executions are
     # redrivable — their one-shot event is consumed even when no runner
     # was eligible at that tick.
-    kind = "dagu-dispatch" if (_dagu_configured() or _dagu_mandatory()) \
-        else "local-dispatch"
-    if kind == "dagu-dispatch" \
+    if _buildbot_configured():
+        kind = "orchestrator-dispatch"
+    else:
+        kind = "dagu-dispatch" if (_dagu_configured()
+                                   or _dagu_mandatory()) \
+            else "local-dispatch"
+    if kind in ("dagu-dispatch", "orchestrator-dispatch") \
             and "dispatch_transport" not in snapshot:
-        snapshot["dispatch_transport"] = "dagu"
+        snapshot["dispatch_transport"] = (
+            "buildbot" if kind == "orchestrator-dispatch" else "dagu")
         execution.snapshot_json = json.dumps(snapshot)
     db.session.add(OutboxEvent(
         kind=kind, payload_json=json.dumps({"execution_id": execution.id})))
@@ -274,6 +288,15 @@ def _dagu_mandatory() -> bool:
     return bool(settings_mod.get("dagu_mandatory", True))
 
 
+def _orchestrator_backend() -> str:
+    return str(settings_mod.get("orchestrator_backend") or "dagu")
+
+
+def _buildbot_configured() -> bool:
+    return (_orchestrator_backend() == "buildbot"
+            and bool(settings_mod.get("buildbot_endpoint")))
+
+
 def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
     """Cancel targets the actual process tree (§6); stays CANCEL_REQUESTED
     until termination is acknowledged — uncertainty is surfaced."""
@@ -285,8 +308,13 @@ def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
         return False
     if ex.dispatch_id:
         try:
-            if (ex.snapshot().get("dispatch_transport")
-                    == "dagu-worker"):
+            transport = ex.snapshot().get("dispatch_transport")
+            if transport == "buildbot":
+                # One call covers queued AND running (verified 4.3.0):
+                # a claimed buildrequest's cancel stops the build and
+                # the worker kills the remote process tree.
+                BuildbotAdapter.from_settings().cancel(_bb_brid(ex))
+            elif transport == "dagu-worker":
                 DaguAdapter.from_settings().stop(
                     DaguAdapter.REMOTE_DAG_NAME, ex.dispatch_id)
             else:
@@ -952,6 +980,173 @@ def _dagu_assign_and_submit(ex: Execution) -> None:
             pass
 
 
+def _bb_brid(ex: Execution) -> str:
+    return ex.dispatch_id.split(":", 1)[1] \
+        if ex.dispatch_id.startswith("bb:") else ex.dispatch_id
+
+
+def _submit_buildbot(ex: Execution, runner: Runner,
+                     runtime: RuntimeConnection) -> None:
+    """Submit one execution to its per-target builder. The brid is
+    persisted as ``bb:<brid>`` dispatch identity; a lost/ambiguous
+    submission is reconciled by the execution-id PROPERTY before any
+    resubmit — never blind-duplicated. Assignment is already durable
+    (caller) before the master sees the buildrequest."""
+    adapter = BuildbotAdapter.from_settings()
+    if not ex.dispatch_id:
+        # Reconcile-before-submit: a previous attempt may have created
+        # the buildrequest without us reading the response — adopt an
+        # existing live brid instead of creating a second run.
+        live = [br for br in adapter.find_buildrequests(ex.id)
+                if not br.get("complete")]
+        if live:
+            ex.dispatch_id = "bb:" + str(
+                live[0]["buildrequestid"])
+            db.session.commit()
+            record_audit("system", "execution.buildbot_adopted",
+                         f"{ex.id}: brid {ex.dispatch_id}")
+            return
+    source = _resolve_source(ex)
+    buildbot_cfg.stage_source(ex, source)
+    rc = ex.snapshot().get("run_config") or {}
+    timeout_s = int(rc.get("timeout_seconds") or 3600)
+    flags, dropped = kre_adapter.gated_flags(
+        runtime.detected_version, rc.get("kre_options") or {})
+    if dropped and not rc.get("kre_options_allow_drop"):
+        _fail(ex, "infrastructure",
+              f"version-gated options rejected for detected version "
+              f"{runtime.detected_version or 'unknown'}: "
+              + ", ".join(dropped))
+        return
+    ok_b, browser_val = kre_adapter.validate_browser(
+        rc.get("browser", ""), "linux")
+    if not ok_b:
+        _fail(ex, "config", browser_val)
+        return
+
+    if runner.target_type == "ssh":
+        cred_file = runtime.credential_file or ""
+        if runtime.credential_ref and not cred_file:
+            _fail(ex, "config",
+                  "ssh target: runtime credential_ref is portal-side "
+                  "only — configure a credential_file path on the "
+                  "remote host instead")
+            return
+        buildbot_cfg.materialize_ssh_key(runner)
+        remote = runner.ssh_workdir.rstrip("/") + "/" + ex.id
+        args = kre_adapter.build_args(
+            executable=runtime.executable_path,
+            project_path=remote + "/proj",
+            suite_path=_snapshot_suite_path(ex),
+            report_dir=remote + "/Reports",
+            profile=rc.get("profile", "default"),
+            browser=browser_val or "Chrome (headless)",
+            remote_webdriver_url=rc.get("remote_webdriver_url", ""),
+            remote_webdriver_type=rc.get("remote_webdriver_type", ""),
+            collection=bool(rc.get("collection")),
+            extra=flags)
+        spec_file = buildbot_cfg.write_ssh_run_spec(
+            ex, runner, runtime, args[1:], cred_file)
+        import sys as _sys
+        spec = buildbot_cfg.ssh_exec_spec(
+            ex,
+            # The dispatcher runs on the controller host — this same
+            # interpreter (payload venv in packaged installs) has
+            # paramiko and the dispatcher script's deps.
+            python=_sys.executable,
+            dispatcher_script=str(
+                Path(__file__).resolve().parent.parent / "scripts"
+                / "to_ssh_exec.py"),
+            spec_file=str(spec_file))
+        builder = buildbot_cfg.builder_for(runner)
+    else:
+        cred_file = runtime.credential_file or ""
+        if not cred_file and runtime.credential_ref:
+            if runner.target_type == "local":
+                # Controller-host worker: portal resolves the secret to
+                # a per-run 0600 file the wrapper reads — never argv.
+                from .secrets_store import read_secret
+                cred_file = buildbot_cfg.write_run_credential(
+                    ex.id, read_secret(
+                        current_app._get_current_object(),
+                        runtime.credential_ref))
+            else:
+                _fail(ex, "config",
+                      "remote worker: runtime credential_ref is "
+                      "portal-side only — configure a credential_file "
+                      "on the worker host instead")
+                return
+        args = kre_adapter.build_args(
+            executable=runtime.executable_path,
+            project_path=".",
+            suite_path=_snapshot_suite_path(ex),
+            report_dir="Reports",
+            profile=rc.get("profile", "default"),
+            browser=browser_val or "Chrome (headless)",
+            remote_webdriver_url=rc.get("remote_webdriver_url", ""),
+            remote_webdriver_type=rc.get("remote_webdriver_type", ""),
+            collection=bool(rc.get("collection")),
+            extra=flags)
+        spec = buildbot_cfg.kre_exec_spec(
+            ex, runtime, args[1:], credential_file=cred_file)
+        builder = buildbot_cfg.builder_for(runner)
+
+    brid = adapter.submit(
+        builder, ex.id,
+        {"exec_spec": BuildbotAdapter.encode_props(spec),
+         "exec_timeout": str(timeout_s)})
+    ex.dispatch_id = "bb:" + str(brid)
+    db.session.commit()
+    record_audit("system", "execution.buildbot_dispatched",
+                 f"{ex.id}: {builder} brid {brid}")
+
+
+def _buildbot_assign_and_submit(ex: Execution) -> None:
+    """Buildbot dispatch (docs/orchestration-replacement.md): same
+    ordering contract as the dagu path — assignment commits BEFORE the
+    buildrequest exists so a claimed build's first poll sees a durable
+    DISPATCHED row; explicit picks are honored or visibly rejected; a
+    lost capacity CAS or unreachable master leaves the row QUEUED for
+    the redrive (which reconciles by property before resubmitting)."""
+    runner, runtime, sel_err = _select_runner_runtime(ex)
+    if sel_err:
+        _fail(ex, "infrastructure", sel_err)
+        return
+    if runner is None:
+        return
+    if not _assign_runner(ex, runner, runtime):
+        return
+    try:
+        _submit_buildbot(ex, runner, runtime)
+    except Exception as exc:
+        import requests as _req
+        if isinstance(exc, (_req.ConnectionError, _req.Timeout)):
+            # Connect-level failure — the request provably never
+            # reached the master (or the reconcile query will adopt
+            # whatever did): release the slot, stay QUEUED, retry.
+            ex.state = ExecutionState.QUEUED
+            ex.runner_id = None
+            ex.runtime_id = None
+            ex.lease_expires_at = None
+            ex.error_text = (
+                ex.error_text + " | buildbot master unreachable; "
+                "held QUEUED for redrive")[:2000]
+            db.session.commit()
+            return
+        _fail(ex, "infrastructure",
+              f"Buildbot submission failed — reconcile before retry: "
+              f"{str(exc)[:300]}")
+        return
+    db.session.refresh(ex)
+    if ex.state == ExecutionState.CANCEL_REQUESTED:
+        # Cancel landed between assignment and submit — issue the
+        # buildrequest cancel now (brid exists, request_cancel saw none).
+        try:
+            BuildbotAdapter.from_settings().cancel(_bb_brid(ex))
+        except Exception:
+            pass
+
+
 def _handle_event(event: OutboxEvent) -> None:
     payload = event.payload()
     if event.kind == "report-publish":
@@ -962,7 +1157,18 @@ def _handle_event(event: OutboxEvent) -> None:
         from .gitsync import delete_report
         delete_report(payload["execution_id"])
         return
-    if event.kind in ("local-dispatch", "dagu-dispatch"):
+    if event.kind in ("local-dispatch", "dagu-dispatch",
+                      "orchestrator-dispatch"):
+        if event.kind == "orchestrator-dispatch":
+            ex = db.session.get(Execution, payload["execution_id"])
+            if ex is None:
+                return
+            transport = ex.snapshot().get("dispatch_transport")
+            if transport == "dagu-worker":
+                _submit_remote(ex)      # legacy label binding
+                return
+            _buildbot_assign_and_submit(ex)
+            return
         if event.kind == "dagu-dispatch":
             # Owner-approved Option B: Dagu is the MANDATORY orchestrator.
             # Submission creates the workflow-run identity FIRST; the
@@ -1274,6 +1480,13 @@ def _redrive_queued_remote(limit: int = 10) -> int:
             _submit_remote(ex)
             if ex.state != ExecutionState.QUEUED:
                 n += 1
+        elif transport == "buildbot" and not ex.dispatch_id:
+            # QUEUED + no dispatch_id is provable-no-submission for
+            # buildbot too — _submit_buildbot additionally reconciles
+            # by property before forcing a new buildrequest.
+            _buildbot_assign_and_submit(ex)
+            if ex.state != ExecutionState.QUEUED:
+                n += 1
         elif transport == "dagu" and not ex.dispatch_id:
             _dagu_assign_and_submit(ex)
             if ex.state != ExecutionState.QUEUED:
@@ -1293,6 +1506,11 @@ def worker_once() -> int:
     if _dagu_configured():
         try:
             n += reconcile_dagu_runs()
+        except Exception:
+            pass  # orchestrator unreachable — retry next cycle
+    if _buildbot_configured():
+        try:
+            n += reconcile_buildbot_runs()
         except Exception:
             pass  # orchestrator unreachable — retry next cycle
     n += (reconcile_stale() + fire_due_schedules() + process_outbox()
@@ -1772,7 +1990,8 @@ def reconcile_dagu_runs() -> int:
             fixed += _poll_remote_run(adapter, ex)
             continue
         remote = adapter.status(ex.dispatch_id)
-        d = remote.get("dagRunDetails") or remote.get("dagRun") or {}
+        d = (remote.get("dagRunDetails") or remote.get("dagRun")
+             or remote or {})
         label = d.get("statusLabel") or d.get("status")
         if label in ("aborted", "canceled") and (
                 ex.state == ExecutionState.CANCEL_REQUESTED
@@ -1805,4 +2024,152 @@ def reconcile_dagu_runs() -> int:
         except Exception:
             pass  # cleanup sweep must not break reconciliation
     db.session.commit()
+    return fixed
+
+
+# ---------- Buildbot orchestration (docs/orchestration-replacement.md) -
+
+def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
+                      results_code: int) -> None:
+    """Terminal buildrequest -> materialize master-side uploaded
+    artifacts into the portal collection dir and run the SAME
+    collect/normalize/finalize pipeline — parallel to _collect_remote.
+    Artifacts land at <buildbot_home>/artifacts/<exec_id> via the
+    builder's DirectoryUpload step; the step log comes over the
+    localhost API."""
+    attempt_dir = (Path(current_app.instance_path)
+                   / "remote-runs" / ex.id)
+    report_dir = attempt_dir / "Reports"
+    log_dir = attempt_dir / "logs"
+    # Capture the cancel intent BEFORE the collection pipeline
+    # transitions the row through COLLECTING/NORMALIZING/FINALIZING —
+    # checking ex.state at the end would never see CANCEL_REQUESTED.
+    cancel_requested = (ex.state == ExecutionState.CANCEL_REQUESTED
+                        or bool(ex.cancel_reason))
+    rt0 = db.session.get(RuntimeConnection, ex.runtime_id)
+    try:
+        creds = _redact_values(rt0) if rt0 else []
+    except DispatchError:
+        creds = []
+
+    def _scrub(data: bytes) -> bytes:
+        for c in creds:
+            data = data.replace(c.encode("utf-8", "replace"),
+                                b"***REDACTED***")
+        return data
+
+    import shutil as _sh
+    src_dir = buildbot_cfg.artifacts_dir() / ex.id
+    try:
+        report_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        if src_dir.is_dir():
+            for item in src_dir.rglob("*"):
+                if item.is_file():
+                    rel = item.relative_to(src_dir)
+                    dest = report_dir.parent / rel if str(
+                        rel).startswith("Reports") else report_dir / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(_scrub(item.read_bytes()))
+    except Exception as exc:
+        _fail(ex, "infrastructure",
+              f"buildbot run {ex.dispatch_id} ended "
+              f"(results={results_code}) but artifact collection "
+              f"failed: {exc}")
+        return
+    try:
+        builds = adapter.builds_for_request(_bb_brid(ex))
+        if builds:
+            (log_dir / "kre-remote-run.log").write_bytes(_scrub(
+                adapter.run_log(builds[0]["buildid"])
+                .encode("utf-8", "replace")))
+    except Exception:
+        pass  # run log is best-effort evidence
+    ex.workspace_path = str(attempt_dir)
+    ex.report_dir = str(report_dir)
+    ex.exit_status = 0 if results_code == 0 else 1
+    ex.finished_at = utcnow()
+    _transition(ex, ExecutionState.COLLECTING)
+    _collect(ex, report_dir, log_dir)
+    _transition(ex, ExecutionState.NORMALIZING)
+    _normalize(ex)
+    _transition(ex, ExecutionState.FINALIZING)
+    _sync_git(ex)
+    buildbot_cfg.clear_staging(ex.id)
+    has_results = bool(TestResult.query.filter_by(
+        execution_id=ex.id).first())
+    if results_code == 6:      # CANCELLED
+        if cancel_requested:
+            ex.state = ExecutionState.CANCELED
+            ex.outcome = Outcome.INCOMPLETE
+        else:
+            # Unrequested abort — worker loss/external stop are
+            # indistinguishable to the portal; honest uncertainty,
+            # never a mislabeled user cancellation.
+            ex.state = ExecutionState.FAILED
+            ex.error_kind = "infrastructure"
+            ex.error_text = (
+                f"buildbot run {ex.dispatch_id} ended CANCELLED "
+                "without a recorded cancellation request — cause "
+                "undetermined; any late evidence was collected")
+            ex.outcome = Outcome.INCOMPLETE
+            record_audit("system",
+                         "execution.buildbot_aborted_unrequested", ex.id)
+    elif results_code == 0 or has_results:
+        # A failed build with real junit is failed TESTS — the
+        # normalized outcome carries the verdict, not the step status.
+        ex.state = ExecutionState.COMPLETED
+    else:
+        ex.state = ExecutionState.FAILED
+        ex.error_kind = "execution"
+        ex.error_text = (f"buildbot run {ex.dispatch_id} ended "
+                         f"results={results_code} with no result data")
+    db.session.commit()
+
+
+def reconcile_buildbot_runs() -> int:
+    """Poll DISPATCHED buildbot executions (parallel to
+    reconcile_dagu_runs): finished-without-result -> UNKNOWN is NOT
+    reachable here — a completed buildrequest always maps to a real
+    terminal transition; unrequested CANCELLED stays honest. Live
+    buildrequests renew the lease."""
+    adapter = None
+    fixed = 0
+    for ex in Execution.query.filter(
+            Execution.state.in_([ExecutionState.DISPATCHED,
+                                 ExecutionState.CANCEL_REQUESTED])).all():
+        if ex.snapshot().get("dispatch_transport") != "buildbot" \
+                or not ex.dispatch_id:
+            continue
+        adapter = adapter or BuildbotAdapter.from_settings()
+        try:
+            br = adapter.buildrequest(_bb_brid(ex))
+        except Exception:
+            continue    # transient — lease expiry bounds the ambiguity
+        if not br:
+            continue
+        if not br.get("complete"):
+            ex.lease_expires_at = utcnow() + timedelta(
+                seconds=LEASE_SECONDS)
+            db.session.commit()
+            continue
+        _collect_buildbot(adapter, ex, int(br.get("results") or 0))
+        fixed += 1
+    # Runner liveness from the worker registry: a registered-but-
+    # unconnected worker is distinguishable from an unreachable SSH
+    # host (different mechanism, different UI state).
+    if adapter is not None:
+        try:
+            online = {w.get("name") for w in adapter.workers()
+                      if w.get("connected_to")}
+            for r in Runner.query.filter(
+                    Runner.target_type == "buildbot-worker",
+                    Runner.enabled.is_(True)).all():
+                live = r.bb_worker_name in online
+                r.health = "ok" if live else "unreachable"
+                if live:
+                    r.heartbeat_at = utcnow()
+            db.session.commit()
+        except Exception:
+            pass
     return fixed
