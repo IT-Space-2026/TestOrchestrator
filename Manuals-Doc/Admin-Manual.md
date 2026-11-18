@@ -306,16 +306,20 @@ them. Evidence that never reached the repository cannot be recreated
 
 ### 2.2 Windows
 
-- Windows amd64 **execution hosts** install the bundled Buildbot
+- Windows amd64 can host the **controller itself** —
+  `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe` installs
+  the same Cheroot portal, embedded Python, and Buildbot 4.3.0 stack
+  (master + `to-local` + `to-ssh-dispatcher`) as the Linux packages,
+  lifecycle-managed via Scheduled Tasks under
+  `%ProgramData%\TestOrchestrator` (§5).
+- Windows amd64 **execution hosts** install only the bundled Buildbot
   worker — `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`
-  — downloaded from the installed portal (§6.1). There is no Windows
-  controller installer; the portal itself is Linux-only.
-- **[code/CI]** The worker installer is compiled and its payload
-  gate-checked in CI; **no interactive Windows walkthrough was
-  performed for this release** (post-release acceptance is tracked
-  separately). The installer is **unsigned** — expect SmartScreen
-  warnings and plan your own signing/trust policy before production
-  rollout.
+  — downloaded from the installed portal (§6.1).
+- **[code/CI]** Both installers are compiled and payload-gated in CI;
+  **no interactive Windows walkthrough was performed for this
+  release** (post-release acceptance is tracked separately). The
+  installers are **unsigned** — expect SmartScreen warnings and plan
+  your own signing/trust policy before production rollout.
 
 ## 3. Package selection and verification
 
@@ -325,6 +329,7 @@ Download from the GitHub release `2.5`:
 |---|---|
 | `testorchestrator-2.5.0-linux-x86_64.tar.gz` | Linux payload + installer |
 | `testorchestrator-2.5.0-linux-x86_64.run` | Self-extracting variant of the same payload |
+| `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe` | Windows controller installer (§5.1) |
 | `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | Corresponding sources for the bundled GPL components |
 | `SHA256SUMS.txt` | Checksums — also covers the bundled worker `.exe` |
 | `build-manifest.json` | Provenance: source commit, `dirty` flag, tool versions |
@@ -553,11 +558,64 @@ restore the snapshot — the previous-good config is preserved
 across the failed apply.
 
 
-## 5. Windows execution hosts **[code/CI — not interactively validated]**
+## 5. Windows installation **[code/CI — not interactively validated]**
 
-Windows hosts join a TestOrchestrator installation **only as
-execution targets** — the controller itself is Linux-only and there
-is no Windows controller installer.
+### 5.1 Windows controller
+
+`testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe` installs the
+complete controller on a Windows amd64 host — the same product the
+Linux packages install:
+
+- **Payload:** the Flask/Jinja2 portal with Cheroot serving HTTPS
+  in-process (Waitress on loopback for internal probes), an embedded
+  Python runtime, vendored dependencies, and a dedicated `buildbot-py`
+  runtime carrying Buildbot 4.3.0 (master) + buildbot-worker +
+  paramiko. The bundled remote-worker installer and its matching
+  corresponding-source archive ship inside the payload for Admin-UI
+  download.
+- **State:** `%ProgramData%\TestOrchestrator` — `instance\`
+  (database/workspace), `buildbot\` (master + worker basedirs,
+  `secrets.json`, `targets.json`), `certs\` (per-install CA + leaf),
+  `logs\`, `home\`. These directories are ACL-restricted to
+  SYSTEM + Administrators. Uninstall retains them by default;
+  `/PURGEDATA=1` (or the interactive prompt) removes them.
+- **Lifecycle:** five Scheduled Tasks running as SYSTEM and starting
+  at boot — `TestOrchestratorWeb`, `TestOrchestratorWorker`,
+  `TestOrchestratorBuildbotMaster`, `TestOrchestratorBuildbotLocal`,
+  `TestOrchestratorBuildbotSSH`. `stop_to.cmd` beside the data dir is
+  the supported stop (it reaps orphaned children, which `schtasks
+  /End` alone does not).
+- **Ports:** HTTPS `:8443` (`/PORT=` overrides at install),
+  HTTP redirect `:8080`, Buildbot REST `127.0.0.1:8010` (loopback),
+  PB `:9989` for worker attachment.
+- **HTTPS trust:** the portal generates a per-install CA on first
+  boot; the installer adds `certs\local-ca.pem` to the machine Root
+  store so browsers accept `https://<host>:<port>` without warnings.
+  If that step fails the installer writes
+  `CERT-TRUST-NOT-INSTALLED.txt` with the manual `certutil` command —
+  the application runs normally either way.
+- **Config:** `%ProgramData%\TestOrchestrator\testorchestrator.env`
+  carries the generated `TO_*` wiring (paths, ports, Buildbot
+  endpoints); `TO_SECRET_KEY`/`TO_INSTALL_ID` are generated once and
+  preserved on reinstall.
+- **Buildbot provisioning** runs at install time and preserves
+  `secrets.json` credentials on rerun — worker passwords and the REST
+  credential never diverge from the portal's secret store.
+- **Options:** `setup.exe /S /D=C:\Path\To\Install` (silent),
+  `/PORT=<n>`, `/ADDR=<name>`; uninstall retains data by default,
+  `/PURGEDATA=1` removes it.
+- KRE is **not** shipped — install and license Katalon Runtime Engine
+  separately, then register it under Admin → Workers & runtimes.
+
+**Honest status:** the installer is compiled and its payload
+gate-checked in CI on every build; **the interactive Windows
+walkthrough runs post-release on a real Windows host** and is not
+claimed as verified here.
+
+### 5.2 Windows execution hosts
+
+A Windows host can instead join an existing installation as an
+execution target only — no controller needed on it:
 
 - The bundled `TestOrchestrator-Buildbot-Worker-Setup-
   <ver>-UNSIGNED.exe` installs the Buildbot worker on a Windows amd64
@@ -571,9 +629,6 @@ is no Windows controller installer.
   with a per-worker password issued in the Admin UI — no inbound
   portal port on the worker host.
 - Full install/register/rotate/uninstall procedure: §6.1.
-- **Honest status:** compiled and payload-gated in CI; the interactive
-  Windows walkthrough runs post-release on a real Windows host and is
-  not claimed as verified here.
 
 ## 6. Execution targets — installation and operation
 

@@ -106,6 +106,7 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 | Platform | Status | Package |
 |---|---|---|
 | Ubuntu x86_64 (central server) | **2.5.0 released** | `testorchestrator-2.5.0-linux-x86_64.tar.gz` / `.run` (GitHub release assets + `SHA256SUMS.txt` + `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz`) |
+| Windows amd64 (central server) | **2.5.0, unsigned** | `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe` — Cheroot portal + Buildbot on Scheduled Tasks |
 | Windows amd64 (execution host) | **2.5.0, unsigned** | `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` — bundled in the packages + Admin UI |
 The worker installer (`TestOrchestrator-Buildbot-Worker-Setup-`
 `4.3.0-UNSIGNED.exe`) is **bundled inside the packages** — download
@@ -128,10 +129,11 @@ publisher warnings; verify the SHA-256 below instead.
 **Verification status at publication:** Linux acceptance passed on
 the tested internal build (clean install, all three execution modes,
 cancellation, scheduling, disconnect/recovery — see
-`docs/acceptance-2.5.0.md`). Windows `.exe` acceptance runs after
-release; licensed-KRE runs per target type, system-wide systemd
-activation, and a separate-machine `sshd` test remain unverified —
-they are tracked in the acceptance record, not marked passed.
+`docs/acceptance-2.5.0.md`). Windows acceptance — both the controller
+installer and the worker `.exe` — runs after release; licensed-KRE
+runs per target type, system-wide systemd activation, and a
+separate-machine `sshd` test remain unverified — they are tracked in
+the acceptance record, not marked passed.
 
 ## Installing (Linux)
 

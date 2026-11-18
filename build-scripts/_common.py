@@ -421,7 +421,10 @@ def build_corresponding_sources(build_dir: Path, log: Log) -> Path:
             ("packaging/windows/bb-worker-payload-src/setup-worker.py",
              "setup-worker.py"),
             ("packaging/windows/buildbot-worker-installer.nsi",
-             "buildbot-worker-installer.nsi")]:
+             "buildbot-worker-installer.nsi"),
+            ("packaging/windows/app-installer.nsi",
+             "app-installer.nsi"),
+            ("scripts/init_env.py", "init_env.py")]:
         shutil.copy2(REPO / src, scripts / dst)
     name = f"TestOrchestrator-Buildbot-Sources-{bbver}.tar.gz"
     out = build_dir / name

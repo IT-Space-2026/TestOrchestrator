@@ -1,0 +1,37 @@
+name: windows-package
+on: {push: {branches: [main]}, pull_request: {}, workflow_dispatch: {}}
+permissions: {contents: read}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # CI compiles the full payload but marks the artifact internal —
+      # customer redistribution requires TO_BUILDBOT_GPL_APPROVED=1
+      # after the redistribution-review checks are recorded.
+      TO_BUILDBOT_INTERNAL_BUILD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: nsis (system prerequisite for both installers)
+        run: sudo apt-get install -y --no-install-recommends nsis
+      - name: one-command Windows controller build
+        run: python3 build-scripts/build_windows.py
+      - name: installer carries no legacy components
+        run: |
+          set -e
+          # payload gate already ran inside the build; re-assert the
+          # installer script's contract here so a regression is loud.
+          ! grep -qi "dagu\|caddy" packaging/windows/app-installer.nsi
+          grep -c 'schtasks /Create' packaging/windows/app-installer.nsi \
+            | grep -qx '5'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: testorchestrator-windows-package
+          path: |
+            dist/release/windows/*.exe
+            dist/release/windows/*.tar.gz
+            dist/release/windows/SHA256SUMS.txt
+            dist/release/windows/build-manifest.json
+          retention-days: 14

@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Buildbot master + controller-local workers provisioning (installer step).
 
+Platform notes: on Linux the installer stages the systemd units this
+script writes; on Windows pass --no-units (Task Scheduler wrappers are
+created by the NSIS installer instead). Console-script entry points do
+not exist in the embeddable Windows Python, so --setup invokes
+``python -c "from <pkg>.scripts.runner import run; run()"`` there.
+
 Idempotent, artifact-writing, and credential-PRESERVING on rerun — the
 API password and controller-local worker passwords already present in
 secrets.json are reused so the portal's stored secrets and the master's
@@ -17,7 +23,7 @@ Layout under <home> (default <instance>/buildbot):
   master/          buildbot master basedir (state.sqlite, twistd.pid)
   local/           to-local worker basedir (local KRE runs)
   dispatcher/      to-ssh-dispatcher worker basedir (agentless SSH runs)
-  units/           staged systemd unit files
+  units/           staged systemd unit files (skipped with --no-units)
 
 Usage: provision_buildbot.py --home <dir> --python <exe>
                              [--pb-port 9989] [--www-port 8010]
@@ -82,6 +88,9 @@ def main(argv=None):
                     help="also create the master + worker basedirs "
                          "(buildbot create-master/upgrade-master/"
                          "create-worker)")
+    ap.add_argument("--no-units", action="store_true",
+                    help="skip systemd unit staging (Windows installs "
+                         "use Task Scheduler launchers instead)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
 
@@ -117,7 +126,8 @@ def main(argv=None):
         ("master.cfg", home / "master.cfg"),
         ("secrets.json (0600)", secrets_path),
         ("targets.json skeleton", targets_path),
-        ("systemd units", units_dir),
+        ("systemd units", units_dir) if not a.no_units else
+        ("systemd units", "(skipped — --no-units)"),
     ]
     for s in steps:
         print(f"[buildbot] {s[0]} -> "
@@ -163,42 +173,54 @@ def main(argv=None):
     # never calls run() (no __main__ guard) — silent exit. The venv's
     # console entry points are the supported invocation.
     pydir = str(Path(py).parent)
-    units = {
-        "testorchestrator-buildbot-master.service": _unit(
-            "testorchestrator-buildbot-master",
-            "TestOrchestrator Buildbot master",
-            f"{pydir}/buildbot start --nodaemon {master_dir}",
-            master_dir),
-        "testorchestrator-buildbot-local.service": _unit(
-            "testorchestrator-buildbot-local",
-            "TestOrchestrator Buildbot local worker",
-            f"{pydir}/buildbot-worker start --nodaemon "
-            f"{local_dir}", local_dir),
-        "testorchestrator-buildbot-ssh.service": _unit(
-            "testorchestrator-buildbot-ssh",
-            "TestOrchestrator Buildbot SSH dispatcher",
-            f"{pydir}/buildbot-worker start --nodaemon "
-            f"{disp_dir}", disp_dir),
-    }
-    for name, text in units.items():
-        (units_dir / name).write_text(text)
-    print(f"[buildbot] units staged under {units_dir}")
+    if a.no_units:
+        print("[buildbot] units skipped (--no-units)")
+    else:
+        units = {
+            "testorchestrator-buildbot-master.service": _unit(
+                "testorchestrator-buildbot-master",
+                "TestOrchestrator Buildbot master",
+                f"{pydir}/buildbot start --nodaemon {master_dir}",
+                master_dir),
+            "testorchestrator-buildbot-local.service": _unit(
+                "testorchestrator-buildbot-local",
+                "TestOrchestrator Buildbot local worker",
+                f"{pydir}/buildbot-worker start --nodaemon "
+                f"{local_dir}", local_dir),
+            "testorchestrator-buildbot-ssh.service": _unit(
+                "testorchestrator-buildbot-ssh",
+                "TestOrchestrator Buildbot SSH dispatcher",
+                f"{pydir}/buildbot-worker start --nodaemon "
+                f"{disp_dir}", disp_dir),
+        }
+        for name, text in units.items():
+            (units_dir / name).write_text(text)
+        print(f"[buildbot] units staged under {units_dir}")
     print(f"[buildbot] master REST http://127.0.0.1:{a.www_port} "
           f"(loopback only); PB :{a.pb_port}")
 
     if a.setup:
-        bb = str(Path(py).parent / "buildbot")
-        bw = str(Path(py).parent / "buildbot-worker")
+        # Console scripts (<pydir>/buildbot) only exist in a real
+        # venv; the embeddable Windows Python has none, so invoke the
+        # console entry points through `python -c` there.
+        if sys.platform == "win32":
+            bb = [py, "-c",
+                  "from buildbot.scripts.runner import run; run()"]
+            bw = [py, "-c",
+                  "from buildbot_worker.scripts.runner import run; run()"]
+        else:
+            bb = [str(Path(py).parent / "buildbot")]
+            bw = [str(Path(py).parent / "buildbot-worker")]
         if not (master_dir / "buildbot.tac").is_file():
             print("[buildbot] create-master")
-            subprocess.run([bb, "create-master", str(master_dir)],
+            subprocess.run(bb + ["create-master", str(master_dir)],
                            check=True)
             tac_cfg = master_dir / "master.cfg"
-            if tac_cfg.exists():
+            if tac_cfg.exists() or tac_cfg.is_symlink():
                 tac_cfg.unlink()
-            tac_cfg.symlink_to(home / "master.cfg")
+            _link_master_cfg(home / "master.cfg", tac_cfg)
         print("[buildbot] upgrade-master")
-        subprocess.run([bb, "upgrade-master", str(master_dir)],
+        subprocess.run(bb + ["upgrade-master", str(master_dir)],
                        check=True)
         for name, d in ((LOCAL_WORKER, local_dir),
                         (SSH_WORKER, disp_dir)):
@@ -206,12 +228,32 @@ def main(argv=None):
                 continue
             print(f"[buildbot] create-worker {name}")
             subprocess.run(
-                [bw, "create-worker", str(d),
-                 f"127.0.0.1:{a.pb_port}", name, wpw[name]],
+                bw + ["create-worker", str(d),
+                      f"127.0.0.1:{a.pb_port}", name, wpw[name]],
                 check=True)
     else:
         print("[buildbot] run again with --setup to create the "
               "master + worker basedirs (installer performs this)")
+
+
+def _link_master_cfg(real: Path, link: Path) -> None:
+    """Place the home-level master.cfg inside the master basedir.
+
+    master.cfg resolves its JSON neighbours via realpath(__file__), so
+    a plain copy inside the basedir would break the lookup — a symlink
+    keeps the real file (and BB_DIR) at <home>. Windows symlink creation
+    needs SeCreateSymbolicLinkPrivilege (held by elevated installers);
+    fall back to a thin exec-shim that runs the real file under its own
+    __file__ when the link cannot be created.
+    """
+    try:
+        link.symlink_to(real)
+    except OSError:
+        link.write_text(
+            "import os\n"
+            f"_real = {str(real)!r}\n"
+            "exec(compile(open(_real, 'rb').read(), _real, 'exec'),\n"
+            "     {'__file__': _real, '__name__': '__main__'})\n")
 
 
 if __name__ == "__main__":

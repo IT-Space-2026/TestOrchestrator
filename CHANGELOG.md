@@ -66,6 +66,13 @@ Initial public release.
   (`toctl install`) with offline payload, install-time migrations,
   systemd unit staging, idempotent reruns that preserve data,
   credentials, and secrets.
+- Windows amd64 controller: unsigned `.exe`
+  (`build-scripts/build_windows.py` →
+  `packaging/windows/app-installer.nsi`) — embedded Python,
+  `buildbot-py` runtime (master + `to-local` + `to-ssh-dispatcher`),
+  five Scheduled Tasks, persistent `%ProgramData%\TestOrchestrator`
+  state, per-install CA trusted via `certutil`, data retained on
+  uninstall unless `/PURGEDATA=1`.
 - Windows amd64 Buildbot worker: unsigned offline `.exe` served
   from the installed portal next to its matching
   corresponding-source archive.

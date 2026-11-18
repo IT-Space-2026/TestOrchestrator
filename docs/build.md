@@ -1,11 +1,15 @@
-# Building a release — one command
+# Building a release — one command per platform
 
-    python3 build-scripts/build_linux.py
+    python3 build-scripts/build_linux.py      # Linux controller package
+    python3 build-scripts/build_windows.py    # Windows controller installer
 
 Run from anywhere inside the checkout; paths resolve from the script's
-own location, not the caller's working directory. The single pipeline
-produces every release deliverable, including the Windows worker
-installer — the controller itself is Linux-only.
+own location, not the caller's working directory. The Linux pipeline
+produces the Linux deliverables plus the bundled Windows worker
+installer; the Windows pipeline produces the full Windows controller
+installer (`testorchestrator-<v>-windows-amd64-setup-UNSIGNED.exe`),
+which embeds the same worker installer and corresponding-source
+archive. Both are unsigned (`-UNSIGNED` in the name).
 
 `TO_BUILDBOT_GPL_APPROVED` gates the bundling of the GPL components
 (Buildbot packages + Paramiko) into customer artifacts. Unset, the
@@ -22,11 +26,15 @@ payload unapproved; set `1` only after the redistribution checks in
 | network access | pinned assets are downloaded on first build and cached in `build/downloads/` |
 | NSIS (`makensis`) | **optional to preinstall** — the script installs it: `apt-get install nsis` via sudo on Debian/Ubuntu, or a no-root user-space extraction of the `nsis`+`nsis-common` debs into `build/tools/` |
 
+Both pipelines run on Linux — makensis + the pip `--platform
+win_amd64` wheel staging are cross-platform, so the Windows
+installer builds from the same checkout without a Windows host.
+
 No other tools are required. No git-bash, curl, unzip, sha256sum,
 pip preinstall, or manual staging — everything is Python stdlib or
 fetched by the script.
 
-## What the build does
+## What the Linux build does
 
 `build_linux.py`:
 1. creates an isolated build venv under `build/linux/venv` (pip
@@ -57,6 +65,25 @@ fetched by the script.
     TestOrchestrator-Buildbot-Sources-<v>.tar.gz
     SHA256SUMS.txt                     (incl. the bundled worker .exe)
     build-manifest.json
+
+`dist/release/windows/`:
+
+    testorchestrator-<v>-windows-amd64-setup-UNSIGNED.exe
+    TestOrchestrator-Buildbot-Sources-<v>.tar.gz
+    SHA256SUMS.txt
+    build-manifest.json
+
+The Windows installer payload (staged under
+`packaging/windows/app-payload/`) carries: embedded Python +
+`site-packages` (portal + Cheroot/Waitress), a second embedded
+`buildbot-py` runtime (buildbot master/worker + paramiko wheels),
+the application source, `scripts/` (provision + SSH dispatcher +
+`init_env.py`), `deploy/buildbot/master.cfg`, the bundled worker
+installer, and the corresponding-source archive.
+`packaging/windows/app-installer.nsi` wires `%ProgramData%` state,
+five Scheduled Tasks (web + dispatch worker + buildbot master +
+local + SSH dispatcher), per-install CA trust, and retention-safe
+uninstall — no external web/proxy component.
 
 `dist/release/logs/` holds per-run build logs. `build/` holds
 transient staging (venvs, downloads cache, extracted NSIS). Both are

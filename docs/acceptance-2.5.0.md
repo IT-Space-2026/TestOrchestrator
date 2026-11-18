@@ -64,7 +64,26 @@ unset until approval is explicit.
 - [ ] Cancel → CANCELED only after remote process-tree death
       confirmed; otherwise explicit unconfirmed status
 
-## 4. Windows worker (owner: user)
+## 4. Windows (owner: user)
+
+### 4a. Windows controller
+
+- [ ] `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe`
+      installs offline on a real Windows amd64 host — no preinstalled
+      Python, no external web/proxy component
+- [ ] Five Scheduled Tasks registered and running as SYSTEM: Web,
+      Worker, BuildbotMaster, BuildbotLocal, BuildbotSSH
+- [ ] Cheroot serves HTTPS on the configured port; per-install CA
+      trusted in the machine Root store (or the documented manual
+      `certutil` step)
+- [ ] `%ProgramData%\TestOrchestrator` holds instance/certs/buildbot
+      state; `secrets.json` credentials preserved on reinstall
+- [ ] Local Buildbot worker dispatch, remote-worker attach over PB
+      :9989, and agentless-SSH dispatch all function as on Linux
+- [ ] Uninstall retains data by default; `/PURGEDATA=1` removes it;
+      the per-install CA is untrusted and tasks deleted
+
+### 4b. Windows worker
 
 - [ ] Download the exact bundled `.exe` from Admin UI (version +
       SHA-256 shown match the recorded artifact)
@@ -228,6 +247,7 @@ Checks executed against this build — todo items **8–10**:
   cost).
 - `TO_BUILDBOT_GPL_APPROVED=1` set only for the customer build;
   internal artifacts remain historical.
-- Remaining unverified at publication (not passed): Windows `.exe`
-  acceptance (owner-run, post-release), licensed-KRE run per target
-  type, system-wide systemd activation, separate-machine `sshd`.
+- Remaining unverified at publication (not passed): Windows
+  acceptance (controller installer + worker `.exe`, owner-run,
+  post-release), licensed-KRE run per target type, system-wide
+  systemd activation, separate-machine `sshd`.
