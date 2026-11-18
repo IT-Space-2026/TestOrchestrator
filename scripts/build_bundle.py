@@ -88,11 +88,15 @@ def _excluded(rel: Path) -> bool:
         return True
     # Product-identity allowlist: the full Windows application
     # installer must never ride inside the Linux package. The
-    # supplementary dagu-worker installer IS an intended download
-    # asset. Nested package archives and staging dirs are excluded.
+    # supplementary dagu-worker / buildbot-worker installers ARE
+    # intended download assets. Nested archives and staging dirs are
+    # excluded.
     name = rel.name
-    if name.endswith(".exe") and "-setup" in name \
-            and "dagu-worker" not in name:
+    lname = name.lower()
+    if name.endswith(".exe") and ("-setup" in lname
+                                 or "setup-" in lname) \
+            and "dagu-worker" not in lname \
+            and "buildbot-worker" not in lname:
         return True
     if name.endswith((".tar.gz", ".7z.exe")) and \
             "dagu_" not in name and "python" not in parts:

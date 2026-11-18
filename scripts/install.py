@@ -251,10 +251,24 @@ def main() -> None:
         # always staged; --setup (basedir creation) needs the env.
         if args.orchestrator in ("buildbot", "both"):
             bb_home = data / "buildbot"
-            bb_py = os.environ.get("TO_BUILDBOT_PYTHON") or ""
-            if not bb_py:
-                cand = (payload / "buildbot-venv" / "bin" / "python3")
-                bb_py = str(cand) if cand.exists() else ""
+            bb_venv = payload / "buildbot-venv"
+            bb_py = str(bb_venv / "bin" / "python3")
+            if not Path(bb_py).exists():
+                bb_wheels = payload / "3rdparty" / "buildbot-wheels"
+                if bb_wheels.is_dir():
+                    # Offline controller-side stack — created once;
+                    # existing installs keep their venv on rerun.
+                    print(f"[install] buildbot venv: {bb_venv} "
+                          f"(offline from {bb_wheels})")
+                    subprocess.check_call(
+                        [sys.executable, "-m", "venv", str(bb_venv)])
+                    subprocess.check_call(
+                        [bb_py, "-m", "pip", "install", "--no-index",
+                         "--find-links", str(bb_wheels),
+                         "buildbot[bundled]", "buildbot-worker",
+                         "paramiko"])
+                else:
+                    bb_py = os.environ.get("TO_BUILDBOT_PYTHON") or ""
             sys.path.insert(0, str(REPO / "scripts"))
             import provision_buildbot
             bb_args = ["--home", str(bb_home),

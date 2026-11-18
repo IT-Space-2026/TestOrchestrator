@@ -22,6 +22,7 @@ published as a standalone release artifact.
 Never tags, publishes, or touches git state.
 """
 import io
+import os
 import sys
 import tarfile
 import tempfile
@@ -29,7 +30,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (ASSETS, BUILD_ROOT, BuildError, Log, REPO,
+                     build_buildbot_worker_installer,
                      build_worker_installer, clean_release_dir,
+                     fetch_buildbot_linux_wheels,
                      fetch_all_dagu, finalise, git_info, release_version,
                      run, safe_extract, venv_python)
 
@@ -52,6 +55,22 @@ def main() -> int:
 
         log.step("2/5 build dagu-worker Windows installer (NSIS)")
         worker_exe = build_worker_installer(log, ASSETS["dagu"]["version"])
+
+        # Buildbot worker .exe — GPL redistribution gate: only built
+        # (and thereby bundled via packaging/windows/) when
+        # TO_BUILDBOT_GPL_APPROVED=1 records the approval decision.
+        if os.environ.get("TO_BUILDBOT_GPL_APPROVED") == "1":
+            log.step("2b/5 build buildbot-worker Windows installer (NSIS)")
+            bb_worker_exe = build_buildbot_worker_installer(
+                BUILD_ROOT / "linux", log)
+            # Controller-side stack: linux wheels install.py turns into
+            # payload/buildbot-venv offline (master + local/ssh workers).
+            fetch_buildbot_linux_wheels(BUILD_ROOT / "linux", log)
+        else:
+            bb_worker_exe = None
+            log.write("  buildbot worker installer SKIPPED — set "
+                      "TO_BUILDBOT_GPL_APPROVED=1 after GPL "
+                      "redistribution approval")
 
         log.step("3/5 build release tarball + self-extracting installer")
         run([vpy, "scripts/build_bundle.py"], log)
@@ -106,6 +125,13 @@ def main() -> int:
                 "publication": "bundled inside this package for "
                                "portal-side download — not published "
                                "as a standalone release asset",
+            },
+            "buildbot_worker_assets": {
+                "windows_installer_inside_package":
+                    f"packaging/windows/{bb_worker_exe.name}"
+                    if bb_worker_exe else None,
+                "buildbot_version": ASSETS["buildbot_worker"]["version"],
+                "gpl_approved": bb_worker_exe is not None,
             },
             "stale_guard": "release dir cleaned at build start; "
                            "worker-payload and older worker exes rebuilt",

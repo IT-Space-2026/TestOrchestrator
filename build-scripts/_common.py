@@ -301,6 +301,77 @@ def stage_worker_payload(log: Log) -> Path:
     return out
 
 
+def stage_buildbot_worker_payload(build_dir: Path, log: Log) -> Path:
+    """Stage packaging/windows/bb-worker-payload/ — embed Python +
+    pinned buildbot-worker wheels + bootstrap script, the offline
+    payload for the NSIS Buildbot-worker installer."""
+    out = REPO / "packaging" / "windows" / "bb-worker-payload"
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    spec = ASSETS["python_embed_windows"]
+    unzip_safely(fetch(spec["url"],
+                       REPO / "3rdparty" / "python" / "python-embed-amd64.zip",
+                       spec["sha256"], log),
+                 out / "python-embed")
+    fetch(ASSETS["get_pip"]["url"], out / "get-pip.py",
+          ASSETS["get_pip"]["sha256"], log)
+    shutil.copy2(REPO / "packaging" / "windows" / "bb-worker-payload-src"
+                 / "setup-worker.py", out / "setup-worker.py")
+    wheels = out / "wheels"
+    wheels.mkdir()
+    vpy = venv_python(build_dir, log)
+    ensure_pip(vpy, log)
+    bbver = ASSETS["buildbot_worker"]["version"]
+    # Windows-amd64 wheels for the embedded py3.12 — downloaded for the
+    # target platform, never executed on the build host. Pure-python
+    # wheels satisfy the platform filter, so one resolve covers both.
+    run([str(vpy), "-m", "pip", "download", "--only-binary=:all:",
+         "--platform", "win_amd64", "--python-version", "312",
+         "--implementation", "cp", "--abi", "cp312",
+         "-d", str(wheels), f"buildbot-worker=={bbver}",
+         "pywin32"], log)
+    log.write(f"  bb worker payload staged: {sorted(p.name for p in out.iterdir())}")
+    return out
+
+
+def fetch_buildbot_linux_wheels(build_dir: Path, log: Log) -> Path:
+    """Stage 3rdparty/buildbot-wheels/ — linux amd64 wheels for the
+    controller-side Buildbot stack (master + workers + paramiko).
+    install.py builds payload/buildbot-venv from them offline."""
+    out = REPO / "3rdparty" / "buildbot-wheels"
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    vpy = venv_python(build_dir, log)
+    ensure_pip(vpy, log)
+    bbver = ASSETS["buildbot_worker"]["version"]
+    run([str(vpy), "-m", "pip", "download",
+         "-d", str(out), f"buildbot[bundled]=={bbver}",
+         f"buildbot-worker=={bbver}", "paramiko"], log)
+    log.write(f"  linux bb wheels staged: {len(list(out.iterdir()))} wheels")
+    return out
+
+
+def build_buildbot_worker_installer(build_dir: Path, log: Log) -> Path:
+    """makensis the buildbot-worker NSIS installer. Output:
+    packaging/windows/testorchestrator-buildbot-worker-<v>-setup-UNSIGNED.exe"""
+    makensis = ensure_makensis(log)
+    stage_buildbot_worker_payload(build_dir, log)
+    win_dir = REPO / "packaging" / "windows"
+    bbver = ASSETS["buildbot_worker"]["version"]
+    for stale in win_dir.glob("TestOrchestrator-Buildbot-Worker-*.exe"):
+        stale.unlink()
+    run([makensis, "-V2", f"-DVERSION={bbver}",
+         "buildbot-worker-installer.nsi"], log, cwd=win_dir)
+    exes = sorted(win_dir.glob(
+        f"TestOrchestrator-Buildbot-Worker-Setup-{bbver}-UNSIGNED.exe"))
+    if not exes:
+        raise BuildError("makensis produced no buildbot worker installer")
+    log.write(f"  built {exes[0].name} ({exes[0].stat().st_size:,} B, unsigned)")
+    return exes[0]
+
+
 def build_worker_installer(log: Log, dagu_version: str) -> Path:
     """makensis the dagu-worker NSIS installer. Output:
     packaging/windows/testorchestrator-dagu-worker-<v>-setup-UNSIGNED.exe"""

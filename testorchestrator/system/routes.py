@@ -680,7 +680,8 @@ def _bb_worker_installer_asset() -> dict | None:
         with p.open("rb") as f:
             for chunk in iter(lambda: f.read(1 << 20), b""):
                 h.update(chunk)
-        ver = re.search(r"Setup-(\d+\.\d+\.\d+)", p.name)
+        ver = re.search(r"Setup-(\d+\.\d+\.\d+)(-UNSIGNED)?\.exe",
+                        p.name)
         return {"file": p.name, "size": p.stat().st_size,
                 "version": ver.group(1) if ver else "?",
                 "sha256": h.hexdigest()}

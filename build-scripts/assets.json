@@ -19,6 +19,10 @@
     "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11.9_linux_amd64.tar.gz",
     "sha256_file": "3rdparty/caddy/caddy.sha256"
   },
+  "buildbot_worker": {
+    "version": "4.3.0",
+    "note": "GPL redistribution approval required before bundling (see docs/orchestration-replacement.md). Wheels are pip-downloaded for win_amd64/cp312 at build time; linux controller wheels under 3rdparty/buildbot/."
+  },
   "python_embed_windows": {
     "version": "3.12.7",
     "url": "https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip",
