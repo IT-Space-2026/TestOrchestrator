@@ -1,7 +1,8 @@
-"""Optional Cheroot web tier — alternative to Caddy (opt-in).
+"""Cheroot web tier — the shipped frontend.
 
-Opt-in via ``TO_FRONTEND=cheroot`` (Caddy stays the default). Replaces
-exactly the verified Caddy responsibilities:
+Active by default; ``TO_FRONTEND=none`` keeps it off for bare-Waitress
+development only. Replaces the former reverse-proxy tier's
+responsibilities:
 
 - TLS termination on the public HTTPS listener — cert files come from
   the managed cert dir for every mode; an ``internal``-mode install
@@ -35,7 +36,9 @@ FRONTEND_CHEROOT = "cheroot"
 
 
 def enabled() -> bool:
-    return os.environ.get(FRONTEND_ENV, "").strip().lower() == FRONTEND_CHEROOT
+    """Cheroot is the sole shipped tier — only an explicit
+    ``TO_FRONTEND=none`` opt-out (bare-Waitress development) disables it."""
+    return os.environ.get(FRONTEND_ENV, "cheroot").strip().lower() == FRONTEND_CHEROOT
 
 
 def _allowed_hosts(settings: dict) -> set:

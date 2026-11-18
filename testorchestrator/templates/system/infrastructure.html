@@ -54,8 +54,7 @@ or license KRE.</p>
         <td><small>{{ r.check_at or "—" }}{% if r.check_error %}<br>{{ r.check_error }}{% endif %}</small></td>
         <td>
           {% if r.target_type == "local" %}
-            {% if r.agent_token_hash %}agent issued{% else %}agent none{% endif %}
-            {{ "· v" + r.agent_version if r.agent_version else "" }}
+            <small class="muted">controller-local worker</small>
           {% elif r.target_type == "buildbot-worker" %}
             <small class="muted">{{ "password issued" if r.bb_credential_ref else "no credential" }}</small>
           {% else %}
@@ -245,7 +244,7 @@ or license KRE.</p>
         {% for rt in its %}
         <tr>
           <td>{{ rt.name }}</td>
-          <td><span class="badge {{ 'warn' if rt.worker_label else '' }}">{{ "Remote" if rt.worker_label else "Local" }}</span></td>
+          <td><span class="badge {{ 'warn' if rt.runner and rt.runner.connection_mode == 'remote' else '' }}">{{ "Remote" if rt.runner and rt.runner.connection_mode == 'remote' else "Local" }}</span></td>
           <td><code>{{ rt.executable_path }}</code></td>
           <td>{{ rt.detected_version or "unprobed" }}</td>
           <td><span class="badge {{ 'ok' if rt.enabled else '' }}">{{ "enabled" if rt.enabled else "disabled" }}</span></td>
@@ -313,13 +312,13 @@ or license KRE.</p>
       <div class="checkbox"><input type="radio" name="exec_location"
         id="loc-remote" value="remote">
         <label for="loc-remote">On another machine</label></div>
-      <small><strong>Local:</strong> TestOrchestrator starts this
-        executable locally — it and the working directory must exist
-        on the TestOrchestrator execution host.<br>
-        <strong>Remote:</strong> an <strong>execution worker</strong> service
-        on the KRE machine connects to TestOrchestrator's execution
-        coordinator — a path is not a connection. The executable path
-        is verified on <em>that</em> computer, never run here.</small>
+      <small><strong>Local:</strong> TestOrchestrator runs this
+        executable on the controller's own Buildbot worker — it and
+        the working directory must exist on this host.<br>
+        <strong>Remote:</strong> the executable lives on a registered
+        <strong>execution target</strong> (Buildbot worker or SSH
+        host) — a path is not a connection. It is verified on
+        <em>that</em> computer, never run here.</small>
     </fieldset>
     <div class="field" id="runner-select-field"><label>Remote runner</label>
       <select name="runner_id">
@@ -328,15 +327,8 @@ or license KRE.</p>
         <option value="{{ rn.id }}"{{ ' selected' if request.form.get('runner_id') == rn.id }}>{{ rn.name }} — {{ rn.id[:12] }}</option>
         {% endfor %}
       </select>
-      <small><strong>Remote only.</strong> The execution worker this
+      <small><strong>Remote only.</strong> The execution target this
       runtime binds to; validated against compatibility.</small></div>
-    <div class="field" id="worker-label-field"><label>Worker label</label>
-      {{ runtime_form.worker_label() }}
-      <small><strong>Required for Remote.</strong> Unique label this
-        installation is bound to — must match the worker's
-        <code>--worker.labels kre=&lt;label&gt;</code> argument on the
-        KRE machine. Dispatch refuses ambiguous or missing matches;
-        a remote executable is never run on this host.</small></div>
     <div class="field"><label>KRE executable location</label> {{ runtime_form.executable_path() }}
       <small><strong>Required.</strong> Path on the <em>worker's</em>
       filesystem (for local workers: this host) to the KRE CLI binary.
@@ -351,7 +343,7 @@ or license KRE.</p>
       the runtime requires an auth token.</small></div>
     <div class="field">{{ runtime_form.credential_file.label }} {{ runtime_form.credential_file() }}
       <small>Optional. Absolute path on the <em>worker</em> to a
-      protected credential file (0700 dir / 0600 file) — the Dagu
+      protected credential file (0700 dir / 0600 file) — the
       spec carries the path only; the worker's resolver reads the
       value at exec. Required for remote dispatch when this runtime
       uses a credential.</small></div>
@@ -396,73 +388,6 @@ or license KRE.</p>
     <code>TestOrchestrator-Buildbot-Worker-Setup-*.exe</code> — rebuild
     the package with the worker assets before onboarding Windows
     targets.</p>
-  {% endif %}
-</section>
-
-<section class="card" id="dagu-worker-downloads">
-  <h2>Download execution worker</h2>
-  <p class="muted">Remote execution uses a pinned <strong>worker
-    worker</strong> — install it on the computer that contains the
-    remote KRE, then connect it to TestOrchestrator's execution
-    coordinator. Sequence: install KRE on the test computer → install
-    the execution worker → connect securely to the coordinator → register
-    the KRE installation here with the worker's label → verify →
-    execute.</p>
-  {% if dagu_assets %}
-  <table class="audit-table">
-    <thead><tr><th>Version</th><th>Platform</th><th>Size</th>
-      <th>SHA-256</th><th></th></tr></thead>
-    <tbody>
-      {% for a in dagu_assets %}
-      <tr>
-        <td>{{ a.version }}</td>
-        <td>{{ a.os }}/{{ a.arch }}</td>
-        <td>{{ "%.1f"|format(a.size / 1048576) }} MB</td>
-        <td><code class="checksum">{{ a.sha256 }}</code></td>
-        <td><a class="button secondary sm"
-          href="{{ url_for('system.dagu_worker_download', filename=a.file) }}">Download</a></td>
-      </tr>
-      {% endfor %}
-      {% if worker_installer %}
-      <tr>
-        <td>{{ worker_installer.version }}</td>
-        <td>windows/amd64 — guided installer</td>
-        <td>{{ "%.1f"|format(worker_installer.size / 1048576) }} MB</td>
-        <td><code class="checksum">{{ worker_installer.sha256 }}</code></td>
-        <td><a class="button secondary sm"
-          href="{{ url_for('system.dagu_worker_installer_download', filename=worker_installer.file) }}">Download</a></td>
-      </tr>
-      {% endif %}
-    </tbody>
-  </table>
-  {% if worker_installer %}
-  <p class="muted">The guided installer is a supplementary option for
-    Windows workers — <strong>unsigned</strong>, not host-verified;
-    the plain archive + manual setup above remains the verified path.
-    It installs only the execution worker, never the full application.</p>
-  {% endif %}
-  <details class="block-details"><summary class="button secondary">Worker setup instructions</summary>
-    <p class="muted">On the computer containing the remote KRE:</p>
-    <pre class="code-block"># 1. Download + verify (sha256 must match the value above)
-tar xzf dagu_{{ dagu_assets[0].version }}_&lt;os&gt;_amd64.tar.gz
-
-# 2. Start the worker, labeled uniquely for this installation.
-#    The coordinator address must be reachable FROM the worker —
-#    use this portal's configured coordinator address, never
-#    "localhost" for a different computer. Example:
-./dagu worker --worker.coordinators=&lt;portal-host&gt;:50055 \
-  --worker.labels kre=&lt;unique-label&gt; --worker.id &lt;worker-name&gt;
-
-# 3. Register the KRE installation above as "On another machine"
-#    with the same kre=&lt;label&gt;.</pre>
-    <p class="muted">The worker polls outbound to the coordinator — no
-      inbound port is needed on the KRE machine. Keep the coordinator's
-      authentication enabled on real deployments; worker credentials
-      are configured per-worker, never embedded in this download.</p>
-  </details>
-  {% else %}
-  <p class="muted">No Dagu worker archives bundled — run
-    <code>scripts/fetch_dagu.sh</code> during packaging.</p>
   {% endif %}
 </section>
 

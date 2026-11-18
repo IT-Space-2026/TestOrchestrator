@@ -126,23 +126,6 @@ def read_pin_file(path: Path) -> dict[str, str]:
     return pins
 
 
-def fetch_dagu(arch: str, log: Log) -> Path:
-    """Materialise a pinned dagu release archive into 3rdparty/dagu/.
-    Digest source: 3rdparty/dagu/dagu.sha256 (authoritative, read by
-    validate_package.py inside the shipped package)."""
-    spec = ASSETS["dagu"]
-    name = spec["archives"][arch]
-    pins = read_pin_file(REPO / spec["sha256_file"])
-    if name not in pins:
-        raise BuildError(f"{spec['sha256_file']} has no pin for {name}")
-    dest = REPO / "3rdparty" / "dagu" / name
-    return fetch(f"{spec['release_url_base']}/{name}", dest,
-                 pins[name], log)
-
-
-def fetch_all_dagu(log: Log) -> None:
-    for arch in ASSETS["dagu"]["archives"]:
-        fetch_dagu(arch, log)
 
 
 def git_info() -> dict:
@@ -275,32 +258,6 @@ def _extract_nsis_debs(log: Log) -> None:
         log.write(f"  user-space makensis ready: {_local_makensis()}")
 
 
-def stage_worker_payload(log: Log) -> Path:
-    """Extract dagu.exe + LICENSE + README.md from the pinned windows
-    dagu archive into packaging/windows/worker-payload/ — the payload
-    for the NSIS worker installer (replaces build_worker_installer.sh's
-    tar/sha256sum steps so Windows hosts need no git-bash)."""
-    archive = fetch_dagu("windows_amd64", log)
-    pins = read_pin_file(REPO / "3rdparty" / "dagu" / "dagu.sha256")
-    assert sha256_file(archive) == pins[archive.name]
-    out = REPO / "packaging" / "windows" / "worker-payload"
-    if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
-    want = {"dagu.exe", "LICENSE", "README.md"}
-    with tarfile.open(archive, "r:gz") as tar:
-        for m in tar.getmembers():
-            if Path(m.name).name in want and m.isfile():
-                m.name = Path(m.name).name          # strip any dirs
-                tar.extract(m, out, filter="data")
-    missing = want - {p.name for p in out.iterdir()}
-    if missing:
-        raise BuildError(f"worker payload incomplete: {missing} "
-                         f"not found in {archive.name}")
-    log.write(f"  worker payload staged: {sorted(p.name for p in out.iterdir())}")
-    return out
-
-
 def stage_buildbot_worker_payload(build_dir: Path, log: Log) -> Path:
     """Stage packaging/windows/bb-worker-payload/ — embed Python +
     pinned buildbot-worker wheels + bootstrap script, the offline
@@ -371,23 +328,6 @@ def build_buildbot_worker_installer(build_dir: Path, log: Log) -> Path:
     log.write(f"  built {exes[0].name} ({exes[0].stat().st_size:,} B, unsigned)")
     return exes[0]
 
-
-def build_worker_installer(log: Log, dagu_version: str) -> Path:
-    """makensis the dagu-worker NSIS installer. Output:
-    packaging/windows/testorchestrator-dagu-worker-<v>-setup-UNSIGNED.exe"""
-    makensis = ensure_makensis(log)
-    stage_worker_payload(log)
-    win_dir = REPO / "packaging" / "windows"
-    for stale in win_dir.glob("testorchestrator-dagu-worker-*.exe"):
-        stale.unlink()        # never keep an older build's exe
-    run([makensis, "-V2", f"-DVERSION={dagu_version}",
-         "worker-installer.nsi"], log, cwd=win_dir)
-    exes = sorted(win_dir.glob(
-        f"testorchestrator-dagu-worker-{dagu_version}-setup-UNSIGNED.exe"))
-    if not exes:
-        raise BuildError("makensis produced no worker installer")
-    log.write(f"  built {exes[0].name} ({exes[0].stat().st_size:,} B, unsigned)")
-    return exes[0]
 
 
 def safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
@@ -477,8 +417,8 @@ def tool_versions() -> dict:
     return {
         "python": sys.version.split()[0],
         "makensis": _v([mk, "-VERSION"]) if mk else "absent",
-        "dagu": ASSETS["dagu"]["version"],
-        "caddy": ASSETS["caddy_linux"]["version"],
+        "buildbot_worker": ASSETS.get("buildbot_worker", {}).get(
+            "version", "unpinned"),
         "python_embed_windows": ASSETS["python_embed_windows"]["version"],
     }
 

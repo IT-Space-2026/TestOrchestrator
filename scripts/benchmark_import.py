@@ -220,7 +220,7 @@ def main():
         from testorchestrator.extensions import db
         db.create_all()
         from testorchestrator import settings as _s
-        _s.set("dagu_mandatory", False)
+        _s.set("buildbot_mandatory", False)
         db.session.commit()
     with app.app_context():
         instrument(app)

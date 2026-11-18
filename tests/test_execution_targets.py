@@ -31,7 +31,6 @@ def _create(app, client, **fields):
 def test_create_buildbot_worker_issues_credentials(app, client,
                                                    monkeypatch, tmp_path):
     login(client, "admin")
-    monkeypatch.setenv("TO_SECRET_KEY_FILE", str(tmp_path / "k"))
     with app.app_context():
         pass
     resp = _create(app, client, target_type="buildbot-worker",
@@ -59,7 +58,6 @@ def test_create_buildbot_worker_issues_credentials(app, client,
 def test_create_ssh_requires_host_user_credential(app, client,
                                                   monkeypatch, tmp_path):
     login(client, "admin")
-    monkeypatch.setenv("TO_SECRET_KEY_FILE", str(tmp_path / "k"))
     resp = _create(app, client, target_type="ssh", name="ssh-h1",
                    ssh_host="", ssh_username="", ssh_key="")
     with app.app_context():
@@ -161,7 +159,6 @@ def test_local_target_test_ok(app, client):
 def test_bb_worker_test_unregistered(app, client, monkeypatch,
                                      tmp_path):
     login(client, "admin")
-    monkeypatch.setenv("TO_SECRET_KEY_FILE", str(tmp_path / "k"))
     _create(app, client, target_type="buildbot-worker", name="w2")
     with app.app_context():
         r = Runner.query.filter_by(name="w2").one()
@@ -231,7 +228,6 @@ def test_approve_hostkey_pins_displayed_fingerprint(app, client,
 def test_ssh_identity_edit_requires_reapproval(app, client,
                                                monkeypatch, tmp_path):
     login(client, "admin")
-    monkeypatch.setenv("TO_SECRET_KEY_FILE", str(tmp_path / "k"))
     _create(app, client, target_type="ssh", name="ssh-ed",
             ssh_host="10.0.0.7", ssh_username="u",
             ssh_key="keymaterial")

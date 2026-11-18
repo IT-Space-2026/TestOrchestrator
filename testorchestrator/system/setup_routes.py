@@ -54,7 +54,7 @@ STEP_DEFS = {
            "fields": [{"name": "password", "type": "password",
                        "label": "New admin password",
                        "help": "12+ characters"}]},
- "coordinator": {"purpose": "The bundled Dagu coordinator runs every "
+ "coordinator": {"purpose": "The bundled Buildbot master runs every "
            "dispatch — required, not optional.",
            "inputs": [],
            "configure_label": "Infrastructure & components",
@@ -63,7 +63,7 @@ STEP_DEFS = {
            "auto": "endpoint, ports, worker token (written at install)",
            "fields": []},
  "worker": {"purpose": "At least one Worker must be connected for any "
-           "execution — remote machines get the Dagu worker download.",
+           "execution — remote machines get the worker installer download.",
            "inputs": ["worker install + registration (remote) or local "
                       "worker"],
            "configure_label": "Workers",

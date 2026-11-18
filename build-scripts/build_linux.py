@@ -9,15 +9,18 @@ Prerequisites (the only ones):
   - network access for pinned assets not already cached
   - NSIS (makensis) — auto-installed via apt-get when missing;
     sudo may prompt for a password on first run
+  - TO_BUILDBOT_GPL_APPROVED=1 — required for release builds; the
+    Buildbot stack (GPL) is bundled only after redistribution approval
 
 Produces in dist/release/linux/:
   testorchestrator-<ver>-linux-x86_64.tar.gz
   testorchestrator-<ver>-linux-x86_64.run
   SHA256SUMS.txt + build-manifest.json + per-run log
 
-The dagu-worker NSIS installer is still built (the tarball embeds it
-under packaging/windows/ for portal-side download) but is no longer
-published as a standalone release artifact.
+The buildbot-worker NSIS installer is built when
+TO_BUILDBOT_GPL_APPROVED=1 (the tarball embeds it under
+packaging/windows/ for portal-side download) — never published as a
+standalone release asset.
 
 Never tags, publishes, or touches git state.
 """
@@ -30,10 +33,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (ASSETS, BUILD_ROOT, BuildError, Log, REPO,
-                     build_buildbot_worker_installer,
-                     build_worker_installer, clean_release_dir,
+                     build_buildbot_worker_installer, clean_release_dir,
                      fetch_buildbot_linux_wheels,
-                     fetch_all_dagu, finalise, git_info, release_version,
+                     finalise, git_info, release_version,
                      run, safe_extract, venv_python)
 
 
@@ -50,17 +52,13 @@ def main() -> int:
         clean_release_dir("linux")
         vpy = venv_python(BUILD_ROOT / "linux", log)
 
-        log.step("1/5 provision pinned dagu archives")
-        fetch_all_dagu(log)
-
-        log.step("2/5 build dagu-worker Windows installer (NSIS)")
-        worker_exe = build_worker_installer(log, ASSETS["dagu"]["version"])
-
-        # Buildbot worker .exe — GPL redistribution gate: only built
-        # (and thereby bundled via packaging/windows/) when
-        # TO_BUILDBOT_GPL_APPROVED=1 records the approval decision.
+        # Buildbot worker .exe + controller wheels — GPL redistribution
+        # gate: only built (and thereby bundled via packaging/windows/
+        # and 3rdparty/buildbot-wheels/) when TO_BUILDBOT_GPL_APPROVED=1
+        # records the approval decision.
         if os.environ.get("TO_BUILDBOT_GPL_APPROVED") == "1":
-            log.step("2b/5 build buildbot-worker Windows installer (NSIS)")
+            log.step("2/5 build buildbot-worker Windows installer (NSIS) "
+                     "+ controller wheels")
             bb_worker_exe = build_buildbot_worker_installer(
                 BUILD_ROOT / "linux", log)
             # Controller-side stack: linux wheels install.py turns into
@@ -68,8 +66,8 @@ def main() -> int:
             fetch_buildbot_linux_wheels(BUILD_ROOT / "linux", log)
         else:
             bb_worker_exe = None
-            log.write("  buildbot worker installer SKIPPED — set "
-                      "TO_BUILDBOT_GPL_APPROVED=1 after GPL "
+            log.write("  buildbot worker installer + wheels SKIPPED — "
+                      "set TO_BUILDBOT_GPL_APPROVED=1 after GPL "
                       "redistribution approval")
 
         log.step("3/5 build release tarball + self-extracting installer")
@@ -94,7 +92,7 @@ def main() -> int:
         checks.append({"name": "validate_package",
                        "detail": "offline deps install + vendored "
                                  "reporting-labs + worker assets "
-                                 "(dagu archives checksum-verified, "
+                                 "assets checksum-verified, "
                                  "worker installer aligned)",
                        "ok": True})
         # .run round-trip: payload behind the marker must untar to the
@@ -117,15 +115,7 @@ def main() -> int:
 
         log.step("5/5 publish release outputs")
         manifest_extra = {
-            "worker_assets": {
-                "windows_installer_inside_package":
-                    f"packaging/windows/{worker_exe.name}",
-                "dagu_version": ASSETS["dagu"]["version"],
-                "coordinator_worker_aligned": True,
-                "publication": "bundled inside this package for "
-                               "portal-side download — not published "
-                               "as a standalone release asset",
-            },
+            "worker_assets": {},
             "buildbot_worker_assets": {
                 "windows_installer_inside_package":
                     f"packaging/windows/{bb_worker_exe.name}"

@@ -49,18 +49,10 @@ DEFAULTS = {
     # Integration endpoints (handoff §5–§9, §11). Empty = not configured;
     # adapters report an actionable not-configured status, never a fake
     # success. Values are endpoints/references — secrets live in SecretRef.
-    "dagu_endpoint": "",
-    "dagu_credential_ref": "",
-    # auth.mode: basic username (password lives in the SecretRef). Empty =
-    # Bearer token mode (builtin auth API key).
-    "dagu_username": "",
-    # worker-facing coordinator transport (gRPC) — distinct from the
-    # portal-side HTTP api dagu_endpoint. Backend-managed.
-    "dagu_coordinator_url": "",
-    # Buildbot orchestration (docs/orchestration-replacement.md). The
-    # REST API is bound to loopback — the adapter is its only client.
-    # orchestrator_backend: "dagu" during transition | "buildbot".
-    "orchestrator_backend": "dagu",
+    # Buildbot orchestration (docs/orchestration-replacement.md) — the
+    # sole orchestrator. The REST API is bound to loopback — the adapter
+    # is its only client. Seeded from TO_BUILDBOT_* env at first boot
+    # (installer writes web.env); buildbot-config remains a dev path.
     "buildbot_endpoint": "",
     "buildbot_username": "to-api",
     "buildbot_credential_ref": "",

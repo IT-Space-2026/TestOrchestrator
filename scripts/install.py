@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TestOrchestrator installer (§13) — native Linux path.
 
-Provisions payload + persistent data/config areas, renders the Caddyfile
+Provisions payload + persistent data/config areas
 from settings, writes systemd units, and reports the ACTUAL accessible
 local URL (never silently picks another port when 443 is occupied —
 an explicit validated alternative is required).
@@ -60,25 +60,6 @@ def main() -> None:
     parser.add_argument("--https-port", type=int, default=443)
     parser.add_argument("--http-port", type=int, default=8080)
     parser.add_argument("--service-user", default=SERVICE_USER)
-    parser.add_argument("--frontend", choices=("auto", "caddy", "cheroot"),
-                        default="auto",
-                        help="public HTTPS frontend — 'caddy' (bundled "
-                             "reverse proxy; fresh-install default) or "
-                             "'cheroot' (opt-in: in-process WSGI+TLS "
-                             "tier). 'auto' (default) keeps the "
-                             "selection recorded by a previous install "
-                             "(config/frontend) and falls back to "
-                             "caddy — upgrades never silently switch "
-                             "frontends")
-    parser.add_argument("--orchestrator",
-                        choices=("dagu", "buildbot", "both"),
-                        default="dagu",
-                        help="execution orchestrator to provision — "
-                             "'dagu' (current default during the "
-                             "Buildbot transition), 'buildbot' (the "
-                             "replacement), or 'both' (provision "
-                             "Buildbot alongside Dagu so the backend "
-                             "can be switched without reinstalling)")
     parser.add_argument("--no-service-start", action="store_true",
                         help="provision files/units but do not enable "
                              "or start systemd services")
@@ -210,7 +191,7 @@ def main() -> None:
             print(f"[install] removed superseded {_stale_rl} "
                   "(now at 3rdparty/reporting_labs)")
 
-        # Bundled NSIS dagu-worker installer — the portal serves it as a
+        # Bundled Buildbot-worker NSIS installer — the portal serves it as a
         # download; the tarball ships it under packaging/windows but the
         # app payload must hold it too.
         install_worker_installer_asset(REPO, payload)
@@ -223,77 +204,51 @@ def main() -> None:
         except SystemExit as exc:
             print(f"[install] WARNING: {exc} — venv step skipped")
 
-        # Tested Dagu provisioning path (scripts/provision_dagu.py):
-        # binary, basic-auth server.yaml, 0600 credentials, workflow,
-        # systemd unit — into the persistent config/data areas.
-        dagu_bin = REPO / "3rdparty" / "dagu" / "dagu_2.27.0_linux_amd64.tar.gz"
-        if dagu_bin.exists():
-            import tarfile, tempfile
-            with tempfile.TemporaryDirectory() as td:
-                with tarfile.open(dagu_bin) as t:
-                    t.extractall(td, filter="data")
-                sys.path.insert(0, str(REPO / "scripts"))
-                import provision_dagu
-                provision_dagu.main([
-                    "--home", str(data / "dagu"),
-                    "--config", str(config / "dagu"),
-                    "--binary", str(Path(td) / "dagu")])
-            print(f"[install] dagu provisioned: {config/'dagu'}")
-        else:
-            print("[install] WARNING: bundled dagu tarball missing — "
-                  "orchestration not provisioned")
-
-        # Buildbot orchestrator (docs/orchestration-replacement.md):
-        # provisioned alongside or instead of dagu per --orchestrator.
-        # The buildbot stack needs its own interpreter env (buildbot +
-        # paramiko) — a bundled buildbot-venv in packaged installs, or
-        # TO_BUILDBOT_PYTHON for development hosts. Files + units are
-        # always staged; --setup (basedir creation) needs the env.
-        if args.orchestrator in ("buildbot", "both"):
-            bb_home = data / "buildbot"
-            bb_venv = payload / "buildbot-venv"
-            bb_py = str(bb_venv / "bin" / "python3")
-            if not Path(bb_py).exists():
-                bb_wheels = payload / "3rdparty" / "buildbot-wheels"
-                if bb_wheels.is_dir():
-                    # Offline controller-side stack — created once;
-                    # existing installs keep their venv on rerun.
-                    print(f"[install] buildbot venv: {bb_venv} "
-                          f"(offline from {bb_wheels})")
-                    subprocess.check_call(
-                        [sys.executable, "-m", "venv", str(bb_venv)])
-                    subprocess.check_call(
-                        [bb_py, "-m", "pip", "install", "--no-index",
-                         "--find-links", str(bb_wheels),
-                         "buildbot[bundled]", "buildbot-worker",
-                         "paramiko"])
-                else:
-                    bb_py = os.environ.get("TO_BUILDBOT_PYTHON") or ""
-            sys.path.insert(0, str(REPO / "scripts"))
-            import provision_buildbot
-            bb_args = ["--home", str(bb_home),
-                       "--repo-root", str(REPO)]
-            if bb_py:
-                bb_args += ["--python", bb_py, "--setup"]
+        # Buildbot orchestrator (docs/orchestration-replacement.md) —
+        # the sole execution backend. The stack needs its own
+        # interpreter env (buildbot + paramiko): a bundled
+        # buildbot-venv in packaged installs, or TO_BUILDBOT_PYTHON
+        # on development hosts. Files + units are always staged;
+        # --setup (basedir creation) needs the env.
+        bb_home = data / "buildbot"
+        bb_venv = payload / "buildbot-venv"
+        bb_py = str(bb_venv / "bin" / "python3")
+        if not Path(bb_py).exists():
+            bb_wheels = payload / "3rdparty" / "buildbot-wheels"
+            if bb_wheels.is_dir():
+                # Offline controller-side stack — created once;
+                # existing installs keep their venv on rerun.
+                print(f"[install] buildbot venv: {bb_venv} "
+                      f"(offline from {bb_wheels})")
+                subprocess.check_call(
+                    [sys.executable, "-m", "venv", str(bb_venv)])
+                subprocess.check_call(
+                    [bb_py, "-m", "pip", "install", "--no-index",
+                     "--find-links", str(bb_wheels),
+                     "buildbot[bundled]", "buildbot-worker",
+                     "paramiko"])
             else:
-                print("[install] buildbot files+units staged; "
-                      "basedirs NOT created — set TO_BUILDBOT_PYTHON "
-                      "to a python with buildbot installed and re-run "
-                      "provision_buildbot.py --setup")
-            provision_buildbot.main(bb_args)
-            for unit in (bb_home / "units").glob("*.service"):
-                shutil.copy2(unit, config / unit.name)
-            print(f"[install] buildbot provisioned: {bb_home}")
+                bb_py = os.environ.get("TO_BUILDBOT_PYTHON") or ""
+        sys.path.insert(0, str(REPO / "scripts"))
+        import provision_buildbot
+        bb_args = ["--home", str(bb_home),
+                   "--repo-root", str(REPO)]
+        if bb_py:
+            bb_args += ["--python", bb_py, "--setup"]
+        else:
+            print("[install] buildbot files+units staged; "
+                  "basedirs NOT created — set TO_BUILDBOT_PYTHON "
+                  "to a python with buildbot installed and re-run "
+                  "provision_buildbot.py --setup")
+        provision_buildbot.main(bb_args)
+        for unit in (bb_home / "units").glob("*.service"):
+            shutil.copy2(unit, config / unit.name)
+        print(f"[install] buildbot provisioned: {bb_home}")
 
-        # Service units: web, worker, dagu, caddy — full lifecycle wiring,
-        # activation needs root on the target host. The frontend choice
-        # resolves: explicit --frontend > persisted config/frontend
-        # marker > caddy. Under cheroot its web unit is staged under the
-        # canonical name (the frontend is in-process); the caddy unit is
-        # still staged for rollback but is not enabled.
-        args.frontend = _resolve_frontend(args, config)
-        print(f"[install] frontend: {args.frontend}")
-        _stage_frontend_units(args.frontend, config)
+        # Service units: web (Cheroot in-process tier), dispatch
+        # worker, buildbot master + workers — full lifecycle wiring,
+        # activation needs root on the target host.
+        _stage_web_unit(config)
         _write_web_env(config, data)
         (config / "testorchestrator-worker.service").write_text(
             f"[Unit]\nDescription=TestOrchestrator dispatch worker\n"
@@ -308,7 +263,6 @@ def main() -> None:
             f"ProtectSystem=strict\nProtectHome=true\n"
             f"ReadWritePaths={data}\n\n"
             f"[Install]\nWantedBy=multi-user.target\n")
-        shutil.copy2(REPO / "deploy" / "Caddyfile", config / "Caddyfile")
 
         # Enable + start when authorized; --no-service-start or non-root
         # leaves units staged under config for manual activation.
@@ -317,8 +271,10 @@ def main() -> None:
     print(f"[install] local URL: https://localhost"
           f"{'' if args.https_port == 443 else f':{args.https_port}'}/")
     print("[install] logs: journalctl -u testorchestrator-web "
-          "-u testorchestrator-worker -u testorchestrator-dagu "
-          "-u testorchestrator-caddy")
+          "-u testorchestrator-worker "
+          "-u testorchestrator-buildbot-master "
+          "-u testorchestrator-buildbot-local "
+          "-u testorchestrator-buildbot-ssh")
     if args.dry_run or not args.no_service_start and os.geteuid() == 0:
         ready = readiness_check(args)
         print(f"[install] readiness: {ready}")
@@ -342,22 +298,7 @@ def bundled_python(payload: Path) -> Path:
 
 # --- services + readiness ------------------------------------------------
 
-UNITS = ("testorchestrator-web", "testorchestrator-worker",
-         "testorchestrator-dagu", "testorchestrator-caddy")
-
-
-def _resolve_frontend(args, config: Path) -> str:
-    """Resolve 'auto' to the previously recorded frontend (upgrades keep
-    their tier) or 'caddy' (fresh/2.0.x installs — Caddy stays default).
-    An explicit --frontend always wins and is what switches a tier."""
-    if args.frontend != "auto":
-        return args.frontend
-    marker = config / "frontend"
-    if marker.is_file():
-        saved = marker.read_text().strip()
-        if saved in ("caddy", "cheroot"):
-            return saved
-    return "caddy"
+UNITS = ("testorchestrator-web", "testorchestrator-worker")
 
 
 def _write_web_env(config: Path, data: Path) -> None:
@@ -380,24 +321,15 @@ def _write_web_env(config: Path, data: Path) -> None:
         f"TO_CONFIG_DIR={config}\n"
         "TO_SECURE_COOKIES=1\n"
         f"TO_SECRET_KEY={kept['TO_SECRET_KEY']}\n"
-        f"TO_INSTALL_ID={kept['TO_INSTALL_ID']}\n")
+        f"TO_INSTALL_ID={kept['TO_INSTALL_ID']}\n"
+        f"TO_BUILDBOT_ENDPOINT=http://127.0.0.1:8010\n"
+        f"TO_BUILDBOT_HOME={data}/buildbot\n"
+        f"TO_BUILDBOT_PIDFILE={data}/buildbot/master/twistd.pid\n"
+        f"TO_BUILDBOT_PB_PORT=9989\n"
+        f"TO_BUILDBOT_WWW_PORT=8010\n")
     os.chmod(env_file, 0o640)
     print(f"[install] web.env: {env_file} "
           f"(secrets {'preserved' if preserved else 'generated'})")
-
-
-def _stage_frontend_units(frontend: str, config: Path) -> None:
-    """Stage the web unit for the selected tier under its canonical
-    name plus the caddy unit (staged even under cheroot so rollback is
-    a unit swap away), and persist the selection marker."""
-    web_unit = ("testorchestrator-web-cheroot.service"
-                if frontend == "cheroot"
-                else "testorchestrator-web.service")
-    shutil.copy2(REPO / "deploy" / web_unit,
-                 config / "testorchestrator-web.service")
-    shutil.copy2(REPO / "deploy" / "testorchestrator-caddy.service",
-                 config / "testorchestrator-caddy.service")
-    (config / "frontend").write_text(frontend + "\n")
 
 
 BB_UNITS = (
@@ -407,23 +339,17 @@ BB_UNITS = (
 )
 
 
+def _stage_web_unit(config: Path) -> None:
+    """Stage the web unit under its canonical name — the Cheroot
+    in-process tier is the only shipped frontend."""
+    shutil.copy2(REPO / "deploy" / "testorchestrator-web.service",
+                 config / "testorchestrator-web.service")
+
+
 def _enabled_units(args) -> tuple:
-    """Units the selected frontend + orchestrator activate. Under
-    --frontend=cheroot the public ports live inside the web unit, so
-    caddy is staged but deliberately NOT enabled — only one frontend
-    may own them. --orchestrator decides whether dagu and/or the
-    buildbot master+workers are enabled (units are staged from the
-    provisioned config dir)."""
-    units = UNITS
-    orch = getattr(args, "orchestrator", "dagu")
-    if orch in ("buildbot", "both"):
-        units = units + BB_UNITS
-    if orch == "buildbot":
-        units = tuple(u for u in units if u != "testorchestrator-dagu")
-    if getattr(args, "frontend", "caddy") == "cheroot":
-        units = tuple(u for u in units
-                      if u != "testorchestrator-caddy")
-    return units
+    """The shipped unit set: web + dispatch worker + buildbot
+    master/local/ssh workers."""
+    return UNITS + BB_UNITS
 
 
 def _systemctl(*argv, check=True):
@@ -433,10 +359,8 @@ def _systemctl(*argv, check=True):
 
 def enable_services(args, config: Path) -> bool:
     """Install units and enable/start them — only when authorized
-    (root + systemd present) and not --no-service-start. Frontend
-    switching is explicit: under cheroot the caddy unit is disabled so
-    only one frontend can ever own the public ports, and the web unit
-    is restarted when its staged unit content changed."""
+    (root + systemd present) and not --no-service-start. The web unit is
+    restarted when its staged unit content changed."""
     if args.no_service_start or args.dry_run:
         return False
     if os.geteuid() != 0 or not shutil.which("systemctl"):
@@ -450,8 +374,7 @@ def enable_services(args, config: Path) -> bool:
     web_changed = (not installed_web.exists()
                    or installed_web.read_bytes() != staged_web)
     for u in units:
-        src = config / "dagu" / f"{u}.service" if "dagu" in u \
-            else config / f"{u}.service"
+        src = config / f"{u}.service"
         if src.exists():
             shutil.copy2(src, f"/etc/systemd/system/{u}.service")
         else:
@@ -460,11 +383,11 @@ def enable_services(args, config: Path) -> bool:
     web_active = _systemctl("is-active", "--quiet",
                             "testorchestrator-web",
                             check=False).returncode == 0
-    if args.frontend == "cheroot":
-        # Drop the other frontend first so the public ports are free —
-        # tolerates caddy never having been enabled.
-        _systemctl("disable", "--now", "testorchestrator-caddy",
-                   check=False)
+    # Tolerate a Caddy-era unit left by an older install — the shipped
+    # release has exactly one frontend (the in-process tier), so any
+    # stale proxy unit is stopped and disabled.
+    _systemctl("disable", "--now", "testorchestrator-caddy",
+               check=False)
     if web_active and web_changed:
         # Unit content changed (frontend switch or template update) —
         # enable --now alone never restarts a running service.
@@ -477,9 +400,9 @@ def enable_services(args, config: Path) -> bool:
 
 def readiness_check(args) -> str:
     """Post-start probe, in order: every unit active -> app answers on
-    loopback -> the configured PUBLIC HTTPS endpoint serves through
-    Caddy. A reachable login page alone is NOT readiness — workers,
-    dagu, and the TLS endpoint are each verified."""
+    loopback -> the configured PUBLIC HTTPS endpoint serves. A reachable
+    login page alone is NOT readiness — workers,
+    buildbot, and the TLS endpoint are each verified."""
     import time, urllib.request, ssl
     time.sleep(2)
     failed = [u for u in _enabled_units(args)
@@ -505,11 +428,8 @@ def readiness_check(args) -> str:
             if r.status != 200:
                 return f"HTTPS endpoint returned {r.status} at {url}"
     except Exception as exc:
-        frontend_unit = ("web unit (cheroot frontend)"
-                         if getattr(args, "frontend", "caddy") == "cheroot"
-                         else "caddy unit")
         return (f"HTTPS endpoint unreachable at {url}: {exc} — check "
-                f"{frontend_unit} + cert provisioning")
+                "the web unit (Cheroot frontend) + cert provisioning")
     return f"ok — all units active; app + HTTPS endpoint serving ({url})"
 
 
@@ -536,23 +456,25 @@ def copy_payload_tree(src: Path, dst: Path) -> None:
 
 
 def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
-    """Install the bundled NSIS dagu-worker installer into the payload so
-    the portal's /infrastructure/dagu-worker-installer/ download serves
-    it — the package ships it, the installer must not strand it.
-    Removes superseded versions left by an older install; refuses to
-    proceed when the package carries no worker installer."""
+    """Install the bundled Buildbot-worker NSIS installer into the
+    payload so the portal's /infrastructure/buildbot-worker-installer/
+    download serves it — the package ships it, the installer must not
+    strand it. Removes superseded versions left by an older install.
+    A missing artifact warns (dev builds without GPL approval) — the
+    release checklist verifies its presence."""
     src_dir = repo / "packaging" / "windows"
     exes = sorted(src_dir.glob(
-        "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe"))
-    if not exes:
-        sys.exit("error: no dagu-worker installer in the package "
-                 f"({src_dir}) — refusing to install an incomplete "
-                 "payload")
+        "TestOrchestrator-Buildbot-Worker-Setup-*.exe"))
     dst_dir = payload / "packaging" / "windows"
     dst_dir.mkdir(parents=True, exist_ok=True)
     for stale in dst_dir.glob(
-            "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe"):
+            "TestOrchestrator-Buildbot-Worker-Setup-*.exe"):
         stale.unlink()
+    if not exes:
+        print("[install] WARNING: no buildbot-worker installer in the "
+              "package — Windows worker download will show the "
+              "not-bundled error")
+        return None
     dst = dst_dir / exes[-1].name
     shutil.copy2(exes[-1], dst)
     print(f"[install] worker installer asset: {dst.name}")

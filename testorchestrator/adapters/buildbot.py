@@ -127,7 +127,7 @@ class BuildbotAdapter:
 
     def health(self) -> dict:
         """Reachability + expected-builder presence, for the targets
-        page (parallel to DaguAdapter.health)."""
+        page."""
         builders = self._get("/builders").get("builders") or []
         return {
             "reachable": True,

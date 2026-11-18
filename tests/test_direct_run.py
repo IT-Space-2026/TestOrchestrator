@@ -166,7 +166,7 @@ def test_run_discovered_route_accepts_supported_form(
         assert rc["requested_runtime"] == rtid
         assert rc["timeout_seconds"] == 60
         ev = OutboxEvent.query.one()
-        assert ev.kind == "local-dispatch"
+        assert ev.kind == "orchestrator-dispatch"
         assert json.loads(ev.payload_json)["execution_id"] == ex.id
 
 
@@ -276,8 +276,8 @@ def test_runtime_create_missing_required_fields_shows_errors(app, client,
 
 
 def test_runtime_create_persists_valid_remote(app, client, login_as):
-    """A valid remote registration persists the resolved remote runner,
-    dagu-worker transport, and the unique worker label."""
+    """A valid remote registration persists the resolved remote runner
+    and its buildbot-remote transport binding."""
     login_as("admin")
     with app.app_context():
         rw = Runner(name="remote-w",
@@ -287,14 +287,13 @@ def test_runtime_create_persists_valid_remote(app, client, login_as):
         rw_id = rw.id
     client.post("/system/infrastructure/runtimes", data={
         "name": "kre-remote", "exec_location": "remote",
-        "worker_label": "lbl-1", "runner_id": rw_id,
+        "runner_id": rw_id,
         "executable_path": "/opt/katalonc", "credential_ref": "",
         "concurrency": "1",
     })
     with app.app_context():
         rt = RuntimeConnection.query.one()
-        assert rt.transport == "dagu-worker"
-        assert rt.worker_label == "lbl-1"
+        assert rt.runner_id == rw_id
         assert rt.runner.connection_mode == "remote"
 
 
@@ -399,12 +398,12 @@ def test_retry_of_discovered_item_execution(app):
 def test_retry_preserves_requested_runtime_and_transport(app):
     """Snapshot run_config stores requested_* keys; retry must feed
     back the raw runtime_id/runner_id so the new execution keeps its
-    transport binding (remote dagu-worker runs used to silently
-    degrade to the local agent path -> UNKNOWN)."""
+    transport binding (remote runs used to silently
+    degrade to the local path -> UNKNOWN)."""
     from testorchestrator import settings
     from testorchestrator.execution import RuntimeConnection
     with app.app_context():
-        settings.update({"dagu_endpoint": "http://127.0.0.1:1"})
+        settings.update({"buildbot_endpoint": "http://127.0.0.1:1"})
         p, b, item = _env(app)
         runner = Runner(name="w", connection_mode="remote",
                         os_arch="linux/amd64", max_slots=2)
@@ -413,12 +412,12 @@ def test_retry_preserves_requested_runtime_and_transport(app):
             name="kre-remote", runner_id=runner.id,
             workspace_root="/tmp/kre-ws",
             executable_path="/opt/kre/katalonc",
-            worker_label="kre-1", enabled=True)
+            enabled=True)
         db.session.add(rt); db.session.commit()
         ex = dispatch.create_execution(
             "m", source_item=item, binding=b, source_sha="sha1",
             run_config={"runner_id": runner.id, "runtime_id": rt.id})
-        assert ex.snapshot()["dispatch_transport"] == "dagu-worker"
+        assert ex.snapshot()["dispatch_transport"] == "buildbot"
         ex.state = ExecutionState.FAILED
         db.session.commit()
 
@@ -426,7 +425,7 @@ def test_retry_preserves_requested_runtime_and_transport(app):
         rsnap = retry.snapshot()
         assert rsnap["run_config"]["requested_runtime"] == rt.id
         assert rsnap["run_config"]["requested_runner"] == runner.id
-        assert rsnap["dispatch_transport"] == "dagu-worker"
+        assert rsnap["dispatch_transport"] == "buildbot"
 
 
 def test_retry_of_removed_discovered_item_errors(app):

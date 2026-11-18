@@ -198,6 +198,15 @@ def stage_source(ex, source_dir: Path) -> Path:
     staging_dir().mkdir(parents=True, exist_ok=True)
     dest = staging_dir() / f"{ex.id}.tar"
     tmp = dest.with_suffix(".tar.tmp")
+    # Binding-less suite runs have no worktree — same tolerance as
+    # kre_adapter.prepare_workspace: an empty project root, not a
+    # submission failure.
+    empty = None
+    if not source_dir.exists():
+        import tempfile
+        empty = Path(tempfile.mkdtemp(prefix="bb-empty-"))
+        (empty / "src").mkdir()
+        source_dir = empty / "src"
     with tarfile.open(tmp, "w") as tar:
         tar.add(source_dir, arcname="src")
     tmp.replace(dest)

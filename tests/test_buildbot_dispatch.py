@@ -18,6 +18,7 @@ semantics fixed on the dagu path (docs/orchestration-replacement.md §3):
 import json
 
 import pytest
+from pathlib import Path
 import requests as _req
 
 from testorchestrator import buildbot_cfg, dispatch as d
@@ -71,12 +72,12 @@ class _BBProbe(BuildbotAdapter):
         return []
 
 
-def _env(app, monkeypatch, stub, target_type="local"):
+def _env(app, monkeypatch, stub, target_type="local",
+         worktree="/tmp/bb-proto/src-repo"):
     monkeypatch.setattr(BuildbotAdapter, "from_settings",
                         classmethod(lambda cls: stub))
     with app.app_context():
         _s.update({
-            "orchestrator_backend": "buildbot",
             "buildbot_endpoint": "http://stub",
             "buildbot_home": "/tmp/bb-test-home",
         })
@@ -95,8 +96,9 @@ def _env(app, monkeypatch, stub, target_type="local"):
         p = Project(name="p")
         db.session.add(p)
         db.session.flush()
+        Path(str(worktree)).mkdir(parents=True, exist_ok=True)
         b = GitBinding(project_id=p.id, name="b", url="/x",
-                       worktree_path="/tmp/bb-proto/src-repo")
+                       worktree_path=str(worktree))
         db.session.add(b)
         db.session.flush()
         di = DiscoveredItem(project_id=p.id, binding_id=b.id,
@@ -120,7 +122,8 @@ def test_assignment_committed_before_submit(app, monkeypatch, tmp_path):
     with app.app_context():
         monkeypatch.setattr(buildbot_cfg, "home",
                             lambda: tmp_path)
-        _, rtid, diid = _env(app, monkeypatch, stub)
+        _, rtid, diid = _env(app, monkeypatch, stub,
+                         worktree=tmp_path / "wt")
         ex = d.create_execution(
             "u", None, run_config={"runtime_id": rtid},
             source_item=db.session.get(DiscoveredItem, diid))
@@ -146,7 +149,8 @@ def test_cancel_between_assign_and_submit(app, monkeypatch, tmp_path):
     stub = _BBProbe()
     with app.app_context():
         monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
-        _, rtid, diid = _env(app, monkeypatch, stub)
+        _, rtid, diid = _env(app, monkeypatch, stub,
+                         worktree=tmp_path / "wt")
         ex = d.create_execution(
             "u", None, run_config={"runtime_id": rtid},
             source_item=db.session.get(DiscoveredItem, diid))
@@ -167,7 +171,8 @@ def test_explicit_pick_unavailable_fails_visibly(app, monkeypatch,
     stub = _BBProbe()
     with app.app_context():
         monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
-        _, rtid, diid = _env(app, monkeypatch, stub)
+        _, rtid, diid = _env(app, monkeypatch, stub,
+                         worktree=tmp_path / "wt")
         # create guards disabled runtimes up front
         rt = db.session.get(RuntimeConnection, rtid)
         rt.enabled = False
@@ -199,7 +204,8 @@ def test_lost_response_reconciles_no_duplicate(app, monkeypatch,
     stub = _BBProbe()
     with app.app_context():
         monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
-        _, rtid, diid = _env(app, monkeypatch, stub)
+        _, rtid, diid = _env(app, monkeypatch, stub,
+                         worktree=tmp_path / "wt")
         ex = d.create_execution(
             "u", None, run_config={"runtime_id": rtid},
             source_item=db.session.get(DiscoveredItem, diid))

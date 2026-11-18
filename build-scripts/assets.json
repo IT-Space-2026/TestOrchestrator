@@ -1,24 +1,5 @@
 {
-  "comment": "Pinned downloadable assets for the one-command release builds. Digests for assets that already ship a *.sha256 pin file (dagu archives, linux caddy, linux python-runtime) stay authoritative in those files; this table holds URLs/versions plus sha256 for assets that had pins only inline in legacy build scripts.",
-  "dagu": {
-    "version": "2.27.0",
-    "release_url_base": "https://github.com/dagucloud/dagu/releases/download/v2.27.0",
-    "archives": {
-      "linux_amd64": "dagu_2.27.0_linux_amd64.tar.gz",
-      "windows_amd64": "dagu_2.27.0_windows_amd64.tar.gz"
-    },
-    "sha256_file": "3rdparty/dagu/dagu.sha256"
-  },
-  "caddy_windows": {
-    "version": "2.11.9",
-    "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11.9_windows_amd64.zip",
-    "sha256": "ad93112d335ee687100c4c9f11bced16ca590377976b7fe7883882b9e797e472"
-  },
-  "caddy_linux": {
-    "version": "2.11.9",
-    "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11.9_linux_amd64.tar.gz",
-    "sha256_file": "3rdparty/caddy/caddy.sha256"
-  },
+  "comment": "Pinned downloadable assets for the one-command release builds. Digests for assets that already ship a *.sha256 pin file (linux python-runtime) stay authoritative in those files; this table holds URLs/versions plus sha256 for assets that had pins only inline in legacy build scripts.",
   "buildbot_worker": {
     "version": "4.3.0",
     "note": "GPL redistribution approval required before bundling (see docs/orchestration-replacement.md). Wheels are pip-downloaded for win_amd64/cp312 at build time; linux controller wheels under 3rdparty/buildbot/."

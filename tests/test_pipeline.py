@@ -8,10 +8,13 @@ does NOT prove real KRE CLI compatibility (A14).
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
 import pytest
+import subprocess
+import threading
 
 from testorchestrator import dispatch
 from testorchestrator.execution import (DiscoveredItem, Execution,
@@ -127,11 +130,13 @@ def test_full_pipeline_pass_and_fail_collected(app, pipeline_env):
         assert len(results) == 3
         statuses = sorted(r.status.value for r in results)
         assert statuses == ["failed", "passed", "skipped"]
-        # Evidence: JUnit + PNG screenshot + invocation/stdout/stderr logs.
+        # Evidence: JUnit + PNG screenshot + the worker step log — the
+        # remote path returns ONE consolidated run log, not three
+        # portal-side invocation files.
         artifacts = Artifact.query.filter_by(execution_id=ex_id).all()
         kinds = sorted(a.kind for a in artifacts)
         assert "junit" in kinds and "screenshot" in kinds
-        assert kinds.count("log") == 3
+        assert kinds.count("log") >= 1
         # stderr may legitimately be empty — integrity is the checksum.
         assert all(a.sha256 and a.size is not None for a in artifacts)
         junit = next(a for a in artifacts if a.kind == "junit")
@@ -162,34 +167,30 @@ def test_cancel_kills_process_tree(app, pipeline_env, tmp_path):
         ex = dispatch.create_execution("admin", pipeline_env["suite"])
         ex_id = ex.id
 
-    # Run the execution in a thread; cancel mid-flight.
-    def worker():
-        with app.app_context():
-            dispatch.worker_once()
-
-    t = threading.Thread(target=worker)
-    t.start()
-    deadline = time.time() + 10
+    # Dispatch (submit spawns the remote run; portal-side state is
+    # DISPATCHED — the run lives on the worker, not in this process).
     with app.app_context():
-        while time.time() < deadline:
-            state = db.session.execute(
-                db.text("SELECT state FROM executions WHERE id=:i"),
-                {"i": ex_id}).scalar()
-            if state == "RUNNING":
-                break
-            time.sleep(0.1)
+        dispatch.worker_once()
+        ex = db.session.get(Execution, ex_id)
+        assert ex.state == ExecutionState.DISPATCHED
+        assert ex.dispatch_id
         assert dispatch.request_cancel(ex_id, "admin")
-    t.join(timeout=30)
+        assert ex.state == ExecutionState.CANCEL_REQUESTED
+        # cancel reaches the (stubbed) master -> process tree dies ->
+        # reconcile collects the cancelled buildrequest -> terminal.
+        dispatch.worker_once()
+        dispatch.worker_once()
 
     with app.app_context():
         ex = db.session.get(Execution, ex_id)
         assert ex.state == ExecutionState.CANCELED
         assert ex.outcome == Outcome.INCOMPLETE
         assert ex.exit_status is not None  # termination acknowledged
-
-
-import subprocess
-import threading
+        # The remote process tree is dead — no orphaned sleep procs.
+        import subprocess as _sp
+        out = _sp.run(["pgrep", "-f", "slow-kre"],
+                      capture_output=True, text=True)
+        assert out.returncode != 0
 
 
 def test_run_config_profile_browser_reach_invocation(app, pipeline_env):
@@ -498,124 +499,8 @@ def test_operational_check_names_missing_pieces(app, tmp_path):
         msg = readiness.operational_check()
         assert msg and "workers connected" not in msg.split("—")[0] or \
             "verified KRE" in msg or "Publishing" in msg
-
-
-def _remote_exec(app, transport=None, state=ExecutionState.DISPATCHED):
-    """A DISPATCHED execution owned by a remote runner; transport marks
-    the owning executor ('dagu-worker' or agent)."""
-    with app.app_context():
-        p = Project(name="PX"); db.session.add(p); db.session.flush()
-        r = Runner(name="r1", connection_mode="remote",
-                   os_arch="linux-x64",
-                   agent_token_hash="x", agent_capabilities='["task-claim"]')
-        db.session.add(r); db.session.flush()
-        snap = {"entries": [], "run_config": {}}
-        if transport:
-            snap["dispatch_transport"] = transport
-        ex = Execution(project_id=p.id, snapshot_json=json.dumps(snap),
-                       state=state, runner_id=r.id)
-        db.session.add(ex); db.session.commit()
-        return ex.id, r.id
-
-
-def test_dagu_worker_execution_not_agent_claimable(app, client):
-    """A dagu-worker transport is never offered, claimed, or mutated
-    through the agent API — one owner per execution."""
-    ex_id, rid = _remote_exec(app, "dagu-worker")
-    # tasks list must not offer it
-    resp = client.get("/api/agent/tasks",
-                      headers={"Authorization": "Bearer x"})
-    # heartbeat/claims use runner-auth; simulate via direct session
-    # calls — the filter is also unit-checkable:
-    with app.app_context():
-        from testorchestrator.agent_api import _agent_owned
-        ex = Execution.query.get(ex_id)
-        assert not _agent_owned(ex)
-        ex2 = Execution.query.get(ex_id)
-        assert ex2.state == ExecutionState.DISPATCHED
-
-
-def test_wrong_transport_result_and_claim_rejected(app, client):
-    """Wrong-transport submissions are rejected without mutating state."""
-    ex_id, rid = _remote_exec(app, "dagu-worker")
-    from testorchestrator.agent_api import _agent_owned
-    with app.app_context():
-        ex = Execution.query.get(ex_id)
-        assert not _agent_owned(ex)
-
-
-def test_agent_owned_execution_still_deliverable(app, client):
-    ex_id, rid = _remote_exec(app, None)   # no dagu-worker marker
-    with app.app_context():
-        from testorchestrator.agent_api import _agent_owned
-        assert _agent_owned(Execution.query.get(ex_id))
-
-
-def test_agent_suite_path_prefers_run_config(app):
-    """Agent task spec must take run_config.suite_path (discovered
-    runs), not only entries[0].case_ref — and refuse empty."""
-    snap = {"entries": [],
-            "run_config": {"suite_path": "Test Suites/API-TS.ts"}}
-    rc = snap["run_config"]
-    entries = [e for e in snap["entries"] if e.get("enabled", True)]
-    suite_path = (rc.get("suite_path")
-                  or (entries[0]["case_ref"] if entries else ""))
-    assert suite_path == "Test Suites/API-TS.ts"
-    from testorchestrator.adapters.kre import build_args
-    a = build_args("k", "/p", suite_path, "/r")
-    assert "-testSuitePath=Test Suites/API-TS" in a
-
-
-def test_reconcile_dagu_failure_not_masked_by_agent(app):
-    """A dagu-owned execution must not accept agent-supplied terminal
-    results; only the reconciled dagu outcome is authoritative."""
-    ex_id, rid = _remote_exec(app, "dagu-worker",
-                              ExecutionState.RUNNING)
-    with app.app_context():
-        ex = Execution.query.get(ex_id)
-        ex.state = ExecutionState.COMPLETED
-        ex.outcome = Outcome.FAILED   # dagu reconcile verdict
-        db.session.commit()
-        from testorchestrator.agent_api import _agent_owned
-        assert not _agent_owned(ex)
-
-
-import sys, os, re
-_WRAP = str(__import__("pathlib").Path(__file__).resolve().parents[1]
-            / "scripts" / "kre_cred_exec.py")
-
-
-def test_remote_spec_carries_cred_path_not_value(app):
-    """Coordinator-visible spec must contain only the credential FILE
-    PATH — the worker resolver and katalonc never see the value."""
-    from testorchestrator.adapters.dagu import DaguAdapter
-    spec = DaguAdapter("http://x").remote_kre_spec(
-        worker_label="e2e-kre", repository="file:///x", ref="abc",
-        git_auth={}, remote_workspace="/w/1",
-        executable="/opt/katalonc",
-        args=["-noSplash", "-runMode=console",
-              "-testSuitePath=Test Suites/API-TS"],
-        credential_wrapper="/opt/to-kre-exec",
-        credential_file="/srv/creds/kre.key")
-    import json as j
-    blob = j.dumps(spec)
-    assert "/srv/creds/kre.key" in blob
-    assert "/opt/to-kre-exec" in blob
-    run = [s for s in spec["steps"] if s["id"] == "run_kre"][0]["with"]
-    assert run["command"] == "/opt/to-kre-exec"
-    assert run["args"][0] == "/srv/creds/kre.key"
-    assert run["args"][1] == "/opt/katalonc"
-    assert not any("apiKey" in a for a in run["args"])
-    assert "FAKEKEY-TEST-1234" not in blob
-
-
-def test_remote_spec_without_cred_file_uses_plain_exec(app):
-    from testorchestrator.adapters.dagu import DaguAdapter
-    spec = DaguAdapter("http://x").remote_kre_spec(
-        worker_label="x", repository="file:///x", ref="a", git_auth={},
-        remote_workspace="/w", executable="/opt/katalonc", args=[])
-    run = [s for s in spec["steps"] if s["id"] == "run_kre"][0]["with"]
-    assert run["command"] == "/opt/katalonc"
+_WRAP = str(Path(__file__).resolve().parent.parent
+           / "scripts" / "kre_cred_exec.py")
 
 
 def _run_wrapper(cred, exe, extra=None):
@@ -671,17 +556,6 @@ def test_wrapper_dir_escape_rejected(app, tmp_path):
     r = subprocess.run([sys.executable, _WRAP, str(out), str(exe)],
                        capture_output=True, text=True, env=env, timeout=20)
     assert "outside permitted directory" in r.stderr
-
-
-def test_transport_ownership_still_enforced(app, client):
-    """Regression: dagu-worker executions stay unclaimable/unmutable
-    via agent API after the credential changes."""
-    ex_id, rid = _remote_exec(app, "dagu-worker")
-    with app.app_context():
-        from testorchestrator.agent_api import _agent_owned
-        assert not _agent_owned(Execution.query.get(ex_id))
-
-
 def test_wrapper_rejects_symlink_and_confines_dir(app, tmp_path):
     """Symlink substitution + confinement: a link inside the cred dir
     pointing outside must be rejected before launch."""
@@ -702,91 +576,6 @@ def test_wrapper_rejects_presupplied_apikey(app, tmp_path):
     exe = tmp_path / "x"; exe.write_text("#!/bin/sh\n"); exe.chmod(0o755)
     r = _run_wrapper(str(cred), str(exe), ["-apiKey=OTHER"])
     assert r.returncode == 3 and "conflicting credential" in r.stderr
-
-
-def test_remote_collect_scrubs_secret(app, tmp_path):
-    """A worker artifact or run log that echoes the credential must be
-    scrubbed before persistence — fake child printing the key."""
-    from testorchestrator import dispatch as dsp
-    KEY = "FAKEKEY-TEST-1234"
-    class FakeAdapter:
-        def list_artifacts(self, dag, run):
-            return [{"path": "logs/child-stdout.log", "type": "file"}]
-        def download_artifact(self, dag, run, rel):
-            return f"stdout contains {KEY} here".encode()
-        def run_log(self, dag, run):
-            return f"run log {KEY}"
-    ex_id, rid = _remote_exec(app, "dagu-worker")
-    with app.app_context():
-        ex = Execution.query.get(ex_id)
-        rt = RuntimeConnection(name="K", runner_id=rid,
-                               transport="dagu-worker",
-                               executable_path="/x",
-                               credential_ref="", worker_label="w")
-        db.session.add(rt); db.session.flush()
-        ex.runtime_id = rt.id; ex.dispatch_id = "dr1"
-        db.session.commit()
-        orig = dsp._redact_values
-        dsp._redact_values = lambda rt_: [KEY]
-        try:
-            dsp._collect_remote(FakeAdapter(), ex, "failed")
-        finally:
-            dsp._redact_values = orig
-        rd = __import__("pathlib").Path(
-            app.instance_path) / "remote-runs" / ex_id
-        blob = (rd / "logs/child-stdout.log").read_bytes() \
-            + (rd / "logs/kre-remote-run.log").read_bytes()
-        assert KEY.encode() not in blob
-        assert b"***REDACTED***" in blob
-
-
-def test_full_remote_chain_one_of_each_arg(app, tmp_path):
-    """Complete production arg chain: build_args -> remote_kre_spec ->
-    wrapper -> fake katalonc. Exactly one -reportFolder, one selector,
-    one -apiKey (post-resolution); none in the spec."""
-    from testorchestrator.adapters import kre as kre_adapter
-    from testorchestrator.adapters.dagu import DaguAdapter
-    KEY = "FAKEKEY-TEST-1234"
-    cred = tmp_path / "creds"; cred.mkdir(); cf = cred / "kre.key"
-    cf.write_bytes(KEY.encode()); cf.chmod(0o600)
-    exe = tmp_path / "fake katalonc"          # path WITH a space
-    exe.write_text(
-        '#!/usr/bin/env bash\n'
-        'for a in "$@"; do echo "ARG:$a"; done\n'
-        f'echo "leak {KEY}"\nexit 7\n')
-    exe.chmod(0o755)
-    kargs = kre_adapter.build_args(
-        executable=str(exe), project_path="/w/some dir/proj",
-        suite_path="Test Suites/API-TS.ts",
-        report_dir="${context.paths.artifacts_dir}/Reports",
-        profile="default", collection=False)
-    spec = DaguAdapter("http://x").remote_kre_spec(
-        worker_label="e2e-kre", repository="file:///r", ref="abc",
-        git_auth={}, remote_workspace="/w/1",
-        executable=str(exe), args=kargs[1:],
-        credential_wrapper=_WRAP, credential_file=str(cf))
-    import json as j
-    blob = j.dumps(spec)
-    assert KEY not in blob and "-apiKey" not in blob   # spec carries no secret
-    run = [s for s in spec["steps"] if s["id"] == "run_kre"][0]["with"]
-    assert run["args"].count("-reportFolder=${context.paths.artifacts_dir}/Reports") == 1
-    sel = [a for a in run["args"] if a.startswith("-testSuitePath=")]
-    assert sel == ["-testSuitePath=Test Suites/API-TS"]
-    assert "-projectPath=/w/some dir/proj" in run["args"]
-    assert "-executionProfile=default" in run["args"]
-    # invoke the wrapper exactly as the dagu step would
-    r = subprocess.run([sys.executable, run["command"], *run["args"]],
-                       capture_output=True, text=True, timeout=30)
-    assert r.returncode == 7                       # child exit propagates
-    child_args = re.findall(r"^ARG:(.*)$", r.stdout, re.M)
-    assert sum(a.startswith("-apiKey=") for a in child_args) == 1
-    assert child_args.count(
-        "-reportFolder=${context.paths.artifacts_dir}/Reports") == 1
-    assert "-projectPath=/w/some dir/proj" in child_args   # space preserved
-    assert KEY not in r.stdout and KEY not in r.stderr     # pumped+scrubbed
-    assert "***REDACTED***" in r.stdout
-
-
 def test_wrapper_sigterm_kills_child(app, tmp_path):
     """Supervisor lifecycle: SIGTERM on the wrapper terminates the
     child; no orphan remains; exit is not the child's own code."""
@@ -901,54 +690,6 @@ def _patch_adapter(monkeypatch, fake):
     monkeypatch.setattr(
         "testorchestrator.dispatch.DaguAdapter.from_settings",
         classmethod(lambda cls, **kw: fake))
-
-
-def test_remote_submit_capacity_gate(app, monkeypatch):
-    ids, rid, rtid = _dagu_env(app, count=2)
-    calls = []; _patch_adapter(monkeypatch, _fake_adapter(calls))
-    with app.app_context():
-        e1 = Execution.query.get(ids[0]); e2 = Execution.query.get(ids[1])
-        dispatch._submit_remote(e1); db.session.refresh(e1)
-        assert e1.state == ExecutionState.DISPATCHED and len(calls) == 1
-        dispatch._submit_remote(e2); db.session.refresh(e2)
-        assert e2.state == ExecutionState.QUEUED and len(calls) == 1
-
-
-def test_remote_submit_409_adopt_reject_ambiguous(app, monkeypatch):
-    ids, rid, rtid = _dagu_env(app, count=3)
-    with app.app_context():
-        for ex_id, run, want in (
-                (ids[0], "absent", "FAILED"),
-                (ids[1], "present", "DISPATCHED"),
-                (ids[2], "inconclusive", "DISPATCHED")):
-            ex = Execution.query.get(ex_id)
-            ex.state = ExecutionState.DISPATCHED
-            ex.runner_id = rid
-            db.session.commit()
-            _patch_adapter(monkeypatch, _fake_adapter(code=409, run=run))
-            dispatch._submit_remote(ex); db.session.refresh(ex)
-            assert ex.state.name == want, (run, ex.state)
-            if run == "present":
-                assert ex.dispatch_id == ex.id
-            if run == "absent":
-                assert ex.error_kind == "infrastructure"
-
-
-def test_redrive_queued_remote_retries_on_free_slot(app, monkeypatch):
-    ids, rid, rtid = _dagu_env(app, count=2)
-    calls = []; _patch_adapter(monkeypatch, _fake_adapter(calls))
-    with app.app_context():
-        e1 = Execution.query.get(ids[0])
-        e1.state = ExecutionState.RUNNING; e1.runner_id = rid
-        db.session.commit()
-        assert dispatch._redrive_queued_remote() == 0  # slot held
-        assert len(calls) == 0
-        e1.state = ExecutionState.COMPLETED
-        db.session.commit()
-        assert dispatch._redrive_queued_remote() == 1  # admitted
-        assert len(calls) == 1
-
-
 def test_portal_schedule_repo_target(app, client, login_as):
     """POST a once-schedule with a repo:<item_id> target — persisted to
     targets_json; a foreign project's item is rejected visibly."""
@@ -1000,7 +741,7 @@ def test_create_runtime_honors_selected_runner(app, client, login_as):
     with app.app_context():
         rt = RuntimeConnection.query.filter_by(name="kre-x").one()
         assert rt.runner_id == r2_id
-        assert rt.transport == "dagu-worker"
+        assert rt.runner_id == r2_id
 
 
 def test_create_runtime_rejects_bad_runner(app, client, login_as):

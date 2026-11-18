@@ -19,7 +19,6 @@ from testorchestrator.secrets_store import (SecretError, list_secret_meta,
 
 def test_secret_roundtrip_and_no_plaintext(app, tmp_path, monkeypatch):
     key = tmp_path / "secret.key"
-    monkeypatch.setenv("TO_SECRET_KEY_FILE", str(key))
     with app.app_context():
         store_secret(app, "git-main", "git", "s3cr3t-token",
                      {"description": "main repo"})
@@ -34,7 +33,6 @@ def test_secret_roundtrip_and_no_plaintext(app, tmp_path, monkeypatch):
 
 
 def test_missing_secret_is_actionable(app, monkeypatch, tmp_path):
-    monkeypatch.setenv("TO_SECRET_KEY_FILE", str(tmp_path / "k"))
     with app.app_context():
         with pytest.raises(SecretError, match="not configured"):
             read_secret(app, "nonexistent")
@@ -42,7 +40,6 @@ def test_missing_secret_is_actionable(app, monkeypatch, tmp_path):
 
 def test_key_file_permissions(app, tmp_path, monkeypatch):
     key = tmp_path / "secret.key"
-    monkeypatch.setenv("TO_SECRET_KEY_FILE", str(key))
     with app.app_context():
         store_secret(app, "x", "git", "y")
     assert stat.S_IMODE(key.stat().st_mode) & 0o777 == 0o600

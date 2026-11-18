@@ -184,8 +184,7 @@ class RuntimeForm(FlaskForm):
         "Worker-local credential file (remote dispatch)",
         validators=[Optional(), Length(max=512)],
         description="Absolute path on the WORKER to a protected "
-                    "credential file (0700 dir / 0600 file). The Dagu "
+                    "credential file (0700 dir / 0600 file). The "
                     "spec carries this path only — the worker's "
                     "resolver reads the value at exec time.")
-    worker_label = StringField("Dagu worker label", validators=[Optional()])
     concurrency = IntegerField("Concurrency", default=1)

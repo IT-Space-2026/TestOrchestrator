@@ -14,7 +14,7 @@ No git-bash, curl, unzip, or sha256sum needed — staging is pure Python.
 
 Produces in dist/release/windows/:
   testorchestrator-<ver>-windows-amd64-setup-UNSIGNED.exe
-  testorchestrator-dagu-worker-<dagu>-setup-UNSIGNED.exe
+  TestOrchestrator-Buildbot-Worker-Setup-<bb>-UNSIGNED.exe (via linux build)
   SHA256SUMS.txt + build-manifest.json + per-run log
 
 Never tags, publishes, or touches git state.
@@ -26,8 +26,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (ASSETS, BUILD_ROOT, BuildError, Log, REPO,
-                     build_worker_installer, clean_release_dir,
-                     ensure_makensis, ensure_pip, fetch, fetch_dagu,
+                     build_buildbot_worker_installer, clean_release_dir,
+                     ensure_makensis, ensure_pip, fetch,
                      finalise, git_info, release_version, run,
                      sha256_file, unzip_safely, venv_python,
                      read_pin_file)
@@ -48,28 +48,14 @@ VENDORED_RL = ("3rdparty/reporting_labs", "3rdparty/reporting_labs")
 def stage_app_payload(vpy: Path, dl: Path, log: Log) -> None:
     if PAYLOAD.exists():
         shutil.rmtree(PAYLOAD)
-    for d in ("python", "dagu", "caddy", "site-packages", "wheels"):
+    for d in ("python", "site-packages", "wheels"):
         (PAYLOAD / d).mkdir(parents=True, exist_ok=True)
 
-    log.write("  python embeddable + caddy windows")
+    log.write("  python embeddable")
     unzip_safely(fetch(ASSETS["python_embed_windows"]["url"],
                        dl / "python-embed.zip",
                        ASSETS["python_embed_windows"]["sha256"], log),
                  PAYLOAD / "python")
-    unzip_safely(fetch(ASSETS["caddy_windows"]["url"],
-                       dl / "caddy-windows.zip",
-                       ASSETS["caddy_windows"]["sha256"], log),
-                 PAYLOAD / "caddy")
-
-    log.write("  dagu.exe from pinned windows archive")
-    archive = fetch_dagu("windows_amd64", log)
-    with tarfile.open(archive, "r:gz") as tar:
-        for m in tar.getmembers():
-            if Path(m.name).name in {"dagu.exe", "LICENSE"} and m.isfile():
-                m.name = Path(m.name).name
-                tar.extract(m, PAYLOAD / "dagu", filter="data")
-    if not (PAYLOAD / "dagu" / "dagu.exe").is_file():
-        raise BuildError("dagu.exe not found in pinned windows archive")
 
     log.write("  application source")
     for item in APP_COPY:
@@ -87,34 +73,16 @@ def stage_app_payload(vpy: Path, dl: Path, log: Log) -> None:
         raise BuildError(f"payload source missing: {VENDORED_RL[0]}")
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
         "__pycache__", "*.pyc"))
-    prov = REPO / "scripts" / "provision_dagu.py"
-    shutil.copy2(prov, PAYLOAD / "provision_dagu.py")
-
     log.write("  worker-download assets served by the installed portal")
-    # Same contract as the Linux tarball: the portal serves pinned dagu
-    # archives + the bundled NSIS worker installer from the installed
+    # Same contract as the Linux tarball: the portal serves the
+    # bundled Buildbot-worker NSIS installer from the installed
     # payload — never fetched remotely at runtime.
-    dagu_dst = PAYLOAD / "3rdparty" / "dagu"
-    dagu_dst.mkdir(parents=True, exist_ok=True)
-    pins = read_pin_file(REPO / "3rdparty" / "dagu" / "dagu.sha256")
-    for name in sorted(pins):
-        src_archive = REPO / "3rdparty" / "dagu" / name
-        if not src_archive.is_file():
-            raise BuildError(f"pinned dagu archive missing: {name} — "
-                             "run fetch_all_dagu first")
-        if sha256_file(src_archive) != pins[name]:
-            raise BuildError(f"checksum mismatch: {name}")
-        shutil.copy2(src_archive, dagu_dst / name)
-    for extra in ("dagu.sha256", "LICENSE", "README.md"):
-        p = REPO / "3rdparty" / "dagu" / extra
-        if p.is_file():
-            shutil.copy2(p, dagu_dst / extra)
     worker_exes = sorted((REPO / "packaging" / "windows").glob(
-        "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe"))
+        "TestOrchestrator-Buildbot-Worker-Setup-*.exe"))
     if len(worker_exes) != 1:
         raise BuildError(
-            "expected exactly one built dagu-worker installer under "
-            f"packaging/windows — found "
+            "expected exactly one built buildbot-worker installer "
+            f"under packaging/windows — found "
             f"{[e.name for e in worker_exes]} (build it before staging)")
     pkg_win = PAYLOAD / "packaging" / "windows"
     pkg_win.mkdir(parents=True, exist_ok=True)
@@ -139,28 +107,20 @@ def check_payload(log: Log) -> dict:
         if not (PAYLOAD / rel).exists():
             missing.append(rel)
 
-    for rel in ("python/python.exe", "dagu/dagu.exe", "caddy/caddy.exe",
+    for rel in ("python/python.exe",
                 "testorchestrator/templates", "testorchestrator/static",
                 "migrations", "wsgi.py", "requirements.txt",
-                "release/release.json", "dagu/LICENSE",
+                "release/release.json",
                 "3rdparty/reporting_labs/__init__.py",
-                "3rdparty/reporting_labs/LICENSE",
-                "provision_dagu.py"):
+                "3rdparty/reporting_labs/LICENSE"):
         need(rel)
     # Worker-download assets the installed portal must serve — same
     # completeness contract as validate_package.py on the Linux side.
-    need("3rdparty/dagu/dagu.sha256")
-    pins = read_pin_file(REPO / "3rdparty" / "dagu" / "dagu.sha256")
-    for name in sorted(pins):
-        need(f"3rdparty/dagu/{name}")
-        p = PAYLOAD / "3rdparty" / "dagu" / name
-        if p.is_file() and sha256_file(p) != pins[name]:
-            missing.append(f"3rdparty/dagu/{name} (checksum mismatch)")
     worker_exes = list((PAYLOAD / "packaging" / "windows").glob(
-        "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe"))
+        "TestOrchestrator-Buildbot-Worker-Setup-*.exe"))
     if not worker_exes:
         missing.append("packaging/windows/"
-                       "testorchestrator-dagu-worker-*-setup-UNSIGNED.exe")
+                       "TestOrchestrator-Buildbot-Worker-Setup-*.exe")
     elif len(worker_exes) > 1:
         missing.append("packaging/windows/ multiple worker installers: "
                        f"{[e.name for e in worker_exes]}")
@@ -188,6 +148,19 @@ def check_payload(log: Log) -> dict:
 
 
 def main() -> int:
+    # Windows CONTROLLER packaging is pending the Buildbot port: the
+    # payload needs a Windows master/local-worker provisioning story
+    # (provision_buildbot + win wheels + schtasks units) replacing the
+    # removed dagu.exe/caddy.exe staging below. The Windows WORKER
+    # installer — the artefact the release actually requires — is
+    # produced by build_linux.py (build_buildbot_worker_installer).
+    import sys as _s
+    _s.stderr.write(
+        "windows controller build: pending Buildbot port — dagu/caddy "
+        "payload staging removed; worker .exe comes from "
+        "build_linux.py\n")
+    return 1
+    # unreachable — kept for the pending rework
     log = Log("windows")
     try:
         log.step("TestOrchestrator Windows release build")
@@ -203,11 +176,9 @@ def main() -> int:
         dl.mkdir(parents=True, exist_ok=True)
         makensis = ensure_makensis(log)
 
-        log.step("1/4 compile dagu-worker installer (unsigned)")
-        # Built first so stage_app_payload can bundle it — the installed
-        # portal serves it as a worker download; it is no longer
-        # published as a standalone release asset.
-        worker_exe = build_worker_installer(log, ASSETS["dagu"]["version"])
+        log.step("1/4 compile buildbot-worker installer (unsigned)")
+        worker_exe = build_buildbot_worker_installer(
+            BUILD_ROOT / "windows", log)
 
         log.step("2/4 stage application payload")
         stage_app_payload(vpy, dl, log)
@@ -231,21 +202,21 @@ def main() -> int:
                   f"({app_exes[0].stat().st_size:,} B, UNSIGNED)")
 
         log.step("4/4 verify + publish release outputs")
-        dagu_ver = ASSETS["dagu"]["version"]
-        worker_ok = (f"-{dagu_ver}-" in worker_exe.name)
+        bb_ver = ASSETS["buildbot_worker"]["version"]
+        worker_ok = (f"Setup-{bb_ver}" in worker_exe.name)
         if not worker_ok:
             raise BuildError(f"worker installer {worker_exe.name} not "
-                             f"aligned to dagu {dagu_ver}")
+                             f"aligned to buildbot {bb_ver}")
         checks.append({"name": "worker-version-alignment",
                        "detail": f"app + worker installers built; "
-                                 f"worker embeds dagu {dagu_ver}",
+                                 f"worker embeds buildbot {bb_ver}",
                        "ok": True})
         finalise(log, "windows", gi, [app_exes[0]],
                        {"signing": "UNSIGNED — no signing identity "
                                    "configured; installers are "
                                    "labelled unsigned",
                         "worker_assets": {
-                            "dagu_version": dagu_ver,
+                            "buildbot_version": bb_ver,
                             "bundled_worker_installer":
                                 f"packaging/windows/{worker_exe.name}",
                             "note": "worker installer is built and "

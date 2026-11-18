@@ -3,10 +3,10 @@
 Architecture notes (v1.0–v1.6 foundation + v1.7 About/branding):
 
 - Server-rendered Jinja2 templates, locally bundled CSS, minimal vanilla JS.
-- Waitress is the production WSGI server bound to 127.0.0.1:8080; Caddy is
+- Waitress is the production WSGI server bound to 127.0.0.1:8080; the Cheroot web tier is
   the public HTTPS reverse proxy. The Flask development server is never used
   in production.
-- Integrations (Dagu, reporting-labs, KRE, runner agent, updater) live behind
+- Integrations (Buildbot, reporting-labs, KRE, updater) live behind
   adapters in ``testorchestrator.adapters`` and run outside request handlers.
 """
 
@@ -106,13 +106,11 @@ def create_app(config_object=Config) -> Flask:
     from .main import main_bp
     from .system import system_bp
     from .portal import portal_bp
-    from .agent_api import agent_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(system_bp)
     app.register_blueprint(portal_bp)
-    app.register_blueprint(agent_bp)
     from .system.setup_routes import setup_bp
     app.register_blueprint(setup_bp)
 
@@ -130,7 +128,6 @@ def create_app(config_object=Config) -> Flask:
         })
     # Agent API is bearer-token authenticated, not session-based — CSRF
     # does not apply (no cookies honoured by this surface).
-    csrf.exempt(agent_bp)
 
     # v1.8 bootstrap + network gates (loopback-only until setup completes and
     # external access is enabled; host allowlist; forced password change).
@@ -334,7 +331,7 @@ def register_cli(app: Flask) -> None:
         """Direct smoke EXECUTION against an EXISTING KRE install (§5):
         one console invocation of the explicitly selected suite into an
         isolated report dir under the instance dir. Bypasses
-        portal/Dagu/agent entirely — it is NOT the A01 acceptance run,
+        portal/Buildbot entirely — it is NOT the A01 acceptance run,
         only a CLI check of the console arguments against the installed
         KRE version. Example:
 
@@ -361,53 +358,6 @@ def register_cli(app: Flask) -> None:
         click.echo("NOTE: pass/fail verdict requires real JUnit output; "
                    "this smoke run only proves invocation + collection.")
 
-    @app.cli.command("dagu-config")
-    @click.option("--endpoint", required=True,
-                  help="Dagu base URL, e.g. http://127.0.0.1:29877")
-    @click.option("--credential-ref", default="",
-                  help="SecretRef name holding the Dagu credential "
-                       "(basic-mode password, or bearer API key)")
-    @click.option("--username", default="",
-                  help="Dagu basic-auth username; empty = Bearer token mode")
-    @click.option("--check", is_flag=True,
-                  help="Probe /api/v1/version after saving")
-    def dagu_config(endpoint, credential_ref, username, check):
-        """Point the portal at the Dagu orchestrator (§7, Option B).
-        The credential itself is stored via System -> Credentials —
-        only the SecretRef NAME is recorded here. With --username the
-        secret must hold that account's password (auth.mode: basic);
-        without it the secret must hold a Bearer API key (builtin)."""
-        from . import settings as settings_mod
-        from .adapters.dagu import DaguAdapter
-        from .secrets_store import read_secret
-        if credential_ref:
-            try:
-                read_secret(app, credential_ref)
-            except Exception as exc:
-                raise click.ClickException(
-                    f"credential reference unusable: {exc}")
-        settings_mod.update({
-            "dagu_endpoint": endpoint.rstrip("/"),
-            "dagu_credential_ref": credential_ref,
-            "dagu_username": username,
-        })
-        click.echo(f"saved dagu_endpoint={endpoint.rstrip('/')} "
-                   f"dagu_username={username or '(bearer)'} "
-                   f"dagu_credential_ref={credential_ref or '(none)'}")
-        if check:
-            try:
-                info = DaguAdapter.from_settings().health()
-            except Exception as exc:
-                raise click.ClickException(f"Dagu health check failed: {exc}")
-            click.echo(
-                f"health: {info.get('status') or 'reachable'}, "
-                f"version {info['version']}, "
-                f"workflow_installed={info['workflow_installed']}")
-            if not info["workflow_installed"]:
-                raise click.ClickException(
-                    "testorchestrator-execution workflow is not installed "
-                    "in the Dagu dags directory")
-
     @app.cli.command("buildbot-config")
     @click.option("--endpoint", default="http://127.0.0.1:8010",
                 help="loopback REST endpoint the adapter talks to")
@@ -420,12 +370,10 @@ def register_cli(app: Flask) -> None:
                   help="twistd.pid used to signal reconfig")
     @click.option("--pb-port", type=int, default=9989)
     @click.option("--www-port", type=int, default=8010)
-    @click.option("--backend/--no-backend", default=True,
-                  help="switch orchestrator_backend to buildbot")
     @click.option("--check", is_flag=True,
                   help="Probe /api/v2/masters after saving")
     def buildbot_config(endpoint, username, credential_ref, bb_home,
-                        pidfile, pb_port, www_port, backend, check):
+                        pidfile, pb_port, www_port, check):
         """Point the portal at the Buildbot master. The REST API is
         loopback-only — the adapter is its sole client. The credential
         is referenced by SecretRef NAME only."""
@@ -447,12 +395,9 @@ def register_cli(app: Flask) -> None:
             "buildbot_pb_port": pb_port,
             "buildbot_www_port": www_port,
         }
-        if backend:
-            upd["orchestrator_backend"] = "buildbot"
         settings_mod.update(upd)
         click.echo(f"saved buildbot_endpoint={endpoint.rstrip('/')} "
-                   f"home={bb_home} backend="
-                   f"{upd.get('orchestrator_backend', 'dagu')}")
+                   f"home={bb_home}")
         if check:
             try:
                 info = BuildbotAdapter.from_settings().health()
@@ -461,14 +406,15 @@ def register_cli(app: Flask) -> None:
                     f"Buildbot health check failed: {exc}")
             click.echo(f"health: masters={info.get('masters')}")
 
-    @app.cli.command("caddy-rollback")
-    def caddy_rollback():
-        """Local recovery: restore the last known good Caddy config when
-        the UI is unreachable (v1.8 staged-apply rollback)."""
-        from .caddyconf import rollback_config, CaddyApplyError
+    @app.cli.command("network-rollback")
+    def network_rollback():
+        """Local recovery: restore the last known good network
+        configuration when the UI is unreachable (staged-apply
+        rollback — takes effect on the next service start)."""
+        from .netconf import rollback_config, NetApplyError
         try:
             result = rollback_config(app)
-        except CaddyApplyError as exc:
+        except NetApplyError as exc:
             raise click.ClickException(str(exc))
         click.echo(f"rolled back: {result['restored']}")
 

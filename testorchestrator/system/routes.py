@@ -16,7 +16,7 @@ from flask_login import current_user
 from ..extensions import db
 
 from .. import settings as settings_mod
-from ..caddyconf import (CaddyApplyError, apply_config, rollback_config)
+from ..netconf import (NetApplyError, apply_config, rollback_config)
 from ..certs import (CertificateError, generate_local, import_pem)
 from ..models import Role, record_audit
 from ..network import (ValidationError, access_links, check_port_conflicts,
@@ -72,7 +72,7 @@ def _apply_and_report():
     """Stage + validate + apply rendered Caddy config; flash the result."""
     try:
         result = apply_config(current_app, settings_mod.all_settings())
-    except CaddyApplyError as exc:
+    except NetApplyError as exc:
         flash(f"Configuration NOT applied: {exc}. {exc.stderr}", "error")
         record_audit(
             current_user.username, "network.apply_failed", str(exc)[:200]
@@ -268,7 +268,7 @@ def rollback():
     ApplyForm().validate_on_submit()
     try:
         rollback_config(current_app)
-    except CaddyApplyError as exc:
+    except NetApplyError as exc:
         flash(str(exc), "error")
         return redirect(url_for("system.network"))
     record_audit(current_user.username, "network.rollback")
@@ -308,9 +308,9 @@ def reporting_page():
 @system_bp.route("/integrations")
 @role_required(Role.ADMIN)
 def integrations_page():
-    """Subsystem-separated integration config (Dagu orchestrator, Git
-    evidence export). Each section is its own labelled card; secrets are
-    referenced by name only."""
+    """Subsystem-separated integration config (Git evidence export).
+    Each section is its own labelled card; secrets are referenced by
+    name only."""
     return render_template("system/integrations.html",
                            settings=settings_mod.all_settings())
 
@@ -323,15 +323,15 @@ def integrations_save():
     from flask import request
     updates = {}
     hidden = set()
-    for key in ("dagu_endpoint", "dagu_credential_ref", "dagu_username",
-                "git_export_repo", "git_export_credential_ref",
-                "git_export_ref"):
+    for key in ("buildbot_endpoint", "buildbot_credential_ref",
+                "buildbot_username", "git_export_repo",
+                "git_export_credential_ref", "git_export_ref"):
         if key not in request.form:
             continue
-        # Backend-managed keys (execution-coordinator config) are not
+        # Backend-managed keys (orchestrator config) are not
         # user-configurable: rejecting + auditing so an ignored update
         # is never silently dropped.
-        if key.startswith("dagu_"):
+        if key.startswith("buildbot_"):
             hidden.add(key)
             continue
         updates[key] = request.form.get(key, "").strip()
@@ -568,7 +568,7 @@ def delete_secret(name):
     from ..execution import SecretRef
     ApplyForm().validate_on_submit()
     sec = SecretRef.query.filter_by(name=name).first()
-    if sec is not None and sec.kind in ("dagu", "runner"):
+    if sec is not None and sec.kind in ("buildbot", "runner"):
         flash("System-managed credentials cannot be deleted here — "
               "they are provisioned by orchestration/worker "
               "enrollment.", "error")
@@ -579,92 +579,6 @@ def delete_secret(name):
 
 
 # ---------- runners & runtime connections (§5–§6) ----------
-
-def _dagu_worker_assets() -> list:
-    """Bundled, pinned Dagu worker archives with manifest checksums —
-    served from the installed package, not an external link."""
-    import re
-    from pathlib import Path
-    d = Path(current_app.root_path).parent / "3rdparty" / "dagu"
-    assets = []
-    manifest = {}
-    sums = d / "dagu.sha256"
-    if sums.exists():
-        for line in sums.read_text().splitlines():
-            parts = line.split()
-            if len(parts) == 2:
-                manifest[parts[1]] = parts[0]
-    for path in sorted(d.glob("dagu_*_amd64.tar.gz")):
-        m = re.match(r"dagu_(\d+\.\d+\.\d+)_(\w+)_amd64\.tar\.gz",
-                     path.name)
-        assets.append({
-            "file": path.name,
-            "version": m.group(1) if m else "?",
-            "os": (m.group(2) if m else "?"),
-            "arch": "amd64",
-            "sha256": manifest.get(path.name, ""),
-            "size": path.stat().st_size,
-        })
-    return assets
-
-
-def _worker_installer_asset() -> dict | None:
-    """The bundled NSIS worker installer inside the full package —
-    served as a clearly-distinguished supplementary download."""
-    import hashlib
-    from pathlib import Path
-    d = (Path(current_app.root_path).parent / "packaging" / "windows")
-    for p in sorted(d.glob("testorchestrator-dagu-worker-*-setup-"
-                           "UNSIGNED.exe")):
-        h = hashlib.sha256()
-        with p.open("rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
-        ver = re.search(r"dagu-worker-(\d+\.\d+\.\d+)", p.name)
-        return {"file": p.name, "size": p.stat().st_size,
-                "version": ver.group(1) if ver else "?",
-                "sha256": h.hexdigest()}
-    return None
-
-
-@system_bp.route("/infrastructure/dagu-worker/<filename>")
-@role_required(Role.ADMIN)
-def dagu_worker_download(filename):
-    """Serve a bundled Dagu worker archive — pinned version, checksum
-    published alongside on the page. No credentials in the URL."""
-    import re
-    from pathlib import Path
-    if not re.fullmatch(
-            r"dagu_\d+\.\d+\.\d+_(linux|windows)_amd64\.tar\.gz",
-            filename):
-        abort(404)
-    path = (Path(current_app.root_path).parent
-            / "3rdparty" / "dagu" / filename)
-    if not path.exists():
-        abort(404)
-    return send_file(path, as_attachment=True,
-                     download_name=filename)
-
-
-@system_bp.route("/infrastructure/worker-launcher/<worker_id>/<kre_label>")
-@role_required(Role.ADMIN)
-def worker_launcher(worker_id, kre_label):
-    """Download a generated `to-worker` launcher for this worker —
-    coordinator address + label baked in, so operators never assemble
-    raw backend flags. Admin-only; no secret material in the script."""
-    from ..adapters.dagu import worker_launcher_script
-    platform = request.args.get("platform", "linux")
-    try:
-        script = worker_launcher_script(worker_id=worker_id,
-                                        kre_label=kre_label,
-                                        platform=platform)
-    except ValueError as exc:
-        abort(400, str(exc))
-    name = ("to-worker.bat" if platform == "windows" else "to-worker.sh")
-    return Response(script, mimetype="application/octet-stream",
-                    headers={"Content-Disposition":
-                             f"attachment; filename={name}"})
-
 
 def _bb_worker_installer_asset() -> dict | None:
     """The bundled offline Buildbot-worker Windows installer — the
@@ -709,27 +623,6 @@ def buildbot_worker_installer_download(filename):
                      download_name=filename)
 
 
-@system_bp.route("/infrastructure/dagu-worker-installer/<filename>")
-@role_required(Role.ADMIN)
-def dagu_worker_installer_download(filename):
-    """Serve the bundled Dagu-worker NSIS installer (Windows) — a
-    supplementary worker asset inside the full package, clearly
-    separate from the plain worker archives. No credentials in the
-    URL; unsigned build — disclosed on the page."""
-    import re
-    from pathlib import Path
-    if not re.fullmatch(
-            r"testorchestrator-dagu-worker-\d+\.\d+\.\d+"
-            r"-setup-UNSIGNED\.exe", filename):
-        abort(404)
-    path = (Path(current_app.root_path).parent
-            / "packaging" / "windows" / filename)
-    if not path.exists():
-        abort(404)
-    return send_file(path, as_attachment=True,
-                     download_name=filename)
-
-
 @system_bp.route("/settings")
 @role_required(Role.ADMIN)
 def settings_home():
@@ -743,8 +636,9 @@ def settings_home():
 
 _DEFAULT_UNITS = ("testorchestrator-web.service",
                   "testorchestrator-worker.service",
-                  "testorchestrator-dagu.service",
-                  "testorchestrator-caddy.service")
+                  "testorchestrator-buildbot-master.service",
+                  "testorchestrator-buildbot-local.service",
+                  "testorchestrator-buildbot-ssh.service")
 _UNIT_RE = re.compile(r"^[a-zA-Z0-9@._ -]+\.service$")
 _TASK_RE = re.compile(r"^[a-zA-Z0-9@._ -]+$")
 _RESTART_FLAG = "restart-request.json"
@@ -760,7 +654,7 @@ def _managed_config() -> dict:
     scope = os.environ.get("TO_SERVICE_SCOPE",
                            "schtasks" if os.name == "nt" else "system")
     default = (["TestOrchestratorWeb", "TestOrchestratorWorker",
-                "TestOrchestratorDagu"] if scope == "schtasks"
+                "TestOrchestratorBuildbotMaster"] if scope == "schtasks"
         else list(_DEFAULT_UNITS))
     units = [u.strip() for u in raw.split(",") if u.strip()] or default
     name_re = _TASK_RE if scope == "schtasks" else _UNIT_RE
@@ -1118,8 +1012,6 @@ def _render_infrastructure(runner_form, runtime_form):
         fixture_runners=fixture_runners,
         runner_form=runner_form, runtime_form=runtime_form,
         runner_choices=[(r.id, r.name) for r in Runner.query.all()],
-        dagu_assets=_dagu_worker_assets(),
-        worker_installer=_worker_installer_asset(),
         bb_installer=_bb_worker_installer_asset(),
         secret_names=secret_names,
     )
@@ -1441,34 +1333,12 @@ def create_runtime():
     from ..execution import Runner, RuntimeConnection
     form = RuntimeForm()
     is_remote = request.form.get("exec_location") == "remote"
-    worker_label = (form.worker_label.data or "").strip()
-    # Buildbot/SSH targets bind by runner — the dagu worker label only
-    # applies to legacy dagu remote runners.
-    _sel = db.session.get(Runner, (form.runner_id.data or "").strip()) \
-        if (form.runner_id.data or "").strip() else None
-    needs_label = is_remote and (
-        _sel is None or _sel.target_type not in
-        ("buildbot-worker", "ssh"))
-    if needs_label:
-        # A remote installation is bound to exactly one Dagu worker —
-        # the label must match the worker's --worker.labels kre=<tag>
-        # and must be unique across installations (dispatch refuses
-        # ambiguous matches).
-        if not worker_label:
-            flash("Remote registration requires the Dagu worker label "
-                  "— the value passed to the worker via "
-                  "--worker.labels kre=<label>.", "error")
-            return redirect(url_for("system.infrastructure"))
-        clash = RuntimeConnection.query.filter_by(
-            worker_label=worker_label, enabled=True).first()
-        if clash:
-            flash(f"Worker label {worker_label!r} is already bound to "
-                  f"installation {clash.name!r} — labels must be "
-                  "unique per installation.", "error")
-            return redirect(url_for("system.infrastructure"))
+    # Remote runtimes bind to a Buildbot/SSH execution target (runner
+    # record) — the selected runner's target_type carries the
+    # transport.
     # Explicit runner selection wins: the form's runner_id names the
     # intended host — never silently fall back to "first matching
-    # mode" (that misbound a dagu-worker runtime to the wrong runner).
+    # mode" (that misbound a runtime to the wrong runner).
     # An invalid/disabled/incompatible selection is a visible error,
     # not a partial create.
     want_mode = "remote" if is_remote else "local"
@@ -1488,10 +1358,9 @@ def create_runtime():
             connection_mode=want_mode).first()
     if _runner is None:
         _runner = Runner(
-            name=(f"dagu-worker:{worker_label}" if is_remote
-                  else "local"),
+            name="local",
             connection_mode=want_mode,
-            os_arch=("dagu-worker" if is_remote else "local"),
+            os_arch="local",
             max_slots=4)
         db.session.add(_runner); db.session.flush()
     if form.validate_on_submit():
@@ -1499,15 +1368,14 @@ def create_runtime():
             name=form.name.data.strip(),
             description=form.description.data or "",
             runner_id=_runner.id,
-            transport=("dagu-worker" if is_remote and worker_label
-                       else (_runner.target_type
-                             if is_remote else "local")),
+            transport=(_runner.target_type
+                       if is_remote else "local"),
             executable_path=form.executable_path.data.strip(),
             workspace_root=form.workspace_root.data or "",
             git_ssh_key_path=form.git_ssh_key_path.data or "",
             credential_ref=(form.credential_ref.data or "").strip(),
             credential_file=(form.credential_file.data or "").strip(),
-            worker_label=(worker_label if is_remote else ""),
+
             concurrency=form.concurrency.data or 1,
         ))
         db.session.commit()
@@ -1539,8 +1407,8 @@ def probe_runtime(runtime_id):
     rt = db.session.get(RuntimeConnection, runtime_id)
     if rt and rt.runner and rt.runner.connection_mode != "local":
         flash("Remote installation — the portal-host check cannot "
-              "verify a remote worker's KRE. Remote verification "
-              "through the agent is not implemented.", "error")
+              "verify a remote worker's KRE. Use the target's "
+              "connection check instead.", "error")
         return redirect(url_for("system.infrastructure"))
     if rt is None:
         abort(404)
@@ -1564,28 +1432,6 @@ def probe_runtime(runtime_id):
     return redirect(url_for("system.infrastructure"))
 
 
-@system_bp.route("/infrastructure/runners/<runner_id>/issue-token",
-                 methods=["POST"])
-@role_required(Role.ADMIN)
-def issue_token(runner_id):
-    """Issue a new agent bearer token for this runner (§6, §12). The
-    plaintext is shown ONCE in the flash below — only its SHA-256 digest
-    is persisted. Re-issuing replaces the token (old agents lose access).
-    Required for BOTH modes: the Dagu-launched local agent and the
-    remote agent daemon authenticate with it."""
-    from ..agent_api import issue_agent_token
-    from ..execution import Runner
-    ApplyForm().validate_on_submit()
-    runner = db.session.get(Runner, runner_id)
-    if runner is None:
-        abort(404)
-    token = issue_agent_token(runner)
-    record_audit(current_user.username, "runner.agent_token_issued",
-                 runner.name)
-    flash(
-        f"Agent token for {runner.name} — copy it now, it is never stored "
-        f"or shown again: {token}", "info")
-    return redirect(url_for("system.infrastructure"))
 
 
 @system_bp.route("/runners/<runner_id>/edit", methods=["POST"])

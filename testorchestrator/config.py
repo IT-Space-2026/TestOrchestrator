@@ -59,7 +59,7 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # Session hardening. Cookies are Secure by default because production
-    # traffic is always HTTPS through Caddy; local development over plain HTTP
+    # traffic is always HTTPS through the frontend; local development over plain HTTP
     # sets TO_SECURE_COOKIES=0 explicitly.
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
@@ -69,12 +69,12 @@ class Config:
     )
     PREFERRED_URL_SCHEME = "https"
 
-    # Waitress binds loopback only; Caddy is the sole public entry point.
+    # Waitress binds loopback only; the frontend is the sole public entry point.
     # v1.8: internal app port defaults to 18080 (public HTTP owns 8080).
     WAITRESS_LISTEN = os.environ.get("TO_WAITRESS_LISTEN", "127.0.0.1:18080")
 
     # Proxy handling: forwarding headers are honoured only from these peers
-    # (the local Caddy reverse proxy). Anything else is untrusted.
+    # (the local frontend hop). Anything else is untrusted.
     TRUSTED_PROXY_IPS = tuple(
         ip.strip()
         for ip in os.environ.get("TO_TRUSTED_PROXIES", "127.0.0.1,::1").split(",")
@@ -98,13 +98,3 @@ class Config:
     LOGIN_RATE_LIMIT_ATTEMPTS = 5
     LOGIN_RATE_LIMIT_WINDOW_S = 60
 
-    # Rendered Caddy configuration staging directory (installer-owned).
-    CADDY_CONFIG_DIR = Path(
-        os.environ.get(
-            "TO_CADDY_CONFIG_DIR", str(INSTANCE_DIR / "caddy")
-        )
-    )
-    # Path to the bundled Caddy binary used for `caddy validate`.
-    CADDY_BIN = os.environ.get(
-        "TO_CADDY_BIN", str(BASE_DIR / "3rdparty" / "caddy" / "caddy")
-    )

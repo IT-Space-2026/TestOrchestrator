@@ -1,20 +1,25 @@
 [Unit]
-Description=TestOrchestrator application server (Waitress)
+Description=TestOrchestrator application server (Waitress + Cheroot frontend)
 After=network.target
 
 [Service]
 Type=simple
 User=testorchestrator
 Group=testorchestrator
+# Cheroot terminates the public HTTPS/redirect listeners in-process —
+# the unit needs the privileged-port capability the old proxy unit
+# carried.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+# The admin Services page + restart control manage this set.
+Environment=TO_SERVICE_UNITS=testorchestrator-web.service,testorchestrator-worker.service,testorchestrator-buildbot-master.service,testorchestrator-buildbot-local.service,testorchestrator-buildbot-ssh.service
 # Replaceable application payload:
 WorkingDirectory=/opt/testorchestrator
 # Persistent configuration/data (instance dir, database, certs) lives in
 # /var/lib/testorchestrator and /etc/testorchestrator — never in the payload.
 EnvironmentFile=/etc/testorchestrator/web.env
-ExecStart=/opt/testorchestrator/venv/bin/waitress-serve \
-    --listen=127.0.0.1:18080 \
-    --threads=8 \
-    wsgi:app
+# python wsgi.py starts the Cheroot public listeners, then Waitress on
+# loopback for internal probes — a single unit owns the process.
+ExecStart=/opt/testorchestrator/venv/bin/python wsgi.py
 Restart=on-failure
 RestartSec=5
 

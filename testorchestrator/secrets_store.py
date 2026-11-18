@@ -54,7 +54,7 @@ def store_secret(app, name: str, kind: str, value: str,
         row = SecretRef(name=name, kind=kind)
         db.session.add(row)
     else:
-        if row.kind in ("dagu", "runner") and not internal:
+        if row.kind in ("buildbot", "runner") and not internal:
             raise SecretError(
                 f"credential {name!r} is system-managed — it can only "
                 "be rotated by its provisioning flow")
@@ -107,14 +107,19 @@ def list_secret_meta() -> list:
 
 
 def ensure_coordinator_credential(app) -> bool:
-    """Provision the internal coordinator credential on fresh installs.
+    """Provision the internal Buildbot API credential on fresh installs.
 
     Idempotent: returns False (and leaves the existing secret + its
     consumers untouched) when already provisioned — never regenerates
-    on restart, repair, upgrade, or installer rerun. The value is
-    never surfaced to settings, logs, exports, or command examples.
+    on restart, repair, upgrade, or installer rerun. When the
+    installer already provisioned ``buildbot_home/secrets.json`` its
+    api_password is ADOPTED so the master's auth and the portal's
+    SecretRef agree without an admin command; otherwise a fresh token
+    is generated (the next targets sync writes it into secrets.json
+    and reconfigures the master). The value is never surfaced to
+    settings, logs, exports, or command examples.
     """
-    name = "coordinator-agent"
+    name = "buildbot-api"
     if SecretRef.query.filter_by(name=name).first() is not None:
         return False
     # Concurrency: the name is UNIQUE — a simultaneous first-provisioning
@@ -132,26 +137,36 @@ def ensure_coordinator_credential(app) -> bool:
 
 
 def _provision(app, name):
-    """Create the coordinator credential + wire refs (called once by
-    ensure_coordinator_credential under the race-recheck guard).
+    """Create the Buildbot API credential + wire the credential ref
+    (called once by ensure_coordinator_credential under the
+    race-recheck guard).
 
     INSERT-ONLY: builds the SecretRef directly instead of the upserting
     store_secret, so a UNIQUE-name conflict raises IntegrityError — the
     caller's guard rolls back + adopts the winner's credential instead
     of silently overwriting it. Never rotates an existing row."""
     import secrets as _secrets
+    from pathlib import Path
     from . import settings as settings_mod
     from .execution import SecretRef
+    password = None
+    home = settings_mod.get("buildbot_home") or ""
+    secrets_file = Path(home) / "secrets.json" if home else None
+    if secrets_file and secrets_file.exists():
+        try:
+            password = (json.loads(secrets_file.read_text())
+                        .get("api_password") or None)
+        except Exception:
+            password = None        # unreadable — generate fresh instead
     fernet = _load_fernet(app)
     row = SecretRef(
-        name=name, kind="dagu",
-        encrypted=fernet.encrypt(_secrets.token_urlsafe(32).encode()),
-        meta_json=json.dumps({"purpose": "coordinator basic-auth "
+        name=name, kind="buildbot",
+        encrypted=fernet.encrypt(
+            (password or _secrets.token_urlsafe(32)).encode()),
+        meta_json=json.dumps({"purpose": "buildbot REST API basic-auth "
                               "password", "auto": True}))
     db.session.add(row)
     db.session.commit()            # UNIQUE(name) -> IntegrityError if racing
-    if not settings_mod.get("dagu_credential_ref"):
-        settings_mod.update({"dagu_credential_ref": name})
-    if not settings_mod.get("dagu_username"):
-        settings_mod.update({"dagu_username": "testorchestrator"})
+    if not settings_mod.get("buildbot_credential_ref"):
+        settings_mod.update({"buildbot_credential_ref": name})
     return True

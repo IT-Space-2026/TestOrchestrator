@@ -16,7 +16,6 @@ from tests.ssh_test_server import TestSSHServer, generate_client_key
 
 @pytest.fixture()
 def ssh_env(app, tmp_path, monkeypatch):
-    monkeypatch.setenv("TO_SECRET_KEY_FILE", str(tmp_path / "k"))
     server = TestSSHServer(tmp_path / "remote")
     (tmp_path / "remote").mkdir(parents=True)
     return server

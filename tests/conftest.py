@@ -40,15 +40,46 @@ def seed_users(app, setup_complete=True):
             mark_setup_complete()
 
 
+@pytest.fixture(autouse=True)
+def _local_buildbot(tmp_path, monkeypatch):
+    """Dispatch tests run the real state machine against a local
+    subprocess stand-in for the Buildbot master — same submit/poll/
+    cancel/collect contract, no live master needed. Tests that patch
+    BuildbotAdapter.from_settings with their own probe still win."""
+    from testorchestrator import buildbot_cfg
+    from testorchestrator.adapters.buildbot import BuildbotAdapter
+    from tests.bb_local_stub import LocalBuildbotStub
+    home = tmp_path / "bb-stub"
+    home.mkdir(exist_ok=True)
+    stub = LocalBuildbotStub(home)
+    monkeypatch.setattr(BuildbotAdapter, "from_settings",
+                        classmethod(lambda cls: stub))
+    monkeypatch.setattr(buildbot_cfg, "home", lambda: home)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_secret_key(tmp_path, monkeypatch):
+    """Each test gets its own secrets key — the bootstrap-provisioned
+    buildbot-api credential is encrypted under the SAME key the test
+    then reads with (a mid-test key swap would rightly surface as
+    'cannot be decrypted')."""
+    monkeypatch.setenv("TO_SECRET_KEY_FILE", str(tmp_path / "secret.key"))
+
+
 @pytest.fixture()
 def app(tmp_path):
     application = make_app(tmp_path)
     with application.app_context():
         _db.create_all()
-        # Test mode: Dagu mandatory-orchestration off (no live backend in
+        # Test mode: mandatory-orchestration off (no live backend in
         # CI) — the durable dispatch path is exercised directly instead.
         from testorchestrator import settings as _s
-        _s.set("dagu_mandatory", False)
+        _s.set("buildbot_mandatory", False)
+        # Buildbot is the sole orchestrator — a test install always has
+        # the loopback endpoint/home configured (the LocalBuildbotStub
+        # autouse fixture stands in for the master).
+        _s.update({"buildbot_endpoint": "http://bb-stub",
+                   "buildbot_home": ""})
         _db.session.commit()
     seed_users(application)
     yield application

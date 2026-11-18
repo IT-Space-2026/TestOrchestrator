@@ -115,7 +115,7 @@
      stores explicitly). The private key is never offered for download.</p>
   {% endif %}
   {% else %}
-  <p class="muted">No certificate configured yet — Caddy falls back to its
+  <p class="muted">No certificate configured yet — the frontend generates a
      internal CA until you generate or import one.</p>
   {% endif %}
 
@@ -150,7 +150,7 @@
   <h2 id="apply-h">Apply &amp; recovery</h2>
   <form method="post" action="{{ url_for('system.apply') }}" class="inline">
     {{ apply_form.csrf_token }}
-    <button type="submit" class="button">Render &amp; apply Caddy config</button>
+    <button type="submit" class="button">Apply network configuration</button>
   </form>
   <form method="post" action="{{ url_for('system.rollback') }}" class="inline">
     {{ apply_form.csrf_token }}
@@ -159,8 +159,8 @@
       Roll back to last known good
     </button>
   </form>
-  <p class="muted">Renders into {{ cert_dir.parent }}/caddy, validates with the
-     bundled Caddy binary, then installs. A failed apply keeps the current
-     configuration.</p>
+  <p class="muted">Listener changes take effect on the next service
+     restart; certificate changes reload live. A failed apply keeps the
+     current configuration.</p>
 </section>
 {% endblock %}
