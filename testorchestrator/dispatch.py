@@ -176,9 +176,16 @@ def create_execution(username: str, suite: Suite = None,
     db.session.flush()  # id assigned before outbox references it
 
     # Dispatch route: Dagu when configured, else the local runner outbox.
-    # Persisted in the same transaction as the execution (§7).
+    # Persisted in the same transaction as the execution (§7). The local-
+    # dagu transport is stamped so capacity-blocked QUEUED executions are
+    # redrivable — their one-shot event is consumed even when no runner
+    # was eligible at that tick.
     kind = "dagu-dispatch" if (_dagu_configured() or _dagu_mandatory()) \
         else "local-dispatch"
+    if kind == "dagu-dispatch" \
+            and "dispatch_transport" not in snapshot:
+        snapshot["dispatch_transport"] = "dagu"
+        execution.snapshot_json = json.dumps(snapshot)
     db.session.add(OutboxEvent(
         kind=kind, payload_json=json.dumps({"execution_id": execution.id})))
     db.session.commit()
@@ -904,6 +911,47 @@ def process_outbox(limit: int = 10) -> int:
     return processed
 
 
+def _dagu_assign_and_submit(ex: Execution) -> None:
+    """Local-dagu dispatch (Option B): Dagu owns the run once submitted;
+    the portal assigns the authorized runner/runtime up front
+    (capability/project/capacity checked) so the workflow's agent picks
+    up exactly this task. Assignment commits BEFORE submit: the
+    workflow's agent step polls /api/agent/tasks the moment the run
+    starts — the DISPATCHED row + runner ownership must already be
+    durable, or its single poll sees nothing and the lease decays to
+    UNKNOWN without the task ever being claimed. Leaves the execution
+    QUEUED when no runner is eligible or the capacity CAS loses; the
+    redrive retries it next tick."""
+    runner, runtime, sel_err = _select_runner_runtime(ex)
+    if sel_err:
+        _fail(ex, "infrastructure", sel_err)
+        return
+    if runner is None:
+        return
+    if not _assign_runner(ex, runner, runtime):
+        return
+    try:
+        dispatch_id = DaguAdapter.from_settings().submit(
+            {"execution_id": ex.id})
+    except Exception as exc:
+        _fail(ex, "infrastructure",
+              f"Dagu orchestrator unreachable/not configured — "
+              f"reconcile before retry: {str(exc)[:300]}")
+        return
+    ex.dispatch_id = dispatch_id
+    db.session.commit()
+    db.session.refresh(ex)
+    if ex.state == ExecutionState.CANCEL_REQUESTED:
+        # A cancel landed between assignment and submit —
+        # request_cancel saw no dispatch_id and skipped the
+        # coordinator stop. Issue it now so the workflow doesn't run
+        # a cancelled execution.
+        try:
+            DaguAdapter.from_settings().cancel(dispatch_id)
+        except Exception:
+            pass
+
+
 def _handle_event(event: OutboxEvent) -> None:
     payload = event.payload()
     if event.kind == "report-publish":
@@ -928,42 +976,13 @@ def _handle_event(event: OutboxEvent) -> None:
                         == "dagu-worker"):
                     _submit_remote(ex)
                     return
-                # OWNERSHIP (Option B): Dagu owns the run once submitted;
-                # the portal assigns the authorized runner/runtime up
-                # front (capability/project/capacity checked) so the
-                # workflow's agent picks up exactly this task.
-                # Assignment commits BEFORE submit: the workflow's agent
-                # step polls /api/agent/tasks the moment the run starts —
-                # the DISPATCHED row + runner ownership must already be
-                # durable, or its single poll sees nothing and the lease
-                # decays to UNKNOWN without the task ever being claimed.
-                if ex and _dagu_mandatory():
-                    runner, runtime, sel_err = _select_runner_runtime(ex)
-                    if sel_err:
-                        _fail(ex, "infrastructure", sel_err)
-                        return
-                    if runner is None:
-                        return   # stays queued — next tick retries
-                    if not _assign_runner(ex, runner, runtime):
-                        return   # lost race — stays queued, next tick
-                                 # retries
+                if ex is not None and _dagu_mandatory():
+                    _dagu_assign_and_submit(ex)
+                    return
                 dispatch_id = DaguAdapter.from_settings().submit(payload)
                 if ex:
                     ex.dispatch_id = dispatch_id
                     db.session.commit()
-                    db.session.refresh(ex)
-                    if ex.state == ExecutionState.CANCEL_REQUESTED:
-                        # A cancel landed between assignment and submit —
-                        # request_cancel saw no dispatch_id and skipped the
-                        # coordinator stop. Issue it now so the workflow
-                        # doesn't run a cancelled execution.
-                        try:
-                            DaguAdapter.from_settings().cancel(
-                                dispatch_id)
-                        except Exception:
-                            pass
-                    if _dagu_mandatory():
-                        return
             except Exception as exc:
                 if _dagu_mandatory():
                     if ex:
@@ -1238,20 +1257,27 @@ def _heartbeat_local_runners() -> int:
 
 
 def _redrive_queued_remote(limit: int = 10) -> int:
-    """Capacity-blocked dagu-worker executions: their dispatch outbox
-    event is consumed once — a lost capacity CAS must not strand them
-    QUEUED forever. Each tick revisits QUEUED dagu-worker executions;
-    _submit_remote re-runs the CAS and submits only when a slot frees.
-    The execution-pinned dagRunId makes a duplicate event harmless —
-    the coordinator cannot create a second run for the same id."""
+    """Capacity-blocked dagu executions: their dispatch outbox event is
+    consumed once — a lost capacity CAS or a no-runner tick must not
+    strand them QUEUED forever. Each tick revisits QUEUED executions:
+    dagu-worker transports re-run _submit_remote (the execution-pinned
+    dagRunId makes a duplicate submission harmless — the coordinator
+    cannot create a second run for the same id); local-dagu
+    executions re-run assign->submit only while dispatch_id is still
+    empty — assignment precedes submit, so QUEUED + no dispatch_id
+    proves no run was ever started."""
     n = 0
     for ex in Execution.query.filter(
             Execution.state == ExecutionState.QUEUED).limit(limit):
-        if (ex.snapshot().get("dispatch_transport") != "dagu-worker"):
-            continue
-        _submit_remote(ex)
-        if ex.state != ExecutionState.QUEUED:
-            n += 1
+        transport = ex.snapshot().get("dispatch_transport")
+        if transport == "dagu-worker":
+            _submit_remote(ex)
+            if ex.state != ExecutionState.QUEUED:
+                n += 1
+        elif transport == "dagu" and not ex.dispatch_id:
+            _dagu_assign_and_submit(ex)
+            if ex.state != ExecutionState.QUEUED:
+                n += 1
     return n
 
 

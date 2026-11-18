@@ -4,6 +4,8 @@ step polls /api/agent/tasks the moment the run starts — a task not yet
 assigned is invisible to that single poll, the lease then decays and
 the execution reconciles to UNKNOWN without ever being claimed
 (observed: execution stranded UNKNOWN with no agent pickup)."""
+import json
+
 import pytest
 
 from testorchestrator import dispatch as d
@@ -127,7 +129,8 @@ class _StatusStub(DaguAdapter):
         self.label = label
 
     def status(self, dispatch_id):
-        return {"statusLabel": self.label}
+        # Real 2.27.0 shape: the run payload is wrapped under "dagRun".
+        return {"dagRun": {"statusLabel": self.label}}
 
 
 def _cancel_pending_exec(app, monkeypatch, label, cancel=True):
@@ -220,4 +223,50 @@ def test_explicit_runtime_unavailable_fails_visibly(app, monkeypatch):
         db.session.refresh(ex)
         assert ex.state == ExecutionState.FAILED
         assert "no fallback" in ex.error_text
+        assert stub.submits == 0
+
+
+def test_redrive_queued_local_dagu_after_capacity_frees(app, monkeypatch):
+    """A local-dagu execution whose one-shot dispatch event was consumed
+    while capacity-blocked must not strand QUEUED: the worker redrive
+    re-runs assign->submit once a slot frees (dispatch_id still empty
+    proves no run was ever started — no duplicate)."""
+    stub = _OrderProbe()
+    with app.app_context():
+        rtid, diid = _env(app, monkeypatch, stub)
+        runner = db.session.query(Runner).first()
+        runner.max_slots = 0    # capacity exhausted at first tick
+        ex = d.create_execution(
+            "u", None, source_item=db.session.get(DiscoveredItem, diid))
+        d._handle_event(_event_for(ex))
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.QUEUED
+        assert stub.submits == 0
+        # Redrive while blocked: still queued, no run created.
+        assert d._redrive_queued_remote() == 0
+        assert db.session.get(Execution, ex.id).state \
+            == ExecutionState.QUEUED
+        runner.max_slots = 2
+        db.session.commit()
+        assert d._redrive_queued_remote() == 1
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.DISPATCHED
+        assert ex.dispatch_id.startswith("run-")
+        assert stub.submits == 1
+
+
+def test_redrive_skips_non_dagu_queued(app, monkeypatch):
+    """QUEUED executions without a dagu transport stamp are left alone —
+    no blind dagu submission for legacy/local rows."""
+    stub = _OrderProbe()
+    with app.app_context():
+        rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, source_item=db.session.get(DiscoveredItem, diid))
+        snap = ex.snapshot(); snap.pop("dispatch_transport", None)
+        ex.snapshot_json = json.dumps(snap)
+        db.session.commit()
+        assert d._redrive_queued_remote() == 0
+        assert db.session.get(Execution, ex.id).state \
+            == ExecutionState.QUEUED
         assert stub.submits == 0
