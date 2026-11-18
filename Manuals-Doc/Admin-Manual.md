@@ -37,7 +37,7 @@ recaptured on 2.0.3).
   - [4.6 Ports and network flows](#46-ports-and-network-flows)
   - [4.7 Service management and logs](#47-service-management-and-logs)
   - [4.8 Uninstall](#48-uninstall)
-  - [4.9 Choosing the HTTPS frontend — Caddy (default) or Cheroot **[verified]**](#49-choosing-the-https-frontend--caddy-default-or-cheroot-verified)
+  - [4.9 HTTPS frontend — Cheroot](#49-https-frontend--cheroot)
 - [5. Windows installation **[code/CI — not locally validated]**](#5-windows-installation-codeci--not-locally-validated)
   - [5.1 Install and first access](#51-install-and-first-access)
   - [5.2 Certificate trust (what the installer does for you)](#52-certificate-trust-what-the-installer-does-for-you)
@@ -103,40 +103,45 @@ flowchart LR
         BR["browser<br/>admin + end users"]
         GIT["Git repository"]
         KLS["Katalon licence service"]
+        SSHH["agentless SSH host<br/>sshd + KRE only"]
     end
 
     subgraph HOST["Portal host (single machine, systemd)"]
         direction TB
-        CDY["Caddy<br/>bundled binary<br/>TLS :443, :8080"]
         subgraph APPUNIT["app unit (testorchestrator-web)"]
+            CHR["Cheroot HTTPS :443<br/>+ optional :8080 redirect<br/>(in-process)"]
             APP["Flask + Waitress :18080<br/>Python 3.12 payload + offline venv"]
             RLAB["reporting_labs<br/>vendored package (MIT)"]
             DB[("SQLite<br/>Alembic-migrated")]
+            CHR --> APP
             APP --> RLAB
             APP --> DB
         end
-        subgraph DAGUNIT["coordinator unit (testorchestrator-dagu)"]
-            COORD["Dagu coordinator<br/>bundled 2.27.0<br/>UI/API :8097 - gRPC :50055"]
+        subgraph BB["Buildbot (controller-side)"]
+            BBM["buildbot master 4.3.0<br/>REST :8010 loopback only<br/>PB :9989"]
+            BBL["to-local worker"]
+            BBS["to-ssh-dispatcher worker"]
+            BBM --- BBL
+            BBM --- BBS
         end
         FS[/"instance data dir<br/>evidence - workspaces - staging -<br/>licence.json - certs - secret.key"/]
-        CDY --> APP
-        APP --> COORD
+        APP -->|REST submit/poll/cancel| BBM
         APP --> FS
+        BBL --> FS
     end
 
-    subgraph WH["Worker host(s)"]
+    subgraph WH["Remote worker host(s)"]
         direction TB
-        subgraph WUNIT["worker unit (testorchestrator-worker)"]
-            WKR["dagu worker<br/>bundled 2.27.0<br/>labels: kre=label, os, arch"]
-        end
+        WKR["buildbot-worker 4.3.0<br/>from bundled offline installer"]
         KRE["KRE / katalonc<br/>NOT SHIPPED - install<br/>and licence it yourself"]
         WWS["job workspace +<br/>worker credential file"]
         WKR --> KRE
         KRE --> WWS
     end
 
-    BR -->|HTTPS| CDY
-    WKR <-->|gRPC task poll| COORD
+    BR -->|HTTPS| CHR
+    WKR -->|"outbound PB :9989<br/>(per-worker password)"| BBM
+    BBS -->|"SSH exec + SFTP collect"| SSHH
     APP -->|clone/fetch SSH or HTTPS| GIT
     KRE -.->|activation| KLS
 
@@ -144,8 +149,8 @@ flowchart LR
     classDef external fill:#dbeafe,stroke:#1e40af,color:#0f172a
     classDef own fill:#fde68a,stroke:#92400e,color:#0f172a
     classDef data fill:#fef9c3,stroke:#a16207,color:#0f172a
-    class CDY,APP,RLAB,COORD,WKR bundled
-    class BR,GIT,KLS external
+    class CHR,APP,RLAB,BBM,BBL,BBS,WKR bundled
+    class BR,GIT,KLS,SSHH external
     class KRE,WWS own
     class DB,FS data
 ```
@@ -154,17 +159,18 @@ flowchart LR
 *(rendered from the diagram above for PDF/offline readers — source:
 `Screenshot-Doc/admin/architecture-diagram.mmd`)*
 
-Colour key: grey = shipped binaries (Caddy, Flask/Waitress app,
-reporting_labs, Dagu coordinator/worker); yellow = persistent data;
+Colour key: grey = shipped components (Cheroot + Flask/Waitress app,
+reporting_labs, Buildbot master/workers); yellow = persistent data;
 amber = **not shipped** — KRE and worker-side files you install and
-licence yourself; blue = external services.
+licence yourself; blue = external services and agentless SSH hosts.
 
 
 | Piece | Ships as | Notes |
 |---|---|---|
-| Portal | Python 3.12 payload + offline venv | Flask/Waitress; SQLite (Alembic-migrated) in the instance dir |
-| Dagu coordinator + worker | Bundled Dagu **2.27.0** binaries | Coordinator serves UI/API + gRPC; workers poll it for tasks |
-| Caddy | Bundled binary | Optional-but-supported HTTPS terminator; the app renders/validates its config with rollback |
+| Portal | Python 3.12 payload + offline venv | Flask/Waitress app behind in-process **Cheroot** HTTPS; SQLite (Alembic-migrated) in the instance dir |
+| Buildbot master + controller workers | Bundled Python packages **4.3.0** (`buildbot`, `buildbot-worker`, `buildbot-www`, `paramiko`) | Master REST is loopback-only (`127.0.0.1:8010`); workers authenticate per-worker passwords over PB `:9989` |
+| Remote workers | `buildbot-worker` via the bundled offline installers (Windows `.exe`, Linux script) | Outbound-only PB connection; created and credentialed in Admin → Infrastructure |
+| Agentless SSH path | Controller-side `paramiko` (bundled) on the `to-ssh-dispatcher` worker | Remote host needs **only** `sshd` + KRE — no installed worker or agent |
 | reportingLabs | Vendored package `reporting_labs` (MIT) | Generates per-execution HTML reports |
 | KRE | **Not shipped** | Install/license it on each execution host yourself |
 
@@ -175,13 +181,12 @@ installer) creates three trees plus service definitions:
 
 | Location | Contents |
 |---|---|
-| **Payload** (`--payload`, default under the install root) | Application source (`testorchestrator/`, `wsgi.py`), `3rdparty/` (bundled `python-runtime`, `python-wheels`, `git`, Dagu archives, `reporting_labs` — **since 2.0.3 at `3rdparty/reporting_labs`**, Caddy), the app `venv/` built offline from the bundled wheels, `requirements.txt`, licences |
-| **Config** (`--config`) | `web.env` (service settings — not secrets), `Caddyfile`, `dagu/server.yaml` + `dagu/credentials` (0600), staged systemd units (`testorchestrator-web`, `-worker`, `-dagu`, `-caddy`) |
-| **Data** (`--data`) | SQLite instance DB (Alembic-migrated on upgrade), `dagu/dags/` workflow definitions, `evidence/` per-execution artifacts, `certs/`, `logs/`, `workspaces/` per-run checkouts |
+| **Payload** (`--payload`, default under the install root) | Application source (`testorchestrator/`, `wsgi.py`), `3rdparty/` (bundled `python-runtime`, `python-wheels` — including Buildbot wheels — `git`, `reporting_labs` — **since 2.0.3 at `3rdparty/reporting_labs`**), the app `venv/` built offline from the bundled wheels, `requirements.txt`, licences |
+| **Config** (`--config`) | `web.env` (service settings — not secrets), `buildbot/` master+worker config and `secrets.json` (0600), staged systemd units (`testorchestrator-web`, `-worker`, `-buildbot-master`, `-buildbot-local`, `-buildbot-ssh`) |
+| **Data** (`--data`) | SQLite instance DB (Alembic-migrated on upgrade), `buildbot/` runtime state (master + workers, PB :9989, REST :8010), `evidence/` per-execution artifacts, `certs/`, `logs/`, `workspaces/` per-run checkouts |
 
 Services: `testorchestrator-web` (Waitress :18080 loopback),
-`testorchestrator-caddy` (HTTPS terminator), `testorchestrator-dagu`
-(coordinator: UI/API + gRPC), `testorchestrator-worker` (local agent
+`testorchestrator-buildbot-master` (REST + PB), `testorchestrator-buildbot-local`/`...-ssh` (controller workers), `testorchestrator-worker` (dispatch worker
 launcher). On a host without systemd, `--no-service-start` stages the
 units only — start the processes manually with the same config files.
 
@@ -195,60 +200,65 @@ flowchart LR
         U["End user / administrator<br/>web browser"]
         GIT["Git repository<br/>suite sources"]
         KLS["Katalon licence service<br/>(optional, KRE activation)"]
+        SSHH["Agentless SSH host<br/>sshd + KRE + run dir"]
     end
 
     subgraph PH["Portal host"]
         direction TB
-        CDY["Caddy reverse proxy<br/>TLS :443 / HTTP :8080 redirect"]
-        APP["TestOrchestrator app<br/>Waitress + Flask :18080"]
+        CHR["Cheroot (in-process)<br/>TLS :443 / HTTP :8080 redirect"]
+        APP["TestOrchestrator app<br/>Waitress + Flask :18080<br/>owns schedules, run IDs,<br/>status, reports, evidence"]
         DB[("SQLite database<br/>data/testorchestrator.db")]
-        COORD["Dagu coordinator<br/>worker API / gRPC :50055<br/>own UI :8097"]
+        BBM["buildbot master<br/>REST :8010 loopback only<br/>PB :9989"]
+        BBL["to-local worker"]
+        BBS["to-ssh-dispatcher worker"]
         RLAB["reportingLabs<br/>vendored, in-process"]
         subgraph FS["Persistent data/ filesystem"]
             EV["evidence/ + imported-evidence/"]
             WS["bindings/ workspaces"]
             STG["import-staging/"]
             GEN["generated reports/"]
-            KEY["licence.json - certs/<br/>secret.key - dagu creds"]
+            KEY["licence.json - certs/<br/>secret.key - buildbot creds"]
         end
     end
 
-    subgraph WH["Worker host"]
-        WKR["dagu worker<br/>labels: kre=label, os, arch"]
+    subgraph WH["Remote worker host"]
+        WKR["buildbot-worker<br/>(offline installer)"]
         KRE["KRE runtime<br/>katalonc subprocess"]
         WWS["job workspace +<br/>worker credential file"]
         OUT["Katalon Reports/<br/>test output"]
     end
 
-    U -->|"① HTTPS :443"| CDY
-    CDY -->|"② HTTP loopback :18080"| APP
+    U -->|"① HTTPS :443"| CHR
+    CHR -->|"② in-process → Waitress :18080"| APP
     APP -->|"③ SQL: authn, config,<br/>executions, history"| DB
-    APP -->|"④ write dispatch intent<br/>outbox table"| DB
-    APP -->|"⑤ submit run request gRPC"| COORD
-    WKR -->|"⑥ gRPC task poll<br/>worker auth"| COORD
-    COORD -->|"⑦ task assignment<br/>matching labels"| WKR
-    WKR -->|"⑧ spawn katalonc"| KRE
-    KRE -.->|"⑨ optional licence activation"| KLS
-    KRE -->|"⑩ writes"| OUT
-    KRE -->|"⑪ result artifact"| WWS
-    WKR -->|"⑫ run state + result transfer"| COORD
-    APP -->|"⑬ poll state, collect<br/>results + evidence"| COORD
-    APP -->|"⑭ store evidence"| EV
-    APP -->|"⑮ generate report"| RLAB
+    APP -->|"④ write dispatch intent<br/>outbox table + snapshot"| DB
+    APP -->|"⑤ submit buildrequest<br/>REST + exec_spec (no secrets)"| BBM
+    BBM -->|"⑥ assign to builder's worker"| BBL
+    WKR -->|"⑦ outbound PB +<br/>worker password"| BBM
+    BBM -->|"⑧ run step commands<br/>(local or remote)"| BBL
+    BBL -->|"⑨ spawn katalonc"| KRE
+    KRE -.->|"⑩ optional licence activation"| KLS
+    KRE -->|"⑪ writes"| OUT
+    BBL -->|"⑫ upload artifacts<br/>(junit, logs)"| BBM
+    BBS -->|"⑬ SSH exec launch/monitor<br/>+ SFTP collect"| SSHH
+    SSHH --> BBS
+    APP -->|"⑭ REST poll state, reconcile<br/>download artifacts"| BBM
+    APP -->|"⑮ normalize results +<br/>store evidence"| EV
+    APP -->|"⑯ generate report"| RLAB
     RLAB --> GEN
-    APP -->|"⑯ clone/fetch<br/>SSH or HTTPS + stored credential"| GIT
-    GIT -->|"⑰ checkout"| WS
-    APP -->|"⑱ stage - confirm - ingest"| STG
-    APP -.->|"⑲ pages, reports,<br/>evidence links"| CDY
+    APP -->|"⑰ clone/fetch<br/>SSH or HTTPS + stored credential"| GIT
+    GIT -->|"⑱ checkout"| WS
+    APP -->|"⑲ stage - confirm - ingest"| STG
+    APP -.->|"⑳ pages, status, logs, reports,<br/>evidence links"| CHR
     APP --> KEY
-    WKR --> WWS
+    KRE --> WWS
 
     classDef actor fill:#dbeafe,stroke:#1e40af,color:#0f172a
     classDef proc fill:#f1f5f9,stroke:#334155,color:#0f172a
     classDef store fill:#fef9c3,stroke:#a16207,color:#0f172a
     classDef worker fill:#dcfce7,stroke:#166534,color:#0f172a
-    class U,GIT,KLS actor
-    class CDY,APP,COORD,RLAB proc
+    class U,GIT,KLS,SSHH actor
+    class CHR,APP,BBM,BBL,BBS,RLAB proc
     class DB,EV,WS,STG,GEN,KEY store
     class WKR,KRE,OUT,WWS worker
 ```
@@ -257,17 +267,23 @@ flowchart LR
 *(rendered from the diagram above for PDF/offline readers — source:
 `Screenshot-Doc/admin/dataflow-diagram.mmd`)*
 
-Flow summary: ①–③ the browser reaches the portal over HTTPS through
-Caddy → Waitress; the app reads/writes SQLite. ④–⑧ a dispatch is
-recorded in the outbox, submitted to the Dagu coordinator over gRPC,
-and claimed by the worker whose labels (`kre=<label>`, os, arch) match
-the runtime's `worker_label`; the worker spawns `katalonc`. ⑨ KRE may
-contact Katalon's licence service (separate from the portal licence).
-⑩–⑭ results and evidence travel back through the coordinator → the app
-→ `evidence/` and execution rows. ⑮ reportingLabs renders a report in
-process; ⑯–⑱ cover repository bindings (clone → workspace →
-stage/confirm/ingest); ⑲ everything is served back to the browser
-through Caddy.
+Flow summary: ①–③ the browser reaches the portal over HTTPS served
+by the in-process **Cheroot** tier → Waitress; the app reads/writes
+SQLite. ④–⑤ a dispatch is snapshotted, recorded in the outbox, and
+submitted to the Buildbot master over its loopback REST API as a
+buildrequest carrying an `exec_spec` (no secrets). ⑥–⑫ the master
+assigns it to the target's builder: `to-local` runs on the controller;
+remote `buildbot-worker`s connect outbound over PB with per-worker
+passwords; the `to-ssh-dispatcher` runs jobs on agentless hosts over
+SSH and collects over SFTP (⑬). ⑭–⑮ the app polls/reconciles the
+buildrequest, downloads artifacts, normalizes results, and stores
+`evidence/` + execution rows — TestOrchestrator stays authoritative
+for run state. **Cancellation** flows the reverse path: the app cancels
+the buildrequest (queued or running); SSH targets are reported
+`CANCELED` only after the remote process tree is confirmed dead.
+⑯ reportingLabs renders a report in-process; ⑰–⑲ cover repository
+bindings; ⑳ status, logs, reports, and evidence are served back to
+the browser.
 
 
 **Historical-result import** follows the same storage path minus the
@@ -294,7 +310,7 @@ them. Evidence that never reached the repository cannot be recreated
 ### 2.2 Windows
 
 - Windows amd64, installed via `testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe`.
-  The dagu-worker installer is bundled inside the app package —
+  The Buildbot worker installer is bundled inside the app package —
   download it from the installed portal (§6.1); it is not a
   separate release download.
 - **[code/CI]** Documented from installer code + CI jobs
@@ -316,7 +332,7 @@ Download from the GitHub release `v2.0.3`:
 | `SHA256SUMS.txt` | Checksums, one entry per binary |
 | `build-manifest-linux.json` / `build-manifest-windows.json` | Provenance: source commit, `dirty` flag, tool versions |
 
-The dagu-worker installer (`testorchestrator-dagu-worker-`
+The Buildbot worker installer (`TestOrchestrator-Buildbot-Worker-Setup-`
 `2.27.0-setup-UNSIGNED.exe`) is **bundled inside both packages**
 — Linux tarball at `packaging/windows/…`, Windows installer at
 `packaging\\windows\\…` in the installed tree — and is served
@@ -341,11 +357,11 @@ on the release page for the authoritative values):
 ea7ec2fc…  testorchestrator-2.0.3-windows-amd64-setup-UNSIGNED.exe
 ```
 
-The bundled dagu-worker installer is verified by the portal at
+The bundled Buildbot-worker installer is served by the portal at
 download time — **System → Workers & runtimes** shows its SHA-256
 next to the link.
 
-The manifests pin the exact source commit and the bundled Dagu
+The manifests pin the exact source commit and the bundled Buildbot
 version (`2.27.0`).
 
 ## 4. Linux installation
@@ -386,18 +402,19 @@ What the installer does, in order **[verified — every step observed]**:
    the install continues — licensing is informational only.
 2. Copies the payload (`testorchestrator/`, `wsgi.py`,
    `requirements.txt`, `release/`, `3rdparty/`, `migrations/`,
-   `deploy/`, `scripts/`) plus the bundled dagu-worker installer
+   `deploy/`, `scripts/`) plus the bundled Buildbot-worker installer
    into `packaging/windows/` — the portal serves it as a worker
    download (§6.1).
 3. Creates the offline venv from the bundled Python + vendored wheels.
-4. Provisions Dagu: binary + `server.yaml` (basic auth) +
+4. Provisions Buildbot: master + controller workers +
    `credentials` file (`0600`) + execution workflow + a systemd unit
-   under `config/dagu/`. Set `TO_DAGU_PROVISION_PASSWORD` beforehand
+   generated credentials under `config/buildbot/secrets.json` (0600)
    so the coordinator credential matches what the portal stores; if
    unset, a random token is generated and the installer warns — store
    that token in the portal under **Admin → Credentials** afterwards.
-5. Stages systemd units (`testorchestrator-web`, `-worker`, `-dagu`,
-   `-caddy`) and a `Caddyfile` under the config dir. With root +
+5. Stages systemd units (`testorchestrator-web`, `-worker`,
+   `-buildbot-master`, `-buildbot-local`, `-buildbot-ssh`) under the
+   config dir. With root +
    systemd and no `--no-service-start`, they are enabled and started;
    otherwise they are left for manual activation.
 
@@ -417,7 +434,7 @@ the `--payload`/`--data`/`--config` directories chosen for this
 documentation install; a production run uses `/opt`,
 `/var/lib`, `/etc`):
 
-![Installer transcript — licence check, payload copy, Dagu provisioning, staged units](Screenshot-Doc/admin/install-transcript.png)
+![Installer transcript — licence check, payload copy, Buildbot provisioning, staged units](Screenshot-Doc/admin/install-transcript.png)
 
 ### 4.3 The `.run` self-extracting package
 
@@ -460,7 +477,7 @@ What a brand-new install looks like at first login:
 
 - **Infrastructure** shows no workers and no KRE installations yet —
   this is where §12.1 and §12.2 start. The **Download execution
-  worker** card already serves the pinned Dagu build with its
+  worker** card already serves the pinned Buildbot build with its
   SHA-256:
 
   ![Fresh install — empty workers/KRE tables and worker download](Screenshot-Doc/admin/install-infrastructure.png)
@@ -476,22 +493,23 @@ What a brand-new install looks like at first login:
 | Path (default / this doc install) | Contents |
 |---|---|
 | `--payload` `/opt/testorchestrator` | Code, bundled runtime/wheels, `release/` (version, pubkey), `venv/`. Replaceable wholesale on upgrade. |
-| `--data` `/var/lib/testorchestrator` | Instance dir: `testorchestrator.db`, `certs/`, `licence.json`, `bindings/` (worktrees), `imported-evidence/`, `import-staging/`, `remote-runs/`, `agent-work/`, `dagu/` (DAGU_HOME). **This is the state — back it up.** |
-| `--config` `/etc/testorchestrator` | `web.env`, `Caddyfile`, `dagu/` (server.yaml, credentials, unit), staged systemd units. |
-| `data/dagu` vs `config/dagu` | Runtime state/DAGs vs provisioned binary+config+credentials. |
+| `--data` `/var/lib/testorchestrator` | Instance dir: `testorchestrator.db`, `certs/`, `licence.json`, `bindings/` (worktrees), `imported-evidence/`, `import-staging/`, `remote-runs/`, `buildbot/` (master+worker state). **This is the state — back it up.** |
+| `--config` `/etc/testorchestrator` | `web.env`, `buildbot/` (master.cfg, secrets.json, units), staged systemd units. |
+| `data/buildbot` vs `config/buildbot` | Runtime state vs provisioned config+credentials. |
 
 `TO_INSTANCE_DIR` points the app at the data dir; `TO_DATABASE_URI`,
-`TO_CERT_DIR`, `TO_CADDY_BIN`, `TO_CADDY_CONFIG_DIR` override
+`TO_CERT_DIR` overrides
 individual locations.
 
 ### 4.6 Ports and network flows
 
 | Flow | Default | Configure |
 |---|---|---|
-| Browser → Caddy | 443 / http 8080 | `--https-port`/`--http-port`; **Admin → Network & certificates** renders the real Caddyfile (staged apply + `previous_good` rollback) |
-| Caddy → Waitress | `127.0.0.1:18080` | unit `ExecStart` / `waitress-serve --listen` |
-| Portal → Dagu API | `http://<host>:8096` | setting `dagu_endpoint` |
-| Worker → coordinator gRPC | `<host>:50055` | setting `dagu_coordinator_url`; worker flag `--worker.coordinators` |
+| Browser → Cheroot | 443 / http 8080 | `--https-port`/`--http-port`; **Admin → Network & certificates** manages listeners + TLS (staged apply + `previous_good` rollback) |
+| Cheroot → Waitress | `127.0.0.1:18080` | same process; `waitress-serve` loopback |
+| Portal → Buildbot REST | `http://127.0.0.1:8010` | setting `buildbot_endpoint` — **loopback only** |
+| Worker → master PB | `<host>:9989` | setting `buildbot_pb_port`; per-worker password |
+| Portal/worker → SSH host | `22` (per target) | `ssh_port` on the target record |
 | Worker health | `:8092` | `--worker.health-port` (`0` disables) |
 
 Access gates (bootstrap.py): every request must arrive under a
@@ -505,9 +523,10 @@ public URL before enabling external access.
 
 ```bash
 systemctl enable --now testorchestrator-web testorchestrator-worker \
-    testorchestrator-dagu testorchestrator-caddy
+    testorchestrator-buildbot-master \
+    testorchestrator-buildbot-local testorchestrator-buildbot-ssh
 journalctl -u testorchestrator-web -u testorchestrator-worker \
-    -u testorchestrator-dagu -u testorchestrator-caddy -f
+    -u testorchestrator-buildbot-master -f
 ```
 
 - `testorchestrator-worker` runs the dispatch loop
@@ -537,63 +556,34 @@ Stops to take, in order:
 Removing the payload never deletes data; deleting data is always an
 explicit separate step.
 
-### 4.9 Choosing the HTTPS frontend — Caddy (default) or Cheroot **[verified]**
+### 4.9 HTTPS frontend — Cheroot
 
-The public HTTPS edge has two implementations:
+Since 2.5.0 the HTTPS frontend is **Cheroot, served in-process** by the
+`testorchestrator-web` unit — there is no separate web-tier binary or
+unit. **Admin → Network & certificates** manages the certificate,
+private key, HTTPS listener port, and the optional HTTP→HTTPS redirect
+listener:
 
-| Tier | What it is | Selected by |
-|---|---|---|
-| **Caddy** (default) | Bundled reverse proxy in its own process; the app renders and staged-applies its Caddyfile | fresh installs, or `--frontend caddy` |
-| **Cheroot** (Linux opt-in) | TLS terminated inside the app process; Waitress stays on loopback for internal probes | `--frontend cheroot` at install or switch |
+- **Certificate changes** apply live (the running process re-reads the
+  TLS material — no restart).
+- **Listener changes** (ports, enable/disable) are staged through a
+  `previous_good` snapshot: the new config is applied, health-checked,
+  and rolled back automatically if the portal cannot bind; a restart
+  prompt is shown because listener sockets only change on restart.
 
-Windows ships **Caddy only** — Cheroot is not validated and not
-selectable there.
+If the portal does not come back after a listener change, fix
+`data/netconf-previous_good.json` values in **Admin → Network** or
+restore the snapshot — the previous-good config is preserved
+across the failed apply.
 
-**Selection semantics** — `--frontend` accepts `auto` (default),
-`caddy`, `cheroot`:
-
-- `auto` keeps the choice recorded by a previous install
-  (`<config>/frontend`); on a fresh install it resolves to Caddy.
-  **Reruns and upgrades never silently switch frontends.**
-- An explicit `--frontend caddy|cheroot` switches tiers, rewrites the
-  unit set, and records the new marker.
-
-**Switching and rollback** — stop the services, rerun `install.sh`
-with the other `--frontend` value and the same `--payload/--data/
---config` dirs, start the new unit set. Verified Caddy → Cheroot →
-Caddy on 2.5.0:
-
-- The Dagu coordinator credential is **preserved** — an installer
-  rerun reuses the provisioned credential instead of regenerating it,
-  so dispatch keeps working across reruns and switches with no
-  resync step.
-- `web.env` (`TO_SECRET_KEY`, `TO_INSTALL_ID`) is preserved, so
-  sessions and install identity survive the round trip.
-- Managed/imported certificates are served by whichever tier is
-  active; Caddy's own internal CA state is untouched by the Cheroot
-  tier, and rollback serves the same previously applied certificate.
-- Execution history, reports, and artifacts remain accessible after
-  rollback, and a new Dagu → KRE dispatch works on each tier.
-
-**Certificate Apply under Cheroot** — the same
-**Network & certificates** page handles generate and import; Apply
-reloads the in-process TLS context. Verified by fingerprint changes
-on fresh connections for both generate and import.
-
-**Frontend behavior differences** (verified; do not weaken host
-checks to change them):
-
-- Unrecognized `Host` header: Cheroot answers **421**; Caddy passes
-  the request through to the app. Both are intentional.
-- Backend down: Caddy answers **502** (no branded body); under
-  Cheroot the public listener is part of the app process, so the
-  connection is **refused** — no HTTP page is served at all.
-- **404**: both tiers render the app's error page (branded for
-  authenticated users) with the correct 404 status. There is **no
-  branded 500 page and no branded backend-down page** — do not
-  promise one.
 
 ## 5. Windows installation **[code/CI — not locally validated]**
+
+> **2.5.0 note:** the Windows *controller* installer predates the
+> Buildbot replacement — its internal TLS/service description below
+> reflects the last released build and is pending rework. The
+> supported Windows deliverable in 2.5.0 is the **Buildbot worker**
+> installer (§6.1).
 
 From the installer (`app-installer.nsi`, `build_app_installer.sh`,
 `packaging/windows/`):
@@ -604,9 +594,9 @@ From the installer (`app-installer.nsi`, `build_app_installer.sh`,
   testorchestrator` equivalent on source layouts). Follow the
   installer's prompts; the app data lives in the configured instance
   location.
-- The bundled `testorchestrator-dagu-worker-2.27.0-setup-`
+- The bundled `TestOrchestrator-Buildbot-Worker-Setup-`
   `UNSIGNED.exe` (inside the app installer and the Linux tarball,
-  served via **System → Workers & runtimes**) installs the Dagu
+  served via **System → Infrastructure**) installs the Buildbot
   worker binary; register labels and the coordinator address per
   §6.
 - **Both installers are unsigned.** Windows will warn; verify the
@@ -625,7 +615,7 @@ From the installer (`app-installer.nsi`, `build_app_installer.sh`,
    [/ADDR=localhost]`.
 3. The installer registers and **immediately starts** four
    SYSTEM/ONSTART Scheduled Tasks — `TestOrchestratorWeb` (Waitress,
-   `127.0.0.1:18080`), `…Worker`, `…Dagu`, `…Caddy` (HTTPS `:443`).
+   `127.0.0.1:18080`), `…Worker`, `…Buildbot-*` (HTTPS `:443`).
    No reboot is required; tasks also restart at boot.
 4. Browse to `https://localhost/` → sign in (bootstrap admin
    credentials are printed by the installer) → use. If no application
@@ -658,9 +648,9 @@ From the installer (`app-installer.nsi`, `build_app_installer.sh`,
 
 - Supported stop: `%ProgramData%\TestOrchestrator\stop_to.cmd` — ends
   all four tasks **and** reaps orphaned child processes. Plain
-  `schtasks /End` only kills the `.cmd` host and leaves python/caddy/
-  dagu children bound to their ports — do not use it alone.
-- Logs: `%ProgramData%\TestOrchestrator\logs\{web,worker,dagu,caddy}.log`
+  `schtasks /End` only kills the `.cmd` host and leaves python/
+  worker children bound to their ports — do not use it alone.
+- Logs: `%ProgramData%\TestOrchestrator\logs\{web,worker,buildbot}.log`
   (Task Scheduler provides no stdout capture; wrappers append here).
 - Uninstall entry points are registered under
   `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator`:
@@ -693,7 +683,7 @@ Local `https://localhost` needs none of this. For LAN/remote clients:
 ### 5.5 Validation gates — honest status
 
 Verified on disposable CI (`windows-latest`): silent install, payload
-completeness (including the worker-download assets — dagu archives +
+completeness (including the worker-download assets — Buildbot wheels +
 bundled worker installer), task registration + start, HTTP readiness,
 task restart, HTTPS with real certificate validation, licence
 negative/positive/persistence, report generation. **Pending on an
@@ -701,133 +691,96 @@ interactive Windows host:** GUI installer screens, real-browser
 activation flow, actual reboot persistence, upgrade-in-place, and
 uninstall UX.
 
-## 6. Workers — installation and operation (Linux) **[verified end to end]**
+## 6. Execution targets — installation and operation
 
-### 6.1 Get the worker archive through the portal
+All execution targets are managed in **System → Infrastructure →
+Execution targets** — add, edit, test, enable, disable, drain, and
+remove without controller files, commands, or restarts. Three types:
 
-The portal serves the pinned worker build to authenticated users —
-this is the supported way to obtain it (it guarantees the worker
-version matches the coordinator pin):
+| Type | What it is | Where the job runs |
+|---|---|---|
+| `local` | The controller's own `to-local` Buildbot worker | This portal host |
+| `buildbot-worker` | Remote Windows or Linux Buildbot worker | The remote host, outbound PB |
+| `ssh` | Agentless SSH target | Remote host over SSH/SFTP — nothing TO-side installed there |
 
-```
-GET /system/infrastructure/dagu-worker/dagu_2.27.0_linux_amd64.tar.gz
-```
+Disabling or removing a target never silently redirects its queued or
+running work to another target — pinned runs fail visibly.
 
-```bash
-curl -L -b cookies.txt -o dagu_2.27.0_linux_amd64.tar.gz \
-    https://<portal>/system/infrastructure/dagu-worker/dagu_2.27.0_linux_amd64.tar.gz
-```
+### 6.1 Windows Buildbot worker
 
-### 6.2 Verify the asset **[verified]**
+1. In **System → Infrastructure**, click **Download Windows worker
+   installer** — the portal serves the exact bundled
+   `TestOrchestrator-Buildbot-Worker-Setup-<ver>-UNSIGNED.exe` and
+   shows its version and SHA-256; verify the checksum after download.
+   (The installer is **unsigned** — Windows SmartScreen will warn.)
+2. **Add target** → type *Windows Buildbot worker*. The portal shows the
+   generated worker name and a one-time password — record both; the
+   password is stored encrypted and cannot be retrieved again.
+3. On the Windows host run the installer (offline — no preinstalled
+   Python needed; it does not install the controller and bundles no
+   KRE/licence). Enter the controller's `https://<portal>` address,
+   worker name, and password. It installs the worker under a
+   dedicated account and registers auto-start.
+4. The target shows `Awaiting registration` until the worker connects
+   over PB :9989, then lists discovered runners/runtimes.
+5. Reinstall over an existing install preserves worker identity (no
+   duplicate target); uninstall removes the startup registration and
+   does not touch KRE or unrelated files.
 
-The pinned digest is published in the build manifest / release notes:
+### 6.2 Native Linux Buildbot worker
 
-```bash
-sha256sum dagu_2.27.0_linux_amd64.tar.gz
-# a9045768c9777d0b938585696e0491bc0ce46fbeb0419989b34fde63a0cc6f85 (2.0.2 pin)
-tar -xzf dagu_2.27.0_linux_amd64.tar.gz -C /opt/dagu-worker
-/opt/dagu-worker/dagu version     # → 2.27.0
-```
+1. Fetch `install_linux_worker.sh` (bundled / release asset).
+2. Create the target record (**Add target** → *Linux Buildbot worker*)
+   and record the generated worker name + one-time password.
+3. On the worker host: `sudo ./install_linux_worker.sh --master <portal-host>:9989 --name <worker> --password <pw> [--user to-worker]`.
+   It creates a reproducible `buildbot-worker` venv, writes a systemd
+   unit, and starts it — the worker registers outbound; no inbound
+   portal port needed on the worker.
+4. Registration, credentials, runner discovery, and capacity are then
+   managed from the Admin UI (rotate the secret with **Issue secret**;
+   drain before maintenance).
 
-### 6.3 Configure the coordinator
+### 6.3 Agentless Linux SSH target
 
-On the portal host **[verified]**:
+The remote host needs **only** `sshd` and the test runtime — no
+installed worker, agent, or listener. The controller-side
+`to-ssh-dispatcher` worker (bundled `paramiko`) does exec over SSH and
+artifact collection over SFTP.
 
-- `scripts/provision_dagu.py` (run by `install.sh`) writes
-  `config/dagu/` containing: `dagu` binary, `server.yaml`
-  (`auth.mode: basic` + credential), `credentials` (`0600`,
-  `username=`/`password=`), the execution DAG in
-  `data/dagu/dags/testorchestrator-execution.yaml`, and a systemd
-  unit.
-- Start it (unit, or manually — note `DAGU_HOME`, a private `TMPDIR`
-  so Dagu's `$TMPDIR/dagu` temp dir cannot collide with stray files,
-  and `--coordinator.advertise` when the hostname does not resolve
-  to a bound address):
+1. **Add target** → *Agentless Linux SSH*. Fields: display name, host,
+   port (default `22`), SSH username, credential (a SecretRef — use a
+   restricted, dedicated account and an isolated run directory),
+   remote working directory, runner/runtime paths, per-host
+   concurrency.
+2. First connection pins the host-key fingerprint — **Approve host
+   key** in the UI after verifying it out-of-band. Later key changes
+   are rejected until an administrator re-verifies.
+3. **Test SSH Connection** runs staged checks — reachability →
+   host-key → authentication → workdir permissions → SFTP → runner
+   prerequisites — and reports which stage failed without revealing
+   secrets. Saving or testing never installs software or launches a
+   test.
+4. Dispatch honours the runner specification (never a free-form
+   command). Disconnects reattach to the same remote run — logs and
+   exit status are recovered without relaunching. Cancellation is
+   reported `CANCELED` only after the remote process tree is confirmed
+   dead; otherwise the UI shows cancellation could not be confirmed.
 
-```bash
-DAGU_HOME=/var/lib/testorchestrator/dagu TMPDIR=/var/lib/testorchestrator/dagu-tmp \
-  /etc/testorchestrator/dagu/dagu start-all \
-  --host 127.0.0.1 --port 8096 \
-  --coordinator.host=127.0.0.1 --coordinator.port=50055 \
-  --coordinator.advertise=<reachable-addr> \
-  --config /etc/testorchestrator/dagu/server.yaml \
-  --dags /var/lib/testorchestrator/dagu/dags
-```
+### 6.4 Register a KRE installation on a target
 
-- Portal settings (**Admin → Settings** or DB):
-  `dagu_endpoint` (coordinator http URL), `dagu_coordinator_url`
-  (host:grpc-port), `dagu_username`, `dagu_credential_ref` — a
-  Credentials entry holding the coordinator basic-auth token, and the
-  opt-in `dagu_mandatory` toggle when remote dispatch should be
-  required rather than best-effort.
+**Register existing KRE installation** binds a runtime to a target
+(see §12.2). For remote runtimes select the target in the runner
+picker — the executable path is verified *on that host*, never on the
+controller.
 
-### 6.4 Register the worker
+### 6.5 Worker authentication and secrets
 
-On the worker host **[verified]**:
+Every remote worker authenticates with a per-worker PB password; SSH
+targets authenticate with a stored key/password credential. Both are
+kept as SecretRefs in the encrypted secret store — never in runner
+rows, logs, build properties, or exported configuration. Rotating or
+replacing a stored secret never reveals the current value.
 
-```bash
-TMPDIR=/var/lib/dagu-worker/tmp \
-  /opt/dagu-worker/dagu worker \
-  --worker.id=worker-01 \
-  --worker.labels="kre=api" \
-  --worker.coordinators=<portal-host>:50055 \
-  --worker.health-port=8092
-```
-
-- `--worker.labels` are the capabilities the portal matches against
-  (`kre=<label>`); `os`/`arch` labels are added automatically.
-- Registration is verified from the coordinator API or the portal's
-  **Admin → Infrastructure** view (`/api/v1/workers` lists id,
-  labels, health, version):
-
-```bash
-curl -u <coord-user>:<coord-pass> http://127.0.0.1:8096/api/v1/workers
-```
-
-![Registered worker + KRE connection](Screenshot-Doc/admin/infrastructure.png)
-
-### 6.5 Register the KRE installation on the worker
-
-**Admin → Infrastructure → KRE installations → Register**: give the
-connection a name, select the runner/worker, set the **executable
-path** *as it exists on the worker* (e.g.
-`/opt/kre/katalonc`), the **workspace root** the worker may use, and
-the `worker_label` that selects it. The portal's *Check* probes the
-executable on the portal host by default — for remote runtimes the
-page itself states that remote availability is **not** verified
-end-to-end; a remote check shows `Remote — not verified`. Keep the
-executable's licence/API key on the worker (KRE `-apiKey` / offline
-licence) — the portal cannot license it for you.
-
-### 6.6 Dispatch a controlled demonstration job **[verified]**
-
-Queue a suite run choosing the remote runner + runtime; the portal
-dispatches with `worker_selector = {kre: <label>}`, the worker
-executes `prepare → checkout → run_kre → collect`, and results
-(JUnit, logs, screenshots, `execution.uuid`) return portal-side into
-`remote-runs/<execution-id>/`. The execution page shows the worker,
-the dagu run, and the returned artifacts.
-
-### 6.7 Logs, stop, restart, removal
-
-- Coordinator log: the unit's journal, or the file you redirect
-  `start-all` output to. Worker log: same, on the worker host; the
-  worker-side run log is also returned as an execution artifact.
-- Stop a worker by terminating its process; drain it first via
-  **Drain worker** (Infrastructure) so it stops accepting new tasks.
-- Restart is a fresh `dagu worker` with the same `--worker.id` —
-  labels and id must be stable for selection to keep working.
-- Removing a worker: drain, stop the process, remove its install
-  dir. In-flight executions on it will fail as infrastructure
-  failures; finished ones are unaffected.
-
-### 6.8 Windows worker **[code/CI]**
-
-Install `testorchestrator-dagu-worker-2.27.0-setup-UNSIGNED.exe`
-(**unsigned**), then run the same `dagu worker` invocation (Windows
-flags identical: `--worker.id`, `--worker.labels`,
-`--worker.coordinators`) pointed at the coordinator. Not
-interactively validated here.
 
 ## 7. Security and administration
 
@@ -848,7 +801,7 @@ credential change.
 encrypted at rest with a key held *outside* the database
 (`secret.key` in the instance dir — protect and back it up), are
 never re-displayed, never logged, and never exported; bindings and
-runtimes reference them by name only. Dagu coordinator and
+runtimes reference them by name only. Buildbot master API and
 worker-enrollment credentials are **system-managed** — provisioned by
 the platform (`coordinator-agent`) and protected from deletion.
 
@@ -868,9 +821,9 @@ tokens for `agent`-mode connections.
   `secret.key`, and certs with owner-only modes (0600/0700 dirs) —
   keep them that way; the units run as a dedicated `testorchestrator`
   user with `ProtectSystem=strict` and explicit `ReadWritePaths`.
-- TLS terminates at Caddy using certs under `data/certs` (or
+- TLS terminates in Cheroot using certs under `data/certs` (or
   `TO_CERT_DIR`); **Admin → Network & certificates** can generate or
-  import a certificate and render the Caddyfile with staged apply +
+  import a certificate; listener changes use staged apply +
   rollback. The Waitress app binds loopback only — it is never meant
   to face the network directly.
 
@@ -891,7 +844,7 @@ config changes, deletions) without payloads.
 |---|---|
 | `data/testorchestrator.db` | Executions, results, users, settings, import bookkeeping |
 | `data/` (rest) | Evidence (`imported-evidence/`, `remote-runs/`), `licence.json`, `certs/`, `secret.key`, bindings worktrees |
-| `config/` | `web.env`, `dagu/` credentials + server.yaml, Caddyfile |
+| `config/` | `web.env`, `buildbot/` credentials + master.cfg |
 
 `toctl backup --to <dir>` produces `backup-<timestamp>.tar.gz` of the
 instance dir + cert dir (atomic: `.part` renamed on success; newest
@@ -1001,7 +954,7 @@ diagnostic commands is §21.
 | `licence … warn` at install | Code expired/not-yet-valid (UTC dates), wrong product, or corrupted paste — the code is `TO1.<payload>.<signature>`. Warning only; the install still completes and the app is fully usable. |
 | `cannot resolve '<ref>'` on sync/import | Bad ref/branch on the binding, or a shallow worktree missing the object — re-sync. |
 | Coordinator `/api/v1/workers` → `503` | Coordinator's `--coordinator.advertise` address isn't bound/reachable — advertise an interface address, not a hostname that resolves elsewhere. |
-| Remote run fails `mkdir /tmp/dagu: not a directory` | A stray file shadows Dagu's default temp dir — set a private `TMPDIR` for coordinator/worker processes. |
+| Remote run fails staging the workdir | Verify the target's configured workspace root exists and is writable for the worker account — `Test SSH Connection`/`Test runner` reports the failing stage. |
 | Execution `failed` with `Activation failed` in the run log | KRE licence/API key missing on the worker — environment problem, fix on the worker. |
 | `rl_status=failed`, log shows `No module named 'reporting_labs'` | **Known defect in released 2.0.1/2.0.2:** the `install.sh` payload copy omits the vendored `reporting_labs/` directory (present in the tarball root and in the Windows payload). **Workaround for 2.0.2 installations:** copy `reporting_labs/` from the extracted tarball into the payload dir (or run generation once with `PYTHONPATH=<tarball-root>`), then **Regenerate**; original artifacts are untouched. **Fixed in 2.0.3:** the installer copies the vendored package — now located at `3rdparty/reporting_labs` in both the package and the installed payload — and the app resolves it automatically; upgrading also removes a superseded root-level `reporting_labs` copy, so no manual copy or PYTHONPATH is needed. See Validation-Record §4. |
 | Import says `staging checkout expired` | Staging was cleaned — rerun the preview; pending candidates were not committed. |
@@ -1010,7 +963,7 @@ diagnostic commands is §21.
 
 Every §6 step above ran on the isolated doc install:
 portal-served worker download (SHA-256 pin match) → extraction →
-`dagu worker --worker.labels="kre=doc-demo"` registration →
+registered execution target →
 portal dispatch with selector `map[kre:doc-demo]` → completed
 execution with returned JUnit/log/screenshot evidence and a
 reportingLabs report. The dispatched job used a **fixture** KRE
@@ -1022,84 +975,33 @@ Condensed checklists for the most common provisioning tasks.
 §6 has the verified long-form worker walkthrough; §7 has the security
 detail. These are the same steps, in order, with every required field.
 
-### 12.1 Add a worker
+### 12.1 Add an execution target
 
-1. **Register the runner record** — **System → Infrastructure →
-   Workers** → new entry: *Name*, *Description*, *OS/architecture*,
-   *Connection mode* (`local` = same host as the portal; `remote` =
-   reached via the Dagu coordinator), *Workspace root*, *Max
-   concurrent slots*, *Allowed projects* (empty = all). Per-worker
-   slots are a configured allowance — keep their sum within the
-   purchased floating seats (noted on the form itself).
+Admin → System → Infrastructure → **Add target** (Execution targets
+card):
 
-   ![Add worker form — runner record fields](Screenshot-Doc/admin/runner-new.png)
-
-2. **Issue its agent token** — on the new runner's row, **Issue
-   token**. The plaintext is shown **once** in the flash message —
-   copy it now; only its SHA-256 is stored. Re-issuing revokes the
-   old token.
-3. **Get the worker software through the portal** (guarantees the
-   coordinator version pin):
-   - Linux: download
-     `/system/infrastructure/dagu-worker/dagu_<ver>_linux_amd64.tar.gz`
-     and verify it against the manifest SHA-256.
-   - Windows: download the unsigned worker installer via
-     `/system/infrastructure/dagu-worker-installer/…`.
-   - Optional: download a generated launcher from **Infrastructure →
-     worker → launcher** (`to-worker.sh` / `to-worker.bat`) — the
-     coordinator address and `kre=<label>` are baked in, so raw
-     backend flags are never assembled by hand.
-4. **Install on the worker host** — extract to a dedicated directory,
-   create the workspace root, and write the coordinator connection:
-   gRPC address of the portal host plus the credentials file
-   (0600) provisioned during install (§6.3).
-5. **Start the worker with its KRE label** —
-   `dagu worker --worker.labels="kre=<label>"` (plus auto `os`/`arch`
-   labels). The `<label>` value is what the KRE registration binds to
-   in the next step — pick it deliberately and keep it unique.
-6. **Verify registration** — **System → Infrastructure** shows the
-   worker as **live** once its heartbeat is fresher than ~2 minutes.
-   A stopped or partitioned worker shows its last-seen time instead.
-7. **To retire it**: **Drain** stops it from claiming new work while
-   in-flight runs finish; then stop the process and remove the runner
-   record.
+1. Pick the type — *Local*, *Windows Buildbot worker*, *Linux
+   Buildbot worker*, or *Agentless Linux SSH* — only the relevant
+   fields render.
+2. For remote workers: record the generated **worker name + one-time
+   password** shown once; it is stored only as an encrypted SecretRef.
+3. For SSH: enter host/port/user/credential/workdir, save, then
+   **Approve host key** and **Test SSH Connection** until all staged
+   checks pass.
+4. Enable/disable or drain from the same card — queued and running
+   work on a disabled target is never silently redirected.
 
 ### 12.2 Register a KRE installation (runtime connection)
 
-Prerequisite: KRE installed **and licensed** on the execution host —
-the portal cannot supply the Katalon licence.
+1. Install and licence KRE on the execution host.
+2. Admin → Infrastructure → **Register existing KRE installation**.
+3. Choose the execution location: **local** (controller's own worker)
+   or **remote**, then pick the target in the runner picker — the
+   binding is explicit and validated, never auto-fallback.
+4. Enter the KRE executable path *as it exists on that host*, plus an
+   optional workspace root / credential reference. Test connection
+   verifies it on the target.
 
-1. **System → Infrastructure → KRE installations → New** —
-   set *Execution location*:
-   - **`remote`** (worker host, the normal case): *Dagu worker label*
-     is **required** and must equal the `kre=<label>` the target
-     worker was started with — and be unique across installations
-     (the submit rejects a duplicate or ambiguous label). If no
-     explicit *Worker* is selected the portal auto-creates a
-     `dagu-worker:<label>` runner for it.
-   - **`local`**: KRE on the portal host itself.
-2. Fill the fields:
-   - *KRE path on the selected worker* — absolute path to `katalonc`
-     **on that host** (required).
-   - *Workspace root* — where the worker materialises run checkouts.
-   - *Worker-side SSH key path* — only for `ssh://` bindings; a path
-     on the worker's filesystem, key material never enters the portal.
-   - *Credential reference* — a portal secret used at invocation.
-   - *Worker-local credential file* — absolute path on the worker to
-     a protected file (0700 dir / 0600 file); the workflow spec
-     carries the path only, the worker resolves the value at exec
-     time — this is the recommended way to keep KRE licence values
-     off the portal entirely.
-   - *Concurrency* — max simultaneous runs this installation takes.
-
-   ![KRE registration form — execution location, worker label, paths](Screenshot-Doc/admin/runtime-new.png)
-
-3. **Probe** — on a *local* installation, **Probe** executes a
-   version check and records the detected version + diagnostic.
-   Probe is **not implemented for remote installations** — the flash
-   says so explicitly; verify remote KRE by running a smoke suite.
-4. **Enable/disable** with the toggle; **Edit** updates paths,
-   labels, and concurrency without recreating the record.
 
 ### 12.3 Add a user and assign a role
 
@@ -1179,13 +1081,13 @@ screenshots only).
 
 1. **Choose directories** — `--payload` (code, replaceable), `--data`
    (all state — the backup target), `--config` (units, `web.env`,
-   Dagu credentials). Defaults `/opt`, `/var/lib`, `/etc`. §4.5.
+   Buildbot credentials). Defaults `/opt`, `/var/lib`, `/etc`. §4.5.
 2. **Licence code ready** — `TO1.…`, passed via `TO_LICENCE_CODE`.
    §4.1, §12.4.
 3. **Install** — checksum the package (§3), run `install.sh` or the
    `.run`. §4.2, §4.3.
 4. **Enable services** — copy the staged units, `systemctl
-   enable --now` web/worker/dagu/caddy; confirm **Health & services**
+   enable --now` web/worker/buildbot-*; confirm **Health & services**
    shows them installed and running. §4.4, §4.7.
 5. **Bootstrap the admin** — `flask set-admin-password` or forced
    first-login change; then create named users. §4.4, §12.3.
@@ -1232,7 +1134,7 @@ flags (one-time, at `install.sh`).
 | `TO_LICENCE_CODE` | Licence code for the installer (never logged) | required at install | yes | n/a |
 | `TO_DAGU_PROVISION_PASSWORD` | Coordinator credential planted at provision so the portal matches | unset → random token + warning | yes | install-time |
 | `TO_GIT_BACKEND` | `dulwich` \| `cli` git engine | `dulwich` | no | yes |
-| `TO_SPEC_PREVIEW` | Dumps the rendered Dagu spec env for debugging | unset | may expose refs | per-invocation |
+
 | `TO_SEED_<ROLE>_PASSWORD` | Test/demo account seeding | unset | yes | first start |
 
 ### 14.2 Persisted settings (DB — edited in the Admin UI)
@@ -1247,9 +1149,9 @@ flags (one-time, at `install.sh`).
 | `internal_app_host` / `internal_app_port` | Waitress side of the proxy | `127.0.0.1` / `18080` | **Network & certificates** |
 | `certificate_mode` / `certificate_reference` / `certificate_public_metadata` | TLS material selection (`""`/`local`/`imported`) — paths + public fields only, never key bytes | unset | **Network & certificates** |
 | `previous_good_config` / `network_config_version` | Last-good network snapshot + apply counter — powers rollback | `{}` / `0` | automatic |
-| `dagu_endpoint` | Portal → Dagu HTTP API URL | `""` | **Integrations** |
-| `dagu_credential_ref` / `dagu_username` | Credential reference (secret name) + auth mode — value lives in **Credentials**, not here | `""` | **Integrations** |
-| `dagu_coordinator_url` | Worker-facing gRPC coordinator address | `""` | backend-managed |
+| `buildbot_endpoint` | Portal → Buildbot REST URL (loopback) | `http://127.0.0.1:8010` | install-provisioned |
+| `buildbot_credential_ref` / `buildbot_username` | Credential reference (secret name) + API user — value lives in **Credentials**, not here | `buildbot-api` / `to-api` | install-provisioned |
+| `buildbot_pb_port` | Worker-facing PB port | `9989` | install-provisioned |
 | `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `false` | **Reporting** |
 | `logs_retention_days` / `logs_max_rows` | Operational-log pruning bounds | `30` / `20000` | **Reporting** / logs |
 | `git_export_repo` / `git_export_credential_ref` / `git_export_ref` | Optional evidence-export target repo + credential ref + branch | `""` / `""` / `main` | **Reporting** |
@@ -1261,8 +1163,7 @@ and `update()` only accepts keys listed here.
 
 `--payload` / `--data` / `--config` (directories), `--https-port` /
 `--http-port` (public listeners), `--service-user` (unit user),
-`--frontend {auto,caddy,cheroot}` (public HTTPS tier — §4.9; `auto`
-keeps the recorded selection, fresh installs resolve to Caddy),
+(the public HTTPS tier is Cheroot, in-process — §4.9),
 `--no-service-start` (provision only), `--yes` (noninteractive —
 still requires `TO_LICENCE_CODE`), `--dry-run` (print the plan),
 `--upgrade` semantics: re-running on an occupied port refuses a
@@ -1272,16 +1173,16 @@ fresh install. §4.2.
 
 | Flow | Initiator → destination | Port (default) | Protocol | AuthN | Expose beyond localhost? | Verify |
 |---|---|---|---|---|---|---|
-| Browser → portal | Browser → **Caddy** (default) or **Cheroot** (opt-in, §4.9) | 443 (+8080 redirect) | HTTPS | session cookie (CSRF per form — HTTPS posts need a matching `Referer`) | **yes** — the public edge | `curl -Ik https://<host>` |
-| Proxy → app | Caddy → **Waitress** (Cheroot tier: app serves publicly in-process; Waitress stays loopback) | 127.0.0.1:18080 | HTTP | none — loopback + host allowlist | never | `curl -s 127.0.0.1:18080/login` |
-| Portal → coordinator | Flask → **Dagu API** | 8096/`dagu_endpoint` | HTTP | basic-auth user, password via `dagu_credential_ref` **or** Bearer token | coordinator host only | `curl -u <u>:<p> <ep>/api/v1/dags` → 200/401 |
-| Worker → coordinator | `dagu worker` → coordinator | 50055/`dagu_coordinator_url` | **gRPC** | coordinator credentials file (0600) provisioned at install | worker-reachable hosts | worker log: `connected`/poll OK; portal shows heartbeat |
+| Browser → portal | Browser → **Cheroot** (in-process, §4.9) | 443 (+8080 redirect) | HTTPS | session cookie (CSRF per form — HTTPS posts need a matching `Referer`) | **yes** — the public edge | `curl -Ik https://<host>` |
+| App loopback | Cheroot → **Waitress** (same process; Waitress stays loopback) | 127.0.0.1:18080 | HTTP | none — loopback + host allowlist | never | `curl -s 127.0.0.1:18080/login` |
+| Portal → master | Flask → **Buildbot REST** | 8010/`buildbot_endpoint` | HTTP | per-install API credential via `buildbot_credential_ref` | **loopback only** | `curl -u <u>:<p> 127.0.0.1:8010/api/v2/masters` → 200/401 |
+| Worker → master | `buildbot-worker` → master PB | 9989/`buildbot_pb_port` | **PB/TCP** | per-worker password (SecretRef) provisioned in Admin UI | worker-reachable hosts | worker log: `connected`; portal shows registration |
 | Portal → repositories | app → git remote | 22 or 443 | SSH/HTTPS | deploy key or token from **Credentials** | no (outbound) | binding **Sync**; check fetched SHA |
 | Worker → KRE | worker → KRE binary | n/a (local exec) | process exec | KRE licence on the worker host | never | probe (local installs) or a smoke suite |
 | App → evidence export | app → `git_export_repo` | 22/443 | git | `git_export_credential_ref` | no (outbound) | Reporting settings test/export |
 | Agent → portal | worker agent → portal API | portal port | HTTP | one-time agent token (SHA-256 stored, shown once) | portal-reachable | runner row shows agent heartbeat |
 
-Rules of thumb: only the Caddy ports and the coordinator gRPC port
+Rules of thumb: only the HTTPS port(s) and the PB port
 must be reachable by *other machines*; everything else is loopback
 or outbound. Worker→portal and portal→coordinator are *initiated
 outbound* in both directions — no inbound listener is needed on a
@@ -1298,9 +1199,8 @@ verified below]**
 
 - `data/` **entirely** — `testorchestrator.db` (+ `-wal`/`-shm`),
   `licence.json`, `secret.key`, `certs/` (0700/0600 — preserve modes),
-  `imported-evidence/`, `remote-runs/`, `bindings/`, `dagu/` state.
-- `config/` — `web.env`, `dagu/credentials`, `dagu/server.yaml`,
-  Caddyfile.
+  `imported-evidence/`, `remote-runs/`, `bindings/`, `buildbot/` state.
+- `config/` — `web.env`, `buildbot/secrets.json`, `master.cfg`.
 - **Not needed**: `payload/` — rebuild by reinstalling the same
   package version.
 
@@ -1334,8 +1234,8 @@ TO_INSTANCE_DIR=/var/lib/testorchestrator venv/bin/python -m testorchestrator db
 ```
 
 **What must change when the host/URL differs**: `web.env`
-(`TO_INSTANCE_DIR`, `TO_SECRET_KEY`), `dagu/server.yaml` + the
-`dagu_endpoint`/`dagu_coordinator_url` settings if the coordinator
+(`TO_INSTANCE_DIR`, `TO_SECRET_KEY`), `buildbot/master.cfg` + the
+`buildbot_*` settings if the master
 moved, `advertised_base_url` + `external_host` for a new DNS name,
 and the Caddyfile. If `TO_SECRET_KEY` differs, every user session
 is invalidated — nothing else breaks.
@@ -1368,7 +1268,7 @@ when only the directory location changed**.
 | `imported-evidence/` | required state | imported runs | `toctl evidence-prune` (orphans only) |
 | `remote-runs/` | required state | live executions | evidence-prune for orphans; keep referenced dirs |
 | `import-staging/` | **transient** | in-flight imports | abandoned candidates expire — safe to prune per §9.4 |
-| `dagu/` | required state | dag definitions + history | managed by coordinator |
+| `buildbot/` | required state | master db + worker state | managed by master |
 | `workspaces/` (on worker) | **transient** | concurrent runs | worker-side; safe to clear stopped run dirs |
 | `payload/reporting-labs/gen-*/` | derived output | report regenerations | older generations pruned per §9 |
 | service logs (`journald`, `data/*.log`) | diagnostic | traffic | journald rotation; `logs_retention_days`/`logs_max_rows` bound the in-app operational log |
@@ -1396,7 +1296,7 @@ restore; export publishes selected evidence to a repo; pruning
 | Stale registration | A stopped worker shows its last-seen heartbeat (>~2 min = not live). No auto-purge — **Edit**/**delete** the runner record deliberately. |
 | Interrupted result transfer | The worker keeps the run directory; results stay `UNKNOWN`/`running` until transfer completes or the lease expires — never partially marked passed. |
 | Replace a worker host | Drain → decommission → register the new runner (§12.1) reusing the `kre=<label>` so runtimes rebind automatically. |
-| Update the worker binary | Download the portal-served package (always the coordinator's pinned Dagu version — no drift), stop the worker, replace, restart with the same labels/credentials. |
+| Update the worker | Re-run the bundled installer of the new version over the existing install — identity and credentials are preserved (no duplicate target). |
 | Decommission | Drain → stop → delete the runner record → remove the host's credentials file and `workspaces/` — token re-issue revokes the old one (§12.1 step 2). |
 
 Not implemented: automatic worker updates, auto-drain on version
@@ -1409,7 +1309,7 @@ audited decision by design.
 |---|---|---|---|
 | Repository deploy key/token | **Credentials** (encrypted under `secret.key`) | Edit the credential; bindings pick it up next sync | no |
 | Worker agent token | runner record — SHA-256 only | **Issue token** re-generates; old token revoked | worker restart with new token |
-| Coordinator credential | `config/dagu/credentials` (0600) + portal `dagu_credential_ref` | installer reruns **preserve** the provisioned credential (rerun/switch needs no resync); to rotate deliberately, provision via `TO_DAGU_PROVISION_PASSWORD` or update both sides together | dagu + web |
+| Buildbot credentials | `config/buildbot/secrets.json` (0600) + portal `buildbot_credential_ref` + per-worker SecretRefs | installer reruns **preserve** provisioned credentials; rotate per-worker secrets with **Issue secret** in Admin UI | buildbot + web |
 | KRE licence/API key | **worker host only** (never the portal — `credential_file` carries just a path) | on the worker per Katalon's docs | worker executions pick it up next run |
 | TLS certificate | `data/certs/` + `certificate_*` settings | **Network & certificates** → generate/import → Apply (`previous_good` rollback if the new config breaks) | via staged apply |
 | `TO_SECRET_KEY` | `web.env` | rotate only if you're willing to invalidate all sessions | web |
@@ -1459,7 +1359,7 @@ execution's evidence export is a different, later operation.
 | 2.0.2 → 2.0.3 | Linux | **[verified]** CI `upgrade-from-v202` + the live doc environment upgraded this way | auto | **automatically repairs the 2.0.1/2.0.2 reportingLabs omission** and removes a superseded root-level `payload/reporting_labs` |
 | 1.0.2 → 2.0.3 | Windows | **[code/CI]** `upgrade-from-v102` | auto | |
 | 2.0.2 → 2.0.3 | Windows | **[code/CI]** `upgrade-from-v202` | auto | |
-| — → 2.5.0 | Linux | **[verified]** fresh install, same-version reruns, Caddy↔Cheroot switching and rollback | `db-upgrade` applies; idempotent | reruns preserve the coordinator credential, `web.env` secrets, certs, and the recorded frontend choice |
+| — → 2.5.0 | Linux | **[verified]** fresh install, same-version reruns, network listener apply/rollback | `db-upgrade` applies; idempotent | reruns preserve Buildbot credentials, `web.env` secrets, certs, and network settings |
 | 2.0.x → 2.5.0 | any | not validated | — | 2.0.3 was never deployed; no upgrade path is claimed — install fresh |
 
 Rules: **back up `data/` first** (§16). Re-running the installer on
@@ -1477,7 +1377,7 @@ Symptom → first checks. Exact commands/paths, no database surgery.
 
 | Symptom | Investigation path |
 |---|---|
-| Portal unavailable | `systemctl status testorchestrator-web` (or the running waitress pid) → `journalctl -u testorchestrator-web -n 50` → bind (`TO_WAITRESS_LISTEN`) → Caddy `systemctl status testorchestrator-caddy` + cert validity |
+| Portal unavailable | `systemctl status testorchestrator-web` → `journalctl -u testorchestrator-web -n 50` → listener (`TO_HTTPS_PORT`/`TO_HTTP_PORT`) → cert validity under `data/certs` |
 | Worker absent | process on host → coordinator reachability (`--worker.coordinators` host:port) → credentials file (0600) → runner row heartbeat (>~2 min stale) → worker log |
 | Job stays `queued` | licence state (**System → Licence** — held queue needs licence + **Resume dispatch**) → live worker with matching `kre=<label>` → free slots (concurrency on runner + runtime) → overlap policy on schedules |
 | KRE exits before tests | executable path **on the worker** → file permissions → `Activation failed` = worker-side KRE licence → remote run log for the exact exit |
