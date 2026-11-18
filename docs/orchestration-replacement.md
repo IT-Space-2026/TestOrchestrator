@@ -1,6 +1,10 @@
 # Orchestration replacement: Dagu → Buildbot
 
-Status: **draft contract — in development** on `feature/buildbot-orchestration`.
+Status: **implemented — awaiting acceptance gates** on
+`feature/buildbot-orchestration` (draft PR #3). Adapter, dispatch,
+execution-target model, Admin UI, SSH path, provisioning, and both
+worker installers are code-complete and live-verified on the dev
+topology; the release gates below remain open.
 PR: draft, stacked on `feature/cheroot-frontend` (PR #2). No Cheroot
 dependency; the base is shared so the fixed Dagu dispatch semantics
 (`bea4874`, `8f3c1cf`, `df8fd8d`, `bf8d4b8`, `1adf71b`) stay in scope
@@ -167,8 +171,13 @@ removal commit.
 | GPL redistribution approval | **open — required before bundling** |
 | Real Windows machine for .exe acceptance | **open — needed** |
 | Licensed KRE per target type | **open — no licence available** |
-| Prototype: submit, queued-cancel, running-cancel, lost-response reconcile | pending |
-| All three targets: dispatch, explicit pick, cancel, artifacts, disconnect/reconnect, queue saturation, controller restart | pending |
+| Prototype: submit, queued-cancel, running-cancel, lost-response reconcile | **done** — live on 4.3.0 (§9) |
+| Local target E2E: portal → buildbot → worker → collect → normalize | **done** — live, `COMPLETED`/`passed` |
+| SSH target E2E: portal → dispatcher → remote run → SFTP collect | **done** — live, `COMPLETED`/`passed` |
+| Installer: `--orchestrator` provisioning, units, credential preservation | **done** — dev-host verified |
+| Windows worker .exe: download → offline install → register → run | code-complete — **blocked** on real Windows machine |
+| Linux worker remote install + registration | code-complete — remote-host verification pending |
+| All three targets: dispatch, explicit pick, cancel, artifacts, disconnect/reconnect, queue saturation, controller restart | partially covered (tests + local/ssh E2E) — packaged sweep pending |
 | Caddy + Cheroot spot-check of orchestration | pending |
 | Dagu-free clean build + smoke | pending — after acceptance only |
 
