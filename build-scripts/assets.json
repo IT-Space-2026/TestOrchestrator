@@ -13,5 +13,9 @@
     "version": "pip 25.x bootstrap (pinned 2026-11-16; only used when ensurepip is absent)",
     "url": "https://bootstrap.pypa.io/get-pip.py",
     "sha256": "356e0d0de21cdc348c3394084d90939b85e4246c4d14c76aee6ca4f46646ea98"
+  },
+  "pip_wheel": {
+    "version": "26.2.2",
+    "note": "bundled into worker wheels/ dirs so `get-pip.py --no-index --find-links` can install pip fully offline"
   }
 }

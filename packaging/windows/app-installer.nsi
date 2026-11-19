@@ -27,6 +27,10 @@ Var /GLOBAL PURGE_DATA
 !define MUI_WELCOMEFINISHPAGE_BITMAP "wizard.bmp"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_TEXT "Open TestOrchestrator in your browser"
+!define MUI_FINISHPAGE_RUN_FUNCTION OpenPortal
+!insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
@@ -291,6 +295,12 @@ Section "Install TestOrchestrator" SecMain
     ; is an explicit admin choice, not a quiet default)
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "QuietUninstallString" 'cmd /c "$DATA_DIR\uninstall_to.cmd"'
 SectionEnd
+
+Function OpenPortal
+    ; finish-page "open in browser" — the configured public address
+    ; (localhost by default) so the generated cert matches the URL.
+    ExecShell "open" "https://$PUBLIC_ADDR:$ORCH_PORT/"
+FunctionEnd
 
 Function un.onInit
     ; $DATA_DIR is a runtime variable — it is NOT carried over from the

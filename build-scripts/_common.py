@@ -300,7 +300,10 @@ def stage_buildbot_worker_payload(build_dir: Path, log: Log) -> Path:
          "--platform", "win_amd64", "--python-version", "312",
          "--implementation", "cp", "--abi", "cp312",
          "-d", str(wheels), f"buildbot-worker=={bbver}",
-         "pywin32"], log)
+         "pywin32",
+         # get-pip runs --no-index --find-links=wheels — a pip wheel
+         # must be present or the offline bootstrap fails.
+         f"pip=={ASSETS['pip_wheel']['version']}"], log)
     # GPL/LGPL notices travel inside the .exe payload too
     lic = out / "licenses"
     lic.mkdir(exist_ok=True)
@@ -412,6 +415,11 @@ def build_linux_worker_bundle(build_dir: Path, log: Log) -> Path:
         for w in per.glob("*.whl"):
             shutil.move(str(w), wheels / w.name)
         shutil.rmtree(per)
+    # a pip wheel too — get-pip --no-index --find-links needs one to
+    # bootstrap on hosts that have no pip at all.
+    run([str(vpy), "-m", "pip", "download", "--only-binary=:all:",
+         "-d", str(wheels),
+         f"pip=={ASSETS['pip_wheel']['version']}"], log)
     log.write(f"  linux worker wheels: "
               f"{len(list(wheels.iterdir()))} wheels "
               f"(py3.10-3.12)")
