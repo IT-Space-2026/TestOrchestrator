@@ -85,6 +85,26 @@
       <small>Playwright/Cypress run on the selected target via npx —
       Node.js, project deps and browsers must be installed there;
       no agent needed.</small></div>
+    <div class="field"><label for="browser_type">Browser</label>
+      <select name="browser_type" id="browser_type">
+        <optgroup label="KRE (Katalon)">
+        <option>Chrome (headless)</option>
+        <option>Chrome</option>
+        <option>Firefox (headless)</option>
+        <option>Firefox</option>
+        <option>Edge</option>
+        <option>Safari</option>
+        </optgroup>
+        <optgroup label="Playwright / Cypress">
+        <option value="">framework default</option>
+        <option value="chromium">chromium</option>
+        <option value="firefox">firefox</option>
+        <option value="webkit">webkit (Playwright)</option>
+        <option value="chrome">chrome (Cypress)</option>
+        <option value="edge">edge (Cypress)</option>
+        <option value="electron">electron (Cypress)</option>
+        </optgroup>
+      </select></div>
     <div class="field"><label for="timeout_seconds">Timeout (s)</label>
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" placeholder="3600"></div>
     <button type="submit" class="button">Run {{ item.kind }}</button>

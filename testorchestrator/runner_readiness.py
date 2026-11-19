@@ -138,13 +138,20 @@ def poll(runtime) -> bool:
             text += adapter.run_log(builds[0]["buildid"]) or ""
     except Exception:
         pass
-    probe_txt = (buildbot_cfg.artifacts_dir() / pend["rid"]
-                 / "src" / "Reports" / "probe.txt")
-    try:
-        if probe_txt.is_file():
-            text += "\n" + probe_txt.read_text(errors="replace")
-    except OSError:
-        pass
+    # DirectoryUpload lands Reports/ contents at the artifact root —
+    # same convention as run collection (probe.txt is the marker log).
+    for probe_txt in (
+            buildbot_cfg.artifacts_dir() / pend["rid"] / "probe.txt",
+            buildbot_cfg.artifacts_dir() / pend["rid"]
+            / "Reports" / "probe.txt",
+            buildbot_cfg.artifacts_dir() / pend["rid"]
+            / "src" / "Reports" / "probe.txt"):
+        try:
+            if probe_txt.is_file():
+                text += "\n" + probe_txt.read_text(errors="replace")
+                break
+        except OSError:
+            pass
     probe = nodefw.parse_probe(text)
     if not probe.get("done"):
         runtime.last_diagnostic = (

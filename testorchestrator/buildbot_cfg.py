@@ -323,12 +323,14 @@ def write_run_credential(execution_id: str, value: str) -> str:
 
 
 def node_exec_spec(ex, executable: str, args: list,
-                   env: dict = None) -> dict:
+                   env: dict = None, deps_argv: list = None) -> dict:
     """Validated runner spec for Node.js browser-test runtimes
     (playwright/cypress). Same contract as kre_exec_spec — argv list
     only, no shell, no secrets — plus an explicit env map (e.g.
     PLAYWRIGHT_JUNIT_OUTPUT_FILE) rendered into the ShellCommand.
-    No credential wrapper: these frameworks need no TO licence key."""
+    No credential wrapper: these frameworks need no TO licence key.
+    ``deps_argv`` is an optional pre-exec step (``npm ci`` — the
+    project's pinned dependencies into the isolated workspace)."""
     spec = {
         "executable": executable,
         "args": list(args),
@@ -339,6 +341,8 @@ def node_exec_spec(ex, executable: str, args: list,
     }
     if env:
         spec["env"] = dict(env)
+    if deps_argv:
+        spec["deps_argv"] = list(deps_argv)
     return spec
 
 

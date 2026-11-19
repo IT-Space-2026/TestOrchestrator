@@ -76,14 +76,25 @@
       Blank or 0 = 3600&nbsp;s default. No unlimited mode.</small></div>
     <div class="field"><label for="browser_type">Browser</label>
       <select name="browser_type" id="browser_type">
+        <optgroup label="KRE (Katalon)">
         <option>Chrome (headless)</option>
         <option>Chrome</option>
         <option>Firefox (headless)</option>
         <option>Firefox</option>
         <option>Edge</option>
         <option>Safari</option>
+        </optgroup>
+        <optgroup label="Playwright (--project) / Cypress (--browser)">
+        <option value="">framework default</option>
+        <option value="chromium">chromium</option>
+        <option value="firefox">firefox</option>
+        <option value="webkit">webkit (Playwright)</option>
+        <option value="chrome">chrome (Cypress)</option>
+        <option value="edge">edge (Cypress)</option>
+        <option value="electron">electron (Cypress)</option>
+        </optgroup>
       </select>
-      <small>Runs on the <em>KRE host</em> — ignored when a Remote
+      <small>KRE: runs on the <em>KRE host</em> — ignored when a Remote
       WebDriver URL is set below (the grid node's browser comes from
       the KRE project's desired capabilities, not this field).</small></div>
     <div class="field"><label for="remote_webdriver_url">Remote WebDriver URL (optional)</label>

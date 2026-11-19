@@ -747,6 +747,7 @@ def run_discovered(item_id):
     binding = db.session.get(GitBinding, item.binding_id)
     run_config = {
         "profile": request.form.get("execution_profile") or "default",
+        "browser": request.form.get("browser_type", "").strip(),
         "runner_id": request.form.get("runner_id", "").strip(),
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "timeout_seconds":
@@ -1511,8 +1512,7 @@ def run_release(release_id):
                                                  if src else "")}}),
             config_json=json.dumps({
                 "profile": request.form.get("profile", "default"),
-                "browser": request.form.get("browser",
-                                           "Chrome (headless)"),
+                "browser": request.form.get("browser", ""),
                 "runner_id": request.form.get("runner_id", ""),
                 "runtime_id": request.form.get("runtime_id", ""),
                 "timeout_seconds": 3600}),
@@ -1587,7 +1587,7 @@ def launch_execution(suite_id):
         kre_options["retry"] = min(3, retry_n)
     run_config = {
         "profile": request.form.get("execution_profile") or "default",
-        "browser": request.form.get("browser_type") or "Chrome (headless)",
+        "browser": request.form.get("browser_type", "").strip(),
         "remote_webdriver_url":
             request.form.get("remote_webdriver_url", "").strip(),
         "remote_webdriver_type":
@@ -2073,7 +2073,7 @@ def create_schedule(project_id):
             overlap_policy=form.overlap_policy.data or "allow",
             run_config_json=json.dumps({
                 "profile": form.execution_profile.data or "default",
-                "browser": form.browser_type.data or "Chrome (headless)",
+                "browser": form.browser_type.data or "",
                 "remote_webdriver_url":
                     (form.remote_webdriver_url.data or "").strip(),
                 "remote_webdriver_type":

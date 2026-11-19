@@ -53,7 +53,9 @@ def build_args(kind: str, browser: str = "", spec: str = "",
     mochaFile=junit-[hash].xml keeps later specs from overwriting
     earlier reports (spec §4).
     """
-    args = []
+    # --no-install: a project without the framework installed fails
+    # visibly — npx must never silently fetch a CLI (spec §3).
+    args = ["--no-install"]
     if kind == "playwright":
         args += ["playwright", "test",
                  "--reporter=junit",
@@ -86,9 +88,15 @@ def build_args(kind: str, browser: str = "", spec: str = "",
 def junit_env(kind: str) -> dict:
     """Extra environment the exec step needs — playwright's junit
     reporter writes nowhere without this."""
+    env = {}
     if kind == "playwright":
-        return {"PLAYWRIGHT_JUNIT_OUTPUT_FILE": "Reports/junit/results.xml"}
-    return {}
+        env["PLAYWRIGHT_JUNIT_OUTPUT_FILE"] = \
+            "Reports/junit/results.xml"
+    # A leaked ELECTRON_RUN_AS_NODE in the worker/SSH environment runs
+    # Cypress' Electron binary as plain Node and fails with cryptic
+    # cached-data errors — empty string is falsy, which disables it.
+    env["ELECTRON_RUN_AS_NODE"] = ""
+    return env
 
 
 # ---------- readiness probe -------------------------------------------------
@@ -117,6 +125,9 @@ node --version >/dev/null 2>&1 \\
 npx --version >/dev/null 2>&1 \\
   && p "npx=$(npx --version)" \\
   || p "npx=missing"
+npm --version >/dev/null 2>&1 \\
+  && p "npm=$(npm --version)" \\
+  || p "npm=missing (needed for pinned project deps)"
 case "%KIND%" in
   playwright)
     v=$(npx --no-install playwright --version 2>/dev/null)
@@ -160,6 +171,7 @@ type nul > "%L%"
 call :p connectivity=ok
 where node >nul 2>&1 && (for /f "delims=" %%v in ('node --version 2^>nul') do call :p node=%%v) || call :p node=missing
 where npx >nul 2>&1 && (for /f "delims=" %%v in ('npx --version 2^>nul') do call :p npx=%%v) || call :p npx=missing
+where npm >nul 2>&1 && (for /f "delims=" %%v in ('npm --version 2^>nul') do call :p npm=%%v) || call :p npm=missing (needed for pinned project deps)
 if "%KIND%"=="playwright" (
   npx --no-install playwright --version >nul 2>&1 && (for /f "delims=" %%v in ('npx --no-install playwright --version 2^>nul') do call :p playwright=%%v) || call :p playwright=missing
 )

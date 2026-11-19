@@ -47,6 +47,17 @@ class DispatchError(RuntimeError):
 
 # ---------- creation / snapshot ----------
 
+def _snapshot_runtime_kind(rc: dict) -> str:
+    """Runtime kind for the run_config's selected runtime — decides
+    whether the recorded browser default is KRE's or the framework's.
+    Unknown/unresolved runtime records KRE (the pre-2.6 default)."""
+    rid = str(rc.get("runtime_id") or "").strip()
+    if not rid:
+        return "kre"
+    rt = db.session.get(RuntimeConnection, rid)
+    return (getattr(rt, "runtime_kind", "") or "kre") if rt else "kre"
+
+
 def create_execution(username: str, suite: Suite = None,
                      binding: GitBinding = None,
                      plan_id: str = "",
@@ -103,7 +114,12 @@ def create_execution(username: str, suite: Suite = None,
         ] if suite else []),
         "run_config": {
             "profile": str(rc.get("profile") or "default")[:128],
-            "browser": str(rc.get("browser") or "Chrome (headless)")[:128],
+            # KRE default applies to KRE runtimes only — node runtimes
+            # record the framework browser ("" = framework default).
+            "browser": (str(rc.get("browser")
+                            or "Chrome (headless)")[:128]
+                        if _snapshot_runtime_kind(rc) == "kre"
+                        else str(rc.get("browser") or "")[:128]),
             # Remote WebDriver (opt-in): browser runs on the WebDriver
             # service, not the KRE host — overrides -browserType=.
             "remote_webdriver_url":
@@ -1003,11 +1019,22 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             return
         node_args = nodefw.build_args(node_kind, browser_val)
         node_env = nodefw.junit_env(node_kind)
+        win = (runner.os_arch or "").lower().startswith("win")
+        # npm sits next to npx — an explicit executable_path resolves
+        # the sibling, otherwise PATH does.
+        npx_path = runtime.executable_path or (
+            "npx.cmd" if win else "npx")
+        npm = str(Path(npx_path).with_name("npm.cmd" if win
+                                           else "npm")) \
+            if Path(npx_path).parent != Path(".") else (
+                "npm.cmd" if win else "npm")
+        deps_argv = [npm, "ci", "--no-audit", "--no-fund"]
         if runner.target_type == "ssh":
             buildbot_cfg.materialize_ssh_key(runner)
             spec_file = buildbot_cfg.write_ssh_run_spec(
                 ex, runner, runtime, node_args,
                 extra={"exec_subdir": "src", "env": node_env,
+                       "deps_argv": deps_argv,
                        "report_rel": "proj/src/Reports"})
             import sys as _sys
             spec = buildbot_cfg.ssh_exec_spec(
@@ -1017,12 +1044,9 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                     / "to_ssh_exec.py"),
                 spec_file=str(spec_file))
         else:
-            win = (runner.os_arch or "").lower().startswith("win")
             spec = buildbot_cfg.node_exec_spec(
-                ex,
-                runtime.executable_path
-                or ("npx.cmd" if win else "npx"),
-                node_args, env=node_env)
+                ex, npx_path, node_args, env=node_env,
+                deps_argv=deps_argv)
             buildbot_cfg.run_specs_dir().mkdir(parents=True,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"

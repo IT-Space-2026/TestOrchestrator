@@ -6,7 +6,8 @@ from testorchestrator import buildbot_cfg
 
 def test_playwright_args_junit_and_project_browser():
     args = nodefw.build_args("playwright", "chromium")
-    assert args[:3] == ["playwright", "test", "--reporter=junit"]
+    assert args[0] == "--no-install"  # never silently fetched
+    assert args[1:4] == ["playwright", "test", "--reporter=junit"]
     assert "--output=Reports/test-results" in args
     assert "--project" in args
     assert "chromium" in args
@@ -36,7 +37,8 @@ def test_browser_validation_no_silent_substitution():
 def test_junit_env_only_playwright():
     assert "PLAYWRIGHT_JUNIT_OUTPUT_FILE" in nodefw.junit_env(
         "playwright")
-    assert nodefw.junit_env("cypress") == {}
+    # electron guard present for both (contaminated worker envs)
+    assert nodefw.junit_env("cypress")["ELECTRON_RUN_AS_NODE"] == ""
 
 
 def test_node_exec_spec_shape():

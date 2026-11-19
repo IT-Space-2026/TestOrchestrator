@@ -163,14 +163,23 @@ def _prepare(client, spec) -> None:
             f"export {remote(k)}={remote(v)}\n"
             for k, v in (spec.get("env") or {}).items()
             if k.replace("_", "").isalnum() and "\n" not in str(v))
+        # Optional dependency step (node runners: npm ci — pinned
+        # project deps into the isolated staged workspace).
+        deps = spec.get("deps_argv") or []
+        deps_line = (
+            " ".join(remote(a) for a in deps)
+            + f" >>{remote(wd)}/run.out 2>&1 || "
+            f"{{ printf 124 > {remote(wd)}/exit_code; exit 124; }}\n"
+            if deps else "")
         script = (
             "#!/bin/sh\n"
             f"mkdir -p {remote(wd)}/proj && "
             f"tar -xf {remote(wd)}/source.tar -C {remote(wd)}/proj\n"
             f"cd {cd_target} || exit 125\n"
             f"{env_exports}"
+            f"{deps_line}"
             f"{wrapper}{exe} {args} "
-            f">{remote(wd)}/run.out 2>&1\n"
+            f">>{remote(wd)}/run.out 2>&1\n"
             f"printf '%s' \"$?\" > {remote(wd)}/exit_code\n")
         with sftp.open(wd + "/run.sh", "w") as fh:
             fh.write(script)

@@ -20,11 +20,23 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "runtime_connections",
-        sa.Column("runtime_kind", sa.String(length=16), nullable=False,
-                  server_default="kre"))
+    # Idempotent: packaged units run `db-upgrade` concurrently in
+    # ExecStartPre — a second starter racing the first must not fail
+    # on an already-added column.
+    from sqlalchemy import inspect as _inspect
+    bind = op.get_bind()
+    cols = {c["name"] for c in _inspect(
+        bind).get_columns("runtime_connections")}
+    if "runtime_kind" not in cols:
+        op.add_column(
+            "runtime_connections",
+            sa.Column("runtime_kind", sa.String(length=16),
+                      nullable=False, server_default="kre"))
 
 
 def downgrade() -> None:
-    op.drop_column("runtime_connections", "runtime_kind")
+    from sqlalchemy import inspect as _inspect
+    cols = {c["name"] for c in _inspect(
+        op.get_bind()).get_columns("runtime_connections")}
+    if "runtime_kind" in cols:
+        op.drop_column("runtime_connections", "runtime_kind")
