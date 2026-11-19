@@ -28,10 +28,16 @@ def test_build_args_selection_and_tags():
 def test_classify_exit_semantics():
     assert robotfw.classify_exit(0)[0] == "ok"
     assert robotfw.classify_exit(2) == ("tests", "2 failed test(s)")
+    assert robotfw.classify_exit(249)[0] == "tests"
+    # 250 = 250+ failed tests — a test verdict, not a usage error
+    assert robotfw.classify_exit(250)[0] == "tests"
+    # 251 = informational output (--help/--version): no tests
+    # executed — must classify as config, never as a passing run
     assert robotfw.classify_exit(251)[0] == "config"
     assert robotfw.classify_exit(252)[0] == "config"
     assert robotfw.classify_exit(253)[0] == "interrupted"
     assert robotfw.classify_exit(255)[0] == "internal"
+    assert robotfw.classify_exit(137)[0] == "tests"
 
 
 def test_classify_log_labels():

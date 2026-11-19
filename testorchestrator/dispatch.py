@@ -1787,6 +1787,23 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                         continue
                     if label:
                         break
+                # SSH runs drop an exit_code artifact — the recorded
+                # Robot rc sharpens the classification (e.g. 251
+                # informational, 253 user stop, 252 invalid data).
+                if not label:
+                    for cand in (report_dir / "exit_code",
+                                 report_dir / "Reports" / "exit_code"):
+                        try:
+                            rc = int(cand.read_text().strip())
+                        except (OSError, ValueError):
+                            continue
+                        sev, label = robotfw.classify_exit(rc)
+                        label = f"exit {rc}: {label}"
+                        if sev in ("config", "interrupted", "internal"):
+                            ex.error_kind = (
+                                "execution" if sev == "interrupted"
+                                else "infrastructure")
+                        break
                 detail = f" ({label})" if label else ""
             ex.error_text = (f"buildbot run {ex.dispatch_id} ended "
                              f"results={results_code} with no result "

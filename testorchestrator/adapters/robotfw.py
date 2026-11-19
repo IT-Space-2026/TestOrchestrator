@@ -70,14 +70,20 @@ def classify_exit(rc: int) -> tuple:
     if 1 <= rc <= 249:
         return "tests", f"{rc} failed test(s)"
     labels = {
-        250: "help or version information printed (bad usage)",
-        251: "invalid data or source error",
-        252: "invalid command-line options or data",
-        253: "execution interrupted",
-        255: "internal error",
+        # RF semantics: 250 = 250+ failed tests (still a test verdict,
+        # the xunit carries the detail); 251 = informational output
+        # (--help/--version — no tests executed, NOT a pass); 252 =
+        # invalid test data or command-line options; 253 = stopped by
+        # the user; 255 = unexpected framework error.
+        250: "250 or more failed tests",
+        251: "informational output only — no tests executed",
+        252: "invalid test data or command-line arguments",
+        253: "execution stopped by the user",
+        255: "unexpected framework error",
     }
     if rc in labels:
-        return ("interrupted" if rc == 253
+        return ("tests" if rc == 250
+                else "interrupted" if rc == 253
                 else "internal" if rc == 255
                 else "config"), labels[rc]
     return "internal", f"unexpected exit status {rc}"
