@@ -1042,6 +1042,47 @@ def infrastructure():
     return _render_infrastructure(runner_form, runtime_form)
 
 
+def _pb_endpoint_hints() -> list:
+    """Candidate PB endpoints for remote workers — hostname, FQDN, the
+    address the admin is browsing with, and this host's IPv4s. All
+    offline; reachability from a given worker is not guaranteed."""
+    import socket
+    seen, hints = set(), []
+
+    def add(v):
+        v = (v or "").strip("[]").strip()
+        if v and v not in seen:
+            seen.add(v)
+            hints.append(v)
+
+    try:
+        add(socket.getfqdn())
+        add(socket.gethostname())
+    except Exception:
+        pass
+    try:
+        host = request.host.split(":")[0]
+        if host not in ("127.0.0.1", "localhost"):
+            add(host)
+    except Exception:
+        pass
+    try:
+        # UDP connect sends nothing — reveals the primary route iface
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))
+            add(s.getsockname()[0])
+    except Exception:
+        pass
+    try:
+        for _f, _t, _p, _c, sa in socket.getaddrinfo(
+                socket.gethostname(), None, socket.AF_INET):
+            if not sa[0].startswith("127."):
+                add(sa[0])
+    except Exception:
+        pass
+    return hints
+
+
 def _render_infrastructure(runner_form, runtime_form):
     from ..execution import Runner, RuntimeConnection
     from ..execution import Project
@@ -1086,6 +1127,7 @@ def _render_infrastructure(runner_form, runtime_form):
         bb_installer=_bb_worker_installer_asset(),
         bb_linux_worker=_bb_linux_worker_asset(),
         bb_sources=_bb_sources_asset(),
+        pb_hints=_pb_endpoint_hints(),
         secret_names=secret_names,
     )
 

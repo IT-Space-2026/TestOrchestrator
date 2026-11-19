@@ -135,6 +135,9 @@ body {
 }
 
 .content { flex: 1; padding: 2rem; max-width: 60rem; }
+.content.wide { max-width: 96rem; }
+.badge { white-space: nowrap; }
+.audit-table .type-cell { white-space: nowrap; }
 
 a { color: var(--accent); }
 

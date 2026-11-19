@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Workers & runtimes · TestOrchestrator{% endblock %}
+{% block content_class %}wide{% endblock %}
 {% block content %}
 <h1>System &rarr; KRE installations</h1>
 <p class="muted">Register an existing Katalon Runtime Engine (KRE)
@@ -19,11 +20,14 @@ or license KRE.</p>
     (below) are the KRE installations used on a worker.</p>
   <p class="muted"><strong>Remote worker installs:</strong> the bundled
     installer asks for the controller <strong>Buildbot PB endpoint —
-    this host's name/IP + port 9989</strong> (e.g.
-    <code>testorchestrator.local:9989</code>), not the https portal
-    URL. Worker name + one-time password come from the target record
-    — create the target first, then <strong>Issue password</strong>
-    under Manage ▾ if the flash banner was missed.</p>
+    this host's name/IP + port 9989</strong>, not the https portal
+    URL. Candidates on this controller:{% if pb_hints %}{% for h in pb_hints %}
+    <code>{{ h }}:9989</code>{% if not loop.last %}&nbsp;{% endif %}{% endfor %}{% else %}
+    <code>&lt;controller-host&gt;:9989</code>{% endif %}
+    — pick the one reachable from the worker host. Worker name +
+    one-time password come from the target record — create the target
+    first, then <strong>Issue password</strong> under Manage ▾ if the
+    flash banner was missed.</p>
   <table class="audit-table">
     <thead><tr><th>Name</th><th>Type</th><th>OS/arch</th><th>Slots</th><th>Status</th><th>Last check</th><th>Connection</th><th>Actions</th></tr></thead>
     <tbody>
@@ -41,7 +45,7 @@ or license KRE.</p>
           {% endif %}
           {% endif %}
         </td>
-        <td><span class="badge">{{ {"local": "This host", "buildbot-worker": "Buildbot worker", "ssh": "Agentless SSH"}.get(r.target_type, r.target_type) }}</span>
+        <td class="type-cell"><span class="badge">{{ {"local": "This host", "buildbot-worker": "Buildbot worker", "ssh": "Agentless SSH"}.get(r.target_type, r.target_type) }}</span>
           {% if not r.enabled %}<span class="badge danger">disabled</span>{% endif %}
           {% if r.draining %}<span class="badge warn">draining</span>{% endif %}</td>
         <td>{{ r.os_arch }}</td><td>{{ r.max_slots }}</td>
