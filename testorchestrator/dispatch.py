@@ -23,7 +23,7 @@ from flask import current_app
 
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
-from .adapters import nodefw, robotfw
+from .adapters import nodefw, pytestfw, robotfw
 
 
 def _tag_list(raw) -> list:
@@ -1172,6 +1172,49 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         record_audit("system", "execution.buildbot_dispatched",
                      f"{ex.id}: {builder} (robot) brid {brid}")
         return
+    if node_kind == pytestfw.KIND:
+        # python -m pytest under the runtime's configured interpreter —
+        # junit under Reports/, same spec/collect pipeline as robot.
+        pytest_args = pytestfw.build_args(
+            suite_path=(rc.get("suite_path") or "").strip(),
+            keyword=(rc.get("pytest_keyword") or "").strip(),
+            markers=(rc.get("pytest_markers") or "").strip())
+        win = (runner.os_arch or "").lower().startswith("win")
+        py = (runtime.executable_path or "").strip() \
+            or ("python.exe" if win else "python3")
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"}
+            py_dir = str(Path(py).parent)
+            if Path(py).is_absolute() and py_dir != ".":
+                extra["path_prefix"] = py_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, pytest_args, executable=py,
+                extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(ex, py, pytest_args)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (pytest) brid {brid}")
+        return
     flags, dropped = kre_adapter.gated_flags(
         runtime.detected_version, rc.get("kre_options") or {})
     if dropped and not rc.get("kre_options_allow_drop"):
@@ -1807,24 +1850,26 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
             ex.error_kind = "execution"
             detail = ""
             if rt0 is not None and (rt0.runtime_kind or "") \
-                    == robotfw.KIND:
-                # Robot writes xunit only on a valid execution —
+                    in (robotfw.KIND, pytestfw.KIND):
+                # Robot/pytest write xunit only on a valid execution —
                 # classify the console log so invalid data / missing
                 # libraries / interruptions are named, not lumped
                 # into "no result data".
+                _fw = (robotfw if (rt0.runtime_kind or "")
+                       == robotfw.KIND else pytestfw)
                 label = ""
                 for cand in (report_dir / "run.out",
                              log_dir / "kre-remote-run.log",
                              report_dir / "Reports" / "output.xml"):
                     try:
-                        label = robotfw.classify_log(
+                        label = _fw.classify_log(
                             cand.read_text(errors="replace"))
                     except OSError:
                         continue
                     if label:
                         break
                 # SSH runs drop an exit_code artifact — the recorded
-                # Robot rc sharpens the classification (e.g. 251
+                # rc sharpens the classification (e.g. 251
                 # informational, 253 user stop, 252 invalid data).
                 if not label:
                     for cand in (report_dir / "exit_code",
@@ -1833,7 +1878,7 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                             rc = int(cand.read_text().strip())
                         except (OSError, ValueError):
                             continue
-                        sev, label = robotfw.classify_exit(rc)
+                        sev, label = _fw.classify_exit(rc)
                         label = f"exit {rc}: {label}"
                         if sev in ("config", "interrupted", "internal"):
                             ex.error_kind = (

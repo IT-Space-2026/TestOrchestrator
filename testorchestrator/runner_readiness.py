@@ -17,7 +17,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .adapters import nodefw, robotfw
+from .adapters import nodefw, pytestfw, robotfw
 from .adapters.buildbot import BuildbotAdapter
 from . import buildbot_cfg
 from .extensions import db
@@ -39,17 +39,19 @@ def submit(runtime, app_url: str = "",
            required_libs: str = "") -> tuple:
     """Stage + submit the probe. Returns (ok, message)."""
     kind = runtime.runtime_kind or "kre"
-    robot = kind == robotfw.KIND
-    kind = kind if robot or kind in nodefw.KINDS else "playwright"
+    pyfw = kind in (robotfw.KIND, pytestfw.KIND)
+    kind = kind if pyfw or kind in nodefw.KINDS else "playwright"
     runner = runtime.runner
     rid = _rid(runtime)
-    if robot:
+    if kind == pytestfw.KIND:
+        scripts = pytestfw.probe_scripts(app_url.strip())
+    elif kind == robotfw.KIND:
         scripts = robotfw.probe_scripts(app_url.strip())
     else:
         scripts = nodefw.probe_scripts(kind, app_url.strip())
     buildbot_cfg.stage_probe_source(rid, scripts)
     probe_env = {}
-    if robot:
+    if pyfw:
         probe_env["PYBIN"] = (runtime.executable_path or "").strip()
         probe_env["REQUIRED_LIBS"] = (required_libs or "").strip()
     adapter = BuildbotAdapter.from_settings()
@@ -86,8 +88,8 @@ def submit(runtime, app_url: str = "",
                     / "to_ssh_exec.py"),
                 spec_file=str(spec_file))
         else:
-            argv = robotfw.probe_argv(runner.os_arch) if robot \
-                else nodefw.probe_argv(runner.os_arch)
+            argv = (robotfw.probe_argv(runner.os_arch) if pyfw
+                    else nodefw.probe_argv(runner.os_arch))
             spec = {"executable": argv[0], "args": argv[1:],
                     "exec_workdir": "build/src",
                     "report_src": "src/Reports"}
@@ -126,14 +128,16 @@ def _summarize(probe: dict, kind: str) -> str:
     if probe.get("app_url", "").startswith("UNREACHABLE"):
         problems.append("target/browser cannot reach the application "
                         "URL")
-    if kind == robotfw.KIND:
+    if kind in (robotfw.KIND, pytestfw.KIND):
         problems = []
         if probe.get("python", "missing").startswith("missing"):
             problems.append("configured Python interpreter not "
                             "runnable by this account")
-        if probe.get("robot", "missing").startswith("missing"):
-            problems.append("robot not importable — install "
-                            "robotframework in the configured "
+        pkg = {"robot": "robotframework",
+               "pytest": "pytest"}[kind]
+        if probe.get(kind, "missing").startswith("missing"):
+            problems.append(f"{kind} not importable — install "
+                            f"{pkg} in the configured "
                             "interpreter")
         for k, v in probe.items():
             if k.startswith("lib_") and v == "MISSING":
@@ -147,7 +151,8 @@ def _summarize(probe: dict, kind: str) -> str:
                             "URL")
         versions = ", ".join(
             f"{k}={v}" for k, v in probe.items()
-            if k in ("python", "robot") and not v.startswith("missing"))
+            if k in ("python", kind)
+            and not v.startswith("missing"))
     else:
         versions = ", ".join(
             f"{k}={v}" for k, v in probe.items()

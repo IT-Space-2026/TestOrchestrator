@@ -756,6 +756,8 @@ def run_discovered(item_id):
         "robot_test": request.form.get("robot_test", "").strip(),
         "robot_include": request.form.get("robot_include", "").strip(),
         "robot_exclude": request.form.get("robot_exclude", "").strip(),
+        "pytest_keyword": request.form.get("pytest_keyword", "").strip(),
+        "pytest_markers": request.form.get("pytest_markers", "").strip(),
         "collection": item.kind == "collection",
     }
     try:

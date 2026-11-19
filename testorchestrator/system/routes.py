@@ -1490,10 +1490,10 @@ def create_runtime():
             max_slots=4)
         db.session.add(_runner); db.session.flush()
     _kind = (request.form.get("runtime_kind") or "kre").strip()[:16]
-    if _kind not in ("kre", "playwright", "cypress", "robot"):
+    if _kind not in ("kre", "playwright", "cypress", "robot", "pytest"):
         _kind = "kre"
     kre_missing_path = (
-        _kind in ("kre", "robot")
+        _kind in ("kre", "robot", "pytest")
         and not (form.executable_path.data or "").strip())
     if form.validate_on_submit() and not kre_missing_path:
         db.session.add(RuntimeConnection(
