@@ -17,7 +17,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .adapters import nodefw
+from .adapters import nodefw, robotfw
 from .adapters.buildbot import BuildbotAdapter
 from . import buildbot_cfg
 from .extensions import db
@@ -35,14 +35,23 @@ def pending(runtime) -> dict:
         return {}
 
 
-def submit(runtime, app_url: str = "") -> tuple:
+def submit(runtime, app_url: str = "",
+           required_libs: str = "") -> tuple:
     """Stage + submit the probe. Returns (ok, message)."""
     kind = runtime.runtime_kind or "kre"
-    kind = kind if kind in nodefw.KINDS else "playwright"
+    robot = kind == robotfw.KIND
+    kind = kind if robot or kind in nodefw.KINDS else "playwright"
     runner = runtime.runner
     rid = _rid(runtime)
-    buildbot_cfg.stage_probe_source(
-        rid, nodefw.probe_scripts(kind, app_url.strip()))
+    if robot:
+        scripts = robotfw.probe_scripts(app_url.strip())
+    else:
+        scripts = nodefw.probe_scripts(kind, app_url.strip())
+    buildbot_cfg.stage_probe_source(rid, scripts)
+    probe_env = {}
+    if robot:
+        probe_env["PYBIN"] = (runtime.executable_path or "").strip()
+        probe_env["REQUIRED_LIBS"] = (required_libs or "").strip()
     adapter = BuildbotAdapter.from_settings()
     try:
         if runner.target_type == "ssh":
@@ -62,7 +71,8 @@ def submit(runtime, app_url: str = "") -> tuple:
                 execution_id=rid,
                 extra=dict(
                     {"exec_subdir": "src",
-                     "report_rel": "proj/src/Reports"},
+                     "report_rel": "proj/src/Reports",
+                     **({"env": probe_env} if probe_env else {})},
                     **({"path_prefix":
                         str(Path(runtime.executable_path).parent)}
                        if runtime.executable_path
@@ -76,10 +86,13 @@ def submit(runtime, app_url: str = "") -> tuple:
                     / "to_ssh_exec.py"),
                 spec_file=str(spec_file))
         else:
-            argv = nodefw.probe_argv(runner.os_arch)
+            argv = robotfw.probe_argv(runner.os_arch) if robot \
+                else nodefw.probe_argv(runner.os_arch)
             spec = {"executable": argv[0], "args": argv[1:],
                     "exec_workdir": "build/src",
                     "report_src": "src/Reports"}
+            if probe_env:
+                spec["env"] = probe_env
         builder = buildbot_cfg.builder_for(runner)
         brid = adapter.submit(
             builder, rid,
@@ -113,9 +126,33 @@ def _summarize(probe: dict, kind: str) -> str:
     if probe.get("app_url", "").startswith("UNREACHABLE"):
         problems.append("target/browser cannot reach the application "
                         "URL")
-    versions = ", ".join(
-        f"{k}={v}" for k, v in probe.items()
-        if k in ("node", "npx", kind) and not v.startswith("missing"))
+    if kind == robotfw.KIND:
+        problems = []
+        if probe.get("python", "missing").startswith("missing"):
+            problems.append("configured Python interpreter not "
+                            "runnable by this account")
+        if probe.get("robot", "missing").startswith("missing"):
+            problems.append("robot not importable — install "
+                            "robotframework in the configured "
+                            "interpreter")
+        for k, v in probe.items():
+            if k.startswith("lib_") and v == "MISSING":
+                problems.append(f"required library {k[4:]} not "
+                                "importable")
+        if probe.get("workspace_write") not in (None, "ok"):
+            problems.append("workspace not writable for the run "
+                            "account")
+        if probe.get("app_url", "").startswith("UNREACHABLE"):
+            problems.append("target cannot reach the application "
+                            "URL")
+        versions = ", ".join(
+            f"{k}={v}" for k, v in probe.items()
+            if k in ("python", "robot") and not v.startswith("missing"))
+    else:
+        versions = ", ".join(
+            f"{k}={v}" for k, v in probe.items()
+            if k in ("node", "npx", kind)
+            and not v.startswith("missing"))
     verdict = "ready" if not problems else "not ready"
     parts = [f"{kind} readiness: {verdict}"]
     if versions:

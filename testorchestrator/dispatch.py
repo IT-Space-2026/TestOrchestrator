@@ -22,7 +22,18 @@ from flask import current_app
 
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
-from .adapters import nodefw
+from .adapters import nodefw, robotfw
+
+
+def _tag_list(raw) -> list:
+    """Comma-separated tag list -> sanitized tokens (no empty items,
+    no shell metacharacters — argv only, never a shell)."""
+    out = []
+    for t in str(raw or "").split(","):
+        t = t.strip()
+        if t and all(c.isalnum() or c in "-_:. " for c in t):
+            out.append(t[:64])
+    return out
 from .adapters.buildbot import BuildbotAdapter
 from . import buildbot_cfg
 from .execution import (Artifact, DiscoveredItem, Execution,
@@ -131,6 +142,12 @@ def create_execution(username: str, suite: Suite = None,
             "requested_runtime": str(rc.get("runtime_id") or "")[:32],
             "collection": bool(rc.get("collection")),
             "suite_path": str(rc.get("suite_path") or "")[:512],
+            # Robot Framework selection knobs (kind=robot only —
+            # ignored by other runtime kinds).
+            "robot_suite": str(rc.get("robot_suite") or "")[:256],
+            "robot_test": str(rc.get("robot_test") or "")[:256],
+            "robot_include": str(rc.get("robot_include") or "")[:512],
+            "robot_exclude": str(rc.get("robot_exclude") or "")[:512],
             # Running-time limit in seconds (process-launch clock,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
@@ -1064,6 +1081,52 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         record_audit("system", "execution.buildbot_dispatched",
                      f"{ex.id}: {builder} ({node_kind}) brid {brid}")
         return
+    if node_kind == robotfw.KIND:
+        # python -m robot under the runtime's configured interpreter —
+        # no browser concept (browsers belong to the project and its
+        # libraries), no deps step (deps live in the configured env).
+        robot_args = robotfw.build_args(
+            suite_path=(rc.get("suite_path") or "").strip(),
+            test=(rc.get("robot_test") or "").strip(),
+            suite=(rc.get("robot_suite") or "").strip(),
+            include=_tag_list(rc.get("robot_include")),
+            exclude=_tag_list(rc.get("robot_exclude")))
+        win = (runner.os_arch or "").lower().startswith("win")
+        py = (runtime.executable_path or "").strip() \
+            or ("python.exe" if win else "python3")
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"}
+            py_dir = str(Path(py).parent)
+            if Path(py).is_absolute() and py_dir != ".":
+                extra["path_prefix"] = py_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, robot_args, executable=py,
+                extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(ex, py, robot_args)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (robot) brid {brid}")
+        return
     flags, dropped = kre_adapter.gated_flags(
         runtime.detected_version, rc.get("kre_options") or {})
     if dropped and not rc.get("kre_options_allow_drop"):
@@ -1691,9 +1754,28 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                 + (f": {tail}" if tail else ""))
         else:
             ex.error_kind = "execution"
+            detail = ""
+            if rt0 is not None and (rt0.runtime_kind or "") \
+                    == robotfw.KIND:
+                # Robot writes xunit only on a valid execution —
+                # classify the console log so invalid data / missing
+                # libraries / interruptions are named, not lumped
+                # into "no result data".
+                label = ""
+                for cand in (report_dir / "run.out",
+                             log_dir / "kre-remote-run.log",
+                             report_dir / "Reports" / "output.xml"):
+                    try:
+                        label = robotfw.classify_log(
+                            cand.read_text(errors="replace"))
+                    except OSError:
+                        continue
+                    if label:
+                        break
+                detail = f" ({label})" if label else ""
             ex.error_text = (f"buildbot run {ex.dispatch_id} ended "
                              f"results={results_code} with no result "
-                             "data")
+                             f"data{detail}")
     db.session.commit()
 
 

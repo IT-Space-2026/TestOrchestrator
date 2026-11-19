@@ -105,6 +105,11 @@
         <option value="electron">electron (Cypress)</option>
         </optgroup>
       </select></div>
+    <div class="field"><label for="robot_test">Robot options</label>
+      <input type="text" name="robot_test" id="robot_test" placeholder="test name (optional)" size="18">
+      <input type="text" name="robot_include" id="robot_include" placeholder="include tags, comma-sep" size="18">
+      <input type="text" name="robot_exclude" id="robot_exclude" placeholder="exclude tags, comma-sep" size="18">
+      <small>Robot Framework only — suite/test selection and tag filters. Browser is configured in the Robot project, not here.</small></div>
     <div class="field"><label for="timeout_seconds">Timeout (s)</label>
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" placeholder="3600"></div>
     <button type="submit" class="button">Run {{ item.kind }}</button>

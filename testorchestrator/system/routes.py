@@ -1490,10 +1490,10 @@ def create_runtime():
             max_slots=4)
         db.session.add(_runner); db.session.flush()
     _kind = (request.form.get("runtime_kind") or "kre").strip()[:16]
-    if _kind not in ("kre", "playwright", "cypress"):
+    if _kind not in ("kre", "playwright", "cypress", "robot"):
         _kind = "kre"
     kre_missing_path = (
-        _kind == "kre"
+        _kind in ("kre", "robot")
         and not (form.executable_path.data or "").strip())
     if form.validate_on_submit() and not kre_missing_path:
         db.session.add(RuntimeConnection(
@@ -1521,8 +1521,9 @@ def create_runtime():
         if errs:
             flash(f"Runtime not registered — {errs}", "error")
         if kre_missing_path:
-            flash("KRE runtimes require the executable path on the "
-                  "selected worker.", "error")
+            flash("KRE and Robot runtimes require the executable "
+                  "path on the selected worker (KRE binary or "
+                  "Python interpreter).", "error")
         if errs or kre_missing_path:
             from ..execution import Project as _P
             runner_form = RunnerForm()
@@ -1585,7 +1586,7 @@ def runtime_readiness(runtime_id):
         abort(404)
     if (rt.runtime_kind or "kre") == "kre" \
             or not rt.runner or rt.runner.connection_mode == "local":
-        flash("Runner readiness applies to Playwright/Cypress "
+        flash("Runner readiness applies to Playwright/Cypress/Robot "
               "runtimes on remote targets — KRE uses the local "
               "executable probe instead.", "error")
         return redirect(url_for("system.infrastructure"))
@@ -1594,7 +1595,8 @@ def runtime_readiness(runtime_id):
               "runtime.", "info")
         return redirect(url_for("system.infrastructure"))
     ok, msg = runner_readiness.submit(
-        rt, request.form.get("app_url", ""))
+        rt, request.form.get("app_url", ""),
+        required_libs=request.form.get("required_libs", ""))
     flash(f"Readiness check submitted (run {msg}) — the result "
           "appears here once the probe completes."
           if ok else f"Readiness check failed to submit: {msg}",
