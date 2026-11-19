@@ -327,6 +327,10 @@ Section "Install TestOrchestrator" SecMain
     ; silent/scripted flow — deterministic wrapper (data retained; /PURGE
     ; is an explicit admin choice, not a quiet default)
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "QuietUninstallString" 'cmd /c "$DATA_DIR\uninstall_to.cmd"'
+    ; desktop shortcut — opens the portal login page in the default
+    ; browser (URL .lnk; no executable target involved)
+    SetShellVarContext all
+    CreateShortCut "$DESKTOP\TestOrchestrator.lnk" "https://$PUBLIC_ADDR:$ORCH_PORT/" "" "$INSTDIR\it.ico" 0
 SectionEnd
 
 Function OpenPortal
@@ -359,6 +363,8 @@ Section "Uninstall"
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorBuildbotMaster" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorBuildbotLocal" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorBuildbotSSH" /F'
+    SetShellVarContext all
+    Delete "$DESKTOP\TestOrchestrator.lnk"
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator"
     RMDir /r "$INSTDIR"
     ${If} $PURGE_DATA == "1"

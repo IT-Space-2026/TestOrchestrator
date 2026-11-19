@@ -83,19 +83,19 @@ Function ConfigPage
         Abort
     ${EndIf}
 
-    ${NSD_CreateLabel} 0 0 100% 12u "Controller PB endpoint (host:port):"
+    ${NSD_CreateLabel} 0 0 100% 24u "Controller Buildbot PB endpoint — the hostname or IP of the machine where TestOrchestrator is installed, port 9989 (e.g. testorchestrator.local:9989). This is NOT the https portal URL:"
     Pop $0
-    ${NSD_CreateText} 0 14u 100% 12u "$MASTER_ADDR"
+    ${NSD_CreateText} 0 26u 100% 12u "$MASTER_ADDR"
     Pop $CTL_MASTER
 
-    ${NSD_CreateLabel} 0 32u 100% 12u "Worker name (issued by the portal):"
+    ${NSD_CreateLabel} 0 44u 100% 24u "Worker name — shown when the target was added (System → Infrastructure), or issue a new one with 'Issue password':"
     Pop $0
-    ${NSD_CreateText} 0 46u 100% 12u "$WORKER_NAME"
+    ${NSD_CreateText} 0 70u 100% 12u "$WORKER_NAME"
     Pop $CTL_NAME
 
-    ${NSD_CreateLabel} 0 64u 100% 12u "One-time worker password (issued by the portal):"
+    ${NSD_CreateLabel} 0 88u 100% 24u "One-time worker password — flashed once in the portal when the target was created; 'Issue password' rotates it:"
     Pop $0
-    ${NSD_CreatePassword} 0 78u 100% 12u ""
+    ${NSD_CreatePassword} 0 114u 100% 12u ""
     Pop $CTL_PASS
 
     nsDialogs::Show
@@ -164,17 +164,27 @@ Section "Install Buildbot worker payload" SecMain
         StrCpy $SVC_ACCOUNT "SYSTEM"
     ${EndIf}
     ${If} $SVC_ACCOUNT == "SYSTEM"
-        nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorBuildbotWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python-embed\Scripts\buildbot-worker.exe\" --nodaemon start \"$DATA_DIR\worker\""'
+        nsExec::ExecToLog 'cmd /c "schtasks /Create /TN "TestOrchestratorBuildbotWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python-embed\Scripts\buildbot-worker.exe\" start --nodaemon \"$DATA_DIR\worker\"" >> "$DATA_DIR\setup-worker.log" 2>&1"'
     ${Else}
-        nsExec::ExecToLog 'schtasks /Create /TN "TestOrchestratorBuildbotWorker" /SC ONSTART /RU "$SVC_ACCOUNT" /RP "" /RL HIGHEST /F /TR "\"$INSTDIR\python-embed\Scripts\buildbot-worker.exe\" --nodaemon start \"$DATA_DIR\worker\""'
+        nsExec::ExecToLog 'cmd /c "schtasks /Create /TN "TestOrchestratorBuildbotWorker" /SC ONSTART /RU "$SVC_ACCOUNT" /RP "" /RL HIGHEST /F /TR "\"$INSTDIR\python-embed\Scripts\buildbot-worker.exe\" start --nodaemon \"$DATA_DIR\worker\"" >> "$DATA_DIR\setup-worker.log" 2>&1"'
     ${EndIf}
     Pop $0
     ${If} $0 != "0"
-        MessageBox MB_ICONEXCLAMATION "Scheduled-task registration failed"
+        MessageBox MB_ICONEXCLAMATION "Scheduled-task registration failed (code $0) — see $DATA_DIR\setup-worker.log"
     ${EndIf}
+    ; start the worker now — it should be registering with the
+    ; controller within seconds; a failed start is surfaced, not silent
     ${If} $MASTER_ADDR != "<portal-host>:9989"
-        nsExec::ExecToLog 'schtasks /Run /TN "TestOrchestratorBuildbotWorker"'
+        nsExec::ExecToLog 'cmd /c "schtasks /Run /TN "TestOrchestratorBuildbotWorker" >> "$DATA_DIR\setup-worker.log" 2>&1"'
+        Pop $0
+        ${If} $0 != "0"
+            MessageBox MB_ICONEXCLAMATION "Worker task was registered but did not start (code $0) — see $DATA_DIR\setup-worker.log and $DATA_DIR\worker\twistd.log"
+        ${EndIf}
     ${EndIf}
+
+    ; tray icon for the installing user — start/stop/quit at logon
+    SetShellVarContext current
+    CreateShortCut "$SMSTARTUP\TestOrchestrator Buildbot Worker.lnk" '"$INSTDIR\python-embed\pythonw.exe"' '"$INSTDIR\worker-tray.py"' "$INSTDIR\it.ico" 0
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorBuildbotWorker" "DisplayName" "${PRODUCT} ${VERSION}"
@@ -185,10 +195,13 @@ Section "Install Buildbot worker payload" SecMain
 SectionEnd
 
 Section "Uninstall"
-    ; Stop + remove the worker task; remove the program payload.
-    ; $PROGRAMDATA\TestOrchestrator (basedir, logs, workspaces) is
-    ; preserved — deleting it requires the operator's explicit choice.
-    ; KRE and unrelated files are never touched.
+    ; Stop + remove the worker task + tray autostart; remove the
+    ; program payload. $PROGRAMDATA\TestOrchestrator (basedir, logs,
+    ; workspaces) is preserved — deleting it requires the operator's
+    ; explicit choice. KRE and unrelated files are never touched.
+    SetShellVarContext current
+    Delete "$SMSTARTUP\TestOrchestrator Buildbot Worker.lnk"
+    nsExec::ExecToLog 'taskkill /F /FI "WINDOWTITLE eq TestOrchestrator Buildbot Worker" /FI "IMAGENAME eq pythonw.exe"'
     nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorBuildbotWorker"'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorBuildbotWorker" /F'
     RMDir /r "$INSTDIR"

@@ -17,6 +17,13 @@ or license KRE.</p>
   <p class="muted">A <strong>worker</strong> is the execution process or
     destination — the machine that runs tests. Runtime connections
     (below) are the KRE installations used on a worker.</p>
+  <p class="muted"><strong>Remote worker installs:</strong> the bundled
+    installer asks for the controller <strong>Buildbot PB endpoint —
+    this host's name/IP + port 9989</strong> (e.g.
+    <code>testorchestrator.local:9989</code>), not the https portal
+    URL. Worker name + one-time password come from the target record
+    — create the target first, then <strong>Issue password</strong>
+    under Manage ▾ if the flash banner was missed.</p>
   <table class="audit-table">
     <thead><tr><th>Name</th><th>Type</th><th>OS/arch</th><th>Slots</th><th>Status</th><th>Last check</th><th>Connection</th><th>Actions</th></tr></thead>
     <tbody>
@@ -52,7 +59,7 @@ or license KRE.</p>
           {% endif %}
         </td>
         <td><small>{{ r.check_at or "—" }}{% if r.check_error %}<br>{{ r.check_error }}{% endif %}</small></td>
-        <td>
+        <td class="conn-cell">
           {% if r.target_type == "local" %}
             <small class="muted">controller-local worker</small>
           {% elif r.target_type == "buildbot-worker" %}
@@ -69,11 +76,14 @@ or license KRE.</p>
           </form>
           {% endif %}
         </td>
-        <td><span class="row-actions">
+        <td class="actions-cell"><span class="row-actions">
           <form method="post" action="{{ url_for('system.test_runner', runner_id=r.id) }}" class="inline">
             {{ runner_form.csrf_token }}
             <button type="submit" class="button secondary sm" title="Connection check — installs nothing, runs no tests">Test</button>
           </form>
+          <details class="inline-details">
+            <summary class="button secondary sm">Manage ▾</summary>
+            <span class="manage-menu">
           {% if r.target_type == "buildbot-worker" %}
           <form method="post" action="{{ url_for('system.issue_bb_secret', runner_id=r.id) }}" class="inline">
             {{ runner_form.csrf_token }}
@@ -97,6 +107,8 @@ or license KRE.</p>
             {{ runner_form.csrf_token }}
             <button type="submit" class="button danger sm">Remove</button>
           </form>
+            </span>
+          </details>
           <details class="inline-details">
             <summary class="button secondary sm">Edit</summary>
             <form method="post" action="{{ url_for('system.edit_runner', runner_id=r.id) }}" class="edit-form">
@@ -255,7 +267,7 @@ or license KRE.</p>
             <span class="badge">Re-check required</span>
             {% else %}<span class="badge ok">Check passed</span>{% endif %}
             <small class="muted">{{ rt.last_check_at or "" }}</small></td>
-          <td><span class="row-actions">
+          <td class="actions-cell"><span class="row-actions">
             {% if r.connection_mode == "local" %}
             <form method="post" action="{{ url_for('system.probe_runtime', runtime_id=rt.id) }}" class="inline">
               {{ runtime_form.csrf_token }}

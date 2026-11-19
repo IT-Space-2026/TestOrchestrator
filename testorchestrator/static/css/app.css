@@ -888,7 +888,13 @@ td .row-actions{min-width:9rem}
 .inline-details .edit-form input{width:100%;padding:.45rem .6rem}
 .inline-details .edit-form .button,.inline-details .edit-form
   .button.danger{align-self:flex-start;margin-right:.4rem}
-.runner-rts td:last-child{vertical-align:top;min-width:16rem}
+.runner-rts td:last-child{vertical-align:top;min-width:10rem}
+.audit-table td{overflow-wrap:anywhere}
+.audit-table .conn-cell{max-width:13rem}
+.inline-details .manage-menu{display:flex;flex-wrap:wrap;gap:.4rem;
+  margin-top:.5rem;padding:.6rem .8rem;background:var(--bg-subtle);
+  border:1px solid var(--border);border-radius:var(--radius);
+  min-width:14rem}
 .block-details > *:not(summary){margin-top:.8rem}
 .block-details form > .field{margin-bottom:.6rem}
 /* Plotly chart containers */

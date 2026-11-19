@@ -19,6 +19,23 @@ untouched, same reruns-are-safe contract).
   *"Open TestOrchestrator in your browser"* option on the finish
   page, opening `https://<addr>:<port>/` in the default browser
   (skipped automatically for silent `/S` installs).
+- **Windows worker did not start after install**: the Scheduled
+  Task was registered as `buildbot-worker.exe --nodaemon start`
+  (invalid argument order). Now `start --nodaemon`, and the task
+  is started immediately after registration.
+- **Windows worker tray icon**: a Startup-folder shortcut launches
+  `worker-tray.py` (pystray + Pillow bundled offline) at user logon —
+  notification-area icon showing worker state with right-click
+  **Start / Stop / Quit** (controls the Scheduled Task via schtasks;
+  Quit only closes the icon, never the worker).
+- **Controller desktop shortcut** added on install — opens the
+  portal login page (`https://<addr>:<port>/`) in the default
+  browser; removed on uninstall.
+- **Infrastructure UI**: worker-row actions no longer overflow the
+  table — secondary actions (Issue password, Drain/Resume,
+  Enable/Disable, Remove) moved under a compact **Manage ▾** menu;
+  the Workers card now documents the Buildbot PB endpoint
+  (`<host>:9989`, not the https URL) beside the download table.
 
 ### Documentation
 

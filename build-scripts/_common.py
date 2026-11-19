@@ -288,6 +288,10 @@ def stage_buildbot_worker_payload(build_dir: Path, log: Log) -> Path:
           ASSETS["get_pip"]["sha256"], log)
     shutil.copy2(REPO / "packaging" / "windows" / "bb-worker-payload-src"
                  / "setup-worker.py", out / "setup-worker.py")
+    shutil.copy2(REPO / "packaging" / "windows" / "bb-worker-payload-src"
+                 / "worker-tray.py", out / "worker-tray.py")
+    shutil.copy2(REPO / "packaging" / "windows" / "it.ico",
+                 out / "it.ico")
     wheels = out / "wheels"
     wheels.mkdir()
     vpy = venv_python(build_dir, log)
@@ -301,6 +305,8 @@ def stage_buildbot_worker_payload(build_dir: Path, log: Log) -> Path:
          "--implementation", "cp", "--abi", "cp312",
          "-d", str(wheels), f"buildbot-worker=={bbver}",
          "pywin32",
+         # tray controller (Start/Stop/Quit in the notification area)
+         "pystray", "pillow",
          # get-pip runs --no-index --find-links=wheels — a pip wheel
          # must be present or the offline bootstrap fails.
          f"pip=={ASSETS['pip_wheel']['version']}"], log)

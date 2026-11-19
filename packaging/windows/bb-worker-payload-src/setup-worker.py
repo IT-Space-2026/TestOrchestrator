@@ -74,7 +74,7 @@ def main() -> None:
             [str(python), str(GET_PIP), "--no-index",
              "--find-links", str(WHEELS)], cwd=str(HERE))
     _pip(python, "install", "--no-index", "--find-links",
-         str(WHEELS), "buildbot-worker")
+         str(WHEELS), "buildbot-worker", "pystray", "pillow")
 
     bbw = PYEMBED / "Scripts" / "buildbot-worker.exe"
     if not bbw.exists():

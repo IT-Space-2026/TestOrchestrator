@@ -50,6 +50,20 @@ def _wheels(dirpath: Path, version: str = "4.3.0") -> None:
     (dirpath / "packaging" / "windows").mkdir(parents=True, exist_ok=True)
     (dirpath / "packaging" / "windows" /
      "TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz").write_bytes(b"s")
+    # self-contained Linux worker bundle: script + offline wheels
+    import io
+    import tarfile
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as t:
+        for name in ("install_linux_worker.sh",
+                     "bb-wheels/buildbot_worker-4.3.0-py3-none-any.whl",
+                     "bb-wheels/twisted-24.11.0-py3-none-any.whl"):
+            ti = tarfile.TarInfo(name)
+            ti.size = 1
+            t.addfile(ti, io.BytesIO(b"x"))
+    (dirpath / "packaging" / "windows" /
+     "TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz"
+     ).write_bytes(buf.getvalue())
     lic = dirpath / "3rdparty" / "licenses"
     lic.mkdir(parents=True, exist_ok=True)
     (lic / "buildbot-COPYING").write_bytes(b"l")

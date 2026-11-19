@@ -615,6 +615,9 @@ Procedure:
    rerun), and trusts the per-install CA in the machine Root store.
 4. Browse `https://<host>:<port>/` and sign in `Admin`/`Admin` — the
    forced password-change flow is identical to Linux (§4.2 steps 3–8).
+   The installer also places a **TestOrchestrator** shortcut on the
+   public desktop (opens the portal in the default browser) and
+   offers a finish-page option to launch it directly.
 
 `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` installs the
 complete controller on a Windows amd64 host — the same product the
@@ -716,14 +719,27 @@ running work to another target — pinned runs fail visibly.
    password is stored encrypted and cannot be retrieved again.
 3. On the Windows host run the installer (offline — no preinstalled
    Python needed; it does not install the controller and bundles no
-   KRE/licence). Enter the controller's `https://<portal>` address,
-   worker name, and password. It installs the worker under a
-   dedicated account and registers auto-start.
+   KRE/licence). Its configuration page asks for three values:
+   - **Controller Buildbot PB endpoint** — the hostname or IP of the
+     controller machine plus port `9989` (e.g.
+     `testorchestrator.local:9989`). This is *not* the `https://`
+     portal URL — the worker dials outbound to the Buildbot master's
+     PB listener, not to the web portal.
+   - **Worker name** and **one-time password** — the pair generated
+     by step 2.
+   The installer registers a Scheduled Task
+   (`TestOrchestratorBuildbotWorker`), starts it immediately, and
+   adds a Startup-folder shortcut that shows a notification-area
+   (tray) icon at user logon — right-click offers **Start** /
+   **Stop** / **Quit** (Quit only closes the icon; the worker keeps
+   running under its Scheduled Task).
 4. The target shows `Awaiting registration` until the worker connects
-   over PB :9989, then lists discovered runners/runtimes.
+   over PB :9989, then lists discovered runners/runtimes. Install
+   output is logged to
+   `%ProgramData%\TestOrchestrator\buildbot-worker\setup-worker.log`.
 5. Reinstall over an existing install preserves worker identity (no
-   duplicate target); uninstall removes the startup registration and
-   does not touch KRE or unrelated files.
+   duplicate target); uninstall removes the Scheduled Task, the tray
+   autostart shortcut, and does not touch KRE or unrelated files.
 
 ### 6.2 Native Linux Buildbot worker
 
