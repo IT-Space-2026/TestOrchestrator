@@ -1492,12 +1492,10 @@ def create_runtime():
     _kind = (request.form.get("runtime_kind") or "kre").strip()[:16]
     if _kind not in ("kre", "playwright", "cypress"):
         _kind = "kre"
-    if form.validate_on_submit():
-        if _kind == "kre" and not (
-                form.executable_path.data or "").strip():
-            flash("KRE runtimes require the executable path on the "
-                  "selected worker.", "error")
-            return redirect(url_for("system.infrastructure"))
+    kre_missing_path = (
+        _kind == "kre"
+        and not (form.executable_path.data or "").strip())
+    if form.validate_on_submit() and not kre_missing_path:
         db.session.add(RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
@@ -1522,6 +1520,10 @@ def create_runtime():
             for k, v in form.errors.items())
         if errs:
             flash(f"Runtime not registered — {errs}", "error")
+        if kre_missing_path:
+            flash("KRE runtimes require the executable path on the "
+                  "selected worker.", "error")
+        if errs or kre_missing_path:
             from ..execution import Project as _P
             runner_form = RunnerForm()
             runner_form.allowed_projects.choices = [
