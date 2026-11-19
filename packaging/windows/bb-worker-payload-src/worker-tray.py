@@ -48,11 +48,12 @@ def _status_text(icon=None, item=None):
 
 
 def _configure(icon=None, item=None):
-    # console window running the interactive reconfigure prompts
-    subprocess.Popen(
-        ["cmd", "/c", "start", "",
-         str(HERE / "reconfigure-worker.cmd")],
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    # console window running the interactive reconfigure prompts —
+    # os.startfile, not cmd/start: a windowless pythonw + CREATE_NO_
+    # WINDOW cannot allocate the console ('Not enough memory
+    # resources are available to process this command')
+    import os
+    os.startfile(str(HERE / "reconfigure-worker.cmd"))
 
 
 def _noop(*_):

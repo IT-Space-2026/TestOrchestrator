@@ -168,9 +168,29 @@ def _internal_worker_passwords() -> dict:
 
 
 def trigger_reconfig() -> bool:
-    """SIGHUP the recorded master pid — re-reads targets/secrets with
-    no restart. Missing/stale pidfile returns False; the UI surfaces it."""
+    """Make the master re-read targets/secrets.
+
+    POSIX: SIGHUP the recorded master pid (no restart).
+    Windows: SIGHUP does not exist — end + run the master Scheduled
+    Task instead. A brief restart on a rare admin action is the only
+    correct reconfig mechanism there."""
     import signal
+    if os.name == "nt":
+        import subprocess
+        try:
+            subprocess.run(
+                ["schtasks", "/End", "/TN",
+                 "TestOrchestratorBuildbotMaster"],
+                capture_output=True, timeout=30)
+            import time
+            time.sleep(2)
+            r = subprocess.run(
+                ["schtasks", "/Run", "/TN",
+                 "TestOrchestratorBuildbotMaster"],
+                capture_output=True, timeout=30)
+            return r.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
     pidfile = settings_mod.get("buildbot_pidfile") or ""
     pid = _master_pid(pidfile)
     if pid is None:
