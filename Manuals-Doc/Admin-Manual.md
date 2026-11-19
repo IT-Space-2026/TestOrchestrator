@@ -364,7 +364,17 @@ version (`4.3.0`).
   logged); it is validated and stored for status display, but a
   rejected or absent code never aborts the install.
 
-### 4.2 Tarball install **[verified]**
+### 4.2 Tarball install — step by step **[verified]**
+
+**Step 1 — verify the package.** Download `SHA256SUMS.txt` beside the
+tarball and check it before anything runs:
+
+```bash
+sha256sum -c SHA256SUMS.txt
+# testorchestrator-2.5.0-linux-x86_64.tar.gz: OK
+```
+
+**Step 2 — extract and run the installer:**
 
 ```bash
 tar -xzf testorchestrator-2.5.0-linux-x86_64.tar.gz
@@ -381,6 +391,49 @@ bash install.sh \
     --https-port 443 --http-port 8080 \
     --no-service-start --yes
 ```
+
+Steps 1–2 on a real run (the transcript shows the full installer
+output: worker-asset staging, offline venvs, Buildbot provisioning,
+unit enablement, readiness check):
+
+![Installer transcript — checksum, extraction, install.sh output](Screenshot-Doc/admin/install-transcript.png)
+
+**Step 3 — sign in.** Browse to `https://<host>/` (the installer
+prints the local URL). On a fresh install the bootstrap account is
+`Admin`/`Admin`:
+
+![Sign-in page](Screenshot-Doc/user/login.png)
+
+**Step 4 — set the real admin password.** The first sign-in is forced
+to the password-change form — nothing else is reachable until a
+strong password (≥12 chars, mixed case + digit, different from the
+bootstrap one) is set:
+
+![Forced bootstrap password change](Screenshot-Doc/admin/install-bootstrap.png)
+
+**Step 5 — confirm the install.** The dashboard loads empty (no
+projects or executions yet — expected):
+
+![Fresh install — empty dashboard](Screenshot-Doc/admin/install-dashboard.png)
+
+**Step 6 — create real user accounts.** **Users** lists only the
+bootstrap `Admin`; add accounts under **System → Users** (§12.3):
+
+![Fresh install — user list with only the bootstrap Admin](Screenshot-Doc/admin/install-users.png)
+
+**Step 7 — check execution infrastructure.** **System →
+Infrastructure** starts with no workers/KRE — but the **Remote worker
+installers** table already serves the pinned Windows `.exe` and Linux
+bundle with their SHA-256s (needed for §6):
+
+![Fresh install — empty workers/KRE tables and remote-worker downloads](Screenshot-Doc/admin/install-infrastructure.png)
+
+**Step 8 — verify services.** **System → Health & services** shows
+every unit active after a root install; on a `--no-service-start` or
+non-root install units show `not installed` until enabled — expected,
+not a fault:
+
+![Fresh install — services status](Screenshot-Doc/admin/install-health.png)
 
 What the installer does, in order **[verified — every step observed]**:
 
@@ -447,27 +500,11 @@ export TO_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))'
 - `toctl db-upgrade` applies pending Alembic migrations; it is
   idempotent and safe before every start/upgrade.
 
-What a brand-new install looks like at first login:
-
-![Fresh install — empty dashboard](Screenshot-Doc/admin/install-dashboard.png)
-
-- **Users** lists exactly one account — the bootstrap `Admin`.
-  Create real accounts next (§12.3):
-
-  ![Fresh install — user list with only the bootstrap Admin](Screenshot-Doc/admin/install-users.png)
-
-- **Infrastructure** shows no workers and no KRE installations yet —
-  this is where §12.1 and §12.2 start. The **Download execution
-  worker** card already serves the pinned Buildbot build with its
-  SHA-256:
-
-  ![Fresh install — empty workers/KRE tables and worker download](Screenshot-Doc/admin/install-infrastructure.png)
-
-- **Health & services** shows every unit `not installed` until the
-  staged systemd units are enabled — expected on a
-  `--no-service-start` or non-root install, not a fault:
-
-  ![Fresh install — services not yet installed](Screenshot-Doc/admin/install-health.png)
+What a brand-new install looks like at first login is shown step by
+step in §4.2 (steps 3–8): sign-in, the forced password change, the
+empty dashboard, the user list with only the bootstrap `Admin`, the
+empty Infrastructure page with the remote-worker downloads already
+available, and the Health & services page.
 
 ### 4.5 Directory layout **[verified]**
 
@@ -562,6 +599,21 @@ across the failed apply.
 
 ### 5.1 Windows controller
 
+Procedure:
+
+1. Download `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe`
+   and verify it against `SHA256SUMS.txt` (`certutil -hashfile <file>
+   SHA256` on the Windows host). The installer is **unsigned** —
+   SmartScreen will warn; the checksum is the trust anchor.
+2. Run it elevated — interactive wizard, or silent:
+   `setup.exe /S /D=C:\TestOrchestrator /PORT=8443 /ADDR=<fqdn>`.
+3. The installer stages the payload, provisions Buildbot (master +
+   `to-local` + `to-ssh-dispatcher`), creates the five Scheduled
+   Tasks, generates `testorchestrator.env` (secrets preserved on
+   rerun), and trusts the per-install CA in the machine Root store.
+4. Browse `https://<host>:<port>/` and sign in `Admin`/`Admin` — the
+   forced password-change flow is identical to Linux (§4.2 steps 3–8).
+
 `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe` installs the
 complete controller on a Windows amd64 host — the same product the
 Linux packages install:
@@ -642,6 +694,12 @@ remove without controller files, commands, or restarts. Three types:
 | `buildbot-worker` | Remote Windows or Linux Buildbot worker | The remote host, outbound PB |
 | `ssh` | Agentless SSH target | Remote host over SSH/SFTP — nothing TO-side installed there |
 
+The **Remote worker installers** table at the bottom of the page
+serves both offline worker packages — the Windows `.exe` and the
+Linux bundle — each with its pinned Buildbot version and SHA-256:
+
+![Infrastructure — remote worker installers table](Screenshot-Doc/admin/install-infrastructure.png)
+
 Disabling or removing a target never silently redirects its queued or
 running work to another target — pinned runs fail visibly.
 
@@ -689,7 +747,7 @@ running work to another target — pinned runs fail visibly.
 4. Uninstall: `systemctl disable --now to-buildbot-worker`, remove the
    unit, and delete `$HOME`/`$DATA` explicitly — workspaces are never
    removed implicitly.
-4. Registration, credentials, runner discovery, and capacity are then
+5. Registration, credentials, runner discovery, and capacity are then
    managed from the Admin UI (rotate the secret with **Issue secret**;
    drain before maintenance).
 

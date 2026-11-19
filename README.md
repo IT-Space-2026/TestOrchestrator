@@ -138,12 +138,24 @@ the acceptance record, not marked passed.
 
 ## Installing (Linux)
 
+Step by step — every command below is shown in the Admin Manual with
+a matching screenshot (§4.2–§4.4):
+
 ```text
+# 1. verify the download against the published SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt
+
+# 2. extract and install
 tar xzf testorchestrator-2.5.0-linux-x86_64.tar.gz
 cd testorchestrator-2.5.0-linux-x86_64
 sudo ./install.sh            # → toctl install (frozen payload)
 # or: ./testorchestrator-2.5.0-linux-x86_64.run  (self-extracting)
+
+# 3. open https://<host>/ and sign in as Admin / Admin —
+#    the first sign-in forces a password change
 ```
+
+![Installer transcript — every step of a real install](Manuals-Doc/Screenshot-Doc/admin/install-transcript.png)
 
 `install.sh` locates its own payload, checks Linux/x86_64, and runs
 `toctl install` — payload copy, data/config dirs, `web.env`,
@@ -158,16 +170,23 @@ Buildbot credentials are preserved, data is never deleted.
 
 ## Installing (Windows)
 
-The controller runs on Linux only — there is no Windows controller
-installer. Windows hosts participate as **execution targets**: run
-the bundled `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`
-(interactive or `/S` for silent NSIS install), downloaded from the
-installed portal (**Workers & runtimes → download**, SHA-256 shown
-next to the link). It installs a minimal worker-only footprint
-aligned to the controller's Buildbot 4.3.0 and connects outbound
-over PB — no inbound portal port required. The matching
-corresponding-source archive is offered beside the download link.
-See the Admin Manual §6.1.
+**Controller:** `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe`
+installs the complete controller on Windows amd64 — portal (Cheroot
+HTTPS + Waitress loopback), embedded Python, Buildbot 4.3.0 master,
+the two controller workers, and the downloadable remote-worker
+installers — under five Scheduled Tasks. Run it interactive or
+silent (`/S /D=C:\Install\Dir`, `/PORT=`, `/ADDR=`). See the Admin
+Manual §5.1.
+
+**Execution target only:** a Windows host that should only *run*
+tests needs the bundled
+`TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` —
+downloaded from the installed portal (**System → Infrastructure →
+Remote worker installers**, SHA-256 shown next to the link). It
+installs a worker-only footprint aligned to Buildbot 4.3.0 and
+connects outbound over PB — no inbound portal port required. The
+Linux worker bundle and the corresponding-source archive are offered
+beside it. See the Admin Manual §6.1–§6.2.
 
 ## Application commands (`toctl`)
 

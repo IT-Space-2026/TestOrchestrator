@@ -112,6 +112,8 @@ Open the portal URL your administrator gives you (for example
   exists. The first sign-in with it is forced directly to the
   password-change form — you cannot navigate anywhere until a strong
   password (at least 12 characters) replaces the temporary one.
+
+  ![Forced bootstrap password change](Screenshot-Doc/admin/install-bootstrap.png)
 - Until the administrator marks setup complete and enables external
   access, the portal only accepts connections from the machine it
   runs on (loopback). If you get an unexpected `403`, ask your

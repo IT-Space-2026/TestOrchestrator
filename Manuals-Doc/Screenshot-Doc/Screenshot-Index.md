@@ -1,12 +1,12 @@
 # Screenshot Index — TestOrchestrator 2.5.0
 
-- **Provenance:** all frames were captured on real packaged Linux
-  installations during documentation work. **Some frames predate the
-  final 2.5.0 UI** — they remain representative of the current
-  screens; captions note where captured detail differs (e.g. the
-  install transcript shows a pre-2.5 provisioning line).
-- **Captured:** 2026-11-17, Chromium headless at 1440×900, real
-  running installation at `http://127.0.0.1:8095`
+- **Provenance:** all frames were captured from the **released 2.5.0
+  codebase** during documentation work — no pre-release frames remain.
+- **Captured:** Chromium headless at 1440×900 against two live
+  instances: a **fresh install** (bootstrap state, `install-*` frames)
+  and a **populated instance** carrying real project/execution history.
+  `install-transcript.png` is a terminal rendering of actual
+  `install.sh`/`install.py` output lines from the 2.5.0 package.
 - **Environment:** isolated documentation installs
 - **Data notes:** project "Katalon-cert Demo" is a real Katalon
   project with **genuine Katalon 11.7.0 report output** (imported);
@@ -59,11 +59,12 @@
 | `user-new.png` | Create user form: username, display name, role radios, temporary password |
 | `licence.png` | Licence administration: status, activated-licence table, add-code field — informational status display; demonstration licence only |
 | `login-unsupported.png` | Login page with no valid application licence — exact notice *"This version is not supported"*, form fully usable |
-| `install-transcript.png` | `install.sh` output: optional licence seed, payload/data/config paths, orchestrator provisioning, staged units *(pre-2.5 capture — recapture pending)* |
+| `install-transcript.png` | Terminal: checksum verification, package extraction, `install.sh` run — payload/data/config paths, worker-asset staging, offline venvs, Buildbot master + worker provisioning, unit enablement, readiness check |
+| `install-bootstrap.png` | First sign-in — forced bootstrap-password replacement ("Set your password") |
 | `install-dashboard.png` | Fresh install — dashboard at first login, no data yet |
 | `install-users.png` | Fresh install — user list containing only the bootstrap Admin |
-| `install-infrastructure.png` | Fresh install — empty workers/KRE tables; worker download card with pinned version + SHA-256 |
-| `install-health.png` | Fresh install — services shown `not installed` until staged units are enabled |
+| `install-infrastructure.png` | Fresh install — empty workers/KRE tables; **Remote worker installers** table (Windows `.exe` + Linux bundle, pinned 4.3.0 + SHA-256) |
+| `install-health.png` | Fresh install — Health & services at first boot |
 | `reporting.png` | Reporting settings: reportingLabs toggle, log retention bounds, git evidence-export fields |
 | `storage-layout.png` | Real `du`/`ls` of the instance data dir — per-directory footprint for capacity planning |
 | `evidence-prune.png` | `toctl evidence-prune` dry-run output — the supported orphan-evidence cleanup |
