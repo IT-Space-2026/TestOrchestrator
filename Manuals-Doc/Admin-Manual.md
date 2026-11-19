@@ -1,6 +1,6 @@
-# TestOrchestrator 2.5.0 — Administrator Manual
+# TestOrchestrator 2.5.1 — Administrator Manual
 
-Applies to **TestOrchestrator 2.5.0** (release tag `2.5` — the
+Applies to **TestOrchestrator 2.5.1** (release tag `2.5` — the
 initial public release).
 
 **How to read the validation markers** — every procedure carries one:
@@ -11,7 +11,7 @@ initial public release).
 | **[code/CI]** | Documented from installer source and CI evidence; not interactively validated here |
 | **[doc-env]** | Demonstrated on the isolated documentation environment (fixture data) — procedure is real, values are not |
 
-All screenshots were captured from the released 2.5.0 codebase — the
+All screenshots were captured from the released 2.5.1 codebase — the
 index lists each frame's provenance.
 
 ---
@@ -307,7 +307,7 @@ them. Evidence that never reached the repository cannot be recreated
 ### 2.2 Windows
 
 - Windows amd64 can host the **controller itself** —
-  `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe` installs
+  `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` installs
   the same Cheroot portal, embedded Python, and Buildbot 4.3.0 stack
   (master + `to-local` + `to-ssh-dispatcher`) as the Linux packages,
   lifecycle-managed via Scheduled Tasks under
@@ -327,9 +327,9 @@ Download from the GitHub release `2.5`:
 
 | Asset | Use |
 |---|---|
-| `testorchestrator-2.5.0-linux-x86_64.tar.gz` | Linux payload + installer |
-| `testorchestrator-2.5.0-linux-x86_64.run` | Self-extracting variant of the same payload |
-| `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe` | Windows controller installer (§5.1) |
+| `testorchestrator-2.5.1-linux-x86_64.tar.gz` | Linux payload + installer |
+| `testorchestrator-2.5.1-linux-x86_64.run` | Self-extracting variant of the same payload |
+| `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` | Windows controller installer (§5.1) |
 | `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | Corresponding sources for the bundled GPL components |
 | `SHA256SUMS.txt` | Checksums — also covers the bundled worker `.exe` |
 | `build-manifest.json` | Provenance: source commit, `dirty` flag, tool versions |
@@ -345,9 +345,9 @@ Verify before installing **[verified]**:
 
 ```bash
 curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.5/SHA256SUMS.txt
-curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.5/testorchestrator-2.5.0-linux-x86_64.tar.gz
+curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.5/testorchestrator-2.5.1-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
-# testorchestrator-2.5.0-linux-x86_64.tar.gz: OK
+# testorchestrator-2.5.1-linux-x86_64.tar.gz: OK
 ```
 
 The manifest pins the exact source commit and the bundled Buildbot
@@ -371,14 +371,14 @@ tarball and check it before anything runs:
 
 ```bash
 sha256sum -c SHA256SUMS.txt
-# testorchestrator-2.5.0-linux-x86_64.tar.gz: OK
+# testorchestrator-2.5.1-linux-x86_64.tar.gz: OK
 ```
 
 **Step 2 — extract and run the installer:**
 
 ```bash
-tar -xzf testorchestrator-2.5.0-linux-x86_64.tar.gz
-cd testorchestrator-2.5.0-linux-x86_64
+tar -xzf testorchestrator-2.5.1-linux-x86_64.tar.gz
+cd testorchestrator-2.5.1-linux-x86_64
 
 # interactive — licence prompt is optional (Enter skips it)
 sudo bash install.sh
@@ -576,7 +576,7 @@ explicit separate step.
 
 ### 4.9 HTTPS frontend — Cheroot
 
-Since 2.5.0 the HTTPS frontend is **Cheroot, served in-process** by the
+Since 2.5.1 the HTTPS frontend is **Cheroot, served in-process** by the
 `testorchestrator-web` unit — there is no separate web-tier binary or
 unit. **Admin → Network & certificates** manages the certificate,
 private key, HTTPS listener port, and the optional HTTP→HTTPS redirect
@@ -601,7 +601,7 @@ across the failed apply.
 
 Procedure:
 
-1. Download `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe`
+1. Download `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe`
    and verify it against `SHA256SUMS.txt` (`certutil -hashfile <file>
    SHA256` on the Windows host). The installer is **unsigned** —
    SmartScreen will warn; the checksum is the trust anchor.
@@ -614,7 +614,7 @@ Procedure:
 4. Browse `https://<host>:<port>/` and sign in `Admin`/`Admin` — the
    forced password-change flow is identical to Linux (§4.2 steps 3–8).
 
-`testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe` installs the
+`testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` installs the
 complete controller on a Windows amd64 host — the same product the
 Linux packages install:
 
@@ -1357,12 +1357,12 @@ execution's evidence export is a different, later operation.
 
 ## 20. Version and upgrade matrix
 
-2.5.0 is the initial public release — there are no earlier deployed
+2.5.1 is the initial public release — there are no earlier deployed
 versions to upgrade from.
 
 | Path | Platform | Evidence | Migrations | Notes |
 |---|---|---|---|---|
-| — → 2.5.0 | Linux | **[verified]** fresh install, same-version reruns, network listener apply/rollback | `db-upgrade` applies; idempotent | reruns preserve Buildbot credentials, `web.env` secrets, certs, and network settings |
+| — → 2.5.1 | Linux | **[verified]** fresh install, same-version reruns, network listener apply/rollback | `db-upgrade` applies; idempotent | reruns preserve Buildbot credentials, `web.env` secrets, certs, and network settings |
 
 Rules for future upgrades: **back up `data/` first** (§16).
 Re-running the installer on the same directories performs the

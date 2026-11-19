@@ -2,6 +2,31 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.1] — 2026-11-19
+
+Patch release — install fixes only; no schema or API changes.
+Upgrades preserve all state (payload replaced, data/env/credentials
+untouched, same reruns-are-safe contract).
+
+### Fixed
+
+- **Windows worker installer** failed on hosts without an existing
+  pip: `get-pip.py --no-index --find-links wheels` reported *"No
+  matching distribution found for pip"*. A pinned `pip` wheel is now
+  bundled into the worker payload's `wheels/` — same fix applied to
+  the Linux worker bundle's `bb-wheels/` for parity.
+- **Windows controller installer** now offers a default-checked
+  *"Open TestOrchestrator in your browser"* option on the finish
+  page, opening `https://<addr>:<port>/` in the default browser
+  (skipped automatically for silent `/S` installs).
+
+### Documentation
+
+- All screenshots recaptured from the released codebase; step-by-step
+  install walkthrough added to the Admin Manual (§4.2, one
+  screenshot per step); architecture/dataflow diagrams re-rendered;
+  Administrator and User Manuals also ship as PDF release assets.
+
 ## [2.5.0] — 2026-11-19
 
 Initial public release.

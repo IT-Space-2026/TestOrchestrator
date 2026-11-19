@@ -8,7 +8,7 @@
 ; UNSIGNED build — labelled clearly.
 !define PRODUCT "TestOrchestrator"
 !ifndef VERSION
-!define VERSION "2.5.0"   ; default only — builds pass -DVERSION=<release.json>
+!define VERSION "2.5.1"   ; default only — builds pass -DVERSION=<release.json>
 !endif
 !define PAYLOAD_DIR "app-payload"
 

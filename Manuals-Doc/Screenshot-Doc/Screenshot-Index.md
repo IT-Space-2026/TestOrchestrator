@@ -1,4 +1,4 @@
-# Screenshot Index — TestOrchestrator 2.5.0
+# Screenshot Index — TestOrchestrator 2.5.x
 
 - **Provenance:** all frames were captured from the **released 2.5.0
   codebase** during documentation work — no pre-release frames remain.

@@ -8,7 +8,7 @@ execution orchestration, Katalon Runtime Engine (KRE) execution via
 managed execution targets, and reporting-labs single-file reports —
 a pure-Python backend with no bundled Node.js.
 
-**Status: 2.5.0 released** ([CHANGELOG](CHANGELOG.md) ·
+**Status: 2.5.1 released** ([CHANGELOG](CHANGELOG.md) ·
 [release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.5)).
 This is the initial public release. Execution orchestration is
 **Buildbot 4.3.0** — local workers, remote Buildbot workers, and
@@ -105,10 +105,10 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 
 | Platform | Status | Package |
 |---|---|---|
-| Ubuntu x86_64 (central server) | **2.5.0 released** | `testorchestrator-2.5.0-linux-x86_64.tar.gz` / `.run` (GitHub release assets + `SHA256SUMS.txt` + `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz`) |
-| Windows amd64 (central server) | **2.5.0, unsigned** | `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe` — Cheroot portal + Buildbot on Scheduled Tasks |
-| Windows amd64 (execution host) | **2.5.0, unsigned** | `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` — bundled in the packages + Admin UI |
-| Linux x86_64 (execution host) | **2.5.0** | `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` — install script + offline wheels, bundled + Admin UI |
+| Ubuntu x86_64 (central server) | **2.5.1 released** | `testorchestrator-2.5.1-linux-x86_64.tar.gz` / `.run` (GitHub release assets + `SHA256SUMS.txt` + `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz`) |
+| Windows amd64 (central server) | **2.5.1, unsigned** | `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` — Cheroot portal + Buildbot on Scheduled Tasks |
+| Windows amd64 (execution host) | **2.5.1, unsigned** | `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` — bundled in the packages + Admin UI |
+| Linux x86_64 (execution host) | **2.5.1** | `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` — install script + offline wheels, bundled + Admin UI |
 The worker installer (`TestOrchestrator-Buildbot-Worker-Setup-`
 `4.3.0-UNSIGNED.exe`) is **bundled inside the packages** — download
 it from the installed portal under **Admin → Workers & runtimes**
@@ -146,10 +146,10 @@ a matching screenshot (§4.2–§4.4):
 sha256sum -c SHA256SUMS.txt
 
 # 2. extract and install
-tar xzf testorchestrator-2.5.0-linux-x86_64.tar.gz
-cd testorchestrator-2.5.0-linux-x86_64
+tar xzf testorchestrator-2.5.1-linux-x86_64.tar.gz
+cd testorchestrator-2.5.1-linux-x86_64
 sudo ./install.sh            # → toctl install (frozen payload)
-# or: ./testorchestrator-2.5.0-linux-x86_64.run  (self-extracting)
+# or: ./testorchestrator-2.5.1-linux-x86_64.run  (self-extracting)
 
 # 3. open https://<host>/ and sign in as Admin / Admin —
 #    the first sign-in forces a password change
@@ -170,7 +170,7 @@ Buildbot credentials are preserved, data is never deleted.
 
 ## Installing (Windows)
 
-**Controller:** `testorchestrator-2.5.0-windows-amd64-setup-UNSIGNED.exe`
+**Controller:** `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe`
 installs the complete controller on Windows amd64 — portal (Cheroot
 HTTPS + Waitress loopback), embedded Python, Buildbot 4.3.0 master,
 the two controller workers, and the downloadable remote-worker
@@ -477,8 +477,8 @@ all binaries built from that tagged commit:
 
 | Asset | SHA-256 |
 |---|---|
-| `testorchestrator-2.5.0-linux-x86_64.tar.gz` | `820e920883f5ce71ab5ca35861020229a7141e07e0f64a7f002855040804f7a3` |
-| `testorchestrator-2.5.0-linux-x86_64.run` | `4b27c2733d9ef0e2d1686d3bc21ea238a9fa9e121325f09a80487a56a8ff4715` |
+| `testorchestrator-2.5.1-linux-x86_64.tar.gz` | `820e920883f5ce71ab5ca35861020229a7141e07e0f64a7f002855040804f7a3` |
+| `testorchestrator-2.5.1-linux-x86_64.run` | `4b27c2733d9ef0e2d1686d3bc21ea238a9fa9e121325f09a80487a56a8ff4715` |
 | `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `0d4f6c83120bc4cae7ce99c258e6bca054195826a265d98da80acc66f54e371e` |
 
 Plus `SHA256SUMS.txt` (includes the bundled worker installer's

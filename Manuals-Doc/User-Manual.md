@@ -1,6 +1,6 @@
-# TestOrchestrator 2.5.0 — User Manual
+# TestOrchestrator 2.5.1 — User Manual
 
-Applies to **TestOrchestrator 2.5.0** (verified build commit
+Applies to **TestOrchestrator 2.5.1** (verified build commit
 `1adf71b8d5f8`).
 
 All screenshots were captured from a real Linux installation of the
