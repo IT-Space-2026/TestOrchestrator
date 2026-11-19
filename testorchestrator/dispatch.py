@@ -584,6 +584,21 @@ def _select_runner_runtime(ex: Execution):
                 f"explicitly selected runner {req_runner[:12]}… is "
                 "unavailable or out of scope for this project — no "
                 "fallback to another target")
+    elif req_runtime:
+        # An explicitly selected runtime pins the runner — the
+        # runtime's target IS the requested target (§2.6.0). Only fall
+        # back to picking when no explicit selection exists.
+        _rt = db.session.get(RuntimeConnection, req_runtime)
+        runner = (_rt.runner if _rt and _rt.runner
+                  and _rt.runner.enabled and not _rt.runner.draining
+                  else None)
+        if runner is None and _rt:
+            return None, None, (
+                f"runtime {req_runtime[:12]}… target is disabled or "
+                "draining — no fallback")
+        runner = runner or ex.runner or pick_runner(ex)
+        if runner is None:
+            return None, None, ""
     else:
         runner = ex.runner or pick_runner(ex)
         if runner is None:

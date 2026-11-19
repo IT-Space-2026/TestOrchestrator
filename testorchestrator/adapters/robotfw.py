@@ -15,7 +15,8 @@ Output layout inside the isolated per-run workspace:
 
 Robot exit codes are meaningful: 0 all tests passed, 1-249 the number
 of failed tests, 250 help/usage, 251 data or source errors, 252
-interrupted (SIGINT/SIGTERM/user stop), 255 unexpected internal error.
+invalid command-line options or data, 253 interrupted
+(SIGINT/SIGTERM/user stop), 255 unexpected internal error.
 ``classify_exit`` maps them so an invalid invocation or a missing
 library is surfaced as an execution/configuration problem — never a
 passing zero-test run.
@@ -34,13 +35,12 @@ def build_args(suite_path: str = "", test: str = "",
     ``--xunit`` resolves relative to ``--outputdir``, so
     ``--outputdir Reports --xunit junit.xml`` lands exactly at
     Reports/junit.xml next to the native output.xml/log.html/
-    report.html. ``--xunitskipnoncritical`` mirrors Robot's own
-    non-critical accounting into the xunit view.
+    report.html. (RF7 removed ``--xunitskipnoncritical``; skipped
+    non-critical tests map to xunit <skipped> by default.)
     """
     args = ["-m", "robot",
             "--outputdir", "Reports",
             "--xunit", "junit.xml",
-            "--xunitskipnoncritical",
             "--log", "log.html",
             "--report", "report.html"]
     if suite:
@@ -72,11 +72,12 @@ def classify_exit(rc: int) -> tuple:
     labels = {
         250: "help or version information printed (bad usage)",
         251: "invalid data or source error",
-        252: "execution interrupted",
+        252: "invalid command-line options or data",
+        253: "execution interrupted",
         255: "internal error",
     }
     if rc in labels:
-        return ("interrupted" if rc == 252
+        return ("interrupted" if rc == 253
                 else "internal" if rc == 255
                 else "config"), labels[rc]
     return "internal", f"unexpected exit status {rc}"

@@ -29,7 +29,8 @@ def test_classify_exit_semantics():
     assert robotfw.classify_exit(0)[0] == "ok"
     assert robotfw.classify_exit(2) == ("tests", "2 failed test(s)")
     assert robotfw.classify_exit(251)[0] == "config"
-    assert robotfw.classify_exit(252)[0] == "interrupted"
+    assert robotfw.classify_exit(252)[0] == "config"
+    assert robotfw.classify_exit(253)[0] == "interrupted"
     assert robotfw.classify_exit(255)[0] == "internal"
 
 
