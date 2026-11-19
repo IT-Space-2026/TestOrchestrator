@@ -907,6 +907,21 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             pass  # reporting must never break the execution pipeline
 
 
+def _same_report_source(a: str, b: str) -> bool:
+    """True when two collected rel_paths resolve to the same source
+    file reached through different collection layouts — one path's
+    trailing components equal the other's whole path (Reports/junit.xml
+    inside proj/src/Reports/junit.xml). Sibling unit/shard directories
+    never match, so identical reports from distinct execution units
+    stay distinct."""
+    pa = a.replace("\\", "/").split("/")
+    pb = b.replace("\\", "/").split("/")
+    if len(pa) == len(pb):
+        return pa == pb
+    longer, shorter = (pa, pb) if len(pa) > len(pb) else (pb, pa)
+    return longer[-len(shorter):] == shorter
+
+
 def _normalize(ex: Execution) -> None:
     """Canonical result rows from actual JUnit output. Discrepant producer
     totals and unmapped cases are surfaced, not guessed away (§8)."""
@@ -914,9 +929,11 @@ def _normalize(ex: Execution) -> None:
         execution_id=ex.id, kind="junit").all()
     cases = []
     seen_names = {}
-    seen_hash = set()  # identical report collected via two layouts
-                       # (e.g. SSH Reports/ + proj/src/Reports) must
-                       # not double-count cases
+    seen_hash = {}  # digest -> first rel_path. Identical bytes only
+                    # dedup when the paths resolve to the same source
+                    # file collected via two layouts (SSH Reports/ +
+                    # proj/src/Reports/) — identical reports from
+                    # distinct units stay distinct.
     parsed_docs = []  # each artifact parsed once — reused for dedup
     for artifact in junit_artifacts:
         path = Path(ex.report_dir) / artifact.rel_path
@@ -924,13 +941,15 @@ def _normalize(ex: Execution) -> None:
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
         except OSError:
             continue
-        if digest in seen_hash:
+        prior = seen_hash.get(digest)
+        if prior is not None and _same_report_source(
+                prior, artifact.rel_path):
             continue
+        seen_hash.setdefault(digest, artifact.rel_path)
         try:
             parsed = parse_junit(path)
         except Exception:
             continue
-        seen_hash.add(digest)
         parsed_docs.append(parsed)
         for case in parsed.cases:
             key = (case.classname, case.name)
