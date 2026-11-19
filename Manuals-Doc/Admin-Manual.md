@@ -698,6 +698,15 @@ remove without controller files, commands, or restarts. Three types:
 | `buildbot-worker` | Remote Windows or Linux Buildbot worker | The remote host, outbound PB |
 | `ssh` | Agentless SSH target | Remote host over SSH/SFTP — nothing TO-side installed there |
 
+Remote workers dial **outbound** to the controller's Buildbot PB
+listener — nothing needs to be reachable *inbound* on the worker
+host, but the **controller must accept inbound TCP 9989**. The
+Windows controller installer adds firewall rules for it (and for
+the portal ports) automatically; on a Linux controller behind
+`ufw`/`firewalld` open it yourself, e.g. `sudo ufw allow 9989/tcp`.
+If a worker installs cleanly but the target stays at `Awaiting
+registration`, a blocked 9989 is the first thing to check.
+
 The **Remote worker installers** table at the bottom of the page
 serves both offline worker packages — the Windows `.exe` and the
 Linux bundle — each with its pinned Buildbot version and SHA-256:

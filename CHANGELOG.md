@@ -33,6 +33,12 @@ untouched, same reruns-are-safe contract).
   Quit only closes the icon, never the worker). Uninstall kills only
   the tray process (targeted `stop-tray.cmd` — never a blanket
   `taskkill` on `pythonw.exe`).
+- **Windows controller firewall**: SYSTEM Scheduled Tasks never
+  trigger the interactive "allow access" prompt, so inbound
+  connections were silently dropped — remote workers could never
+  reach PB `:9989` and stayed at `Awaiting registration`. The
+  installer now adds inbound rules for the portal ports and
+  `:9989`, removed on uninstall.
 - **Controller desktop shortcut** added on install — opens the
   portal login page (`https://<addr>:<port>/`) in the default
   browser; removed on uninstall.

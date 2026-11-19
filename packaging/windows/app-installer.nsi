@@ -262,6 +262,16 @@ Section "Install TestOrchestrator" SecMain
         MessageBox MB_ICONEXCLAMATION "Scheduled-task registration failed for TestOrchestratorBuildbotSSH (code $0) — see $DATA_DIR\logs\install.log"
     ${EndIf}
 
+    ; firewall — SYSTEM Scheduled Tasks never trigger the interactive
+    ; "allow access" prompt, so without explicit rules inbound HTTPS
+    ; and Buildbot PB (remote workers!) are silently dropped
+    nsExec::ExecToLog 'cmd /c "netsh advfirewall firewall add rule name="TestOrchestrator HTTPS" dir=in action=allow protocol=TCP localport=$ORCH_PORT >> "$DATA_DIR\logs\install.log" 2>&1"'
+    Pop $0
+    nsExec::ExecToLog 'cmd /c "netsh advfirewall firewall add rule name="TestOrchestrator HTTP redirect" dir=in action=allow protocol=TCP localport=8080 >> "$DATA_DIR\logs\install.log" 2>&1"'
+    Pop $0
+    nsExec::ExecToLog 'cmd /c "netsh advfirewall firewall add rule name="TestOrchestrator Buildbot PB" dir=in action=allow protocol=TCP localport=9989 >> "$DATA_DIR\logs\install.log" 2>&1"'
+    Pop $0
+
     ; start now — the app is usable immediately after install,
     ; no reboot required
     nsExec::ExecToLog 'cmd /c "schtasks /Run /TN "TestOrchestratorBuildbotMaster" >> "$DATA_DIR\logs\install.log" 2>&1"'
@@ -363,6 +373,9 @@ Section "Uninstall"
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorBuildbotMaster" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorBuildbotLocal" /F'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorBuildbotSSH" /F'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="TestOrchestrator HTTPS"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="TestOrchestrator HTTP redirect"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="TestOrchestrator Buildbot PB"'
     SetShellVarContext all
     Delete "$DESKTOP\TestOrchestrator.lnk"
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator"
