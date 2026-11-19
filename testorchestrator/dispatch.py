@@ -12,6 +12,7 @@ re-dispatch of a potentially destructive run.
 Dispatch and collection run in `flask worker`, outside request handlers.
 """
 
+import hashlib
 import json
 import os
 import time
@@ -913,13 +914,23 @@ def _normalize(ex: Execution) -> None:
         execution_id=ex.id, kind="junit").all()
     cases = []
     seen_names = {}
+    seen_hash = set()  # identical report collected via two layouts
+                       # (e.g. SSH Reports/ + proj/src/Reports) must
+                       # not double-count cases
     parsed_docs = []  # each artifact parsed once — reused for dedup
     for artifact in junit_artifacts:
         path = Path(ex.report_dir) / artifact.rel_path
         try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        if digest in seen_hash:
+            continue
+        try:
             parsed = parse_junit(path)
         except Exception:
             continue
+        seen_hash.add(digest)
         parsed_docs.append(parsed)
         for case in parsed.cases:
             key = (case.classname, case.name)
