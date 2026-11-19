@@ -298,6 +298,8 @@ def stage_buildbot_worker_payload(build_dir: Path, log: Log) -> Path:
                  / "reconfigure-worker.py", out / "reconfigure-worker.py")
     shutil.copy2(REPO / "packaging" / "windows" / "bb-worker-payload-src"
                  / "reconfigure-worker.cmd", out / "reconfigure-worker.cmd")
+    shutil.copy2(REPO / "packaging" / "windows" / "bb-worker-payload-src"
+                 / "preinstall-stop.cmd", out / "preinstall-stop.cmd")
     shutil.copy2(REPO / "packaging" / "windows" / "it.ico",
                  out / "it.ico")
     wheels = out / "wheels"

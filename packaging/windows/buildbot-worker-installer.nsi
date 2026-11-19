@@ -128,16 +128,15 @@ FunctionEnd
 
 Section "Install Buildbot worker payload" SecMain
     ; stop anything holding file locks on the payload BEFORE
-    ; overwriting — a running worker task or tray pythonw keeps
-    ; python-embed DLLs open ('_bz2.pyd — error opening it')
-    nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorBuildbotWorker"'
-    ${If} ${FileExists} "$INSTDIR\stop-tray.cmd"
-        nsExec::ExecToLog '"$INSTDIR\stop-tray.cmd"'
-    ${EndIf}
-    ; brief beat for handles to release
+    ; overwriting — a running worker task child, tray pythonw, or a
+    ; reconfigure console keeps python-embed DLLs open ('_bz2.pyd —
+    ; error opening it'). Extract the stop helper first (a fresh .cmd
+    ; is never locked), run it, beat for handle release, then payload.
+    SetOutPath "$INSTDIR"
+    File "${PAYLOAD_DIR}\preinstall-stop.cmd"
+    nsExec::ExecToLog 'cmd /c ""$INSTDIR\preinstall-stop.cmd""'
     Sleep 1500
 
-    SetOutPath "$INSTDIR"
     File /r "${PAYLOAD_DIR}\*.*"
     File "it.ico"
 
