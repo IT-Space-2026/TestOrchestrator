@@ -145,46 +145,33 @@ Section "Install Buildbot worker payload" SecMain
         Abort "worker password file missing"
     ${EndIf}
 
-    ; Offline env + worker creation — output tee'd to a persistent log
-    ; (the NSIS details pane is ephemeral). setup-worker.py writes
-    ; buildbot.tac under $DATA_DIR\worker and worker.conf.json in
-    ; $INSTDIR (connectivity only).
-    nsExec::ExecToLog 'cmd /c ""$INSTDIR\python-embed\python.exe" "$INSTDIR\setup-worker.py" --master "$MASTER_ADDR" --name "$WORKER_NAME" --passwd-file "$PASSWD_FILE" --basedir "$DATA_DIR\worker" > "$DATA_DIR\setup-worker.log" 2>&1"'
-    Pop $0
-    ${If} $0 != "0"
-        MessageBox MB_ICONEXCLAMATION "Worker environment setup failed (code $0) — see $DATA_DIR\setup-worker.log"
-        Abort "setup-worker failed"
-    ${EndIf}
-
-    ; Boot-time task under a dedicated least-privilege account when the
-    ; operator supplies /SERVICE_ACCOUNT=DOMAIN\user, else SYSTEM is a
-    ; documented fallback — KRE licensing requirements decide; evidence
-    ; required before assuming SYSTEM is needed.
+    ; Boot-time task runs under a dedicated least-privilege account when
+    ; the operator supplies /SERVICE_ACCOUNT=DOMAIN\user, else SYSTEM is
+    ; a documented fallback — KRE licensing requirements decide.
     ${If} $SVC_ACCOUNT == ""
         StrCpy $SVC_ACCOUNT "SYSTEM"
     ${EndIf}
-    ${If} $SVC_ACCOUNT == "SYSTEM"
-        nsExec::ExecToLog 'cmd /c "schtasks /Create /TN "TestOrchestratorBuildbotWorker" /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR "\"$INSTDIR\python-embed\Scripts\buildbot-worker.exe\" start --nodaemon \"$DATA_DIR\worker\"" >> "$DATA_DIR\setup-worker.log" 2>&1"'
-    ${Else}
-        nsExec::ExecToLog 'cmd /c "schtasks /Create /TN "TestOrchestratorBuildbotWorker" /SC ONSTART /RU "$SVC_ACCOUNT" /RP "" /RL HIGHEST /F /TR "\"$INSTDIR\python-embed\Scripts\buildbot-worker.exe\" start --nodaemon \"$DATA_DIR\worker\"" >> "$DATA_DIR\setup-worker.log" 2>&1"'
-    ${EndIf}
+
+    ; Offline env + worker creation + task registration — all inside
+    ; setup-worker.py (subprocess arg lists; the NSIS->cmd->schtasks
+    ; chain mangled embedded /TR quotes). Output tee'd to a persistent
+    ; log; buildbot.tac lands under $DATA_DIR\worker.
+    nsExec::ExecToLog 'cmd /c ""$INSTDIR\python-embed\python.exe" "$INSTDIR\setup-worker.py" --master "$MASTER_ADDR" --name "$WORKER_NAME" --passwd-file "$PASSWD_FILE" --basedir "$DATA_DIR\worker" --service-account "$SVC_ACCOUNT" > "$DATA_DIR\setup-worker.log" 2>&1"'
     Pop $0
     ${If} $0 != "0"
-        MessageBox MB_ICONEXCLAMATION "Scheduled-task registration failed (code $0) — see $DATA_DIR\setup-worker.log"
+        MessageBox MB_ICONEXCLAMATION "Worker setup/registration failed (code $0) — see $DATA_DIR\setup-worker.log"
+        Abort "setup-worker failed"
     ${EndIf}
-    ; start the worker now — it should be registering with the
-    ; controller within seconds; a failed start is surfaced, not silent
-    ${If} $MASTER_ADDR != "<portal-host>:9989"
-        nsExec::ExecToLog 'cmd /c "schtasks /Run /TN "TestOrchestratorBuildbotWorker" >> "$DATA_DIR\setup-worker.log" 2>&1"'
-        Pop $0
-        ${If} $0 != "0"
-            MessageBox MB_ICONEXCLAMATION "Worker task was registered but did not start (code $0) — see $DATA_DIR\setup-worker.log and $DATA_DIR\worker\twistd.log"
-        ${EndIf}
+    ${IfNot} ${FileExists} "$INSTDIR\python-embed\Scripts\buildbot-worker.exe"
+        MessageBox MB_ICONEXCLAMATION "buildbot-worker.exe missing after install — see $DATA_DIR\setup-worker.log"
+        Abort "worker exe missing"
     ${EndIf}
 
-    ; tray icon for the installing user — start/stop/quit at logon
+    ; tray icon for the installing user — start/stop/quit at logon, and
+    ; launch it now so the icon appears without a re-login
     SetShellVarContext current
     CreateShortCut "$SMSTARTUP\TestOrchestrator Buildbot Worker.lnk" '"$INSTDIR\python-embed\pythonw.exe"' '"$INSTDIR\worker-tray.py"' "$INSTDIR\it.ico" 0
+    Exec '"$INSTDIR\python-embed\pythonw.exe" "$INSTDIR\worker-tray.py"'
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorBuildbotWorker" "DisplayName" "${PRODUCT} ${VERSION}"
@@ -201,7 +188,11 @@ Section "Uninstall"
     ; explicit choice. KRE and unrelated files are never touched.
     SetShellVarContext current
     Delete "$SMSTARTUP\TestOrchestrator Buildbot Worker.lnk"
-    nsExec::ExecToLog 'taskkill /F /FI "WINDOWTITLE eq TestOrchestrator Buildbot Worker" /FI "IMAGENAME eq pythonw.exe"'
+    ; kill only OUR tray process (worker-tray.py) — a blanket
+    ; taskkill on pythonw.exe could reap unrelated processes
+    ${If} ${FileExists} "$INSTDIR\stop-tray.cmd"
+        nsExec::ExecToLog '"$INSTDIR\stop-tray.cmd"'
+    ${EndIf}
     nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorBuildbotWorker"'
     nsExec::ExecToLog 'schtasks /Delete /TN "TestOrchestratorBuildbotWorker" /F'
     RMDir /r "$INSTDIR"

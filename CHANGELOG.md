@@ -20,14 +20,19 @@ untouched, same reruns-are-safe contract).
   page, opening `https://<addr>:<port>/` in the default browser
   (skipped automatically for silent `/S` installs).
 - **Windows worker did not start after install**: the Scheduled
-  Task was registered as `buildbot-worker.exe --nodaemon start`
-  (invalid argument order). Now `start --nodaemon`, and the task
-  is started immediately after registration.
+  Task command line was mangled twice — wrong argument order
+  (`--nodaemon start`) and embedded `/TR` quotes broken by the
+  NSIS→`cmd /c`→`schtasks` chain. Task registration now happens
+  inside `setup-worker.py` via `subprocess` argument lists (no
+  shell quoting) as `buildbot-worker.exe start --nodaemon`, and the
+  task is started immediately after registration.
 - **Windows worker tray icon**: a Startup-folder shortcut launches
   `worker-tray.py` (pystray + Pillow bundled offline) at user logon —
   notification-area icon showing worker state with right-click
   **Start / Stop / Quit** (controls the Scheduled Task via schtasks;
-  Quit only closes the icon, never the worker).
+  Quit only closes the icon, never the worker). Uninstall kills only
+  the tray process (targeted `stop-tray.cmd` — never a blanket
+  `taskkill` on `pythonw.exe`).
 - **Controller desktop shortcut** added on install — opens the
   portal login page (`https://<addr>:<port>/`) in the default
   browser; removed on uninstall.

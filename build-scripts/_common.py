@@ -290,6 +290,8 @@ def stage_buildbot_worker_payload(build_dir: Path, log: Log) -> Path:
                  / "setup-worker.py", out / "setup-worker.py")
     shutil.copy2(REPO / "packaging" / "windows" / "bb-worker-payload-src"
                  / "worker-tray.py", out / "worker-tray.py")
+    shutil.copy2(REPO / "packaging" / "windows" / "bb-worker-payload-src"
+                 / "stop-tray.cmd", out / "stop-tray.cmd")
     shutil.copy2(REPO / "packaging" / "windows" / "it.ico",
                  out / "it.ico")
     wheels = out / "wheels"

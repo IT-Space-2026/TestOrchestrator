@@ -60,6 +60,11 @@ def main() -> None:
                     help="path to a file whose first line is the "
                          "worker password")
     ap.add_argument("--basedir", default=str(HERE / "worker"))
+    ap.add_argument("--service-account", default="SYSTEM",
+                    help="account the Scheduled Task runs as "
+                         "(default SYSTEM)")
+    ap.add_argument("--no-task", action="store_true",
+                    help="skip Scheduled Task registration")
     args = ap.parse_args()
 
     python = PYEMBED / "python.exe"
@@ -103,7 +108,29 @@ def main() -> None:
     }
     (HERE / "worker.conf.json").write_text(
         json.dumps(conf, indent=2) + "\n")
+
+    if not args.no_task:
+        _register_task(bbw, basedir, args.service_account)
     print(f"[setup-worker] ok: {args.name} -> {args.master}")
+
+
+TASK_NAME = "TestOrchestratorBuildbotWorker"
+
+
+def _register_task(bbw: Path, basedir: Path, account: str) -> None:
+    """Register + start the boot-time worker task. subprocess arg
+    lists — no shell quoting anywhere (the NSIS->cmd->schtasks chain
+    mangled embedded quotes in /TR)."""
+    task_tr = f'"{bbw}" start --nodaemon "{basedir}"'
+    cmd = ["schtasks", "/Create", "/TN", TASK_NAME, "/SC", "ONSTART",
+           "/RU", account, "/RL", "HIGHEST", "/F", "/TR", task_tr]
+    if account.upper() != "SYSTEM":
+        cmd += ["/RP", ""]
+    print(f"[setup-worker] schtasks: {' '.join(cmd)}")
+    subprocess.check_call(cmd)
+    print(f"[setup-worker] starting {TASK_NAME}")
+    subprocess.check_call(
+        ["schtasks", "/Run", "/TN", TASK_NAME])
 
 
 if __name__ == "__main__":
