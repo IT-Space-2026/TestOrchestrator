@@ -60,8 +60,14 @@ def submit(runtime, app_url: str = "") -> tuple:
                 source_tar=str(buildbot_cfg.staging_dir()
                                / f"{rid}.tar"),
                 execution_id=rid,
-                extra={"exec_subdir": "src",
-                       "report_rel": "proj/src/Reports"})
+                extra=dict(
+                    {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"},
+                    **({"path_prefix":
+                        str(Path(runtime.executable_path).parent)}
+                       if runtime.executable_path
+                       and Path(runtime.executable_path).is_absolute()
+                       else {})))
             import sys as _sys
             spec = buildbot_cfg.ssh_exec_spec(
                 None, python=_sys.executable,
@@ -82,6 +88,7 @@ def submit(runtime, app_url: str = "") -> tuple:
         return False, f"readiness submission failed: {exc}"
     runtime.last_diagnostic = json.dumps(
         {"_probe": {"rid": rid, "brid": int(brid), "kind": kind,
+                    "transport": runner.target_type or "",
                     "at": time.time()}})
     from .execution import utcnow
     runtime.last_check_at = utcnow()
@@ -140,19 +147,28 @@ def poll(runtime) -> bool:
         pass
     # DirectoryUpload lands Reports/ contents at the artifact root —
     # same convention as run collection (probe.txt is the marker log).
+    pulled = False
     for probe_txt in (
             buildbot_cfg.artifacts_dir() / pend["rid"] / "probe.txt",
             buildbot_cfg.artifacts_dir() / pend["rid"]
             / "Reports" / "probe.txt",
             buildbot_cfg.artifacts_dir() / pend["rid"]
-            / "src" / "Reports" / "probe.txt"):
+            / "src" / "Reports" / "probe.txt",
+            # agentless SSH collection preserves the remote tree
+            buildbot_cfg.artifacts_dir() / pend["rid"]
+            / "proj" / "src" / "Reports" / "probe.txt"):
         try:
             if probe_txt.is_file():
                 text += "\n" + probe_txt.read_text(errors="replace")
+                pulled = True
                 break
         except OSError:
             pass
     probe = nodefw.parse_probe(text)
+    # For SSH targets the probe file itself arrived over SFTP —
+    # retrieving it is the SFTP verification.
+    if pulled and pend.get("transport") == "ssh":
+        probe["sftp"] = "ok (artifact retrieved over SFTP)"
     if not probe.get("done"):
         runtime.last_diagnostic = (
             f"{pend['kind']} readiness: probe finished but produced "

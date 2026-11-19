@@ -163,6 +163,12 @@ def _prepare(client, spec) -> None:
             f"export {remote(k)}={remote(v)}\n"
             for k, v in (spec.get("env") or {}).items()
             if k.replace("_", "").isalnum() and "\n" not in str(v))
+        # Absolute CLI path (e.g. runtime.executable_path → npx) whose
+        # directory must reach PATH — env values are literal, so the
+        # prefix needs its own shell-expanded export line.
+        prefix = (spec.get("path_prefix") or "").strip()
+        if prefix:
+            env_exports += f"export PATH={remote(prefix)}:\"$PATH\"\n"
         # Optional dependency step (node runners: npm ci — pinned
         # project deps into the isolated staged workspace).
         deps = spec.get("deps_argv") or []

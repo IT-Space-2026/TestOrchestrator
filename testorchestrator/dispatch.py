@@ -1031,11 +1031,14 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         deps_argv = [npm, "ci", "--no-audit", "--no-fund"]
         if runner.target_type == "ssh":
             buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src", "env": node_env,
+                     "deps_argv": deps_argv,
+                     "report_rel": "proj/src/Reports"}
+            npx_dir = str(Path(npx_path).parent)
+            if Path(npx_path).is_absolute() and npx_dir != ".":
+                extra["path_prefix"] = npx_dir
             spec_file = buildbot_cfg.write_ssh_run_spec(
-                ex, runner, runtime, node_args,
-                extra={"exec_subdir": "src", "env": node_env,
-                       "deps_argv": deps_argv,
-                       "report_rel": "proj/src/Reports"})
+                ex, runner, runtime, node_args, extra=extra)
             import sys as _sys
             spec = buildbot_cfg.ssh_exec_spec(
                 ex, python=_sys.executable,
