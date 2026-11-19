@@ -471,24 +471,25 @@ Prerequisites and output layout: `docs/build.md`.
 ## Release assets & checksums (2.5)
 
 Published at
-<https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.5>
-— tag `2.5` → commit `5123091fb0d12d59181822bb882582a1028ba282`,
-all binaries built from that tagged commit:
+<https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.5.1>
+— all binaries built from the tagged commit:
 
 | Asset | SHA-256 |
 |---|---|
-| `testorchestrator-2.5.1-linux-x86_64.tar.gz` | `820e920883f5ce71ab5ca35861020229a7141e07e0f64a7f002855040804f7a3` |
-| `testorchestrator-2.5.1-linux-x86_64.run` | `4b27c2733d9ef0e2d1686d3bc21ea238a9fa9e121325f09a80487a56a8ff4715` |
-| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `0d4f6c83120bc4cae7ce99c258e6bca054195826a265d98da80acc66f54e371e` |
+| `testorchestrator-2.5.1-linux-x86_64.tar.gz` | `6aabaa6cc78ef358c61742d5e17db5b58958399b80ce678334ae6cee1c8165c8` |
+| `testorchestrator-2.5.1-linux-x86_64.run` | `b1262a941f9e27948528e000797b6dfd962d74bfc6d49eedaa1d7d47516bde12` |
+| `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` | `493304096dd762f828894da8c0fd27bdbe72637cc49d728d77d48716d9b8751f` |
+| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `0630dafa0ccb87ae72869d81bef904c79aec2550fb0e9ffbe3d7582e20cdab15` |
+| `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (bundled + Admin UI) | `7b1ffce40de639cdd42a6405c58ddd0a00d307a9b643f013b124332b31d6bae3` |
+| `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` (bundled + Admin UI) | `6fd79154eaedcc136936686eef4041c7f398b9ae32a159e269dcf8228816acb8` |
 
-Plus `SHA256SUMS.txt` (includes the bundled worker installer's
-checksum). Verify: `sha256sum -c SHA256SUMS.txt` next to the
-downloaded files. `dist/` is never tracked in the repo.
+`SHA256SUMS.txt` covers every asset including the bundled worker
+installers and the manual PDFs. Verify: `sha256sum -c SHA256SUMS.txt`
+next to the downloaded files. `dist/` is never tracked in the repo.
 
-The `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` worker
-installer is **bundled inside the packages** and served by the
-installed portal next to its corresponding-source archive — it is
-not a separate release asset.
+The worker installers are **bundled inside the packages** and served
+by the installed portal next to the corresponding-source archive —
+they are not separate release assets.
 
 ## Validation (2.5)
 
