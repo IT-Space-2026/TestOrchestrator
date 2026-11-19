@@ -24,6 +24,7 @@ Var /GLOBAL PURGE_DATA
 
 !include "MUI2.nsh"
 !define MUI_ICON "it.ico"
+!define MUI_UNICON "it.ico"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "wizard.bmp"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -66,6 +67,7 @@ Section "Install TestOrchestrator" SecMain
 
     SetOutPath "$INSTDIR"
     File /r "${PAYLOAD_DIR}\*.*"
+    File "it.ico"
 
     CreateDirectory "$DATA_DIR"
     CreateDirectory "$DATA_DIR\instance"
@@ -316,7 +318,7 @@ Section "Install TestOrchestrator" SecMain
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayName" "${PRODUCT} ${VERSION}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayVersion" "${VERSION}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "Publisher" "IT-Space"
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayIcon" "$INSTDIR\uninstall.exe"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "DisplayIcon" "$INSTDIR\it.ico"
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "NoModify" 1
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestrator" "NoRepair" 1
     ; interactive desktop flow — pending real-host validation (quoted:

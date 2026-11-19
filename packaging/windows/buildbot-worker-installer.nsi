@@ -19,6 +19,8 @@
 !endif
 !define PAYLOAD_DIR "bb-worker-payload"
 
+!define MUI_ICON "it.ico"
+!define MUI_UNICON "it.ico"
 Name "${PRODUCT} ${VERSION} (unsigned)"
 OutFile "TestOrchestrator-Buildbot-Worker-Setup-${VERSION}-UNSIGNED.exe"
 InstallDir "$PROGRAMFILES64\TestOrchestrator\buildbot-worker"
@@ -127,6 +129,7 @@ FunctionEnd
 Section "Install Buildbot worker payload" SecMain
     SetOutPath "$INSTDIR"
     File /r "${PAYLOAD_DIR}\*.*"
+    File "it.ico"
 
     CreateDirectory "$DATA_DIR"
     CreateDirectory "$DATA_DIR\worker"
@@ -176,6 +179,7 @@ Section "Install Buildbot worker payload" SecMain
     WriteUninstaller "$INSTDIR\uninstall.exe"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorBuildbotWorker" "DisplayName" "${PRODUCT} ${VERSION}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorBuildbotWorker" "UninstallString" "$INSTDIR\uninstall.exe"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorBuildbotWorker" "DisplayIcon" "$INSTDIR\it.ico"
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorBuildbotWorker" "NoModify" 1
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TestOrchestratorBuildbotWorker" "NoRepair" 1
 SectionEnd
