@@ -127,6 +127,16 @@ Function ConfigPageLeave
 FunctionEnd
 
 Section "Install Buildbot worker payload" SecMain
+    ; stop anything holding file locks on the payload BEFORE
+    ; overwriting — a running worker task or tray pythonw keeps
+    ; python-embed DLLs open ('_bz2.pyd — error opening it')
+    nsExec::ExecToLog 'schtasks /End /TN "TestOrchestratorBuildbotWorker"'
+    ${If} ${FileExists} "$INSTDIR\stop-tray.cmd"
+        nsExec::ExecToLog '"$INSTDIR\stop-tray.cmd"'
+    ${EndIf}
+    ; brief beat for handles to release
+    Sleep 1500
+
     SetOutPath "$INSTDIR"
     File /r "${PAYLOAD_DIR}\*.*"
     File "it.ico"
