@@ -818,6 +818,57 @@ kept as SecretRefs in the encrypted secret store — never in runner
 rows, logs, build properties, or exported configuration. Rotating or
 replacing a stored secret never reveals the current value.
 
+### 6.6 Node.js browser runtimes (Playwright / Cypress)
+
+Register **Playwright Test** or **Cypress** as a runtime kind on any
+Buildbot worker (Windows/Linux) or agentless Linux SSH target. Runs
+stage the project under `build/src` and invoke
+`npx playwright test --reporter=junit` or `npx cypress run` —
+results upload through the same Reports/ pipeline and normalize
+into TestResult rows. Cypress emits per-spec `junit-[hash].xml`
+files so later specs cannot overwrite earlier reports.
+
+**Prerequisites on the target host** (pre-provisioned — nothing is
+bundled into the packages or worker installer):
+
+- Node.js (and `npx` on PATH, or set the runtime's executable path)
+- the project's Playwright/Cypress dependencies
+- the required browsers and system dependencies — for Playwright
+  `npx playwright install --with-deps` once per host
+- a writable remote workspace (SSH targets)
+- the target's service/SSH account must be able to launch Node.js
+  and the browser and write results
+
+The framework can be a project dependency — no global install, no
+separate Playwright/Cypress agent. On SSH targets nothing is
+installed on the host beyond those prerequisites; the controller's
+dispatcher reaches it over SSH and retrieves results over SFTP.
+
+**Connectivity is not reachability.** A connected worker or a
+working SSH session proves only that the *target* is reachable —
+not that the browser on that host can reach the application under
+test. Use **Check runner readiness** on the Infrastructure page:
+it runs a probe on the same target, account and transport the real
+run uses, and reports Node.js/framework/browser versions and —
+when an application URL is supplied — whether the browser can reach
+it. Readiness installs nothing, runs no tests, and never echoes
+secrets; results persist on the runtime row (Playwright and Cypress
+are checked separately — a host can be ready for one and not the
+other). Typical failures and where to fix them:
+
+| Symptom | Where to fix |
+| --- | --- |
+| `node`/`npx` missing | Install Node.js on the **target** host |
+| framework version "not detected" | Add `playwright`/`cypress` to the project deps on the target |
+| browser launch fails | `npx playwright install` / verify browser on the target |
+| `app_url UNREACHABLE` | Network/firewall between target host and the app under test |
+| SFTP errors (SSH targets) | Enable the SFTP subsystem and a writable workdir on the host |
+
+Browsers are validated against each framework's supported set —
+Playwright: `chromium`, `firefox`, `webkit`; Cypress: `chrome`,
+`firefox`, `edge`, `electron`, `chromium`. An unsupported value
+fails the launch rather than being substituted.
+
 
 ## 7. Security and administration
 

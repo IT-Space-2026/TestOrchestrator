@@ -22,6 +22,7 @@ from flask import current_app
 
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
+from .adapters import nodefw
 from .adapters.buildbot import BuildbotAdapter
 from . import buildbot_cfg
 from .execution import (Artifact, DiscoveredItem, Execution,
@@ -993,6 +994,49 @@ def _submit_buildbot(ex: Execution, runner: Runner,
     buildbot_cfg.stage_source(ex, source)
     rc = ex.snapshot().get("run_config") or {}
     timeout_s = int(rc.get("timeout_seconds") or 3600)
+    node_kind = getattr(runtime, "runtime_kind", "") or "kre"
+    if node_kind in nodefw.KINDS:
+        ok_b, browser_val = nodefw.validate_browser(
+            node_kind, rc.get("browser", ""))
+        if not ok_b:
+            _fail(ex, "config", browser_val)
+            return
+        node_args = nodefw.build_args(node_kind, browser_val)
+        node_env = nodefw.junit_env(node_kind)
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, node_args,
+                extra={"exec_subdir": "src", "env": node_env,
+                       "report_rel": "proj/src/Reports"})
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            win = (runner.os_arch or "").lower().startswith("win")
+            spec = buildbot_cfg.node_exec_spec(
+                ex,
+                runtime.executable_path
+                or ("npx.cmd" if win else "npx"),
+                node_args, env=node_env)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} ({node_kind}) brid {brid}")
+        return
     flags, dropped = kre_adapter.gated_flags(
         runtime.detected_version, rc.get("kre_options") or {})
     if dropped and not rc.get("kre_options_allow_drop"):

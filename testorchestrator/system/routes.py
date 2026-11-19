@@ -1085,6 +1085,11 @@ def _pb_endpoint_hints() -> list:
 
 def _render_infrastructure(runner_form, runtime_form):
     from ..execution import Runner, RuntimeConnection
+    try:
+        from .. import runner_readiness
+        runner_readiness.poll_all_pending()
+    except Exception:
+        pass  # readiness reconcile must never break the page
     from ..execution import Project
     runner_form.allowed_projects.choices = [
         (p.id, p.name) for p in Project.query.all()]
@@ -1484,7 +1489,15 @@ def create_runtime():
             os_arch="local",
             max_slots=4)
         db.session.add(_runner); db.session.flush()
+    _kind = (request.form.get("runtime_kind") or "kre").strip()[:16]
+    if _kind not in ("kre", "playwright", "cypress"):
+        _kind = "kre"
     if form.validate_on_submit():
+        if _kind == "kre" and not (
+                form.executable_path.data or "").strip():
+            flash("KRE runtimes require the executable path on the "
+                  "selected worker.", "error")
+            return redirect(url_for("system.infrastructure"))
         db.session.add(RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
@@ -1498,6 +1511,7 @@ def create_runtime():
             credential_file=(form.credential_file.data or "").strip(),
 
             concurrency=form.concurrency.data or 1,
+            runtime_kind=_kind,
         ))
         db.session.commit()
         record_audit(current_user.username, "runtime.registered",
@@ -1553,6 +1567,38 @@ def probe_runtime(runtime_id):
     return redirect(url_for("system.infrastructure"))
 
 
+@system_bp.route("/infrastructure/runtimes/<runtime_id>/readiness",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def runtime_readiness(runtime_id):
+    """Check runner readiness on the TARGET — submits the probe on the
+    runtime's own builder under the run account (§2.6.0-3). Installs
+    nothing, runs no tests. The result lands in last_diagnostic on the
+    next poll — the infrastructure page polls pending probes."""
+    from ..execution import RuntimeConnection
+    from .. import runner_readiness
+    ApplyForm().validate_on_submit()
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt is None:
+        abort(404)
+    if (rt.runtime_kind or "kre") == "kre" \
+            or not rt.runner or rt.runner.connection_mode == "local":
+        flash("Runner readiness applies to Playwright/Cypress "
+              "runtimes on remote targets — KRE uses the local "
+              "executable probe instead.", "error")
+        return redirect(url_for("system.infrastructure"))
+    if runner_readiness.pending(rt):
+        flash("A readiness check is already running for this "
+              "runtime.", "info")
+        return redirect(url_for("system.infrastructure"))
+    ok, msg = runner_readiness.submit(
+        rt, request.form.get("app_url", ""))
+    flash(f"Readiness check submitted (run {msg}) — the result "
+          "appears here once the probe completes."
+          if ok else f"Readiness check failed to submit: {msg}",
+          "info" if ok else "error")
+    record_audit(current_user.username, "runtime.readiness", rt.name)
+    return redirect(url_for("system.infrastructure"))
 
 
 @system_bp.route("/runners/<runner_id>/edit", methods=["POST"])

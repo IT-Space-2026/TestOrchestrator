@@ -464,12 +464,33 @@ implemented settings:
 - **Execution profile** — the Katalon profile name (`default` if
   empty).
 - **Runner** — which configured runner to dispatch to.
-- **Runtime (KRE installation)** — which registered executable the
-  worker should invoke.
+- **Runtime** — which registered runtime the target invokes. Entries
+  tagged `[playwright]` or `[cypress]` are the Node.js browser
+  runners (2.6.0): they launch `npx playwright test` /
+  `npx cypress run` inside the staged project **on the selected
+  target** — the tests and the browser run there, not on the
+  controller. Node.js, the project's framework dependencies, and
+  the browsers must already be installed on that target (a project
+  dependency is enough — no global install or agent is needed).
+  If a run rejects with a readiness-style error, ask the
+  administrator to run **Check runner readiness** on the
+  Infrastructure page — it reports exactly what the target is
+  missing (Node.js, the framework, a browser, or reachability of
+  the application URL).
+- **Browser** — for Playwright: `chromium`, `firefox`, `webkit`
+  (a `--project` of the same name, or the framework default when
+  empty). For Cypress: `chrome`, `firefox`, `edge`, `electron`,
+  `chromium` (`--browser` flag). Unsupported values reject the
+  run — they are never silently substituted.
 - **Timeout** — seconds before the run is considered timed out.
 
 Confirm to queue the execution. You are taken to the execution detail
-page.
+page. Playwright/Cypress runs produce the same result view as KRE
+runs: JUnit is parsed into per-case rows, and raw JUnit, console
+logs, traces, screenshots, and videos appear under **Artifacts**
+on the run details — including when assertions fail. A missing or
+unreadable report is shown as an environment/collection problem,
+never as a green run with zero tests.
 
 ### 4.3 Monitoring an execution
 

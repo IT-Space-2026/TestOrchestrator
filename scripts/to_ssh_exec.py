@@ -153,11 +153,22 @@ def _prepare(client, spec) -> None:
             wrapper = (remote(spec.get("remote_cred_wrapper")
                                     or "/tmp/kre_cred_exec.py") + " "
                        + remote(cred) + " ")
+        # Node runners execute inside the untarred project root
+        # (proj/src) — exec_subdir descends into it; env carries
+        # runner vars like PLAYWRIGHT_JUNIT_OUTPUT_FILE.
+        subdir = (spec.get("exec_subdir") or "").strip("/")
+        cd_target = f"{remote(wd)}/proj/{remote(subdir)}" if subdir \
+            else f"{remote(wd)}/proj"
+        env_exports = "".join(
+            f"export {remote(k)}={remote(v)}\n"
+            for k, v in (spec.get("env") or {}).items()
+            if k.replace("_", "").isalnum() and "\n" not in str(v))
         script = (
             "#!/bin/sh\n"
             f"mkdir -p {remote(wd)}/proj && "
             f"tar -xf {remote(wd)}/source.tar -C {remote(wd)}/proj\n"
-            f"cd {remote(wd)}/proj || exit 125\n"
+            f"cd {cd_target} || exit 125\n"
+            f"{env_exports}"
             f"{wrapper}{exe} {args} "
             f">{remote(wd)}/run.out 2>&1\n"
             f"printf '%s' \"$?\" > {remote(wd)}/exit_code\n")

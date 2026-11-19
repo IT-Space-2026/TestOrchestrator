@@ -412,6 +412,43 @@ wins → stored in the immutable execution snapshot → adapter default
 `Chrome (headless)` only when unset. Plan schedules inherit the
 schedule's run_config (no per-entry override exists).
 
+## Node.js browser runners (2.6.0)
+
+Playwright Test and headless Cypress E2E are first-class runtime
+kinds on the same Buildbot/SSH execution paths — no second
+orchestrator. Register a runtime with kind `playwright` or
+`cypress` on any Buildbot worker (Windows/Linux) or agentless Linux
+SSH target; runs stage the project under `build/src` and invoke
+`npx playwright test --reporter=junit` / `npx cypress run`
+(reporter `junit`, `toConsoleStandard:true`, per-spec
+`junit-[hash].xml` files so spec reports can't overwrite each
+other). JUnit, logs, traces, screenshots and videos upload through
+the standard Reports/ pipeline and normalize into TestResult rows —
+same run IDs, artifact retention, failure-vs-env classification.
+
+**Prerequisites** — everything is *pre-provisioned on the target
+host*, nothing is bundled: Node.js, the project's
+Playwright/Cypress dependencies (`npm ci` inside the staged project
+is *not* run — the target workspace is expected ready or
+dependency-free), and the required browsers + OS libraries. `npx`
+is resolved from the target's PATH (or the runtime's executable
+path); the framework lives as a project dependency, no global
+install, no separate agent. On agentless SSH the controller-side
+dispatcher reaches out over SSH/SFTP only.
+
+**Connectivity ≠ reachability** — a connected worker or a working
+SSH session does not mean the browser on that host can reach the
+application under test. *Check runner readiness* (Infrastructure
+page) runs a probe on the same target/account/transport and reports
+Node/framework/browser versions and, when an application URL is
+configured, whether the browser can reach it — installing nothing
+and running no tests.
+
+Browser selection is validated against the framework's set
+(`chromium`/`firefox`/`webkit` for Playwright;
+`chrome`/`firefox`/`edge`/`electron`/`chromium` for Cypress) —
+unsupported values reject the launch, never substitute.
+
 ## Plans, releases, and suite authoring
 
 - **Repository-native suite authoring**: discovered suites and

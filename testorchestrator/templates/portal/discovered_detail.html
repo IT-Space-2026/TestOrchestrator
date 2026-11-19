@@ -80,8 +80,11 @@
     <div class="field"><label for="runtime_id">Runtime</label>
       <select name="runtime_id" id="runtime_id">
         <option value="">Auto</option>
-        {% for rt in runtimes %}<option value="{{ rt.id }}">{{ rt.name }}</option>{% endfor %}
-      </select></div>
+        {% for rt in runtimes %}<option value="{{ rt.id }}">{{ rt.name }}{% if (rt.runtime_kind or "kre") != "kre" %} [{{ rt.runtime_kind }}]{% endif %}</option>{% endfor %}
+      </select>
+      <small>Playwright/Cypress run on the selected target via npx —
+      Node.js, project deps and browsers must be installed there;
+      no agent needed.</small></div>
     <div class="field"><label for="timeout_seconds">Timeout (s)</label>
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" placeholder="3600"></div>
     <button type="submit" class="button">Run {{ item.kind }}</button>

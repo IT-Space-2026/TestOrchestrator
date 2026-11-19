@@ -311,6 +311,13 @@ class RuntimeConnection(db.Model):
     # request can never select an arbitrary worker path.
     credential_file = db.Column(db.String(512), nullable=False,
                                 default="")
+    # Test framework this runtime drives: "kre" (existing rows),
+    # "playwright" or "cypress" (Node.js, run inside the staged
+    # project via npx — project-pinned deps, never bundled). The
+    # executable_path of a node runtime is the npx/npx.cmd binary
+    # resolved on the TARGET host.
+    runtime_kind = db.Column(db.String(16), nullable=False,
+                             default="kre")
     runner = db.relationship("Runner", backref="runtimes")
 
 

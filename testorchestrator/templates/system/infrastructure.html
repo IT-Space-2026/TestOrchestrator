@@ -28,6 +28,29 @@ or license KRE.</p>
     one-time password come from the target record — create the target
     first, then <strong>Issue password</strong> under Manage ▾ if the
     flash banner was missed.</p>
+  <details class="block-details"><summary class="muted">Connection requirements per target type</summary>
+  <table class="audit-table">
+    <thead><tr><th>Target</th><th>What must be reachable and configured</th></tr></thead>
+    <tbody>
+      <tr><td>Windows or Linux Buildbot worker</td>
+        <td>The registered worker must be able to connect to the
+        configured Buildbot master address and port (PB, default
+        9989). Its service account must be able to read the project,
+        launch Node.js and the browser, and write results.</td></tr>
+      <tr><td>Agentless Linux SSH</td>
+        <td>The controller-side dispatcher must be able to reach the
+        configured SSH host and port. The administrator must configure
+        the SSH username and credential, approve the host fingerprint,
+        and have working SFTP and a writable remote workspace. The SSH
+        account must be able to launch Node.js and the browser.</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">Target connectivity and application reachability are
+    different checks: an online worker or successful SSH connection
+    does not mean the browser on that machine can reach the
+    application under test. If the target fetches the repository or
+    dependencies itself, it also needs access to the relevant
+    repository or package registry.</p></details>
   <table class="audit-table">
     <thead><tr><th>Name</th><th>Type</th><th>OS/arch</th><th>Slots</th><th>Status</th><th>Last check</th><th>Connection</th><th>Actions</th></tr></thead>
     <tbody>
@@ -234,11 +257,15 @@ or license KRE.</p>
 </div>
 
 <section class="card">
-  <h2>KRE installations</h2>
+  <h2>Test runtimes</h2>
   <p class="muted"><strong>Check executable &amp; version</strong> runs
     a probe on the portal host by default — on a remote worker, the
     executable must exist on <em>that</em> worker; the check does not
-    currently verify remote availability end-to-end.</p>
+    currently verify remote availability end-to-end.
+    <strong>Check runner readiness</strong> (Playwright/Cypress)
+    instead submits a probe on the target's own builder under the
+    run account — it verifies Node.js, the framework, the browser,
+    and workspace access, and installs nothing.</p>
   {% for r in runners %}
   <div class="runner-group">
     <div class="runner-group-head">
@@ -259,23 +286,31 @@ or license KRE.</p>
       <tbody>
         {% for rt in its %}
         <tr>
-          <td>{{ rt.name }}</td>
+          <td>{{ rt.name }}{% if (rt.runtime_kind or "kre") != "kre" %}
+            <span class="badge">{{ rt.runtime_kind }}</span>{% endif %}</td>
           <td><span class="badge {{ 'warn' if rt.runner and rt.runner.connection_mode == 'remote' else '' }}">{{ "Remote" if rt.runner and rt.runner.connection_mode == 'remote' else "Local" }}</span></td>
           <td><code>{{ rt.executable_path }}</code></td>
           <td>{{ rt.detected_version or "unprobed" }}</td>
           <td><span class="badge {{ 'ok' if rt.enabled else '' }}">{{ "enabled" if rt.enabled else "disabled" }}</span></td>
           <td>{% if not rt.last_diagnostic %}<span class="badge">Not checked</span>
-            {% elif "fail" in rt.last_diagnostic|lower or "error" in rt.last_diagnostic|lower %}
+            {% elif rt.last_diagnostic.startswith('{') %}
+            <span class="badge">Check running…</span>
+            {% elif "fail" in rt.last_diagnostic|lower or "error" in rt.last_diagnostic|lower or "not ready" in rt.last_diagnostic|lower %}
             <span class="badge danger">Check failed</span>
             {% elif "re-check" in rt.last_diagnostic|lower %}
             <span class="badge">Re-check required</span>
             {% else %}<span class="badge ok">Check passed</span>{% endif %}
-            <small class="muted">{{ rt.last_check_at or "" }}</small></td>
+            <small class="muted">{{ rt.last_check_at or "" }}
+              {%- if rt.last_diagnostic and not rt.last_diagnostic.startswith('{') %}<br>{{ rt.last_diagnostic[:200] }}{% endif %}</small></td>
           <td class="actions-cell"><span class="row-actions">
             {% if r.connection_mode == "local" %}
             <form method="post" action="{{ url_for('system.probe_runtime', runtime_id=rt.id) }}" class="inline">
               {{ runtime_form.csrf_token }}
               <button type="submit" class="button secondary sm">Check</button></form>
+            {% elif (rt.runtime_kind or "kre") != "kre" %}
+            <form method="post" action="{{ url_for('system.runtime_readiness', runtime_id=rt.id) }}" class="inline">
+              {{ runtime_form.csrf_token }}
+              <button type="submit" class="button secondary sm">Check runner readiness</button></form>
             {% else %}
             <span class="badge" title="Portal-host check can't verify a
               remote worker's installation">Remote — not verified</span>
@@ -313,9 +348,20 @@ or license KRE.</p>
     <p class="muted">{{ unbound|length }} installation(s) not
     associated with a worker.</p></div>
   {% endif %}
-  <details class="block-details"><summary class="button">Register existing KRE installation</summary>
+  <details class="block-details"><summary class="button">Register a test runtime</summary>
   <form method="post" action="{{ url_for('system.create_runtime') }}">
     {{ runtime_form.csrf_token }}
+    <div class="field"><label>Runner type</label>
+      <select name="runtime_kind">
+        <option value="kre">KRE (desktop engine)</option>
+        <option value="playwright">Playwright Test (Node.js)</option>
+        <option value="cypress">Cypress E2E (Node.js)</option>
+      </select>
+      <small><strong>Required.</strong> Playwright/Cypress run on the
+      <em>selected target</em> via <code>npx</code> inside the staged
+      project — install Node.js, the project's framework dependency,
+      and the browsers on that host; the framework need not be a
+      global install. No separate agent is needed.</small></div>
     <div class="field">{{ runtime_form.name.label }} {{ runtime_form.name() }}
       <small><strong>Required.</strong> Label for this installation,
       e.g. <code>kre-9.2-ci01</code>.</small></div>
@@ -345,11 +391,14 @@ or license KRE.</p>
       </select>
       <small><strong>Remote only.</strong> The execution target this
       runtime binds to; validated against compatibility.</small></div>
-    <div class="field"><label>KRE executable location</label> {{ runtime_form.executable_path() }}
-      <small><strong>Required.</strong> Path on the <em>worker's</em>
-      filesystem (for local workers: this host) to the KRE CLI binary.
-      Example: <code>/opt/kre/bin/kre-console.sh</code>. Presence is
-      verified by <em>Test connection</em>, not assumed.</small></div>
+    <div class="field"><label>Executable location</label> {{ runtime_form.executable_path() }}
+      <small><strong>Required for KRE.</strong> Path on the
+      <em>worker's</em> filesystem (for local workers: this host) to
+      the KRE CLI binary. Example:
+      <code>/opt/kre/bin/kre-console.sh</code>. For
+      Playwright/Cypress this is the <code>npx</code> binary on the
+      target — leave it empty to resolve <code>npx</code>/
+      <code>npx.cmd</code> from the target's PATH.</small></div>
     <div class="field"><label>Working directory</label> {{ runtime_form.workspace_root() }}
       <small>Optional. Overrides the worker's workspace root for this
       runtime only — path on the worker's filesystem.</small></div>

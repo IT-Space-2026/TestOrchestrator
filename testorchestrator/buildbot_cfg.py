@@ -322,6 +322,44 @@ def write_run_credential(execution_id: str, value: str) -> str:
     return str(path)
 
 
+def node_exec_spec(ex, executable: str, args: list,
+                   env: dict = None) -> dict:
+    """Validated runner spec for Node.js browser-test runtimes
+    (playwright/cypress). Same contract as kre_exec_spec — argv list
+    only, no shell, no secrets — plus an explicit env map (e.g.
+    PLAYWRIGHT_JUNIT_OUTPUT_FILE) rendered into the ShellCommand.
+    No credential wrapper: these frameworks need no TO licence key."""
+    spec = {
+        "executable": executable,
+        "args": list(args),
+        # tar unpacks the project to <builddir>/src — the framework
+        # CLI runs inside it (project-pinned deps via npx).
+        "exec_workdir": "build/src",
+        "report_src": "src/Reports",
+    }
+    if env:
+        spec["env"] = dict(env)
+    return spec
+
+
+def stage_probe_source(ex_id: str, scripts: dict) -> Path:
+    """Stage a readiness-probe run source: only the probe scripts —
+    staged under src/ like a project so the same fetch/unpack/exec
+    factory runs them under the target's account. Never installs."""
+    import tempfile
+    staging_dir().mkdir(parents=True, exist_ok=True)
+    dest = staging_dir() / f"{ex_id}.tar"
+    tmpdir = Path(tempfile.mkdtemp(prefix="bb-probe-")) / "src"
+    tmpdir.mkdir(parents=True)
+    for name, content in scripts.items():
+        (tmpdir / name).write_text(content, encoding="utf-8")
+    tmp = dest.with_suffix(".tar.tmp")
+    with tarfile.open(tmp, "w") as tar:
+        tar.add(tmpdir, arcname="src")
+    tmp.replace(dest)
+    return dest
+
+
 def ssh_exec_spec(ex, python: str, dispatcher_script: str,
                   spec_file: str) -> dict:
     return {"python": python, "dispatcher_script": dispatcher_script,
@@ -329,13 +367,20 @@ def ssh_exec_spec(ex, python: str, dispatcher_script: str,
 
 
 def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,
-                       credential_file: str = "") -> Path:
+                       credential_file: str = "",
+                       extra: dict = None,
+                       executable: str = None,
+                       source_tar: str = "",
+                       execution_id: str = None) -> Path:
     """Per-run dispatcher spec (0600): connection + validated runner
     argv + remote paths + the staged source archive. Key material is
-    referenced by the materialized key FILE path only."""
+    referenced by the materialized key FILE path only. ``extra``
+    carries node-runner fields (exec_subdir/env/report_rel); the
+    keyword overrides let the readiness probe reuse this writer."""
+    eid = execution_id or ex.id
     run_specs_dir().mkdir(parents=True, exist_ok=True)
     spec = {
-        "execution_id": ex.id,
+        "execution_id": eid,
         "host": runner.ssh_host,
         "port": runner.ssh_port or 22,
         "username": runner.ssh_username,
@@ -343,16 +388,17 @@ def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,
         "host_key_fingerprint": runner.ssh_host_key_fingerprint,
         "host_key_alg": runner.ssh_host_key_alg,
         "remote_workdir": (runner.ssh_workdir.rstrip("/")
-                           + "/" + ex.id),
-        "source_tar": str(staging_dir() / f"{ex.id}.tar"),
-        "executable": runtime.executable_path,
+                           + "/" + eid),
+        "source_tar": source_tar or str(staging_dir() / f"{eid}.tar"),
+        "executable": executable or runtime.executable_path,
         "args": list(args),
         "credential_file": credential_file,
         "report_rel": "Reports",
         "timeout_s": int((ex.snapshot().get("run_config") or {})
                          .get("timeout_seconds") or 3600),
     }
-    path = run_specs_dir() / f"{ex.id}.json"
+    spec.update(extra or {})
+    path = run_specs_dir() / f"{eid}.json"
     _write_json(path, spec)
     return path
 
