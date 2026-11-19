@@ -869,6 +869,19 @@ Playwright: `chromium`, `firefox`, `webkit`; Cypress: `chrome`,
 `firefox`, `edge`, `electron`, `chromium`. An unsupported value
 fails the launch rather than being substituted.
 
+**Interruption and recovery differ by transport.** On agentless SSH
+targets the remote run is detached (`run.sh`/`run.pid`): if the
+controller-side session drops, the dispatcher reconnects, reattaches
+to the same run, and collects its results — the CLI is launched
+exactly once. On Buildbot workers the picture is different: if the
+worker–master PB connection is lost or the master restarts mid-run,
+Buildbot cancels the in-flight build and the worker kills the running
+CLI. The execution is then reported `FAILED`/`INCOMPLETE` (never a
+phantom pass — partial artifacts collected so far are retained), and
+the run is *not* resumed; resubmit it manually. No duplicate launch
+occurs either way. Plan long browser runs accordingly, and keep the
+master reachable during executions.
+
 
 ## 7. Security and administration
 
