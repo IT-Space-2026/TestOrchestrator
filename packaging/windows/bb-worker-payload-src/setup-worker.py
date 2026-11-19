@@ -106,7 +106,36 @@ def main() -> None:
             f"Add execution target), or pass --passwd-file")
     basedir = Path(args.basedir)
     basedir.mkdir(parents=True, exist_ok=True)
-    if not (basedir / "buildbot.tac").exists():
+    tac = basedir / "buildbot.tac"
+    # An existing tac preserves worker identity across reinstalls —
+    # but only when it still matches what was entered. A stale
+    # master/name/passwd (e.g. rotated credential + reinstall) would
+    # silently keep failing auth; recreate it in that case.
+    if tac.exists():
+        try:
+            import re
+            body = tac.read_text(encoding="utf-8", errors="replace")
+
+            def _field(key: str) -> str:
+                m = re.search(
+                    rf"^\s*{key}\s*=\s*(['\"])(.*?)\1", body, re.M)
+                return m.group(2) if m else ""
+
+            def _intfield(key: str) -> str:
+                m = re.search(rf"^\s*{key}\s*=\s*(\d+)", body, re.M)
+                return m.group(1) if m else ""
+
+            host, _, port = args.master.rpartition(":")
+            stale = (
+                _field("workername") != args.name
+                or _field("passwd") != passwd
+                or _field("buildmaster_host") != host
+                or (port and _intfield("port") != port))
+        except OSError:
+            stale = True
+        if stale:
+            tac.unlink()
+    if not tac.exists():
         subprocess.check_call(
             [str(bbw), "create-worker", "--keepalive=60",
              str(basedir), args.master, args.name, passwd],

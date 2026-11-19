@@ -244,3 +244,15 @@ def test_setup_worker_installs_pywin32_and_registers_dlls():
     assert '"pywin32"' in src
     assert "pywin32_postinstall.py" in src
     assert "import win32api" in src  # post-install import check
+
+
+def test_setup_worker_recreates_stale_tac():
+    """Regression: a preserved buildbot.tac carrying a rotated/old
+    password caused silent 'unauthorized login' — the reinstall
+    collected fresh credentials but create-worker was skipped. Setup
+    must compare workername/passwd/host/port and recreate on drift."""
+    src = (REPO / "packaging" / "windows" / "bb-worker-payload-src"
+           / "setup-worker.py").read_text()
+    assert 'tac.exists()' in src
+    assert 'workername' in src and 'buildmaster_host' in src
+    assert 'tac.unlink()' in src
