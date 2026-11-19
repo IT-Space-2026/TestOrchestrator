@@ -231,3 +231,16 @@ def test_linux_worker_validates_nonempty_passwd_and_logs():
     sh = (REPO / "scripts" / "install_linux_worker.sh").read_text()
     assert '[ -s "$PASSWD_FILE" ]' in sh
     assert "worker-install.log" in sh
+
+
+def test_setup_worker_installs_pywin32_and_registers_dlls():
+    """Regression: Twisted on Windows needs win32api to load the tac —
+    the wheel was downloaded into wheels/ but never installed, so the
+    task died before twistd.log existed ('No module named win32api').
+    The install list must carry pywin32 AND run its post-install so the
+    pywintypes/pythoncom DLLs resolve under the SYSTEM task."""
+    src = (REPO / "packaging" / "windows" / "bb-worker-payload-src"
+           / "setup-worker.py").read_text()
+    assert '"pywin32"' in src
+    assert "pywin32_postinstall.py" in src
+    assert "import win32api" in src  # post-install import check

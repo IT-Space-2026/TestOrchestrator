@@ -79,11 +79,22 @@ def main() -> None:
             [str(python), str(GET_PIP), "--no-index",
              "--find-links", str(WHEELS)], cwd=str(HERE))
     _pip(python, "install", "--no-index", "--find-links",
-         str(WHEELS), "buildbot-worker", "pystray", "pillow")
+         str(WHEELS), "buildbot-worker", "pywin32", "pystray",
+         "pillow")
+    # pywin32's wheel does not self-register its system DLLs — without
+    # postinstall, `import win32api` fails under the Scheduled Task
+    # (SYSTEM) and twistd dies loading buildbot.tac with no log.
+    postinstall = PYEMBED / "Scripts" / "pywin32_postinstall.py"
+    if postinstall.exists():
+        subprocess.check_call(
+            [str(python), str(postinstall), "-install"], cwd=str(HERE))
 
     bbw = PYEMBED / "Scripts" / "buildbot-worker.exe"
     if not bbw.exists():
         raise SystemExit("buildbot-worker did not install")
+    subprocess.check_call(
+        [str(python), "-c", "import win32api, win32security"],
+        cwd=str(HERE))
     try:
         passwd = Path(args.passwd_file).read_text() \
             .splitlines()[0].strip()
