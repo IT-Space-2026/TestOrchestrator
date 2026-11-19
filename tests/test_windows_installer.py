@@ -198,3 +198,36 @@ def test_linux_worker_bundle_contents_if_built():
     assert "get-pip.py" in names
     assert any(n.startswith("bb-wheels/buildbot_worker")
                for n in names)
+
+WORKER_NSI = REPO / "packaging" / "windows" / "buildbot-worker-installer.nsi"
+
+
+def test_worker_nsi_interactive_config_and_logging():
+    """Regression: the interactive worker install must collect master/
+    name/password itself and persist a real log — a bare default of a
+    nonexistent worker-password.txt previously died inside
+    setup-worker.py with a raw FileNotFoundError."""
+    text = WORKER_NSI.read_text()
+    assert "Page custom ConfigPage ConfigPageLeave" in text
+    assert "nsDialogs.nsh" in text
+    assert "NSD_CreatePassword" in text
+    # password persisted to the install-owned file, never a bare path
+    assert r"$DATA_DIR\worker-password.txt" in text
+    # early validation: missing file aborts with a clear message,
+    # not a python traceback
+    assert '${IfNot} ${FileExists} "$PASSWD_FILE"' in text
+    # persistent log — the details pane is ephemeral
+    assert r"$DATA_DIR\setup-worker.log" in text
+
+
+def test_setup_worker_clean_error_on_missing_passwd():
+    src = (REPO / "packaging" / "windows" / "bb-worker-payload-src"
+           / "setup-worker.py").read_text()
+    assert "password file missing or empty" in src
+    assert "except (OSError, IndexError)" in src
+
+
+def test_linux_worker_validates_nonempty_passwd_and_logs():
+    sh = (REPO / "scripts" / "install_linux_worker.sh").read_text()
+    assert '[ -s "$PASSWD_FILE" ]' in sh
+    assert "worker-install.log" in sh

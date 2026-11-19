@@ -130,8 +130,9 @@ publisher warnings; verify the SHA-256 below instead.
 **Verification status at publication:** Linux acceptance passed on
 the tested internal build (clean install, all three execution modes,
 cancellation, scheduling, disconnect/recovery — see
-`docs/acceptance-2.5.0.md`). Windows acceptance — both the controller
-installer and the worker `.exe` — runs after release; licensed-KRE
+`docs/acceptance-2.5.0.md`). The Windows **controller** installer has
+been installed and verified on a real Windows host (owner-run);
+the worker `.exe` interactive walkthrough and licensed-KRE
 runs per target type, system-wide systemd activation, and a
 separate-machine `sshd` test remain unverified — they are tracked in
 the acceptance record, not marked passed.
@@ -519,7 +520,8 @@ Verified on a clean install of the tested build — details in
 Explicitly deferred — **not** passed:
 
 - Windows worker `.exe` interactive walkthrough and real-corpus
-  end-to-end execution on Windows — deferred to post-release testing.
+  end-to-end execution on Windows — deferred to post-release testing
+  (the controller install itself is owner-verified on Windows).
 - Real licensed-KRE suite execution — not demonstrated (adapter is
   fixture-verified only).
 - Azure DevOps repo interoperability — gated on an authorized

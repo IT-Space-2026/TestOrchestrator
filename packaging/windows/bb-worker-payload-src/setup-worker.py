@@ -79,8 +79,17 @@ def main() -> None:
     bbw = PYEMBED / "Scripts" / "buildbot-worker.exe"
     if not bbw.exists():
         raise SystemExit("buildbot-worker did not install")
-    passwd = Path(args.passwd_file).read_text().splitlines()[0].strip()
+    try:
+        passwd = Path(args.passwd_file).read_text() \
+            .splitlines()[0].strip()
+    except (OSError, IndexError):
+        raise SystemExit(
+            f"worker password file missing or empty: "
+            f"{args.passwd_file} — create it containing the one-time "
+            f"password issued by the portal (System → Infrastructure → "
+            f"Add execution target), or pass --passwd-file")
     basedir = Path(args.basedir)
+    basedir.mkdir(parents=True, exist_ok=True)
     if not (basedir / "buildbot.tac").exists():
         subprocess.check_call(
             [str(bbw), "create-worker", "--keepalive=60",

@@ -58,6 +58,7 @@ for req in MASTER NAME PASSWD_FILE; do
   [ -n "$v" ] || { echo "missing --${req,,/_/-}" >&2; exit 2; }
 done
 [ -r "$PASSWD_FILE" ] || { echo "passwd file unreadable: $PASSWD_FILE" >&2; exit 2; }
+[ -s "$PASSWD_FILE" ] || { echo "passwd file empty: $PASSWD_FILE — put the one-time worker password issued by the portal on its first line" >&2; exit 2; }
 
 command -v python3 >/dev/null || { echo "python3 >=3.10 required" >&2; exit 2; }
 python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" || { echo "python3 >=3.10 required (bundled wheels cover 3.10-3.12)" >&2; exit 2; }
@@ -72,6 +73,9 @@ if ! id "$SVC_USER" >/dev/null 2>&1; then
 fi
 mkdir -p "$HOME_DIR" "$DATA_DIR"
 chown "$SVC_USER":"$SVC_USER" "$DATA_DIR"
+
+# Persistent install log — stdout/stderr continue to the console too.
+exec > >(tee "$DATA_DIR/worker-install.log") 2>&1
 
 # venv + pinned worker (offline wheels or PyPI — same pin either way).
 # Debian/Ubuntu hosts may lack ensurepip (python3-venv): fall back to

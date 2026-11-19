@@ -28,9 +28,15 @@ Var /GLOBAL MASTER_ADDR
 Var /GLOBAL WORKER_NAME
 Var /GLOBAL PASSWD_FILE
 Var /GLOBAL DATA_DIR
+Var /GLOBAL SVC_ACCOUNT
+Var /GLOBAL Dialog
+Var /GLOBAL CTL_MASTER
+Var /GLOBAL CTL_NAME
+Var /GLOBAL CTL_PASS
 
 !include "MUI2.nsh"
 !insertmacro MUI_PAGE_DIRECTORY
+Page custom ConfigPage ConfigPageLeave
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -43,37 +49,107 @@ Var /GLOBAL DATA_DIR
 ; in the installer and never placed on a command line.
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
+!include "nsDialogs.nsh"
+
+Function .onInit
+    ReadEnvStr $DATA_DIR "ProgramData"
+    StrCpy $DATA_DIR "$DATA_DIR\TestOrchestrator\buildbot-worker"
+
+    ${GetOptions} $CMDLINE "/MASTER=" $MASTER_ADDR
+    ${GetOptions} $CMDLINE "/WORKER_NAME=" $WORKER_NAME
+    ${GetOptions} $CMDLINE "/PASSWD_FILE=" $PASSWD_FILE
+    ${GetOptions} $CMDLINE "/SERVICE_ACCOUNT=" $SVC_ACCOUNT
+    ${If} $WORKER_NAME == ""
+        ReadEnvStr $WORKER_NAME "COMPUTERNAME"
+        StrCpy $WORKER_NAME "bb-$WORKER_NAME"
+    ${EndIf}
+FunctionEnd
+
+; ---- interactive configuration page ----------------------------------
+; Skipped entirely in silent mode — /MASTER, /WORKER_NAME and
+; /PASSWD_FILE cover unattended installs. Interactive runs collect the
+; endpoint, worker name and the one-time password the portal issued
+; (System → Infrastructure → Add execution target) and write it to
+; $DATA_DIR\worker-password.txt — never onto a command line.
+Function ConfigPage
+    ${If} ${Silent}
+        Abort
+    ${EndIf}
+    nsDialogs::Create 1018
+    Pop $Dialog
+    ${If} $Dialog == error
+        Abort
+    ${EndIf}
+
+    ${NSD_CreateLabel} 0 0 100% 12u "Controller PB endpoint (host:port):"
+    Pop $0
+    ${NSD_CreateText} 0 14u 100% 12u "$MASTER_ADDR"
+    Pop $CTL_MASTER
+
+    ${NSD_CreateLabel} 0 32u 100% 12u "Worker name (issued by the portal):"
+    Pop $0
+    ${NSD_CreateText} 0 46u 100% 12u "$WORKER_NAME"
+    Pop $CTL_NAME
+
+    ${NSD_CreateLabel} 0 64u 100% 12u "One-time worker password (issued by the portal):"
+    Pop $0
+    ${NSD_CreatePassword} 0 78u 100% 12u ""
+    Pop $CTL_PASS
+
+    nsDialogs::Show
+FunctionEnd
+
+Function ConfigPageLeave
+    ${NSD_GetText} $CTL_MASTER $MASTER_ADDR
+    ${NSD_GetText} $CTL_NAME $WORKER_NAME
+    ${NSD_GetText} $CTL_PASS $0
+    ${If} $MASTER_ADDR == ""
+    ${OrIf} $WORKER_NAME == ""
+        MessageBox MB_ICONEXCLAMATION "Controller address and worker name are required."
+        Abort
+    ${EndIf}
+    ; An explicit /PASSWD_FILE wins — the operator manages that file.
+    ; Otherwise persist the entered password to the install-owned file
+    ; setup-worker.py reads.
+    ${If} $PASSWD_FILE == ""
+        ${If} $0 == ""
+            MessageBox MB_ICONEXCLAMATION "Enter the one-time worker password issued by the portal (System → Infrastructure → Add execution target)."
+            Abort
+        ${EndIf}
+        CreateDirectory "$DATA_DIR"
+        StrCpy $PASSWD_FILE "$DATA_DIR\worker-password.txt"
+        FileOpen $1 "$PASSWD_FILE" w
+        FileWrite $1 "$0$\r$\n"
+        FileClose $1
+    ${EndIf}
+FunctionEnd
 
 Section "Install Buildbot worker payload" SecMain
     SetOutPath "$INSTDIR"
     File /r "${PAYLOAD_DIR}\*.*"
 
-    ReadEnvStr $DATA_DIR "ProgramData"
-    StrCpy $DATA_DIR "$DATA_DIR\TestOrchestrator\buildbot-worker"
     CreateDirectory "$DATA_DIR"
     CreateDirectory "$DATA_DIR\worker"
 
-    ${GetOptions} $CMDLINE "/MASTER=" $MASTER_ADDR
-    ${GetOptions} $CMDLINE "/WORKER_NAME=" $WORKER_NAME
-    ${GetOptions} $CMDLINE "/PASSWD_FILE=" $PASSWD_FILE
     ${If} $MASTER_ADDR == ""
         StrCpy $MASTER_ADDR "<portal-host>:9989"
-    ${EndIf}
-    ${If} $WORKER_NAME == ""
-        ReadEnvStr $WORKER_NAME "COMPUTERNAME"
-        StrCpy $WORKER_NAME "bb-$WORKER_NAME"
     ${EndIf}
     ${If} $PASSWD_FILE == ""
         StrCpy $PASSWD_FILE "$DATA_DIR\worker-password.txt"
     ${EndIf}
+    ${IfNot} ${FileExists} "$PASSWD_FILE"
+        MessageBox MB_ICONEXCLAMATION "Worker password file not found:$\r$\n  $PASSWD_FILE$\r$\n$\r$\nCreate it containing the one-time worker password issued by the portal, or pass /PASSWD_FILE=<path>."
+        Abort "worker password file missing"
+    ${EndIf}
 
-    ; Offline env + worker creation. setup-worker.py writes
+    ; Offline env + worker creation — output tee'd to a persistent log
+    ; (the NSIS details pane is ephemeral). setup-worker.py writes
     ; buildbot.tac under $DATA_DIR\worker and worker.conf.json in
     ; $INSTDIR (connectivity only).
-    nsExec::ExecToLog '"$INSTDIR\python-embed\python.exe" "$INSTDIR\setup-worker.py" --master "$MASTER_ADDR" --name "$WORKER_NAME" --passwd-file "$PASSWD_FILE" --basedir "$DATA_DIR\worker"'
+    nsExec::ExecToLog 'cmd /c ""$INSTDIR\python-embed\python.exe" "$INSTDIR\setup-worker.py" --master "$MASTER_ADDR" --name "$WORKER_NAME" --passwd-file "$PASSWD_FILE" --basedir "$DATA_DIR\worker" > "$DATA_DIR\setup-worker.log" 2>&1"'
     Pop $0
     ${If} $0 != "0"
-        MessageBox MB_ICONEXCLAMATION "Worker environment setup failed (code $0) — check $INSTDIR and the details log"
+        MessageBox MB_ICONEXCLAMATION "Worker environment setup failed (code $0) — see $DATA_DIR\setup-worker.log"
         Abort "setup-worker failed"
     ${EndIf}
 
@@ -81,8 +157,6 @@ Section "Install Buildbot worker payload" SecMain
     ; operator supplies /SERVICE_ACCOUNT=DOMAIN\user, else SYSTEM is a
     ; documented fallback — KRE licensing requirements decide; evidence
     ; required before assuming SYSTEM is needed.
-    Var /GLOBAL SVC_ACCOUNT
-    ${GetOptions} $CMDLINE "/SERVICE_ACCOUNT=" $SVC_ACCOUNT
     ${If} $SVC_ACCOUNT == ""
         StrCpy $SVC_ACCOUNT "SYSTEM"
     ${EndIf}

@@ -35,7 +35,7 @@ index lists each frame's provenance.
   - [4.7 Service management and logs](#47-service-management-and-logs)
   - [4.8 Uninstall](#48-uninstall)
   - [4.9 HTTPS frontend — Cheroot](#49-https-frontend--cheroot)
-- [5. Windows installation **[code/CI — not locally validated]**](#5-windows-installation-codeci--not-locally-validated)
+- [5. Windows installation **[verified]**](#5-windows-installation-verified)
   - [5.1 Install and first access](#51-install-and-first-access)
   - [5.2 Certificate trust (what the installer does for you)](#52-certificate-trust-what-the-installer-does-for-you)
   - [5.3 Stop, restart, uninstall](#53-stop-restart-uninstall)
@@ -315,11 +315,13 @@ them. Evidence that never reached the repository cannot be recreated
 - Windows amd64 **execution hosts** install only the bundled Buildbot
   worker — `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`
   — downloaded from the installed portal (§6.1).
-- **[code/CI]** Both installers are compiled and payload-gated in CI;
-  **no interactive Windows walkthrough was performed for this
-  release** (post-release acceptance is tracked separately). The
-  installers are **unsigned** — expect SmartScreen warnings and plan
-  your own signing/trust policy before production rollout.
+- **[verified]** The Windows **controller** installer has been run
+  interactively on a real Windows host — install, Scheduled Tasks,
+  first login, and the finish-page browser launch all verified.
+  The remote **worker** `.exe` is compiled and payload-gated in CI;
+  its interactive walkthrough is tracked separately. Both installers
+  are **unsigned** — expect SmartScreen warnings and plan your own
+  signing/trust policy before production rollout.
 
 ## 3. Package selection and verification
 
@@ -595,7 +597,7 @@ restore the snapshot — the previous-good config is preserved
 across the failed apply.
 
 
-## 5. Windows installation **[code/CI — not interactively validated]**
+## 5. Windows installation **[verified]**
 
 ### 5.1 Windows controller
 
@@ -659,10 +661,9 @@ Linux packages install:
 - KRE is **not** shipped — install and license Katalon Runtime Engine
   separately, then register it under Admin → Workers & runtimes.
 
-**Honest status:** the installer is compiled and its payload
-gate-checked in CI on every build; **the interactive Windows
-walkthrough runs post-release on a real Windows host** and is not
-claimed as verified here.
+**Status:** verified on a real Windows host — install, Scheduled
+Tasks, provisioning, first login, and finish-page browser launch
+all pass (owner-run).
 
 ### 5.2 Windows execution hosts
 
