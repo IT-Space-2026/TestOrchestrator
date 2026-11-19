@@ -30,7 +30,11 @@ untouched, same reruns-are-safe contract).
   `worker-tray.py` (pystray + Pillow bundled offline) at user logon —
   notification-area icon showing worker state with right-click
   **Start / Stop / Quit** (controls the Scheduled Task via schtasks;
-  Quit only closes the icon, never the worker). Uninstall kills only
+  Quit only closes the icon, never the worker). The menu also has
+  **Configure…** — re-prompts endpoint/workername/password (blank
+  keeps current), recreates `buildbot.tac`, restarts the task; a
+  Start Menu shortcut + `start-tray.cmd` relaunch the icon after
+  Quit. Uninstall kills only
   the tray process (targeted `stop-tray.cmd` — never a blanket
   `taskkill` on `pythonw.exe`).
 - **Windows controller firewall**: SYSTEM Scheduled Tasks never

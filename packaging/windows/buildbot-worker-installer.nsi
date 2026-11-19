@@ -167,10 +167,12 @@ Section "Install Buildbot worker payload" SecMain
         Abort "worker exe missing"
     ${EndIf}
 
-    ; tray icon for the installing user — start/stop/quit at logon, and
-    ; launch it now so the icon appears without a re-login
+    ; tray icon for the installing user — autostart at logon, a Start
+    ; Menu shortcut to relaunch it after stop/Quit, and launch it now
+    ; so the icon appears without a re-login
     SetShellVarContext current
     CreateShortCut "$SMSTARTUP\TestOrchestrator Buildbot Worker.lnk" '"$INSTDIR\python-embed\pythonw.exe"' '"$INSTDIR\worker-tray.py"' "$INSTDIR\it.ico" 0
+    CreateShortCut "$SMPROGRAMS\TestOrchestrator Buildbot Worker.lnk" '"$INSTDIR\python-embed\pythonw.exe"' '"$INSTDIR\worker-tray.py"' "$INSTDIR\it.ico" 0
     Exec '"$INSTDIR\python-embed\pythonw.exe" "$INSTDIR\worker-tray.py"'
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -188,6 +190,7 @@ Section "Uninstall"
     ; explicit choice. KRE and unrelated files are never touched.
     SetShellVarContext current
     Delete "$SMSTARTUP\TestOrchestrator Buildbot Worker.lnk"
+    Delete "$SMPROGRAMS\TestOrchestrator Buildbot Worker.lnk"
     ; kill only OUR tray process (worker-tray.py) — a blanket
     ; taskkill on pythonw.exe could reap unrelated processes
     ${If} ${FileExists} "$INSTDIR\stop-tray.cmd"

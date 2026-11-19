@@ -47,6 +47,14 @@ def _status_text(icon=None, item=None):
     return f"Worker: {'running' if is_running() else 'stopped'}"
 
 
+def _configure(icon=None, item=None):
+    # console window running the interactive reconfigure prompts
+    subprocess.Popen(
+        ["cmd", "/c", "start", "",
+         str(HERE / "reconfigure-worker.cmd")],
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
 def _noop(*_):
     pass
 
@@ -65,6 +73,8 @@ def main() -> None:
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Start", _start),
         pystray.MenuItem("Stop", _stop),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Configure…", _configure),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Quit", _quit),
     )
