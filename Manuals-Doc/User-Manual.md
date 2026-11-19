@@ -679,8 +679,8 @@ owns; evidence another execution also references is kept.
 ## 7. Fixture-vs-licensed statement for these screenshots
 
 All screens in this manual were captured on a packaged Linux
-installation during documentation work (some frames predate the
-final 2.5.0 UI). Live-execution screens used a **fixture** KRE stand-in
+installation running the released 2.5.0 codebase. Live-execution
+screens used a **fixture** KRE stand-in
 emitting genuine Katalon-format output — they demonstrate dispatch,
 registration, execution plumbing, result/evidence return, and report
 generation, **not licensed KRE execution**. Licensed-KRE execution

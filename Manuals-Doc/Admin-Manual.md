@@ -11,8 +11,8 @@ initial public release).
 | **[code/CI]** | Documented from installer source and CI evidence; not interactively validated here |
 | **[doc-env]** | Demonstrated on the isolated documentation environment (fixture data) — procedure is real, values are not |
 
-Disclosed boundaries, up front: some screenshots predate the final
-2.5.0 UI — the index lists each frame's provenance.
+All screenshots were captured from the released 2.5.0 codebase — the
+index lists each frame's provenance.
 
 ---
 

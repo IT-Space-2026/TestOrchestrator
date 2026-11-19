@@ -9,7 +9,7 @@ the initial public release).
 | [Admin-Manual.md](Admin-Manual.md) | Administrators / operators | Installation, configuration, workers, security, backup, upgrade, maintenance, troubleshooting |
 | [Screenshot-Doc/Screenshot-Index.md](Screenshot-Doc/Screenshot-Index.md) | Anyone | Index of all captured screens with captions and provenance |
 
-Screenshots were captured on a real Linux installation during
-documentation work — the index notes which frames predate the final
-2.5.0 UI. Live-execution captures used a clearly-labelled fixture
+Screenshots were captured on a real Linux installation running the
+released 2.5.0 codebase — the index lists each frame's provenance.
+Live-execution captures used a clearly-labelled fixture
 KRE; no real secrets appear in any frame.
