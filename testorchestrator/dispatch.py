@@ -1445,13 +1445,19 @@ def fire_due_schedules(now=None) -> int:
                         record_audit("worker", "schedule.target_unavailable",
                                      sched.id)
                         continue
+                    tgt_binding = (
+                        db.session.get(GitBinding,
+                                       tgt.get("binding_id"))
+                        or binding)
+                    tgt_sha = (tgt_binding.last_synced_sha
+                               if tgt_binding else sha)
                     create_execution(sched.created_by, None,
-                                     binding=binding,
-                                     source_sha=sha, run_config=cfg,
+                                     binding=tgt_binding,
+                                     source_sha=tgt_sha,
+                                     run_config=cfg,
                                      schedule_id=sched.id,
                                      source_item=d_item)
-                continue
-            if sched.target_type == "plan" and sched.plan_id:
+            elif sched.target_type == "plan" and sched.plan_id:
                 plan = db.session.get(Plan, sched.plan_id)
                 if plan is None:
                     raise DispatchError("scheduled plan no longer exists")
