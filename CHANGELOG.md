@@ -4,13 +4,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — 2.6.0 (draft)
 
-Feature release — Playwright Test and headless Cypress E2E as
-first-class runners on the existing Buildbot/SSH execution paths.
+Feature release — Playwright Test, headless Cypress E2E and Robot
+Framework as first-class runners on the existing Buildbot/SSH
+execution paths.
 Schema change: `runtime_connections.runtime_kind`
-(`kre`|`playwright`|`cypress`, default `kre` — existing connections
-upgrade unchanged).
+(`kre`|`playwright`|`cypress`|`robot`, default `kre` — existing
+connections upgrade unchanged).
 
 ### Added
+
+- **Robot Framework runner.** Register a runtime with kind `robot`
+  and configure the target's Python interpreter explicitly
+  (`executable_path` — venv `bin/python`/`Scripts\python.exe`
+  works; pure argv, no shell/PATH/activation dependency). Runs
+  invoke `python -m robot` with isolated `Reports/` output —
+  `--xunit junit.xml` feeds the shared JUnit normalizer while
+  native `output.xml`, `log.html`, `report.html`, console logs and
+  project evidence upload as artifacts on pass *and* fail.
+  Project-relative suite file/directory, `--test`/`--suite` and
+  `--include`/`--exclude` tag selection are supported from the run
+  form; Robot's exit codes (1–249 failed-test count, 250–252
+  usage/data/config, 253 interrupted, 255 internal) classify
+  explicitly so invalid invocations never read as test results.
+  No browser selector applies — browsers belong to the Robot
+  project's libraries. Out of scope for 2.6.0: parallel execution
+  (pabot), custom listeners, keyword-level portal browsing.
 
 - **Node.js browser runners.** Register a runtime with kind
   `playwright` or `cypress` on any Buildbot worker (Windows/Linux)
@@ -48,9 +66,10 @@ upgrade unchanged).
 - Unsupported browsers are rejected up front; a missing JUnit report
   can never surface as a green run with zero tests (existing
   `REPORTS-MISSING` sentinel unchanged).
-- In scope for 2.6.0: Playwright Test (Node.js) and headless
-  Cypress E2E only — Playwright-Python, Cypress component testing,
-  remote-browser grids and Cypress Cloud are out of scope.
+- In scope for 2.6.0: Playwright Test (Node.js), headless Cypress
+  E2E and standard Robot Framework only — Playwright-Python,
+  Cypress component testing, remote-browser grids, Cypress Cloud
+  and Robot parallel/listener extensions are out of scope.
 
 ## [2.5.1] — 2026-11-19
 

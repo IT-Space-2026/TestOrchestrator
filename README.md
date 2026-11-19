@@ -412,6 +412,39 @@ wins → stored in the immutable execution snapshot → adapter default
 `Chrome (headless)` only when unset. Plan schedules inherit the
 schedule's run_config (no per-entry override exists).
 
+## Robot Framework runner (2.6.0)
+
+Robot Framework is a first-class runtime kind (`robot`) on the same
+Buildbot/SSH execution paths — no second orchestrator. Register a
+Robot runtime on any Buildbot worker or agentless Linux SSH target
+and point `executable_path` at the target's Python interpreter —
+a venv's `bin/python` (POSIX) or `Scripts\python.exe` (Windows)
+works; argv execution means no PATH, shell, or activation script is
+required and paths with spaces are safe. Runs invoke
+`python -m robot --outputdir Reports --xunit junit.xml` under
+`build/src`, supporting a project-relative suite file or directory,
+`--test`/`--suite` selection and `--include`/`--exclude` tags from
+the run form. Robot's exit-code semantics are mapped explicitly:
+exit 1–249 is the failed-test count (JUnit verdict), 250–252 are
+usage/data/configuration errors, 253 is interruption, 255 internal
+— an invalid invocation is never presented as ordinary test
+failures, and a missing `junit.xml` can never pass as a zero-test
+run. JUnit, native `output.xml`/`log.html`/`report.html`, console
+logs and project evidence flow through the standard Reports/
+pipeline — pass or fail.
+
+**Prerequisites** — Robot Framework and the project's required
+Python libraries must be installed in the selected target's Python
+environment. Any required browsers, drivers, or external tools must
+also be available to the execution account. Tests run on the
+target, which must be able to reach the system under test and write
+reports and artifacts. No separate Robot Framework agent is
+required. Browser configuration belongs to the Robot project and
+its libraries — there is no portal browser selector for Robot.
+*Check runner readiness* probes the configured interpreter, Robot
+version, configured library imports, workspace write access and
+application reachability under the real execution account.
+
 ## Node.js browser runners (2.6.0)
 
 Playwright Test and headless Cypress E2E are first-class runtime

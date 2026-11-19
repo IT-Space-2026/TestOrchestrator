@@ -465,7 +465,16 @@ implemented settings:
   empty).
 - **Runner** — which configured runner to dispatch to.
 - **Runtime** — which registered runtime the target invokes. Entries
-  tagged `[playwright]` or `[cypress]` are the Node.js browser
+  tagged `[robot]` are Robot Framework runtimes (2.6.0): they launch
+  `python -m robot` with the configured Python interpreter inside the
+  staged project **on the selected target**. Robot Framework and the
+  project's libraries must already exist in that interpreter — there
+  is no browser selector for Robot (browsers are configured by the
+  project's libraries). The run form's Robot options select a suite
+  file/directory, `--test`/`--suite` names and `--include`/`--exclude`
+  tags. Native `output.xml`, `log.html`, `report.html` and the console
+  log appear under **Artifacts** alongside the normalized cases.
+  Entries tagged `[playwright]` or `[cypress]` are the Node.js browser
   runners (2.6.0): they launch `npx playwright test` /
   `npx cypress run` inside the staged project **on the selected
   target** — the tests and the browser run there, not on the

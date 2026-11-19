@@ -869,6 +869,44 @@ Playwright: `chromium`, `firefox`, `webkit`; Cypress: `chrome`,
 `firefox`, `edge`, `electron`, `chromium`. An unsupported value
 fails the launch rather than being substituted.
 
+
+### 6.7 Robot Framework runtime
+
+Register **Robot Framework** as a runtime kind (`robot`) on any
+Buildbot worker (Windows/Linux) or agentless Linux SSH target.
+Configure the runtime's **executable path** as the target's Python
+interpreter — a venv `bin/python` (POSIX) or `Scripts\python.exe`
+(Windows) is the recommended form. Execution is pure argv
+(`python -m robot`): no Bash, no PATH, no activation scripts, and
+paths containing spaces are safe. Runs stage the project under
+`build/src` and produce `Reports/junit.xml` (shared normalizer)
+plus native `output.xml`, `log.html`, `report.html` and the console
+log — all uploaded as artifacts on pass *and* fail.
+
+**Prerequisites:** Robot Framework and the project's required
+Python libraries must be installed in the selected target's Python
+environment. Any required browsers, drivers, or external tools must
+also be available to the execution account. Tests run on the
+target, which must be able to reach the system under test and write
+reports and artifacts. No separate Robot Framework agent is
+required. There is no portal browser selector for Robot — browser
+configuration belongs to the Robot project and its libraries.
+
+Run forms expose a project-relative suite file or directory plus
+optional `--test`, `--suite`, `--include`/`--exclude` tag fields.
+Robot exit codes classify explicitly: 1–249 is the failed-test
+count, 250–252 are usage/data/configuration problems, 253 is
+interruption, 255 internal — an invalid invocation is never shown
+as ordinary test failures, and a missing `junit.xml` can never
+pass as a zero-test run. Out of scope for 2.6.0: parallel
+execution (pabot), custom listeners, keyword-level browsing.
+
+**Check runner readiness** probes — under the real execution
+account — the configured interpreter, Robot version, configured
+required-library imports, workspace write access, and application
+reachability (external tools when configured). Checks that cannot
+run report as *not checked*; nothing is installed and no tests run.
+
 **Interruption and recovery differ by transport and by what was
 lost.** On agentless SSH targets the remote run is detached
 (`run.sh`/`run.pid`): losing the SSH *session* mid-run lets the
