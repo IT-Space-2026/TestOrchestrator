@@ -477,12 +477,12 @@ Published at
 
 | Asset | SHA-256 |
 |---|---|
-| `testorchestrator-2.5.1-linux-x86_64.tar.gz` | `2a81c766eee89749151d16024c7f78d51d85c95cc5219a5ffe47245335f4f82c` |
-| `testorchestrator-2.5.1-linux-x86_64.run` | `7741f3439b9d9df501f02718e2cd4785cf721fa35a86a143514c69527b13ad15` |
-| `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` | `a9b8af57571d2b569e941146eb25abb4432566933be55da95c3caf40981b6b9e` |
-| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `8d74c0c7b0aa5196bc9e2f9b01d0a73a783a26ce8f960c1b12b10fbdd94e4097` |
-| `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (bundled + Admin UI) | `79f8e6beee2215430542f75bfea2ec437ab334a69e3d50eadc2468ae2d4fa875` |
-| `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` (bundled + Admin UI) | `6bd358d50275a6200f226f800774ee0eab5a95b95b727994710d6f2c77d1a113` |
+| `testorchestrator-2.5.1-linux-x86_64.tar.gz` | `146398d09878996b3e9e645926b72f89961ee39b67394ba25afbedef3b7872c7` |
+| `testorchestrator-2.5.1-linux-x86_64.run` | `436c17fa02e8f7dfdceb04a6cb7a1ec03bc7a4078140d4f68749bd56676a2d87` |
+| `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` | `9558ce4f68bdf3d1e0c9e0b6c733a475a28258aa6d9db93159f35d5868a15ac6` |
+| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `ecac2250f1e5ba6bc3ca6cfe185eacaef0b239552be165a5005d4b4b218effd4` |
+| `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (bundled + Admin UI) | `22b91596e40e9bfe3a54f0a0149cbec5bba9fef7e5f3b44fa6b3997adf0bc1ba` |
+| `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` (bundled + Admin UI) | `08ab7a480e1f4ad816e5e15d3f50d0752b721b79bd6ffed7a8cc9f0b5e5d2d67` |
 
 `SHA256SUMS.txt` covers every asset including the bundled worker
 installers and the manual PDFs. Verify: `sha256sum -c SHA256SUMS.txt`
