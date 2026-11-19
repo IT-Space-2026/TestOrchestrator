@@ -869,18 +869,21 @@ Playwright: `chromium`, `firefox`, `webkit`; Cypress: `chrome`,
 `firefox`, `edge`, `electron`, `chromium`. An unsupported value
 fails the launch rather than being substituted.
 
-**Interruption and recovery differ by transport.** On agentless SSH
-targets the remote run is detached (`run.sh`/`run.pid`): if the
-controller-side session drops, the dispatcher reconnects, reattaches
-to the same run, and collects its results — the CLI is launched
-exactly once. On Buildbot workers the picture is different: if the
-worker–master PB connection is lost or the master restarts mid-run,
-Buildbot cancels the in-flight build and the worker kills the running
-CLI. The execution is then reported `FAILED`/`INCOMPLETE` (never a
-phantom pass — partial artifacts collected so far are retained), and
-the run is *not* resumed; resubmit it manually. No duplicate launch
-occurs either way. Plan long browser runs accordingly, and keep the
-master reachable during executions.
+**Interruption and recovery differ by transport and by what was
+lost.** On agentless SSH targets the remote run is detached
+(`run.sh`/`run.pid`): losing the SSH *session* mid-run lets the
+dispatcher reconnect, reattach to the same run, and collect its
+results — the CLI was launched exactly once in the tested scenario
+(bb:259). A Buildbot **master restart** aborts worker-side runs
+instead: the in-flight build is cancelled, the worker kills the
+running CLI, and the run is not resumed or automatically relaunched
+— partial artifacts are retained and the run requires resubmission
+(tested: bb:279, one launch). A master restart also cancels any
+in-flight SSH *dispatch step*; in that case the detached remote run
+may complete unobserved and its results are abandoned (bb:278 —
+verified leaving only leftover files, no active process). Plan long
+browser runs accordingly and keep the master reachable during
+executions.
 
 
 ## 7. Security and administration
