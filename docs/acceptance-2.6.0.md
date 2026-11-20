@@ -430,12 +430,16 @@ Run E covers the logging acceptance tests (`test_log_exports.py`,
 20 tests — all pass inside the batch) plus every regression touched
 by `record_audit`/`emit` callers.
 
-**Deployment state — `/tmp/to251d`: payload updated** (logging modules
-synced into `/tmp/to251d/testorchestrator/`); **running services not
-restarted** (an SSH acceptance execution was in flight); **active
-revision not yet verified.** Controlled restart + loaded-revision and
-migration verification is a required gate below — the new code is not
-claimed active until then.
+**Deployment state — `/tmp/to251d`: restarted and verified.** Portal
+was restarted in a dispatcher gap (no `to_ssh_exec.py`/`run.sh` in
+flight — the gate held; SSH executions run as separate processes and
+were untouched). Active code: `/tmp/to251d/testorchestrator/` synced
+from `f96fcc1` — verified by content (`logexport.py` loads from that
+tree; export routes answer 302/protected). The deployed tree carries
+no git dir or build stamp, so `_revision()` reports empty on this
+instance — revision identity here is the sync, not a packaged stamp.
+Migration applied and verified: `z8a9b0c1d2e3 → a9b0c1d2e3f4`,
+`log_export_jobs` table present.
 
 ### Logging hardening round (post-`d6c14b3`)
 
@@ -531,9 +535,9 @@ need `can_author` (binding authoring flag) — an empty-seed instance
   (`806/2/1`) is the full-suite evidence at `d6c14b3`; Run F
   (`817/1/1`) is the evidence at hardening head `f96fcc1`. Windows-
   side logging checks fold into the W-matrix row (now W15).
-- `/tmp/to251d` controlled restart — pending (SSH execution in
-  flight; do not restart during it). After it finishes: restart,
-  verify loaded revision + required DB migration.
+- ~~`/tmp/to251d` controlled restart~~ — **done** (restarted in a
+  dispatcher gap; synced tree loaded, `a9b0c1d2e3f4` applied; see
+  deployment note above).
 
 ## Project access (membership) — implemented post-freeze under the
 ## approved access change
