@@ -149,6 +149,9 @@ def create_execution(username: str, suite: Suite = None,
             "robot_test": str(rc.get("robot_test") or "")[:256],
             "robot_include": str(rc.get("robot_include") or "")[:512],
             "robot_exclude": str(rc.get("robot_exclude") or "")[:512],
+            # pytest selection knobs (kind=pytest only).
+            "pytest_keyword": str(rc.get("pytest_keyword") or "")[:256],
+            "pytest_markers": str(rc.get("pytest_markers") or "")[:256],
             # Running-time limit in seconds (process-launch clock,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
