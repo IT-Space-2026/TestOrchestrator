@@ -1439,6 +1439,37 @@ Not implemented: automatic worker updates, auto-drain on version
 mismatch, re-dispatch of `UNKNOWN` executions — each is a manual,
 audited decision by design.
 
+### 18.1 Retry policy after worker loss
+
+When a worker connection drops mid-run, Buildbot resubmits the
+buildrequest automatically — TestOrchestrator does not allow an
+uncontrolled relaunch. Before any retry build runs, the `prep` step:
+
+1. **Counts the attempt** in a per-execution ledger
+   (`.to_exec_attempt_<id>` in the builddir) and enforces the
+   configured policy — `retry_enabled` (default true) and
+   `max_attempts` (default 3, counting the original launch), settable
+   per run in `run_config`.
+2. **Resolves the prior attempt**: the recorded exec pid is checked
+   against `TO_EXEC_ID` in `/proc/<pid>/environ`. A matching orphan is
+   terminated and its death is **confirmed** (procfs gone) before the
+   build proceeds. A live pid whose marker mismatches or is
+   unreadable blocks the build — no relaunch while the original
+   attempt's liveness is unresolved.
+3. **Blocks** with `TO_RETRY_BLOCKED` (exit 70) on any violation:
+   the execution becomes `UNKNOWN`, keeps its reservations, and
+   appears on the **Reconciliation** queue — never a silent relaunch,
+   never a freed slot.
+
+**Warning — retries can repeat side effects.** Stopping an
+interrupted attempt cannot undo test actions it already performed
+(releases created, emails sent, records written, external systems
+mutated). A retried run may execute some or all of those actions
+again. For suites with non-idempotent side effects, set
+`retry_enabled: false` in the run configuration — an interrupted
+attempt then always lands on Reconciliation for a human decision
+rather than re-running automatically.
+
 ## 19. Credential and certificate lifecycle
 
 | Secret | Lives | Replace/rotate | Restart needed |

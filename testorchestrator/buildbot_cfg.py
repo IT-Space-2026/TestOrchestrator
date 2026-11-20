@@ -334,6 +334,28 @@ def clear_staging(execution_id: str) -> None:
             pass
 
 
+def _retry_policy(ex) -> dict:
+    """Explicit retry policy from run_config — rendered into every
+    exec spec so the master-side prep step can enforce it. Attempt
+    attribution (bb_attempts) makes retries OBSERVABLE; these two
+    fields make them CONFIGURED:
+
+    - ``retry_enabled`` (default true): when false, a resubmitted
+      buildrequest refuses at prep — the run goes UNKNOWN for
+      reconciliation instead of relaunching.
+    - ``max_attempts`` (default 3): total launches including the
+      original — the prep counter hard-caps Buildbot's automatic
+      resubmit chain."""
+    rc = (ex.snapshot().get("run_config") or {}) if ex is not None \
+        else {}
+    try:
+        max_attempts = int(rc.get("max_attempts") or 3)
+    except (TypeError, ValueError):
+        max_attempts = 3
+    return {"max_attempts": max(1, max_attempts),
+            "retry_enabled": bool(rc.get("retry_enabled", True))}
+
+
 def kre_exec_spec(ex, runtime, args: list,
                   credential_file: str = "",
                   posix: bool = True) -> dict:
@@ -359,6 +381,7 @@ def kre_exec_spec(ex, runtime, args: list,
     if credential_file:
         spec["credential_wrapper"] = wrapper
         spec["credential_file"] = credential_file
+    spec.update(_retry_policy(ex))
     return spec
 
 
@@ -396,6 +419,7 @@ def node_exec_spec(ex, executable: str, args: list,
         spec["env"] = dict(env)
     if deps_argv:
         spec["deps_argv"] = list(deps_argv)
+    spec.update(_retry_policy(ex))
     return spec
 
 
@@ -419,8 +443,10 @@ def stage_probe_source(ex_id: str, scripts: dict) -> Path:
 
 def ssh_exec_spec(ex, python: str, dispatcher_script: str,
                   spec_file: str) -> dict:
-    return {"python": python, "dispatcher_script": dispatcher_script,
+    spec = {"python": python, "dispatcher_script": dispatcher_script,
             "spec_file": spec_file}
+    spec.update(_retry_policy(ex))
+    return spec
 
 
 def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,

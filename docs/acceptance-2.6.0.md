@@ -20,11 +20,36 @@ The original 11:12 run remains marked as the pre-fix evidence it is.
   alive, "already exited" if not — before re-staging; the interrupted
   attempt is recorded (RETRY, own artifact dir, audit) and Buildbot's
   unconditional resubmit becomes the explicitly-permitted retry,
-  each attempt a distinct identity+outcome. Nothing is silently
-  repeated: no retry begins while the prior attempt's liveness is
-  unresolved (prep blocks on the env-verified check), and an
-  unresolvable orphan is left running and reported, never killed
-  blind.
+  each attempt a distinct identity+outcome.
+
+**Retry boundaries (hardened, live-verified `a74884f2`):**
+- *Confirmed termination, not just signal sent*: prep polls
+  `/proc/<pid>` after TERM (3 s) then -9 (5 s); only when procfs is
+  gone does the build proceed — "terminated orphaned prior attempt
+  pid N (confirmed dead)". An unkillable/D-state process yields
+  `TO_RETRY_BLOCKED` and the launch never happens.
+- *Marker mismatch or uninspectable blocks relaunch*: a live pid
+  without the execution's `TO_EXEC_ID` — including an environ that
+  cannot be read — exits 70 with `TO_RETRY_BLOCKED`; the reconciler
+  maps that marker to **UNKNOWN** (reservations retained, row lands
+  on the reconciliation queue, `execution.retry_blocked` audited).
+  The pidfile is kept as investigation evidence.
+- *Retry enablement and limits are explicit*: `retry_enabled`
+  (default true) and `max_attempts` (default 3, counting the
+  original launch) come from `run_config`, rendered into every exec
+  spec, enforced by a per-execution `.to_exec_attempt_<id>` counter
+  in the builddir — attribution alone is not the policy, the counter
+  is. Live: `a74884f2` retry printed `attempt 2 of max_attempts=3`,
+  resolved pidfile 70011, relaunched as distinct pid 70177, PASSED;
+  `bb_attempts` = [build 128 RETRY, build 129 SUCCESS].
+- *Side-effect warning*: stopping an interrupted attempt cannot undo
+  test actions already performed — a retry may repeat external side
+  effects. Documented in Admin-Manual §18.1 with the
+  `retry_enabled=false` escape hatch for non-idempotent suites.
+- Regression coverage: `tests/test_retry_prep.py` (7 — real-process
+  kill-confirm, foreign-pid block, cap, disabled-retry, per-exec
+  counters, dead-pidfile), `test_retry_blocked_maps_unknown_and_
+  holds_reservations`, `test_retry_policy_rendered_into_specs`.
 
 Candidate under test: `feature/2.6.0-node-runners`, evidence below
 recorded at commits `b70e73b` (slot-builders), `e859b52`

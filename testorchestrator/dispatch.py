@@ -2730,6 +2730,21 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
         # A failed build with real junit is failed TESTS — the
         # normalized outcome carries the verdict, not the step status.
         ex.state = ExecutionState.COMPLETED
+    elif (blocked := _retry_blocked_line(adapter, ex)) is not None:
+        # The retry prep step REFUSED to launch: the prior attempt's
+        # liveness could not be proven stopped, or the configured
+        # retry policy rejected the attempt. The original run may
+        # still be executing — UNKNOWN is the honest state: open
+        # reservations stay held until an operator reconciles, never
+        # a silent terminal label and never a freed slot.
+        ex.state = ExecutionState.UNKNOWN
+        ex.error_kind = "infrastructure"
+        ex.error_text = (blocked + " — automatic relaunch blocked; "
+                         "resource claims retained pending operator "
+                         "reconciliation")
+        ex.outcome = Outcome.INCOMPLETE
+        record_audit("system", "execution.retry_blocked",
+                     f"{ex.id}: {blocked}")
     else:
         ex.state = ExecutionState.FAILED
         # EXCEPTION (4) = the step never ran the test binary — an
@@ -2793,6 +2808,31 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                              f"results={results_code} with no result "
                              f"data{detail}")
     db.session.commit()
+
+
+def _retry_blocked_line(adapter: BuildbotAdapter,
+                        ex: Execution) -> "str | None":
+    """TO_RETRY_BLOCKED marker from the LATEST attempt's prep step, or
+    None when absent/unfetchable. A resubmitted buildrequest whose
+    prep refuses (unresolvable prior attempt, retry policy exceeded)
+    fails the build before the exec step — the marker is the only
+    signal distinguishing a deliberate safety block from an ordinary
+    run failure."""
+    try:
+        builds = adapter.builds_for_request(_bb_brid(ex))
+    except Exception:
+        return None
+    if not builds:
+        return None
+    try:
+        log = adapter.run_log(builds[-1]["buildid"],
+                              step_names=("prep",))
+    except Exception:
+        return None
+    for line in (log or "").splitlines():
+        if "TO_RETRY_BLOCKED" in line:
+            return line.strip()[:400]
+    return None
 
 
 def _record_buildbot_attempts(adapter: BuildbotAdapter,
