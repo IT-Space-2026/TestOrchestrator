@@ -371,6 +371,37 @@ def test_retry_policy_rendered_into_specs(app):
         assert spec3["max_attempts"] == 3
 
 
+def test_retry_policy_persisted_in_snapshot(app, monkeypatch, tmp_path):
+    """The policy must survive the immutable snapshot — a UI/API
+    run_config reaches the worker-side prep unchanged. Disabling
+    retries means a resubmitted buildrequest hits attempt 2 and is
+    blocked, not relaunched."""
+    stub = _BBProbe()
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        _, rtid, diid = _env(app, monkeypatch, stub,
+                             worktree=tmp_path / "wt")
+        ex = d.create_execution(
+            "u", None,
+            run_config={"runtime_id": rtid,
+                        "retry_enabled": False, "max_attempts": "5"},
+            source_item=db.session.get(DiscoveredItem, diid))
+        rc = ex.snapshot()["run_config"]
+        assert rc["retry_enabled"] is False
+        assert rc["max_attempts"] == 5          # clamped/str→int
+        rt = db.session.get(RuntimeConnection, rtid)
+        spec = buildbot_cfg.kre_exec_spec(ex, rt, ["a"])
+        assert spec["retry_enabled"] is False   # snapshot→spec chain
+        assert spec["max_attempts"] == 5
+        # defaults when unset
+        ex2 = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        rc2 = ex2.snapshot()["run_config"]
+        assert rc2["retry_enabled"] is True
+        assert rc2["max_attempts"] == 3
+
+
 class _FakeChan:
     def __init__(self, out=b"", rc=0):
         self._out = out

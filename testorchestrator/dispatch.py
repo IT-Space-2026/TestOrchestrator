@@ -275,6 +275,13 @@ def create_execution(username: str, suite: Suite = None,
             # audited in kre-gating.log when used.
             "kre_options_allow_drop":
                 bool(rc.get("kre_options_allow_drop")),
+            # Interruption retry policy — enforced worker-side by the
+            # prep attempt counter (TO_RETRY_BLOCKED → UNKNOWN when a
+            # resubmit exceeds it). Defaults: enabled, 3 attempts
+            # including the original launch.
+            "retry_enabled": bool(rc.get("retry_enabled", True)),
+            "max_attempts":
+                max(1, min(int(rc.get("max_attempts") or 3), 10)),
         },
         "binding_id": binding.id if binding else None,
         "source_sha": source_sha,

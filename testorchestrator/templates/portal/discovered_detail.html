@@ -139,6 +139,17 @@
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" placeholder="3600"></div>
     <div class="field"><label for="queue_timeout_seconds">Queue deadline (s)</label>
       <input type="number" name="queue_timeout_seconds" id="queue_timeout_seconds" min="0" placeholder="unlimited"></div>
+    <div class="field"><label for="retry_enabled">Interruption retry</label>
+      <label><input type="checkbox" name="retry_enabled" id="retry_enabled" checked>
+      relaunch after a worker interruption</label>
+      <input type="number" name="max_attempts" id="max_attempts" min="1" max="10"
+             value="3" title="max attempts including the first launch">
+      <small>Attempts including the first launch (1–10). <b>A retry repeats
+      the whole run</b> — stopping an interrupted attempt cannot undo test
+      actions already performed, and the relaunch may repeat external side
+      effects. Disable for non-idempotent suites: an interrupted run then
+      goes UNKNOWN for reconciliation instead of silently relaunching.
+      Windows workers never auto-relaunch.</small></div>
     <button type="submit" class="button">Run {{ item.kind }}</button>
   </form>
 

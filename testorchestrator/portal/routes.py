@@ -843,6 +843,8 @@ def run_discovered(item_id):
         "pytest_keyword": request.form.get("pytest_keyword", "").strip(),
         "pytest_markers": request.form.get("pytest_markers", "").strip(),
         "collection": item.kind == "collection",
+        "retry_enabled": request.form.get("retry_enabled") == "on",
+        "max_attempts": int(request.form.get("max_attempts") or 3),
     }
     try:
         ex = dispatch.create_execution(
@@ -1850,6 +1852,8 @@ def launch_execution(suite_id):
         "source_item": request.form.get("source_item", "").strip(),
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "kre_options": kre_options,
+        "retry_enabled": request.form.get("retry_enabled") == "on",
+        "max_attempts": int(request.form.get("max_attempts") or 3),
     }
     # Resolve the submitted discovered item SERVER-SIDE: kind comes
     # from the record — never trust a submitted type flag.
