@@ -408,7 +408,37 @@ def discover_cypress_specs(binding, sha: str = "",
             f"worktree is at {(binding.last_synced_sha or '?')[:12]}; "
             "sync the binding so discovery matches the frozen "
             "revision")
-    pat = spec_pattern.strip() or "cypress/e2e/**/*.cy.*"
+
+    pat = spec_pattern.strip()
+    excl_from_cfg = ""
+    if not pat:
+        # Honor the project's OWN effective configuration: read
+        # specPattern/excludeSpecPattern out of cypress.config.*.
+        # Simple string literals only — arrays, functions, env-
+        # dependent config are rejected explicitly, never replaced by
+        # a guessed fallback manifest.
+        cfg_file = next(
+            (f for f in ("cypress.config.js", "cypress.config.ts",
+                         "cypress.config.mjs", "cypress.config.cjs")
+             if (base / f).is_file()), None)
+        if cfg_file:
+            import re as _re
+            txt = (base / cfg_file).read_text(errors="replace")
+            m = _re.search(r"specPattern\s*:\s*[\"\']([^\"\']+)[\"\']",
+                           txt)
+            if m:
+                pat = m.group(1)
+            elif _re.search(r"specPattern\s*:", txt):
+                raise DispatchError(
+                    f"{cfg_file} declares a non-literal specPattern "
+                    "(array/expression) — unsupported for automatic "
+                    "discovery; pass an explicit spec pattern")
+            m = _re.search(
+                r"excludeSpecPattern\s*:\s*[\"\']([^\"\']+)[\"\']",
+                txt)
+            if m and not exclude_pattern.strip():
+                excl_from_cfg = m.group(1)
+        pat = pat or "cypress/e2e/**/*.cy.*"
 
     def _match(rel: str, glob_pat: str) -> bool:
         # fnmatch has no recursive-glob semantics: `**/` must also
@@ -423,8 +453,9 @@ def discover_cypress_specs(binding, sha: str = "",
             str(p.relative_to(base)), pat)
         and not any(part.startswith(".") for part in
                     p.relative_to(base).parts))
-    excl = [x.strip() for x in (exclude_pattern or "").split(",")
-            if x.strip()]
+    excl = [x.strip() for x in (
+        exclude_pattern.strip() or excl_from_cfg).split(",")
+        if x.strip()]
     for x in excl:
         specs = [s for s in specs if not _match(s, x)]
     if selection:
@@ -439,6 +470,19 @@ def discover_cypress_specs(binding, sha: str = "",
         raise DispatchError(
             "spec discovery resolved an empty manifest — check the "
             "spec pattern, exclusions and selection")
+    # Invocation safety: Cypress --spec takes a comma-separated list
+    # inside ONE argv element — a literal comma or newline in a path
+    # would corrupt the invocation, so those paths are rejected
+    # explicitly rather than mislaunched. Spaces and POSIX
+    # separators are safe inside a single argv.
+    unsafe = [sp for sp in specs
+              if "," in sp or "\n" in sp or "\r" in sp
+              or "\x00" in sp]
+    if unsafe:
+        raise DispatchError(
+            "spec paths cannot be represented safely in a --spec "
+            "list (comma/control characters): "
+            + ", ".join(unsafe[:3]))
     return specs
 
 
@@ -834,16 +878,52 @@ def _active_count_subquery(runner: Runner, exclude_id):
 
 
 def requested_procs(ex: Execution) -> int:
-    """Framework processes this run asks for: the parallel count in
-    parallel mode, else 1. Framework-default runs (no flags) count 1 —
-    the budget is over REQUESTED concurrency, honestly labelled."""
+    """Framework processes this run requests — the charge against
+    runners.max_procs. It counts REQUESTED concurrency only:
+
+      sequential        -> 1
+      parallel N        -> N   (playwright --workers / pytest -n /
+                                pabot --processes)
+      framework-default -> kind-dependent: playwright auto-scales to
+                           ~cpu/2 which is UNBOUNDED — charged
+                           UNBOUNDED so a configured budget can never
+                           be bypassed through unknown concurrency;
+                           pytest/robot/cypress default is one process.
+      parent            -> 0   (an aggregation parent owns no process;
+                           only its unit children are charged)
+      unit shard        -> its own requested count (a playwright shard
+                           still launches --workers internally)
+
+    This is NOT a cap on operating-system processes — node/npx/pytest
+    helpers and browser subprocesses are outside the count."""
+    if getattr(ex, "role", "") == "parent":
+        return 0
     try:
-        rc = ex.snapshot().get("run_config") or {}
+        snap = ex.snapshot()
+        rc = snap.get("run_config") or {}
     except Exception:
         return 1
-    if (rc.get("parallel_mode") or "default") == "parallel":
+    mode = rc.get("parallel_mode") or "default"
+    if mode == "parallel":
         return max(1, int(rc.get("parallel") or 1))
+    if mode == "default":
+        # Kind resolves from the requested runtime (pre-assignment the
+        # execution's runtime_id is still empty).
+        rt = db.session.get(
+            RuntimeConnection, rc.get("requested_runtime") or "")
+        kind = getattr(rt, "runtime_kind", "") or ""
+        if not kind and ex.runtime_id:
+            rt = db.session.get(RuntimeConnection, ex.runtime_id)
+            kind = getattr(rt, "runtime_kind", "") or ""
+        if kind == "playwright":
+            return UNBOUNDED_PROCS
     return 1
+
+
+UNBOUNDED_PROCS = 1 << 20
+
+
+
 
 
 def _active_procs_subquery(runner: Runner, exclude_id):
@@ -1583,19 +1663,29 @@ def _submit_buildbot(ex: Execution, runner: Runner,
     if node_kind == pytestfw.KIND:
         # python -m pytest under the runtime's configured interpreter —
         # junit under Reports/, same spec/collect pipeline as robot.
+        _pmode = rc.get("parallel_mode") or "default"
         _pprocs = (int(rc.get("parallel") or 0)
-                   if (rc.get("parallel_mode") or "default")
-                   == "parallel" else 0)
+                   if _pmode == "parallel" else 0)
         if _pprocs:
             _require_probe_opt(
                 runtime, "opt_xdist",
                 "pytest-xdist (parallel_mode=parallel, -n "
                 f"{_pprocs})")
+        _serial = False
+        if _pmode == "sequential":
+            # Enforce sequential even when the project's own config
+            # enables xdist: -n 0 wins — but only where xdist exists.
+            try:
+                _m = json.loads(getattr(runtime, "probe_json", "")
+                                or "{}")
+            except Exception:
+                _m = {}
+            _serial = _m.get("opt_xdist") == "ok"
         pytest_args = pytestfw.build_args(
             suite_path=(rc.get("suite_path") or "").strip(),
             keyword=(rc.get("pytest_keyword") or "").strip(),
             markers=(rc.get("pytest_markers") or "").strip(),
-            numprocesses=_pprocs)
+            numprocesses=_pprocs, force_serial=_serial)
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
             or ("python.exe" if win else "python3")
@@ -1750,6 +1840,17 @@ def _buildbot_assign_and_submit(ex: Execution) -> None:
         _fail(ex, "infrastructure", sel_err)
         return
     if runner is None:
+        return
+    if runner.max_procs and requested_procs(ex) >= UNBOUNDED_PROCS:
+        # A framework-default playwright run auto-scales to ~cpu/2 —
+        # unbounded on a budgeted target. QUEUED-forever would be a
+        # silent stall; reject with an actionable config error.
+        _fail(ex, "config",
+              f"runner {runner.name!r} enforces a process budget "
+              f"(max_procs={runner.max_procs}) and this run's "
+              "framework-default concurrency is unbounded — set "
+              "parallel_mode to sequential or an explicit parallel "
+              "count")
         return
     if not _assign_runner(ex, runner, runtime):
         return

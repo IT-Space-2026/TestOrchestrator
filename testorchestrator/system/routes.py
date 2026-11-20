@@ -1699,8 +1699,10 @@ def edit_runtime(runtime_id):
     rt.description = request.form.get("description", rt.description)
     ep = request.form.get("executable_path")
     wr = request.form.get("workspace_root")
-    probe_changed = (ep is not None and ep != rt.executable_path) or (
-        wr is not None and wr != rt.workspace_root)
+    rn = request.form.get("runner_id")
+    probe_changed = ((ep is not None and ep != rt.executable_path) or (
+        wr is not None and wr != rt.workspace_root) or (
+        rn is not None and rn != (rt.runner_id or "")))
     if ep is not None:
         rt.executable_path = ep
     if wr is not None:
@@ -1715,10 +1717,16 @@ def edit_runtime(runtime_id):
     conc = request.form.get("concurrency")
     if conc:
         rt.concurrency = int(conc)
+    if rn is not None and rn:
+        rt.runner_id = rn
     if probe_changed:
         rt.detected_version = ""
         from ..execution import utcnow
         rt.last_check_at = utcnow()
+        # Machine-readable markers are invalidated too — a stale
+        # opt_xdist/opt_pabot must never authorize a parallel run
+        # against changed interpreter/workspace/target.
+        rt.probe_json = ""
         rt.last_diagnostic = (
             "re-check required — probe-relevant config changed")
     db.session.commit()

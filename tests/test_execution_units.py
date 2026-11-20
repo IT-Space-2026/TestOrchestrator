@@ -434,3 +434,127 @@ def test_proc_budget_blocks_parallel_jobs(app):
         r.max_procs = None
         db.session.commit()
         assert dispatch._assign_runner(e2, r, rt)
+
+
+def test_cypress_config_pattern_honored(app, tmp_path):
+    """specPattern in cypress.config.js is the effective config —
+    automatic discovery uses it; a non-literal pattern is rejected,
+    never replaced by a guessed fallback."""
+    from testorchestrator.execution import GitBinding
+    with app.app_context():
+        d = tmp_path / "repo"
+        (d / "tests" / "ui").mkdir(parents=True)
+        (d / "tests" / "ui" / "a.spec.js").write_text("//")
+        (d / "cypress" / "e2e").mkdir(parents=True)
+        (d / "cypress" / "e2e" / "b.cy.js").write_text("//")
+        (d / "cypress.config.js").write_text(
+            "module.exports={e2e:{specPattern:'tests/**/*.spec.js'}}")
+        b = GitBinding(project_id="p", name="b", url="u",
+                       worktree_path=str(d), last_synced_sha="s")
+        assert dispatch.discover_cypress_specs(b, sha="s") == [
+            "tests/ui/a.spec.js"]
+        # explicit pattern overrides config
+        assert dispatch.discover_cypress_specs(
+            b, sha="s", spec_pattern="cypress/**/*.cy.js") == [
+            "cypress/e2e/b.cy.js"]
+        # non-literal pattern -> explicit error
+        (d / "cypress.config.js").write_text(
+            "module.exports={e2e:{specPattern:process.env.PAT}}")
+        import pytest as _pt
+        with _pt.raises(dispatch.DispatchError,
+                        match="non-literal"):
+            dispatch.discover_cypress_specs(b, sha="s")
+
+
+def test_unsafe_spec_paths_rejected(app, tmp_path):
+    from testorchestrator.execution import GitBinding
+    with app.app_context():
+        d = tmp_path / "repo"
+        (d / "cypress" / "e2e").mkdir(parents=True)
+        (d / "cypress" / "e2e" / "a,b.cy.js").write_text("//")
+        b = GitBinding(project_id="p", name="b", url="u",
+                       worktree_path=str(d), last_synced_sha="s")
+        import pytest as _pt
+        with _pt.raises(dispatch.DispatchError,
+                        match="represent"):
+            dispatch.discover_cypress_specs(b, sha="s")
+        # spaces are fine inside one argv element
+        (d / "cypress" / "e2e" / "a,b.cy.js").rename(
+            d / "cypress" / "e2e" / "a b.cy.js")
+        assert dispatch.discover_cypress_specs(b, sha="s") == [
+            "cypress/e2e/a b.cy.js"]
+
+
+def test_framework_default_unbounded_on_budget(app):
+    """Playwright default mode auto-scales — on a max_procs target it
+    is unbounded and must fail visibly, never queue silently."""
+    from testorchestrator.execution import (Runner, RuntimeConnection)
+    sid = _env(app)
+    with app.app_context():
+        r = Runner(name="cap2", connection_mode="local",
+                   max_slots=4, max_procs=4)
+        db.session.add(r); db.session.flush()
+        rt = RuntimeConnection(name="pw2", runner_id=r.id,
+                               executable_path="/usr/bin/npx",
+                               runtime_kind="playwright", enabled=True)
+        db.session.add(rt); db.session.commit()
+        ex = dispatch.create_execution(
+            "m", db.session.get(Suite, sid), source_sha="x",
+            run_config={"runtime_id": rt.id, "runner_id": r.id,
+                        "parallel_mode": "default"})
+        assert dispatch.requested_procs(ex) >= dispatch.UNBOUNDED_PROCS
+        dispatch._buildbot_assign_and_submit(ex)
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert ex.error_kind == "config"
+        # bounded mode on the same runner is admitted
+        ex2 = dispatch.create_execution(
+            "m", db.session.get(Suite, sid), source_sha="x",
+            run_config={"runtime_id": rt.id, "runner_id": r.id,
+                        "parallel_mode": "sequential"})
+        assert dispatch.requested_procs(ex2) == 1
+
+
+def test_reservations_release_and_hold(app):
+    """Terminal states free the proc charge; UNKNOWN keeps it — an
+    uncertain run may still own processes."""
+    from testorchestrator.execution import (Runner, RuntimeConnection)
+    sid = _env(app)
+    with app.app_context():
+        r = Runner(name="cap3", connection_mode="local",
+                   max_slots=4, max_procs=4)
+        db.session.add(r); db.session.flush()
+        rt = RuntimeConnection(name="rt3", runner_id=r.id,
+                               executable_path="/usr/bin/python3",
+                               runtime_kind="pytest", enabled=True)
+        db.session.add(rt); db.session.commit()
+        rid, rtid = r.id, rt.id
+        mk = lambda: dispatch.create_execution(
+            "m", db.session.get(Suite, sid), source_sha="x",
+            run_config={"runtime_id": rtid, "runner_id": rid,
+                        "parallel": 3, "parallel_mode": "parallel"})
+        e1, e2, e3 = mk(), mk(), mk()
+        assert dispatch._assign_runner(e1, r, rt)
+        # e1 UNKNOWN (uncertain): charge held, e2 still blocked
+        e1.state = ExecutionState.UNKNOWN
+        db.session.commit()
+        assert not dispatch._assign_runner(e2, r, rt)
+        # resolved to FAILED: charge released, e2 admitted
+        e1.state = ExecutionState.FAILED
+        db.session.commit()
+        assert dispatch._assign_runner(e2, r, rt)
+        # completed: released again, e3 admitted
+        e2.state = ExecutionState.COMPLETED
+        db.session.commit()
+        assert dispatch._assign_runner(e3, r, rt)
+        # cancelled mid-flight: released
+        e3.state = ExecutionState.CANCELED
+        db.session.commit()
+        assert dispatch._assign_runner(mk(), r, rt)
+
+
+def test_pytest_serial_flag(app):
+    from testorchestrator.adapters import pytestfw
+    a = pytestfw.build_args(suite_path="tests/", force_serial=True)
+    assert a[a.index("-n") + 1] == "0"
+    assert "-n" not in pytestfw.build_args(suite_path="tests/")

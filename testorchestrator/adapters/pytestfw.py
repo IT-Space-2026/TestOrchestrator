@@ -25,7 +25,8 @@ _PROBE_MARKER = "TO-PROBE"
 
 def build_args(suite_path: str = "", keyword: str = "",
                markers: str = "", node_ids=(),
-               extra=(), numprocesses: int = 0) -> list:
+               extra=(), numprocesses: int = 0,
+               force_serial: bool = False) -> list:
     """argv after the interpreter — junit under Reports/ so the shared
     collect path finds it untouched. ``suite_path`` is the
     project-relative file/directory; ``node_ids`` may carry
@@ -37,6 +38,11 @@ def build_args(suite_path: str = "", keyword: str = "",
         # pytest-xdist — optional dependency checked by readiness
         # (opt_xdist), never auto-installed.
         args += ["-n", str(numprocesses)]
+    elif force_serial:
+        # sequential mode: an explicit -n 0 overrides a project's own
+        # addopts (-n auto) when xdist is installed; without xdist no
+        # in-process parallelism exists and no flag is needed.
+        args += ["-n", "0"]
     if keyword:
         args += ["-k", keyword]
     if markers:
