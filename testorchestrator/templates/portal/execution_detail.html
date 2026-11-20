@@ -26,6 +26,7 @@
 </section>
 {% endif %}
 {% endblock %}
+{% block content_class %}content-wide{% endblock %}
 {% block content %}
 <p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=ex.project_id) }}">← Back to project</a></p>
 <h1>Execution <code>{{ ex.id[:8] }}</code></h1>
