@@ -51,6 +51,32 @@ The original 11:12 run remains marked as the pre-fix evidence it is.
   counters, dead-pidfile), `test_retry_blocked_maps_unknown_and_
   holds_reservations`, `test_retry_policy_rendered_into_specs`.
 
+**Retry policy surfacing (post-freeze fix `69e842d`):**
+`retry_enabled`/`max_attempts` were rendered into specs but never
+persisted into the immutable run_config snapshot — real submissions
+silently defaulted to enabled/3. Fixed: snapshot stores both
+(`dispatch.py` run_config), both run forms expose them with the
+non-idempotent warning inline, execution detail shows the effective
+policy. `test_retry_policy_persisted_in_snapshot` covers the full
+create_execution→snapshot→spec chain for `retry_enabled=false`.
+
+**Windows retry policy — decided, enforced (pending host verify):**
+No confirmed-orphan resolution exists on Windows, so automatic
+relaunch is DISABLED there — chosen option 2 (enforced disablement)
+of the policy set. Enforcement: (a) `_retry_policy(posix=False)`
+forces `retry_enabled=false/max_attempts=1` into the spec
+irrespective of run_config; (b) a PowerShell `prep` step
+(`doStepIf=_win`) keeps `.to_exec_attempt_<id>` and exits 70/
+`TO_RETRY_BLOCKED` on ANY attempt > 1 — unconditional, so no spec
+can slip a relaunch through. POSIX `rm`-based cleanup replaced by a
+PowerShell variant on Windows (`rm` does not exist there — defect
+caught pre-acceptance). Tests: `test_windows_spec_forces_retry_
+disabled`, `test_win_prep_blocks_any_second_attempt`,
+`test_win_and_posix_predicates_partition`,
+`test_win_cleanup_uses_powershell_not_rm`. Kit row W6 updated —
+verify on the real host that no second CLI ever launches and the
+run lands UNKNOWN on Reconciliation.
+
 Candidate under test: `feature/2.6.0-node-runners`, evidence below
 recorded at commits `b70e73b` (slot-builders), `e859b52`
 (unlaunched-cancel resolution + test fixes) and the PB-loss fix set

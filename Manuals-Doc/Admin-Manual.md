@@ -1470,6 +1470,18 @@ again. For suites with non-idempotent side effects, set
 attempt then always lands on Reconciliation for a human decision
 rather than re-running automatically.
 
+**Windows workers never auto-relaunch.** Confirmed-termination of an
+orphaned prior attempt cannot be implemented safely on Windows (no
+`/proc` environ contract), so automatic retry is *disabled* there by
+policy — enforced twice: the exec spec forces
+`retry_enabled=false / max_attempts=1` regardless of run_config, and
+the Windows `prep` step (PowerShell attempt counter,
+`.to_exec_attempt_<id>`) exits 70 with `TO_RETRY_BLOCKED` on ANY
+attempt > 1. An interrupted Windows run therefore becomes `UNKNOWN`
+with reservations held — reconcile it in the portal; the interrupted
+process may need manual termination on the worker host. This is a
+deliberate fail-closed choice, not a missing feature.
+
 ## 19. Credential and certificate lifecycle
 
 | Secret | Lives | Replace/rotate | Restart needed |

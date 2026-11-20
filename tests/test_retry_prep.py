@@ -176,3 +176,65 @@ def test_dead_pidfile_reports_exited_and_proceeds(tmp_path):
     r = _run_prep(tmp_path, eid)
     assert r.returncode == 0
     assert "already exited" in r.stdout
+
+
+# ---------------------------------------------------------- Windows prep
+
+def _load_win_fns():
+    """Same AST extraction as _load_prep_argv, for the Windows steps
+    (they are PowerShell — semantics verified on the real Windows
+    host via the acceptance kit; here the rendered contract is
+    pinned)."""
+    tree = ast.parse(MASTER_CFG.read_text())
+    out = {}
+    for n in tree.body:
+        if isinstance(n, ast.FunctionDef) and n.name in (
+                "_prep_win_argv", "_cleanup_win_argv", "_win"):
+            n.decorator_list = []
+            ns = {"json": json, "os": os}
+            exec(compile(ast.Module(body=[n], type_ignores=[]),
+                         str(MASTER_CFG), "exec"), ns)
+            out[n.name] = ns[n.name]
+    return out
+
+
+class _Step:
+    def __init__(self, spec):
+        self._spec = spec
+
+    def getProperty(self, name):
+        return json.dumps(self._spec) if name == "exec_spec" else None
+
+
+def test_win_prep_blocks_any_second_attempt():
+    """Windows has no /proc-environ orphan resolution, so ANY
+    resubmitted buildrequest must block — even if the spec claimed
+    retries enabled. The policy is enforced worker-side, not by
+    trusting spec values."""
+    fns = _load_win_fns()
+    argv = fns["_prep_win_argv"](_props(
+        "execW", max_attempts=3, retry_enabled=True))
+    assert argv[:2] == ["powershell", "-NoProfile"]
+    script = argv[-1]
+    assert ".to_exec_attempt_execW" in script
+    assert "$n -gt 1" in script
+    assert "TO_RETRY_BLOCKED" in script
+    assert "exit 70" in script
+    assert "max_attempts" not in script   # unconditional — not a cap
+
+
+def test_win_and_posix_predicates_partition():
+    fns = _load_win_fns()
+    win = fns["_win"]
+    assert win(_Step({"posix": False})) is True
+    assert win(_Step({"posix": True})) is False
+    assert win(_Step({})) is False          # absent = POSIX default
+    assert win(_Step("not json")) is False  # fail closed to POSIX
+
+
+def test_win_cleanup_uses_powershell_not_rm():
+    fns = _load_win_fns()
+    argv = fns["_cleanup_win_argv"](_props("x"))
+    assert argv[0] == "powershell"
+    assert "Remove-Item" in argv[-1]
+    assert "remote-artifacts" in argv[-1]

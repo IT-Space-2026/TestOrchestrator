@@ -402,6 +402,26 @@ def test_retry_policy_persisted_in_snapshot(app, monkeypatch, tmp_path):
         assert rc2["max_attempts"] == 3
 
 
+def test_windows_spec_forces_retry_disabled(app):
+    """No confirmed-orphan resolution exists on Windows, so the spec
+    forces retry_enabled=false/max_attempts=1 regardless of what the
+    run_config asked for — a silent unconditional relaunch must be
+    impossible. The worker-side prep counter enforces attempt>1."""
+    with app.app_context():
+        ex = type("E", (), {})()
+        ex.snapshot = lambda: {"run_config": {
+            "max_attempts": "5", "retry_enabled": True}}
+        rt = type("R", (), {"executable_path": "/x"})()
+        spec = buildbot_cfg.kre_exec_spec(ex, rt, ["a"], posix=False)
+        assert spec["posix"] is False
+        assert spec["retry_enabled"] is False
+        assert spec["max_attempts"] == 1
+        spec2 = buildbot_cfg.node_exec_spec(ex, "npx", ["a"],
+                                            posix=False)
+        assert spec2["retry_enabled"] is False
+        assert spec2["max_attempts"] == 1
+
+
 class _FakeChan:
     def __init__(self, out=b"", rc=0):
         self._out = out

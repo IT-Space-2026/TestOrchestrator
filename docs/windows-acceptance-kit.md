@@ -46,7 +46,7 @@ Windows claims must come from this procedure on the packaged build.
 | W3 | pytest parallel (xdist) | `parallel: 2` run config | Both units launch (`-n 2`); parent aggregates; reservations show procs=2 |
 | W4 | Robot parallel (Pabot) | `parallel: 2` | Two `robot -A` children; merged output; pabot_results retained |
 | W5 | Cancellation | Cancel a long pytest run mid-execution | CANCELED; remote process tree confirmed dead; slot released |
-| W6 | Worker PB loss + retry | Kill `buildbot-worker` service mid-run; restart | prep counts attempt 2; pidfile/env-marker resolution runs (POSIX-gated — on Windows the raw-argv contract applies, no pidfile wrapper); retry bounded by `max_attempts`; attempts + audit recorded |
+| W6 | Worker PB loss + retry | Kill `buildbot-worker` service mid-run; restart | Resubmitted attempt **2 is BLOCKED by the Windows prep step** (`TO_RETRY_BLOCKED`, exit 70 — PowerShell attempt counter, `.to_exec_attempt_<eid>` in the builddir); execution goes **UNKNOWN**; reservations held; `/reconciliation` shows it; audit records `buildbot_retry_attempt`. **Automatic relaunch is disabled on Windows by policy** — the spec forces `retry_enabled=false/max_attempts=1` and the worker-side step blocks attempt >1 unconditionally, even if a spec claimed otherwise. Verify no second CLI process ever launches on the worker (`Get-Process` before/after reconnect) |
 | W7 | Cancel racing submission | Cancel immediately after Run click | Never-launched cancel → CANCELED without build; racing cancel → honest state, no orphaned reservation |
 | W8 | Queue capacity | Occupy both slots; queue a third run | `wait_reason` shown ("job slots full 2/2"); FIFO dispatch on release; reservations open then released |
 | W9 | UNKNOWN + reconciliation | Force ambiguity (worker powered off mid-run, no retry path) | UNKNOWN; reservations held; appears on `/reconciliation`; admin resolve with note audits + frees claims |
@@ -66,14 +66,27 @@ Windows claims must come from this procedure on the packaged build.
 
 ## 5. Known platform differences (expected, not defects)
 
+- **Windows retry policy (enforced)**: no `/proc`-environ orphan
+  resolution exists on Windows, so confirmed-termination of an
+  interrupted attempt cannot be implemented safely — automatic
+  relaunch is DISABLED there. Two enforcement layers:
+  (a) `buildbot_cfg._retry_policy(posix=False)` forces
+      `retry_enabled=false / max_attempts=1` into the exec spec,
+      ignoring run_config;
+  (b) the worker-side `prep` step (PowerShell,
+      `doStepIf=_win`) keeps the same `.to_exec_attempt_<eid>`
+      counter and exits 70/`TO_RETRY_BLOCKED` on ANY attempt > 1 —
+      unconditional, so a spec claiming retries cannot slip through.
+  Result: PB loss on a Windows worker → UNKNOWN + held reservations
+  + reconciliation, never a silent second launch. W6 verifies this.
 - **No pidfile wrapper on Windows**: `posix=False` execs run the raw
-  argv; `.to_exec_pid`/`.to_exec_attempt` are POSIX artifacts.
-  W6/W7 on Windows rely on Buildbot's worker-loss retry + the
-  reconciler's attempt tracking instead — confirm the retry still
-  records distinct attempts and never double-executes.
+  argv; `.to_exec_pid` is a POSIX artifact. `.to_exec_attempt_<eid>`
+  EXISTS on Windows (written by the PowerShell prep).
+- **Prerequisite**: PowerShell must be on the worker PATH (default
+  on supported Windows); `tar.exe` likewise (Windows 10 1803+).
 - Path separators / case-insensitive FS in artifact staging.
-- `sh`-based steps are POSIX-only by design; the prep step is
-  `doStepIf=_posix`-gated and skipped on Windows.
+- `sh`-based steps are POSIX-only by design; POSIX prep is
+  `doStepIf=_posix`-gated — Windows runs the PowerShell prep instead.
 
 ## 6. Sign-off
 

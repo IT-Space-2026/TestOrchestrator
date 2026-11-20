@@ -334,9 +334,9 @@ def clear_staging(execution_id: str) -> None:
             pass
 
 
-def _retry_policy(ex) -> dict:
+def _retry_policy(ex, posix: bool = True) -> dict:
     """Explicit retry policy from run_config — rendered into every
-    exec spec so the master-side prep step can enforce it. Attempt
+    exec spec so the worker-side prep step can enforce it. Attempt
     attribution (bb_attempts) makes retries OBSERVABLE; these two
     fields make them CONFIGURED:
 
@@ -345,7 +345,15 @@ def _retry_policy(ex) -> dict:
       reconciliation instead of relaunching.
     - ``max_attempts`` (default 3): total launches including the
       original — the prep counter hard-caps Buildbot's automatic
-      resubmit chain."""
+      resubmit chain.
+
+    ``posix=False`` (Windows workers): confirmed orphan-termination is
+    not implemented there, so automatic relaunch is DISABLED
+    server-side regardless of run_config — an interrupted run goes
+    UNKNOWN for reconciliation. This cannot be overridden: a silent
+    unconditional relaunch is exactly what the policy forbids."""
+    if not posix:
+        return {"max_attempts": 1, "retry_enabled": False}
     rc = (ex.snapshot().get("run_config") or {}) if ex is not None \
         else {}
     try:
@@ -381,7 +389,7 @@ def kre_exec_spec(ex, runtime, args: list,
     if credential_file:
         spec["credential_wrapper"] = wrapper
         spec["credential_file"] = credential_file
-    spec.update(_retry_policy(ex))
+    spec.update(_retry_policy(ex, posix=posix))
     return spec
 
 
@@ -419,7 +427,7 @@ def node_exec_spec(ex, executable: str, args: list,
         spec["env"] = dict(env)
     if deps_argv:
         spec["deps_argv"] = list(deps_argv)
-    spec.update(_retry_policy(ex))
+    spec.update(_retry_policy(ex, posix=posix))
     return spec
 
 
