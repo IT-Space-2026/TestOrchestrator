@@ -189,16 +189,15 @@ def poll(runtime) -> bool:
         pass
     # DirectoryUpload lands Reports/ contents at the artifact root —
     # same convention as run collection (probe.txt is the marker log).
+    # artifact_dir() resolves attempt-<N>/ stamping (retry-safe).
     pulled = False
+    adir = buildbot_cfg.artifact_dir(pend["rid"])
     for probe_txt in (
-            buildbot_cfg.artifacts_dir() / pend["rid"] / "probe.txt",
-            buildbot_cfg.artifacts_dir() / pend["rid"]
-            / "Reports" / "probe.txt",
-            buildbot_cfg.artifacts_dir() / pend["rid"]
-            / "src" / "Reports" / "probe.txt",
+            adir / "probe.txt",
+            adir / "Reports" / "probe.txt",
+            adir / "src" / "Reports" / "probe.txt",
             # agentless SSH collection preserves the remote tree
-            buildbot_cfg.artifacts_dir() / pend["rid"]
-            / "proj" / "src" / "Reports" / "probe.txt"):
+            adir / "proj" / "src" / "Reports" / "probe.txt"):
         try:
             if probe_txt.is_file():
                 text += "\n" + probe_txt.read_text(errors="replace")

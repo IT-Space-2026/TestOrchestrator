@@ -1,9 +1,20 @@
 # TestOrchestrator 2.6.0 — acceptance evidence ledger
 
+**Stage 5 status: parallel + recovery scenarios exercised; PB-loss
+retry/orphan correctness implemented and re-verified (commit
+pending).** The earlier "same brid re-ran → PASSED" row proved only a
+final outcome. The mechanism is now: per-attempt pidfile +
+`TO_EXEC_ID` env marker (kills are env-verified), retry-prep orphan
+resolution, per-attempt `attempt-<buildno>` artifact dirs, portal-side
+`bb_attempts` snapshot tracking + `buildbot_retry_attempt` audit.
+Re-verified live on both transports — see "Worker PB loss" below.
+The original 11:12 run remains marked as the pre-fix evidence it is.
+
 Candidate under test: `feature/2.6.0-node-runners`, evidence below
-recorded at commits `b70e73b` (slot-builders) and `e859b52`
-(unlaunched-cancel resolution + test fixes) on live instance
-`/tmp/to251d` (imported tree `/tmp/to251d/testorchestrator/`).
+recorded at commits `b70e73b` (slot-builders), `e859b52`
+(unlaunched-cancel resolution + test fixes) and the PB-loss fix set
+on live instance `/tmp/to251d` (imported tree
+`/tmp/to251d/testorchestrator/`).
 
 Environment: Buildbot master on 127.0.0.1:8010 (PB :9989), portal
 :8443, runner `c260-linux-worker` (id `89413d40…`, `bbw-89413d40…`,
@@ -25,26 +36,83 @@ SSH `to-ssh-<id>` + `-s2`).
 | Failure aggregation | parent `03de162a` → FAILED: unit `2768496e` (specfail) FAILED with junit (1 failed + 1 passed case) + failure screenshot; units `dc521f9c`, `4fe368d4` PASSED. | **PASS** — failed unit not hidden |
 | Cancellation isolation | `af34121f` CANCELED mid-run (build 2 "cancelled (portal cancel request)") while `3bbc151b` ran to PASSED on slot 0 unaffected | **PASS** |
 | Parent cancel (running+queued) | parent `3910f61b`: units `f0586fa5`/`631ca148` running → CANCELED (builds 4,103 cancelled); unit `4ccabb69` QUEUED → CANCELED without any build submitted; parent → CANCELED/INCOMPLETE | **PASS** — surfaced+fixed bug `e859b52` (`_resolve_unlaunched_cancels`) |
-| Restart mid-parallel | dispatch worker SIGKILLed ~11:01:4x during builds 106+8 overlap; both reconciled → COMPLETED/PASSED via durable reconcile | **PASS** |
+| Restart mid-parallel | portal **dispatch worker** (flask `testorchestrator worker`, pids 3770335/3770336) SIGKILLed ~11:01:4x during builds 106+8 overlap; both reconciled → COMPLETED/PASSED via durable reconcile. Killed: the portal-side dispatcher process only — master, PB workers, and remote CLIs untouched | **PASS** |
 | Scheduled parallel | `sched-xdist` (once) → fired → `enabled=0`; exec `74109600` PASSED, snapshot preserved `parallel_mode=parallel, parallel=2`, frozen sha `8f0ba933`, item `pyxpar59` | **PASS** |
 | Mixed-framework capacity | `max_procs=3`: pytest `-n2` (charge 2) `2e58e29d` dispatched; Robot `--processes 2` (charge 2) `9fc572e0` QUEUED (4>3); released → dispatched → both PASSED | **PASS** — process budget enforced + released |
 
 ## Worker PB loss (no master restart) — 11:12:33
 
+Exact sequence (note: a first SIGKILL at 11:11:28 hit worker
+`to-local` pid 3269820 — a *different* registered worker not serving
+the build; the build was unaffected. The PB-loss interruption proper
+followed at 11:12:33):
+
 - Confirmed pytest CLI running on `bbw-89413d40` (pid 3773474)
-  before interrupt; `kill -9` on the worker process only.
+  before interrupt; `kill -9` on worker pid 3246956
+  (`/tmp/bbworker` — the process registered as `bbw-89413d40`).
+  Master and all other processes untouched.
 - Master log: `lostRemote`, `ConnectionLost`, worker detached from
   both slot builders; build 109 ended `results:retry` — Buildbot
   resubmitted the same buildrequest.
-- Orphaned remote pytest survived worker death (continued
-  unobserved — recorded honestly; reports come from the retry).
+- Orphaned remote pytest 3773474 **survived** worker death and kept
+  running unobserved (still alive at 11:13).
 - Execution stayed DISPATCHED (lease renewed — genuinely uncertain,
   not silently failed/retried as a new submission).
 - Worker restarted 11:13:37 → re-attached → retried build 110 ran
   the same buildrequest → success → reconcile → `5e4049aa`
-  COMPLETED/PASSED. Launch counted once (one brid, builds 109+110);
-  slot released only at terminal collect; artifacts uploaded by the
-  retry.
+  COMPLETED/PASSED.
+
+**Historical gap on the 11:12 run (pre-fix):** the retry ran while
+orphan 3773474 was still active in the same builddir — which attempt
+produced the uploaded junit was not established, the orphan was
+never resolved, and the retry was not recorded as a distinct
+attempt. That row stands as pre-fix evidence only.
+
+### PB-loss resolution — implemented + re-verified (post-fix)
+
+Mechanism (all transports): `sh -c 'echo $$ > .to_exec_pid; exec
+"$@"'` wrapper records the exec'd CLI pid at the builddir root;
+`TO_EXEC_ID` is injected into the exec env so a later retry can
+prove the recorded pid belongs to *this* execution (pid-reuse can
+never hit an innocent process). Every build starts with a `prep`
+step (POSIX-gated via spec `posix` flag — Windows workers get the
+raw argv contract, no pidfile) that resolves prior-attempt pids:
+`kill` only on env-marker match, reported either way
+(`terminated orphaned prior attempt` / `already exited` / `alive
+but env marker mismatch — left running`), pidfile removed, staging
+dirs wiped so a lingering orphan cannot pollute the retried
+workspace. Uploads go to `artifacts/<exec>/attempt-<buildno>/` so
+each attempt's reports are attributable; the reconciler records
+every build under the brid into `snapshot.bb_attempts` and audits
+`execution.buildbot_retry_attempt`. Buildbot's automatic resubmit
+(builder.py:457 `_resubmit_buildreqs`) is unconditional and cannot
+be disabled — the design converts it into a *safe* resume: orphan
+resolved synchronously before re-staging, workspace wiped,
+attempts and artifacts distinct and audited.
+
+- **PB worker retry** — exec `72123296`, brid 776: worker SIGKILL
+  mid-`pytest` (pid 3790683, pidfile + `TO_EXEC_ID` verified);
+  build 112 `lostRemote`→RETRY. Retry build 113 `prep` reported
+  `prior attempt pid 3790683 already exited` (orphan self-
+  terminated within ~50 s — captured stdout pipe death), wiped
+  workspace, attempt-113 artifacts → PASSED. `bb_attempts` =
+  [{112:RETRY,complete},{113:SUCCESS}] + retry audit event.
+- **PB worker retry, longer dead-window** — exec `85bd3034`,
+  brid 780: orphan 3791064 survived worker death; prep on build
+  116 reported it already exited before re-staging; retry pytest
+  = new pid 3791423, new pidfile — no double-execution.
+- **SSH dispatcher loss (persistent remote orphan)** — exec
+  `386af28a`, brid 783: dispatcher worker SIGKILL mid-run;
+  remote `setsid` run 3791749 **persisted**. Retry build 634:
+  prep resolved the dead local dispatcher pidfile, new
+  dispatcher 3791835 reconnected and **resumed** remote run
+  3791749 (same `run.pid`/pgid — no relaunch, true
+  single-launch) → remote completed → collected under
+  `attempt-634/` → PASSED; both attempts + audit recorded.
+- The kill branch (`terminated orphaned prior attempt`) executes
+  whenever an orphan outlives the restart gap — both PB orphans
+  here self-terminated first; SSH remotes resume by design rather
+  than being killed.
 
 Distinct from: service restart, master SIGKILL (bb:645 earlier —
 FAILED honest abort), SSH-session loss (bb:254 lineage).
@@ -72,6 +140,11 @@ FAILED honest abort), SSH-session loss (bb:254 lineage).
   revalidation row, not a relabel.
 
 ## Open
+- **Worker PB-loss retry/orphan correctness** — release-blocking;
+  the retry ran with the orphan still active in the shared
+  builddir, attempt provenance of uploaded results unestablished,
+  retry unrecorded as an attempt. Fix: pidfile orphan resolution at
+  retry prep + per-attempt artifact dirs + portal attempt tracking.
 - Windows matrix: Robot + pytest on a real Windows host — release
   blocker, unverified (no host).
 - Representative 2.5.1 upgrade + restore acceptance.

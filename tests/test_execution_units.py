@@ -584,6 +584,33 @@ def test_queued_child_cancel_terminalizes_and_parent_rolls_up(app):
         assert parent.outcome == Outcome.INCOMPLETE
 
 
+def test_cancel_racing_submission_is_not_resolved(app):
+    """An empty dispatch_id does NOT prove never-launched: a cancel
+    racing _assign_runner->_submit_buildbot leaves runner_id/bb_slot
+    set while the buildrequest is still in flight. Such rows must
+    stay CANCEL_REQUESTED (aging to UNKNOWN via lease), never be
+    released early."""
+    sid = _env(app)
+    with app.app_context():
+        ex = dispatch.create_execution(
+            "u", db.session.get(Suite, sid), source_sha="x",
+            run_config={})
+        # cancel lands after assignment (runner + slot recorded) but
+        # before the brid is persisted — submission may be in flight
+        ex.state = ExecutionState.CANCEL_REQUESTED
+        ex.runner_id = "r1"
+        ex.bb_slot = 0
+        db.session.commit()
+        assert dispatch._resolve_unlaunched_cancels() == 0
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.CANCEL_REQUESTED
+        # still not resolved once the brid lands — the reconciler
+        # owns it from here
+        ex.dispatch_id = "bb:42"
+        db.session.commit()
+        assert dispatch._resolve_unlaunched_cancels() == 0
+
+
 def test_pytest_serial_flag(app):
     from testorchestrator.adapters import pytestfw
     a = pytestfw.build_args(suite_path="tests/", force_serial=True)
@@ -632,3 +659,107 @@ def test_slot_builders_and_pick(app):
         e1.state = ExecutionState.COMPLETED
         db.session.commit()
         assert dispatch._pick_slot(e3, r) == s1
+
+
+class _FakeAdapter:
+    """Minimal stand-in for BuildbotAdapter — only what the attempt
+    recorder touches."""
+    def __init__(self, builds):
+        self._builds = builds
+
+    def builds_for_request(self, brid):
+        return self._builds
+
+
+def _bb_exec(app, sid):
+    """DISPATCHED buildbot execution with a persisted brid."""
+    ex = dispatch.create_execution(
+        "u", db.session.get(Suite, sid), source_sha="x",
+        run_config={})
+    ex.state = ExecutionState.DISPATCHED
+    ex.dispatch_id = "bb:55"
+    ex.snapshot_json = json.dumps(
+        {**ex.snapshot(), "dispatch_transport": "buildbot"})
+    db.session.commit()
+    return ex
+
+
+def test_buildbot_attempts_recorded_distinctly(app):
+    """Worker loss makes Buildbot resubmit the SAME buildrequest —
+    the replacement build is a distinct attempt, never folded into
+    the original. Both are recorded in the snapshot with their own
+    outcomes so provenance survives."""
+    sid = _env(app)
+    with app.app_context():
+        ex = _bb_exec(app, sid)
+        builds = [
+            {"buildid": 10, "number": 3, "builderid": 4,
+             "workerid": 2, "started_at": "t0",
+             "complete": True, "results": 5, "complete_at": "t1"},
+            {"buildid": 11, "number": 4, "builderid": 4,
+             "workerid": 2, "started_at": "t2",
+             "complete": False},
+        ]
+        dispatch._record_buildbot_attempts(_FakeAdapter(builds), ex)
+        db.session.commit()
+        snap = db.session.get(Execution, ex.id).snapshot()
+        attempts = snap["bb_attempts"]
+        assert [a["buildid"] for a in attempts] == [10, 11]
+        assert attempts[0]["results"] == 5  # RETRY, kept as its own
+        assert attempts[0]["complete"] is True
+        assert attempts[1]["complete"] is False
+        # the retry is audited — never silently relaunched
+        from testorchestrator.models import AuditEvent
+        ev = AuditEvent.query.filter_by(
+            event="execution.buildbot_retry_attempt").all()
+        assert ev and "build #4" in ev[0].detail
+        # idempotent: a second poll records no duplicates
+        dispatch._record_buildbot_attempts(_FakeAdapter(builds), ex)
+        db.session.commit()
+        snap = db.session.get(Execution, ex.id).snapshot()
+        assert len(snap["bb_attempts"]) == 2
+
+
+def test_buildbot_attempt_completion_updates_entry(app):
+    """A later poll fills in results/complete_at on the same attempt
+    entry — the record tracks each attempt's full lifecycle."""
+    sid = _env(app)
+    with app.app_context():
+        ex = _bb_exec(app, sid)
+        b = [{"buildid": 10, "number": 3, "complete": False}]
+        dispatch._record_buildbot_attempts(_FakeAdapter(b), ex)
+        db.session.commit()
+        b = [{"buildid": 10, "number": 3, "complete": True,
+              "results": 0, "complete_at": "t9"}]
+        dispatch._record_buildbot_attempts(_FakeAdapter(b), ex)
+        db.session.commit()
+        att = db.session.get(Execution, ex.id).snapshot()["bb_attempts"]
+        assert att[0]["results"] == 0 and att[0]["complete_at"] == "t9"
+
+
+def test_artifact_dir_resolves_newest_attempt(app, tmp_path):
+    """Per-attempt upload dirs: collection uses the newest attempt
+    (the terminal one); a legacy flat dir still resolves."""
+    from testorchestrator import buildbot_cfg
+    with app.app_context():
+        base = buildbot_cfg.artifacts_dir() / "ex1"
+        (base / "attempt-3").mkdir(parents=True)
+        (base / "attempt-10").mkdir(parents=True)
+        (base / "attempt-7" / "Reports").mkdir(parents=True)
+        assert buildbot_cfg.artifact_dir("ex1") == \
+            base / "attempt-10"
+        # legacy flat layout — no attempt dirs -> base itself
+        (buildbot_cfg.artifacts_dir() / "ex2").mkdir(parents=True)
+        assert buildbot_cfg.artifact_dir("ex2") == \
+            buildbot_cfg.artifacts_dir() / "ex2"
+
+
+def test_exec_spec_posix_flag():
+    """The pidfile wrapper is POSIX-only; Windows workers get the raw
+    argv contract (no sh). The spec carries the flag the master
+    renderer consults."""
+    from testorchestrator import buildbot_cfg
+    s = buildbot_cfg.node_exec_spec(None, "npx", ["x"], posix=False)
+    assert s["posix"] is False
+    s = buildbot_cfg.node_exec_spec(None, "npx", ["x"])
+    assert s["posix"] is True

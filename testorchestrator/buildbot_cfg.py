@@ -49,6 +49,28 @@ def artifacts_dir() -> Path:
     return home() / "artifacts"
 
 
+def artifact_dir(execution_id: str) -> Path:
+    """Artifact root for one execution. Builds upload under
+    attempt-<buildnumber>/ so a buildrequest retried after worker
+    loss preserves each attempt separately — resolve the newest
+    attempt dir, falling back to the legacy flat layout for
+    executions uploaded before attempt stamping."""
+    base = artifacts_dir() / execution_id
+    try:
+        attempts = [d for d in base.iterdir()
+                    if d.is_dir() and d.name.startswith("attempt-")]
+    except OSError:
+        attempts = []
+    if attempts:
+        def _n(p):
+            try:
+                return int(p.name.split("-", 1)[1])
+            except (ValueError, IndexError):
+                return -1
+        return max(attempts, key=_n)
+    return base
+
+
 def run_specs_dir() -> Path:
     return home() / "run-specs"
 
@@ -313,11 +335,13 @@ def clear_staging(execution_id: str) -> None:
 
 
 def kre_exec_spec(ex, runtime, args: list,
-                  credential_file: str = "") -> dict:
+                  credential_file: str = "",
+                  posix: bool = True) -> dict:
     """Validated runner spec for local + remote worker targets — argv
     only, never a shell string and never secrets. ``credential_file``
     is a PATH: worker-local for remote targets, a portal-written 0600
-    file under staging for the controller-local worker."""
+    file under staging for the controller-local worker. ``posix=False``
+    (Windows workers) skips the pidfile wrapper — no sh there."""
     spec = {
         "executable": runtime.executable_path,
         "args": list(args),
@@ -327,6 +351,7 @@ def kre_exec_spec(ex, runtime, args: list,
         "exec_workdir": "build/src",
         # DirectoryUpload.workersrc resolves relative to the BUILDDIR.
         "report_src": "src/Reports",
+        "posix": posix,
     }
     wrapper = str(
         Path(__file__).resolve().parent.parent / "scripts"
@@ -349,7 +374,8 @@ def write_run_credential(execution_id: str, value: str) -> str:
 
 
 def node_exec_spec(ex, executable: str, args: list,
-                   env: dict = None, deps_argv: list = None) -> dict:
+                   env: dict = None, deps_argv: list = None,
+                   posix: bool = True) -> dict:
     """Validated runner spec for Node.js browser-test runtimes
     (playwright/cypress). Same contract as kre_exec_spec — argv list
     only, no shell, no secrets — plus an explicit env map (e.g.
@@ -364,6 +390,7 @@ def node_exec_spec(ex, executable: str, args: list,
         # CLI runs inside it (project-pinned deps via npx).
         "exec_workdir": "build/src",
         "report_src": "src/Reports",
+        "posix": posix,
     }
     if env:
         spec["env"] = dict(env)

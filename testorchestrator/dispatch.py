@@ -1623,7 +1623,7 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         else:
             spec = buildbot_cfg.node_exec_spec(
                 ex, npx_path, node_args, env=node_env,
-                deps_argv=deps_argv)
+                deps_argv=deps_argv, posix=not win)
             buildbot_cfg.run_specs_dir().mkdir(parents=True,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
@@ -1672,7 +1672,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                     / "to_ssh_exec.py"),
                 spec_file=str(spec_file))
         else:
-            spec = buildbot_cfg.node_exec_spec(ex, py, robot_args)
+            spec = buildbot_cfg.node_exec_spec(
+                ex, py, robot_args, posix=not win)
             buildbot_cfg.run_specs_dir().mkdir(parents=True,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
@@ -1735,7 +1736,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                     / "to_ssh_exec.py"),
                 spec_file=str(spec_file))
         else:
-            spec = buildbot_cfg.node_exec_spec(ex, py, pytest_args)
+            spec = buildbot_cfg.node_exec_spec(
+                ex, py, pytest_args, posix=not win)
             buildbot_cfg.run_specs_dir().mkdir(parents=True,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
@@ -1831,7 +1833,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             collection=bool(rc.get("collection")),
             extra=flags)
         spec = buildbot_cfg.kre_exec_spec(
-            ex, runtime, args[1:], credential_file=cred_file)
+            ex, runtime, args[1:], credential_file=cred_file,
+            posix=not (runner.os_arch or "").lower().startswith("win"))
         # Persist the rendered spec — collection re-renders it as the
         # kre-invocation.log evidence record (same contract the local
         # path had: the exact argv, never secret values).
@@ -2205,16 +2208,25 @@ def _heartbeat_local_runners() -> int:
 
 def _resolve_unlaunched_cancels() -> int:
     """A cancel that lands while an execution is still QUEUED has no
-    remote process to confirm — no dispatch_id, no started_at means
-    nothing ever launched, so the cancellation is already fact.
-    Without this the row parks in CANCEL_REQUESTED forever: the
-    dispatch boundary only audits-and-skips it, the buildbot
-    reconciler only follows executions holding a brid, and a parent
-    can never roll up while a child stays non-terminal."""
+    remote process to confirm — nothing ever launched, so the
+    cancellation is already fact. Without this the row parks in
+    CANCEL_REQUESTED forever: the dispatch boundary only
+    audits-and-skips it, the buildbot reconciler only follows
+    executions holding a brid, and a parent can never roll up while a
+    child stays non-terminal.
+    Boundary: an empty dispatch_id alone does NOT prove "never
+    launched" — a cancel racing _assign_runner->_submit_buildbot
+    leaves runner_id/bb_slot set while the buildrequest is still
+    in flight. Only a row that provably never entered assignment
+    (no runner, no slot, no brid, never started) may be resolved
+    here; anything else is ambiguous and ages out to UNKNOWN via
+    lease expiry — uncertainty is surfaced, never silently released."""
     n = 0
     for ex in Execution.query.filter(
             Execution.state == ExecutionState.CANCEL_REQUESTED,
             Execution.role != "parent",
+            Execution.runner_id.is_(None),
+            Execution.bb_slot.is_(None),
             db.or_(Execution.dispatch_id.is_(None),
                    Execution.dispatch_id == ""),
             Execution.started_at.is_(None)).all():
@@ -2313,7 +2325,10 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
         return data
 
     import shutil as _sh
-    src_dir = buildbot_cfg.artifacts_dir() / ex.id
+    # Attempt-stamped uploads: a buildrequest retried after worker
+    # loss uploads per-build — the newest attempt dir is the terminal
+    # one; earlier attempts stay preserved beside it.
+    src_dir = buildbot_cfg.artifact_dir(ex.id)
     try:
         report_dir.mkdir(parents=True, exist_ok=True)
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -2350,8 +2365,10 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
     try:
         builds = adapter.builds_for_request(_bb_brid(ex))
         if builds:
+            # The terminal attempt's log — retries (worker loss)
+            # produce multiple builds under one buildrequest.
             (log_dir / "kre-remote-run.log").write_bytes(_scrub(
-                adapter.run_log(builds[0]["buildid"])
+                adapter.run_log(builds[-1]["buildid"])
                 .encode("utf-8", "replace")))
     except Exception:
         pass  # run log is best-effort evidence
@@ -2468,6 +2485,45 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
     db.session.commit()
 
 
+def _record_buildbot_attempts(adapter: BuildbotAdapter,
+                              ex: Execution) -> None:
+    """Track every Buildbot build spawned under this execution's
+    buildrequest in the snapshot. Buildbot resubmits a buildrequest
+    automatically after worker loss (RETRY): each new build is a
+    DISTINCT attempt with its own pidfile/workspace/artifact dir —
+    recorded here so provenance survives and a retry can never be
+    mistaken for the original run."""
+    builds = adapter.builds_for_request(_bb_brid(ex))
+    if not builds:
+        return
+    snap = ex.snapshot()
+    attempts = snap.setdefault("bb_attempts", [])
+    known = {a.get("buildid") for a in attempts}
+    for b in sorted(builds, key=lambda x: x.get("number", 0)):
+        entry = next(
+            (a for a in attempts
+             if a.get("buildid") == b.get("buildid")), None)
+        if entry is None:
+            entry = {"buildid": b.get("buildid"),
+                     "number": b.get("number"),
+                     "started_at": b.get("started_at"),
+                     "builderid": b.get("builderid"),
+                     "workerid": b.get("workerid")}
+            attempts.append(entry)
+            if b.get("number") and len(attempts) > 1:
+                record_audit(
+                    "system", "execution.buildbot_retry_attempt",
+                    f"{ex.id}: attempt build #{b.get('number')} "
+                    f"(buildid {b.get('buildid')}) started under "
+                    "the same buildrequest — prior attempt "
+                    "interrupted (worker loss)")
+        entry["complete"] = bool(b.get("complete"))
+        if b.get("complete"):
+            entry["results"] = b.get("results")
+            entry["complete_at"] = b.get("complete_at")
+    ex.snapshot_json = json.dumps(snap)
+
+
 def reconcile_buildbot_runs() -> int:
     """Poll DISPATCHED buildbot executions (parallel to
     the orchestrator reconcile): finished-without-result -> UNKNOWN is NOT
@@ -2489,6 +2545,10 @@ def reconcile_buildbot_runs() -> int:
             continue    # transient — lease expiry bounds the ambiguity
         if not br:
             continue
+        try:
+            _record_buildbot_attempts(adapter, ex)
+        except Exception:
+            pass    # attempt audit is best-effort, never blocks reconcile
         if not br.get("complete"):
             ex.lease_expires_at = utcnow() + timedelta(
                 seconds=LEASE_SECONDS)
