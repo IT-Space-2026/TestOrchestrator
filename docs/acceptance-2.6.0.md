@@ -62,10 +62,16 @@ FAILED honest abort), SSH-session loss (bb:254 lineage).
 - Rejected without dispatch: Cypress `parallel>0`, bad shard pairs,
   missing `opt_xdist`/`opt_pabot` probes in parallel mode
 
-## Open
+## CY-fail-over-SSH — current-candidate revalidation
 
-- CY-fail-over-SSH: bb:254 stays historical; current-candidate
-  revalidation pending.
+- `ef962bb2` (binding `0ef16364`, sha `0389e85`, `c260-ssh-cypress`
+  runtime on `c251d-ssh`): COMPLETED/FAILED — `spec2 failing
+  intentional assertion failure` FAILED, `spec3 long-running`
+  PASSED; per-case outcomes over SSH transport. bb:254 remains the
+  historical record for the earlier candidate; this is the
+  revalidation row, not a relabel.
+
+## Open
 - Windows matrix: Robot + pytest on a real Windows host — release
   blocker, unverified (no host).
 - Representative 2.5.1 upgrade + restore acceptance.
