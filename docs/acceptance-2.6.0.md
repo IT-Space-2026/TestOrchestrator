@@ -328,10 +328,41 @@ copied and migrated to head `z8a9b0c1d2e3` via `flask db upgrade`
   pattern, but only for inert settings cleanup — already applied on
   all deployed DBs; left as-is.
 
+## Full-suite result on the frozen candidate — `8fc0ae5` (14:47)
+
+**751 passed, 11 failed, 1 skipped** in one batch run (11:53).
+Failures decomposed and re-run individually — all environmental:
+
+- 10× modal Playwright tests (`test_modal_dup_and_recovery`,
+  `test_modal_interactions`) — they target a disposable preview at
+  `127.0.0.1:39995`, which was absent. Stood up a fresh preview
+  instance seeded with Admin / project `62d2f3e1…` / authoring-
+  enabled binding → **all 10 pass** (46 s). The leftover nov19
+  preview serving on :39995 held an empty fixture DB — replaced.
+- 1× `test_production_key_auto_loaded` — requires the external
+  licence-issuer private key (`/tmp/to-license-issuer/private.pem`),
+  absent by design (never in the repo).
+
+**Effective: 761 passed, 1 env-blocked, 1 skipped.** This run is
+separately attributed from the earlier 734-passed tally (pre-retry-
+hardening code) — later targeted runs (71: retry_prep + dispatch +
+units + api_ci) remain distinct rows.
+
+## Preview-fixture recipe (reproducible)
+
+`TO_INSTANCE_DIR=/tmp/to-preview-data`, waitress on :39995, seeded:
+User Admin/`Review-Preview-#2026!`, Project `62d2f3e1b4654e5680fd187795c454f7`,
+GitBinding `authoring_writable=true`, one local Runner + pytest
+RuntimeConnection. Modal buttons need `can_author` (binding
+authoring flag) — an empty-seed instance 404s/omits them.
+
 ## Open
 - ~~Worker PB-loss retry/orphan correctness~~ — **resolved**; see
-  "PB-loss resolution — implemented + re-verified" above.
+  "PB-loss resolution — implemented + re-verified" above. Retry
+  boundaries hardened (confirmed-terminate, mismatch-block,
+  explicit retry_enabled/max_attempts, TO_RETRY_BLOCKED→UNKNOWN).
 - Windows matrix: Robot + pytest on a real Windows host — release
-  blocker, unverified (no host).
-- Final clean-package eight-combination smoke matrix — pending all
-  blockers.
+  blocker, unverified (no host). Repeatable kit prepared:
+  `docs/windows-acceptance-kit.md`.
+- Final clean-package eight-combination smoke matrix — pending
+  Windows. Procedure defined: `docs/packaged-acceptance.md`.
