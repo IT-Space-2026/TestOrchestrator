@@ -1013,9 +1013,36 @@ tokens for `agent`-mode connections.
 ### 7.5 Logging and sensitive data
 
 Application logs (Admin → Operational Logs) avoid secrets by
-construction — credential values are never written to logs or
-exports. Audit events record administrative actions (logins,
+construction — credential values are redacted **before persistence**,
+so local rows, CSV exports and the optional structured output share
+the same redaction (passwords, tokens, API keys, private/signing/
+licence keys, client secrets, credentials, authorization/cookie/
+bearer values). Audit events record administrative actions (logins,
 config changes, deletions) without payloads.
+
+**CSV export** — both **Admin → Audit** and **Admin → Operational
+Logs** offer *Export CSV* covering **all records matching the current
+filters** (never just the rendered page), against a fixed UTC cutoff,
+in stable order, UTF-8 with headers and spreadsheet-formula
+protection. Exports up to `logs_export_inline_max` stream directly;
+larger ones run as background jobs with a status page and a
+time-limited (mode-0600) download that re-checks the Administrator
+role. Above `logs_export_max_rows` the request is refused — narrow
+the filters. Nothing is ever silently truncated, and every request,
+completion/failure and download is itself audited (filters, count,
+actor, export id — never exported content).
+
+**External logging** — an optional vendor-neutral JSON output feeds
+one schema-versioned NDJSON event per record to a rotating file
+(`logs_json_*` settings / `TO_LOGS_JSON_*` env) or stdout
+(`logs_stdout_enabled`), ready for a customer-managed collector.
+See `docs/external-logging.md` for the schema, rotation/retention
+bounds, delivery guarantees, and the reference OpenTelemetry
+Collector configuration (`deploy/otel-collector.example.yaml`).
+The database stays authoritative; sink failures are counted, never
+hide audit records, and never affect test dispatch. Raw framework
+stdout/stderr is not forwarded — execution output stays in the run
+evidence download.
 
 ## 8. Backup, restore, and upgrades
 
@@ -1328,6 +1355,8 @@ flags (one-time, at `install.sh`).
 | `buildbot_pb_port` | Worker-facing PB port | `9989` | install-provisioned |
 | `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `false` | **Reporting** |
 | `logs_retention_days` / `logs_max_rows` | Operational-log pruning bounds | `30` / `20000` | **Reporting** / logs |
+| `logs_export_inline_max` / `logs_export_max_rows` / `logs_export_ttl_minutes` | CSV export: stream-vs-job threshold, hard cap (refused beyond), temp-file lifetime | `10000` / `250000` / `60` | **System** / logs |
+| `logs_json_enabled` / `logs_json_dir` / `logs_json_max_bytes` / `logs_json_max_files` / `logs_stdout_enabled` | Optional structured NDJSON output for external collectors — off until configured | `false` / `""` / `10485760` / `5` / `false` | env `TO_LOGS_JSON_*` / settings |
 | `git_export_repo` / `git_export_credential_ref` / `git_export_ref` | Optional evidence-export target repo + credential ref + branch | `""` / `""` / `main` | **Reporting** |
 
 Unknown keys are rejected (`KeyError`), upgrades never reset these,

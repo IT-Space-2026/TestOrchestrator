@@ -128,6 +128,50 @@ Re-run the Stage-5 core on packaged builds (not the dev tree):
     `test_revocation_takes_effect_without_logout` —
     `tests/test_project_access.py` (17 tests).
 
+## 5a. Logging + exports on the package
+
+- **CSV export** — Admin → Audit and Admin → Operational Logs each
+  export *all* records matching the current filters (time range,
+  search, category, severity, actor, project, execution,
+  correlation — where applicable) at a fixed UTC cutoff in stable
+  order; the page shows the matching count and the job page shows
+  scope/filters/count/expiry. UTF-8 headers + explicit `Z`
+  timestamps; commas, quotes, Unicode and multiline values round-trip;
+  `= + - @ <tab>` leading cells are `'`‑prefixed (formula-injection
+  protection beyond quoting).
+- **Bounds** — `logs_export_inline_max` streams inline; larger exports
+  run as background jobs writing `0600` files that expire after
+  `logs_export_ttl_minutes`; `logs_export_max_rows` refuses loudly —
+  never a silent truncation. Interrupted jobs mark `failed`.
+- **Authorization** — both views, export creation, job status and
+  downloads are Administrator-only; download re-checks role + expiry;
+  revocation denies subsequent access (`tests/test_log_exports.py`).
+- **Audit** — every export request, completion/failure and download
+  writes an audit event with filters, count, actor, export id — never
+  exported contents.
+- **Redaction** — secrets are redacted *before persistence*; the same
+  redaction covers local rows, CSV and JSON output
+  (`test_secrets_redacted_before_persistence_everywhere`,
+  `test_redact_details_nested_keys`).
+- **Structured output** — `logs_json_enabled` produces one
+  `to.log.event/1.0` NDJSON event per record in a size/rotation-bounded
+  file (and/or stdout via `logs_stdout_enabled`); disabled by default;
+  sink failures counted (`dropped`) and stdlib-logged, never raised
+  into `emit()` or dispatch
+  (`test_json_output_*`, `test_concurrent_writers_produce_valid_lines`,
+  `test_json_output_failure_never_breaks_emit`).
+- **Collector handoff** — `deploy/otel-collector.example.yaml`
+  ingestion verified by the local test-collector check
+  (`test_local_test_collector_ingests`): JSON parse, timestamp +
+  severity mapping, correlation fields preserved, dedup on
+  `event_id`.
+- **Category separation** — audit (`audit-*`) and operational (`op-*`)
+  exports/events stay distinct; execution stdout/stderr is not
+  forwarded (evidence download only).
+- **Windows check** — during the W-matrix, re-run the export + JSON
+  output rows on the Windows controller (path handling, file modes,
+  rotation).
+
 ## 6. Exit criteria
 
 - All 8 matrix cells PASS (or waived with reason in the ledger).

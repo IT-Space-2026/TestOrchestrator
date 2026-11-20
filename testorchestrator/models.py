@@ -113,5 +113,16 @@ class AuditEvent(db.Model):
 
 
 def record_audit(username: str, event: str, detail: str = "") -> None:
-    db.session.add(AuditEvent(username=username, event=event, detail=detail))
+    # Secrets are redacted before persistence — local rows, CSV exports
+    # and the optional structured output all share the same redaction.
+    from .logs import redact
+    row = AuditEvent(username=username, event=event,
+                     detail=redact(detail)[:256])
+    db.session.add(row)
     db.session.commit()
+    # Optional structured output — fail-open, never weakens the DB row.
+    try:
+        from . import log_output, logschema
+        log_output.publish(logschema.audit_event(row))
+    except Exception:
+        pass

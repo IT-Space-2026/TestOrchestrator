@@ -1,0 +1,78 @@
+# Reference: OpenTelemetry Collector ingesting TestOrchestrator's
+# optional structured event output (docs/external-logging.md).
+#
+# This is a CUSTOMER-MANAGED collector: TestOrchestrator writes
+# newline-delimited JSON (to.log.event/1.0); the collector tails the
+# file, parses fields, and forwards to the customer's log server. The
+# collector is never required for ordinary installations.
+#
+# Deployment notes:
+# - Point include at <instance>/logs/events*.jsonl (rotated names carry
+#   -<timestamp>-<pid> suffixes — the glob covers them).
+# - The collector needs READ access to the directory; it must NOT be
+#   able to write/delete there.
+# - filelog checkpoints survive restarts (storage extension) — after a
+#   collector outage it resumes where it stopped; on rotation the new
+#   file is picked up as a new fingerprint.
+# - Duplicates are possible (checkpoint loss, collector restart
+#   mid-batch): consumers must deduplicate on event_id, which is
+#   preserved as log attribute "event_id".
+# - When retained files or this buffer fills, TestOrchestrator keeps
+#   writing (disk-bounded) but lines rotated/deleted before the
+#   collector reads them are LOST to the collector — the database is
+#   the authoritative store; file output is at-least-once only while
+#   the file exists.
+#
+# Requires: opentelemetry-collector-contrib (filelog receiver).
+
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol/filelog-checkpoints   # survives restarts
+
+receivers:
+  filelog/testorchestrator:
+    include:
+      - /var/lib/testorchestrator/logs/events*.jsonl
+    start_at: end            # new installs: don't replay history
+    storage: file_storage    # checkpoint offsets across restarts
+    operators:
+      - type: json_parser          # the NDJSON event itself
+      - type: time_parser          # timestamp_utc -> record timestamp
+        parse_from: attributes.timestamp_utc
+        layout_type: strptime
+        layout: "%Y-%m-%dT%H:%M:%S.%fZ"
+      - type: severity_parser      # severity -> OTel severity
+        parse_from: attributes.severity
+        preset: none
+        mapping:
+          fatal: critical
+          error: error
+          warn: warning
+          info: info
+          debug: debug
+      # Correlation fields (event_id, project_id, execution_id,
+      # request_id, trace_id/span_id when present, actor_name, host,
+      # revision…) stay as attributes — the collector forwards them
+      # unchanged so downstream queries can join on them.
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 500
+
+exporters:
+  # Replace with the customer's log-server exporter (otlphttp, loki,
+  # elasticsearch, splunk HEC, syslog, file…). debug shown for the
+  # reference pipeline.
+  debug:
+    verbosity: detailed
+  # otlphttp/your-log-server:
+  #   endpoint: https://logs.example.com/otlp
+
+service:
+  extensions: [file_storage]
+  pipelines:
+    logs:
+      receivers: [filelog/testorchestrator]
+      processors: [batch]
+      exporters: [debug]           # add your exporter here

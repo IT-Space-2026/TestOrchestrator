@@ -1,9 +1,11 @@
 """Main blueprint: dashboard, About (v1.7), notices, admin System pages."""
 
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from flask import current_app, render_template, request, send_from_directory
+from flask import (Response, current_app, flash, redirect,
+                   render_template, request, send_from_directory, url_for)
 from flask_login import current_user, login_required
 
 from .. import settings as settings_mod
@@ -186,38 +188,11 @@ def audit():
     audit rows by design)."""
 
     record_audit(current_user.username, "page.audit", request.path)
-    q = AuditEvent.query
-    filters = {
-        "q": request.args.get("q", "").strip(),
-        "event": request.args.get("event", "").strip(),
-        "actor": request.args.get("actor", "").strip(),
-        "related": request.args.get("related", "").strip(),
-        "from": request.args.get("from", "").strip(),
-        "to": request.args.get("to", "").strip(),
-    }
-    if filters["q"]:
-        like = f"%{filters['q']}%"
-        q = q.filter(db.or_(AuditEvent.event.like(like),
-                            AuditEvent.detail.like(like),
-                            AuditEvent.username.like(like)))
-    if filters["event"]:
-        q = q.filter(AuditEvent.event == filters["event"])
-    if filters["actor"]:
-        q = q.filter(AuditEvent.username == filters["actor"])
-    if filters["related"]:
-        q = q.filter(AuditEvent.detail.like(f"%{filters['related']}%"))
-    for bound in ("from", "to"):
-        raw = filters[bound]
-        if raw:
-            try:
-                dt = datetime.fromisoformat(raw)
-                if bound == "to" and len(raw) == 10:
-                    dt = dt + timedelta(days=1)
-                q = q.filter(AuditEvent.occurred_at >= dt
-                             if bound == "from"
-                             else AuditEvent.occurred_at <= dt)
-            except ValueError:
-                pass
+    filters = _audit_filters()
+    # Same query object contract as the export — the page count and the
+    # export count can never disagree.
+    from .. import logexport
+    q = logexport.audit_query(filters)
     page = max(1, request.args.get("page", 1, type=int) or 1)
     total = q.count()
     # Deterministic ordering: time then id tiebreak.
@@ -237,7 +212,52 @@ def audit():
         event_types=event_types, actors=actors)
 
 
-@main_bp.app_errorhandler(403)
+def _audit_filters() -> dict:
+    """Current Audit Trail filters — shared by the page and export."""
+    return {
+        "q": request.args.get("q", "").strip(),
+        "event": request.args.get("event", "").strip(),
+        "actor": request.args.get("actor", "").strip(),
+        "related": request.args.get("related", "").strip(),
+        "from": request.args.get("from", "").strip(),
+        "to": request.args.get("to", "").strip(),
+    }
+
+
+@main_bp.route("/system/audit/export")
+@role_required(Role.ADMIN)
+def audit_export():
+    """Export ALL audit rows matching the current filters — inline CSV
+    when bounded, background job above the inline cap. Audited with
+    filters + count (never content); never silently truncated."""
+    from .. import logexport
+    filters = _audit_filters()
+    try:
+        mode, job, count, cutoff = logexport.request_export(
+            "audit", filters, current_user.username)
+    except logexport.TooManyRowsError as exc:
+        record_audit(current_user.username, "logs.export.denied",
+                     f"audit export refused: {exc}")
+        flash(f"Export refused: {exc}. Narrow the filters.", "error")
+        return redirect(url_for("main.audit", **request.args))
+    except logexport.BusyError:
+        flash("Another large export is still running — retry shortly.",
+              "error")
+        return redirect(url_for("main.audit", **request.args))
+    record_audit(
+        current_user.username, "logs.export",
+        f"audit csv export: {count} rows, cutoff "
+        f"{cutoff.isoformat()}, filters {json.dumps(filters)}"
+        + (f", job {job.id}" if job else ""))
+    if mode == "job":
+        return redirect(url_for("system.log_export_status",
+                                job_id=job.id))
+    fname = logexport.export_filename("audit", "inline", cutoff)
+    app = current_app._get_current_object()
+    return Response(logexport.stream_csv(app, "audit", filters, cutoff),
+                    mimetype="text/csv; charset=utf-8",
+                    headers={"Content-Disposition":
+                             f"attachment; filename={fname}"})
 def forbidden(_error):
     return render_template("error.html", code=403,
                            message="You do not have access to this page."), 403

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Log export</h1>
+  <dl class="detail-list">
+    <dt>Export</dt><dd><code>{{ job.id }}</code> — {{ job.kind }}</dd>
+    <dt>Requested by</dt><dd>{{ job.created_by }} at
+      {{ job.created_at.strftime("%Y-%m-%d %H:%M:%S") }} UTC</dd>
+    <dt>Scope (filters)</dt><dd><code>{{ job.filters_json }}</code></dd>
+    <dt>Cutoff</dt><dd>{{ job.cutoff_utc.strftime("%Y-%m-%d %H:%M:%S") }} UTC
+      — only rows at or before this instant are included.</dd>
+    <dt>Matching rows</dt><dd>{{ job.row_count }}</dd>
+    <dt>Status</dt><dd><span class="badge">{{ job.status }}</span>
+      {% if job.error %}<br><small class="muted">{{ job.error }}</small>{% endif %}</dd>
+    <dt>Expires</dt><dd>{{ job.expires_at.strftime("%Y-%m-%d %H:%M:%S") }} UTC
+      — the file is deleted after this.</dd>
+  </dl>
+  {% if job.status == "done" %}
+  <p><a class="button primary"
+        href="{{ url_for('system.log_export_download', job_id=job.id) }}">
+    Download CSV</a></p>
+  {% elif job.status in ("queued", "running") %}
+  <p class="muted">Generating… this page refreshes automatically.</p>
+  <meta http-equiv="refresh" content="2">
+  {% else %}
+  <p><a class="button secondary"
+        href="{{ url_for('main.audit' if job.kind == 'audit'
+                         else 'system.operational_logs') }}">Back</a></p>
+  {% endif %}
+</div>
+{% endblock %}

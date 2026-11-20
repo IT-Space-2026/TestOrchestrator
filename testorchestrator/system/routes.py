@@ -7,7 +7,8 @@ audited without secrets, and recoverable via previous_good_config.
 import os
 import re
 import sys
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
 
 from flask import (Response, abort, current_app, flash, redirect,
                    render_template, request, send_file, url_for)
@@ -492,12 +493,9 @@ def reporting_save():
     return redirect(url_for("system.reporting_page"))
 
 
-@system_bp.route("/logs")
-@role_required(Role.ADMIN)
-def operational_logs():
-    """Admin -> Operational Logs — structured events, filters, live
-    tail, bounded export. Separate from the Audit trail."""
-    from .. import logs
+def _op_log_filters():
+    """Current Operational Logs filters — shared by the page, pagination
+    and export so the exported scope always matches the view."""
     filters = {
         "severity": request.args.get("severity") or None,
         "component": request.args.get("component") or None,
@@ -508,6 +506,47 @@ def operational_logs():
         "correlation_id": request.args.get("corr") or None,
         "q": request.args.get("q") or None,
     }
+    for bound in ("since", "until"):
+        raw = (request.args.get(bound) or "").strip()
+        if raw:
+            try:
+                dt = datetime.fromisoformat(raw)
+                if bound == "until" and len(raw) == 10:
+                    dt = dt + timedelta(days=1)
+                filters[bound] = dt
+            except ValueError:
+                pass
+    return filters
+
+
+# Filter key -> query-string parameter name (page, pagination, export).
+_OP_FILTER_PARAMS = {
+    "severity": "severity", "component": "component",
+    "category": "category", "project_id": "project",
+    "execution_id": "execution", "worker_id": "worker",
+    "correlation_id": "corr", "q": "q",
+    "since": "since", "until": "until",
+}
+
+
+def _op_filter_qs(filters: dict) -> str:
+    from urllib.parse import urlencode
+    pairs = {}
+    for key, param in _OP_FILTER_PARAMS.items():
+        v = filters.get(key)
+        if v in (None, ""):
+            continue
+        pairs[param] = v.isoformat() if hasattr(v, "isoformat") else v
+    return urlencode(pairs)
+
+
+@system_bp.route("/logs")
+@role_required(Role.ADMIN)
+def operational_logs():
+    """Admin -> Operational Logs — structured events, filters, live
+    tail, CSV export of ALL matching rows. Separate from Audit."""
+    from .. import logs
+    filters = _op_log_filters()
     page = request.args.get("page", 1, type=int) or 1
     paged = logs.query(filters).paginate(
         page=page, per_page=50, error_out=False)
@@ -516,7 +555,8 @@ def operational_logs():
                   .distinct()]
     return render_template("system/operational_logs.html",
                            rows=paged.items, page=paged,
-                           filters=filters, components=components,
+                           filters=filters, filter_qs=_op_filter_qs(filters),
+                           components=components,
                            severities=logs.SEVERITIES,
                            categories=logs.CATEGORIES)
 
@@ -553,28 +593,87 @@ def operational_logs_tail():
 @system_bp.route("/logs/export")
 @role_required(Role.ADMIN)
 def operational_logs_export():
-    """Bounded filtered export — JSONL or CSV, secrets redacted,
-    CSV-escape-safe. Export action is audited (no log content)."""
-    from .. import logs
+    """Export ALL rows matching the current filters — inline CSV/JSONL
+    when bounded, a background job for large exports. Audited with
+    filters + count (never content); nothing is silently truncated."""
+    from .. import logexport
     from ..models import record_audit
     fmt = request.args.get("format", "csv")
     if fmt not in ("csv", "jsonl"):
         fmt = "csv"
-    filters = {
-        "severity": request.args.get("severity") or None,
-        "component": request.args.get("component") or None,
-        "category": request.args.get("category") or None,
-        "q": request.args.get("q") or None,
-    }
-    rows = logs.query(filters).limit(10000).all()
-    record_audit(current_user.username, "logs.export",
-                 f"{fmt} {len(rows)} rows")
-    mime = ("application/x-ndjson" if fmt == "jsonl"
-            else "text/csv")
-    return Response(logs.export(rows, fmt),
-                    mimetype=mime,
-                    headers={"Content-Disposition":
-                             f"attachment; filename=oplog.{fmt}"})
+    filters = _op_log_filters()
+    try:
+        mode, job, count, cutoff = logexport.request_export(
+            "operational", filters, current_user.username)
+    except logexport.TooManyRowsError as exc:
+        record_audit(current_user.username, "logs.export.denied",
+                     f"operational export refused: {exc}")
+        flash(f"Export refused: {exc}. Narrow the filters.", "error")
+        return redirect(url_for("system.operational_logs",
+                                **request.args))
+    except logexport.BusyError:
+        flash("Another large export is still running — retry shortly.",
+              "error")
+        return redirect(url_for("system.operational_logs",
+                                **request.args))
+    record_audit(
+        current_user.username, "logs.export",
+        f"operational {fmt} export: {count} rows, cutoff "
+        f"{cutoff.isoformat()}, filters {json.dumps(filters, default=str)}"
+        + (f", job {job.id}" if job else ""))
+    if mode == "job":
+        return redirect(url_for("system.log_export_status",
+                                job_id=job.id))
+    fname = logexport.export_filename("operational", "inline", cutoff)
+    app = current_app._get_current_object()
+    if fmt == "jsonl":
+        return Response(
+            logexport.stream_jsonl(app, "operational", filters, cutoff),
+            mimetype="application/x-ndjson",
+            headers={"Content-Disposition":
+                     f"attachment; filename={fname}l"})
+    return Response(
+        logexport.stream_csv(app, "operational", filters, cutoff),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition":
+                 f"attachment; filename={fname}"})
+
+
+@system_bp.route("/log-exports/<job_id>")
+@role_required(Role.ADMIN)
+def log_export_status(job_id):
+    """Export-job status — scope, count, download when ready."""
+    from .. import logexport
+    logexport.purge_expired()
+    job = logexport.get_job(job_id)
+    if job is None:
+        abort(404)
+    return render_template("system/log_export.html", job=job)
+
+
+@system_bp.route("/log-exports/<job_id>/download")
+@role_required(Role.ADMIN)
+def log_export_download(job_id):
+    """Protected download — Administrator role rechecked by the
+    decorator, job must be complete and unexpired."""
+    from .. import logexport
+    from ..models import record_audit
+    logexport.purge_expired()
+    job = logexport.get_job(job_id)
+    if job is None:
+        abort(404)
+    expires = job.expires_at
+    if expires is not None and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if job.status != "done" or expires < datetime.now(timezone.utc):
+        abort(410)
+    path = logexport.job_file(job)
+    if path is None:
+        abort(404)
+    record_audit(current_user.username, "logs.export.download",
+                 f"{job.kind} export {job.id[:8]}: {job.row_count} rows")
+    return send_file(path, mimetype="text/csv",
+                     as_attachment=True, download_name=job.file_name)
 
 
 @system_bp.route("/users")
