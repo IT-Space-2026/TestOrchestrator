@@ -354,25 +354,29 @@ copied and migrated to head `z8a9b0c1d2e3` via `flask db upgrade`
   pattern, but only for inert settings cleanup — already applied on
   all deployed DBs; left as-is.
 
-## Full-suite result on the frozen candidate — `8fc0ae5` (14:47)
+## Full-suite results — separately attributed runs
 
-**751 passed, 11 failed, 1 skipped** in one batch run (11:53).
-Failures decomposed and re-run individually — all environmental:
+Run A — **batch full suite at `8fc0ae5`** (11m53s):
+**751 passed, 11 failed, 1 skipped.** Failures: 10× modal
+Playwright tests targeting the absent `:39995` preview; 1×
+`test_production_key_auto_loaded` (external licence-issuer key,
+absent by design). Kept as recorded — NOT re-scored.
 
-- 10× modal Playwright tests (`test_modal_dup_and_recovery`,
-  `test_modal_interactions`) — they target a disposable preview at
-  `127.0.0.1:39995`, which was absent. Stood up a fresh preview
-  instance seeded with Admin / project `62d2f3e1…` / authoring-
-  enabled binding → **all 10 pass** (46 s). The leftover nov19
-  preview serving on :39995 held an empty fixture DB — replaced.
-- 1× `test_production_key_auto_loaded` — requires the external
-  licence-issuer private key (`/tmp/to-license-issuer/private.pem`),
-  absent by design (never in the repo).
+Run B — **targeted rerun of the 10 modal tests at `8fc0ae5`** after
+correcting the preview environment (seeded preview recipe below;
+replaced a stale nov19 preview holding an empty fixture DB):
+**10 passed in 46s.** This is a separate run — it does not retro-
+edit Run A's tally.
 
-**Effective: 761 passed, 1 env-blocked, 1 skipped.** This run is
-separately attributed from the earlier 734-passed tally (pre-retry-
-hardening code) — later targeted runs (71: retry_prep + dispatch +
-units + api_ci) remain distinct rows.
+Still open gap: `test_production_key_auto_loaded` remains
+environment-blocked (external key required) — recorded as a gap,
+not a pass. The 1 skipped test is a separately identified skip.
+
+A final-head full-suite run is required after the acceptance fixes
+(project-access changes, retry surfacing, Windows prep) — recorded
+below when complete. Earlier evidence stays attributed to its own
+revision (734-passed pre-retry-hardening; 71-targeted acceptance
+suites).
 
 ## Preview-fixture recipe (reproducible)
 
@@ -387,8 +391,12 @@ authoring flag) — an empty-seed instance 404s/omits them.
   "PB-loss resolution — implemented + re-verified" above. Retry
   boundaries hardened (confirmed-terminate, mismatch-block,
   explicit retry_enabled/max_attempts, TO_RETRY_BLOCKED→UNKNOWN).
+- Windows retry safety: enforced disablement implemented
+  (`d4c7e85`) — real-host verification pending in kit W6.
 - Windows matrix: Robot + pytest on a real Windows host — release
   blocker, unverified (no host). Repeatable kit prepared:
   `docs/windows-acceptance-kit.md`.
 - Final clean-package eight-combination smoke matrix — pending
   Windows. Procedure defined: `docs/packaged-acceptance.md`.
+- Final-head full suite — pending after project-access changes
+  land (Run A at `8fc0ae5` is superseded for sign-off purposes).
