@@ -423,6 +423,21 @@ class Execution(db.Model):
     error_kind = db.Column(db.String(32), nullable=False, default="")
     error_text = db.Column(db.Text, nullable=False, default="")
     cancel_reason = db.Column(db.String(256), nullable=False, default="")
+    # Parallel execution units (2.6): a partitioned run is a "parent"
+    # execution that owns no process itself plus N "unit" children, each
+    # a real dispatchable execution with its own frozen assignment
+    # (shard/spec list) in its snapshot. role: "" ordinary | "parent" |
+    # "unit". unit_count on the parent is the expected child count.
+    role = db.Column(db.String(16), nullable=False, default="")
+    parent_id = db.Column(db.String(32), db.ForeignKey("executions.id"),
+                          nullable=True)
+    unit_index = db.Column(db.Integer, nullable=True)
+    unit_key = db.Column(db.String(128), nullable=False, default="")
+    unit_count = db.Column(db.Integer, nullable=True)
+    children = db.relationship(
+        "Execution",
+        backref=db.backref("parent", remote_side=[id]),
+        foreign_keys=[parent_id])
     # Runner lease (§6): heartbeats keep the assignment alive; offline
     # heartbeat means UNKNOWN, never silent duplicate dispatch.
     lease_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)

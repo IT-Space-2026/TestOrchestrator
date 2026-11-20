@@ -77,7 +77,9 @@ def create_execution(username: str, suite: Suite = None,
                      source_sha: str = "", run_config: dict = None,
                      extra_snapshot: dict = None,
                      schedule_id: str = "",
-                     source_item=None) -> Execution:
+                     source_item=None,
+                     role: str = "", parent_id: str = "",
+                     unit_index=None, unit_key: str = "") -> Execution:
     """Create an immutable execution snapshot (§4, A07). Exactly one
     target: a TO suite OR a repository DiscoveredItem — never both,
     never neither. Repo-def runs snapshot their durable identity
@@ -210,6 +212,8 @@ def create_execution(username: str, suite: Suite = None,
         environment=(rc.get("environment") or None),
         created_by=username,
         schedule_id=schedule_id or None,
+        role=role, parent_id=parent_id or None,
+        unit_index=unit_index, unit_key=(unit_key or "")[:128],
     )
     db.session.add(execution)
     db.session.flush()  # id assigned before outbox references it
@@ -218,7 +222,11 @@ def create_execution(username: str, suite: Suite = None,
     # the same transaction as the execution (§7). The transport is
     # stamped so capacity-blocked QUEUED executions are redrivable —
     # their one-shot event is consumed even when no runner was
-    # eligible at that tick.
+    # eligible at that tick. A "parent" execution owns no process —
+    # it aggregates its unit children, never dispatches itself.
+    if role == "parent":
+        db.session.commit()
+        return execution
     kind = "orchestrator-dispatch"
     if "dispatch_transport" not in snapshot:
         snapshot["dispatch_transport"] = "buildbot"
@@ -227,6 +235,99 @@ def create_execution(username: str, suite: Suite = None,
         kind=kind, payload_json=json.dumps({"execution_id": execution.id})))
     db.session.commit()
     return execution
+
+
+def create_unit_run(username: str, units: list[dict], **kw) -> tuple:
+    """Partitioned parallel run: a durable "parent" execution plus N
+    identifiable "unit" children. Each unit dict is the frozen child
+    assignment — {"index": i, "key": "shard 1/2", "shard": "1/2",
+    "specs": [...]} — recorded in the child's immutable snapshot.
+    Children dispatch independently through the normal capacity
+    pipeline with isolated workspaces/report dirs; the parent
+    aggregates their outcomes (aggregate_parent_runs) and propagates
+    cancellation (request_cancel)."""
+    if not units:
+        raise DispatchError("unit run requires at least one unit")
+    parent = create_execution(username, role="parent", **kw)
+    exs = []
+    for u in units:
+        i = int(u["index"])
+        exs.append(create_execution(
+            username, role="unit", parent_id=parent.id, unit_index=i,
+            unit_key=str(u.get("key") or f"unit {i + 1}"),
+            extra_snapshot={"parent_id": parent.id,
+                            "unit": u}, **kw))
+    parent.unit_count = len(exs)
+    db.session.commit()
+    return parent, exs
+
+
+_UNIT_TERMINAL = (ExecutionState.COMPLETED, ExecutionState.FAILED,
+                  ExecutionState.CANCELED, ExecutionState.UNKNOWN)
+
+
+def aggregate_parent_runs() -> int:
+    """Recompute parent executions from their unit children — run
+    every tick so the rollup is restart-safe and idempotent (a pure
+    recompute, not a terminal-transition hook). Rules: no parent
+    success while any child is unfinished or unsuccessful; a parent
+    cancel propagates to every non-terminal child, including queued
+    ones; uncertain children make the parent INCOMPLETE, never green."""
+    n = 0
+    for p in Execution.query.filter(
+            Execution.role == "parent",
+            Execution.state.in_([ExecutionState.QUEUED,
+                                 ExecutionState.RUNNING,
+                                 ExecutionState.CANCEL_REQUESTED])).all():
+        children = Execution.query.filter_by(parent_id=p.id).all()
+        expected = p.unit_count if p.unit_count is not None else -1
+        if not children or len(children) < expected:
+            continue   # still forming — children not all persisted yet
+        cancel_was_requested = (
+            p.state == ExecutionState.CANCEL_REQUESTED)
+        if cancel_was_requested and not all(
+                c.state in _UNIT_TERMINAL for c in children):
+            for c in children:
+                if c.state not in _UNIT_TERMINAL \
+                        and c.state != ExecutionState.CANCEL_REQUESTED:
+                    request_cancel(c.id, "system",
+                                   "parent run cancelled")
+            continue   # next tick rolls up once children are terminal
+        if p.state == ExecutionState.QUEUED and any(
+                c.state != ExecutionState.QUEUED for c in children):
+            p.state = ExecutionState.RUNNING
+            p.started_at = p.started_at or utcnow()
+        if not all(c.state in _UNIT_TERMINAL for c in children):
+            db.session.commit()
+            n += 1
+            continue
+        # All children terminal — final rollup, exactly once.
+        if any(c.outcome == Outcome.FAILED for c in children):
+            p.outcome = Outcome.FAILED
+        elif any(c.outcome in (Outcome.INCOMPLETE, Outcome.NONE)
+                 or c.state in (ExecutionState.FAILED,
+                                ExecutionState.UNKNOWN)
+                 for c in children):
+            p.outcome = Outcome.INCOMPLETE
+        else:
+            p.outcome = Outcome.PASSED
+        p.state = ExecutionState.COMPLETED
+        if cancel_was_requested or all(
+                c.state == ExecutionState.CANCELED for c in children):
+            p.state = ExecutionState.CANCELED
+            p.outcome = Outcome.INCOMPLETE
+        p.finished_at = p.finished_at or utcnow()
+        infra = [c.id[:8] for c in children
+                 if c.state in (ExecutionState.FAILED,
+                                ExecutionState.UNKNOWN)]
+        if infra:
+            p.error_kind = "infrastructure"
+            p.error_text = (
+                "unit execution(s) ended unresolved: "
+                + ", ".join(infra))
+        db.session.commit()
+        n += 1
+    return n
 
 
 def queue_plan_executions(username: str, plan: Plan,
@@ -409,6 +510,14 @@ def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
     ex.cancel_reason = reason[:256]
     db.session.commit()
     record_audit(username, "execution.cancel_requested", execution_id)
+    # Parent cancellation owns the whole unit tree: every non-terminal
+    # child — running AND queued — is cancelled (queued children are
+    # blocked from ever launching). aggregate_parent_runs repeats this
+    # sweep each tick, so propagation is restart-safe.
+    if ex.role == "parent":
+        for c in Execution.query.filter_by(parent_id=ex.id).all():
+            if c.state not in _UNIT_TERMINAL:
+                request_cancel(c.id, username, "parent run cancelled")
     return True
 
 
@@ -1668,7 +1777,8 @@ def _redrive_queued_remote(limit: int = 10) -> int:
     new buildrequest."""
     n = 0
     for ex in Execution.query.filter(
-            Execution.state == ExecutionState.QUEUED).limit(limit):
+            Execution.state == ExecutionState.QUEUED,
+            Execution.role != "parent").limit(limit):
         transport = ex.snapshot().get("dispatch_transport")
         if transport == "buildbot" and not ex.dispatch_id:
             _buildbot_assign_and_submit(ex)
@@ -1691,7 +1801,7 @@ def worker_once() -> int:
         except Exception:
             pass  # orchestrator unreachable — retry next cycle
     n += (reconcile_stale() + fire_due_schedules() + process_outbox()
-          + enforce_plan_policies()
+          + enforce_plan_policies() + aggregate_parent_runs()
           + _heartbeat_local_runners() + _redrive_queued_remote())
     return n
 
