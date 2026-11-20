@@ -88,3 +88,15 @@ def test_probe_argv():
     assert pytestfw.probe_argv("linux-x86_64") == ["sh", "probe.sh"]
     assert pytestfw.probe_argv("windows-x86_64") == \
         ["cmd", "/c", "probe.cmd"]
+
+
+def test_build_args_xdist():
+    from testorchestrator.adapters import pytestfw
+    a = pytestfw.build_args(suite_path="tests/", numprocesses=4)
+    i = a.index("-n")
+    assert a[i + 1] == "4" and "-m" in a and "pytest" in a
+
+
+def test_build_args_no_xdist_by_default():
+    from testorchestrator.adapters import pytestfw
+    assert "-n" not in pytestfw.build_args(suite_path="tests/")

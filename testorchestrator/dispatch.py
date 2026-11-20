@@ -158,6 +158,12 @@ def create_execution(username: str, suite: Suite = None,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
                 int(rc.get("timeout_seconds") or 0),
+            # Framework-local parallelism (2.6): bounded process/
+            # worker count — playwright --workers, pytest -n (xdist),
+            # robot pabot --processes. Cypress has no local
+            # in-process parallelism; use spec partitioning (units).
+            "parallel":
+                min(max(int(rc.get("parallel") or 0), 0), 64),
             # Requested version-gated KRE options — applied only if the
             # detected runtime version supports them (adapters/kre.py).
             "kre_options": {
@@ -1182,7 +1188,9 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             return
     source = _resolve_source(ex)
     buildbot_cfg.stage_source(ex, source)
-    rc = ex.snapshot().get("run_config") or {}
+    _snap = ex.snapshot()
+    rc = _snap.get("run_config") or {}
+    _unit = _snap.get("unit") or {}
     timeout_s = int(rc.get("timeout_seconds") or 3600)
     node_kind = getattr(runtime, "runtime_kind", "") or "kre"
     if node_kind in nodefw.KINDS:
@@ -1191,7 +1199,16 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         if not ok_b:
             _fail(ex, "config", browser_val)
             return
-        node_args = nodefw.build_args(node_kind, browser_val)
+        if node_kind == "cypress" and int(
+                rc.get("parallel") or 0) > 0:
+            raise DispatchError(
+                "parallel is not supported for cypress — Cypress has "
+                "no local in-process parallelism; use spec "
+                "partitioning (unit run) instead")
+        node_args = nodefw.build_args(
+            node_kind, browser_val,
+            workers=int(rc.get("parallel") or 0),
+            shard=str(_unit.get("shard") or ""))
         node_env = nodefw.junit_env(node_kind)
         win = (runner.os_arch or "").lower().startswith("win")
         # npm sits next to npx — an explicit executable_path resolves
@@ -1247,7 +1264,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             test=(rc.get("robot_test") or "").strip(),
             suite=(rc.get("robot_suite") or "").strip(),
             include=_tag_list(rc.get("robot_include")),
-            exclude=_tag_list(rc.get("robot_exclude")))
+            exclude=_tag_list(rc.get("robot_exclude")),
+            pabot_processes=int(rc.get("parallel") or 0))
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
             or ("python.exe" if win else "python3")
@@ -1290,7 +1308,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         pytest_args = pytestfw.build_args(
             suite_path=(rc.get("suite_path") or "").strip(),
             keyword=(rc.get("pytest_keyword") or "").strip(),
-            markers=(rc.get("pytest_markers") or "").strip())
+            markers=(rc.get("pytest_markers") or "").strip(),
+            numprocesses=int(rc.get("parallel") or 0))
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
             or ("python.exe" if win else "python3")

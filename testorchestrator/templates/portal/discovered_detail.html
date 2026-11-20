@@ -114,6 +114,12 @@
       <input type="text" name="pytest_keyword" id="pytest_keyword" placeholder="-k expression (optional)" size="18">
       <input type="text" name="pytest_markers" id="pytest_markers" placeholder="-m marker expr (optional)" size="18">
       <small>pytest only — keyword (-k) and marker (-m) selection expressions.</small></div>
+    <div class="field"><label for="parallel">Parallelism</label>
+      <input type="number" name="parallel" id="parallel" min="0" max="64" placeholder="0 (sequential)">
+      <small>In-process workers: Playwright <code>--workers</code>,
+      pytest <code>-n</code> (xdist), Robot Pabot <code>--processes</code>.
+      Not supported for Cypress — partition specs into a unit run
+      instead. Optional deps are probe-reported, never installed.</small></div>
     <div class="field"><label for="timeout_seconds">Timeout (s)</label>
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" placeholder="3600"></div>
     <button type="submit" class="button">Run {{ item.kind }}</button>

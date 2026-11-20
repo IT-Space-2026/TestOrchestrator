@@ -752,6 +752,8 @@ def run_discovered(item_id):
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "timeout_seconds":
             int(request.form.get("timeout_seconds") or 0),
+        "parallel":
+            min(max(int(request.form.get("parallel") or 0), 0), 64),
         "suite_path": item.path,
         "robot_test": request.form.get("robot_test", "").strip(),
         "robot_include": request.form.get("robot_include", "").strip(),
@@ -1599,6 +1601,8 @@ def launch_execution(suite_id):
             request.form.get("remote_webdriver_type", "").strip(),
         "timeout_seconds":
             int(request.form.get("timeout_seconds") or 0),
+        "parallel":
+            min(max(int(request.form.get("parallel") or 0), 0), 64),
         # Explicit execution target ("" = auto). Re-validated at
         # dispatch — never falls back to another target.
         "runner_id": request.form.get("runner_id", "").strip(),

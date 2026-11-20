@@ -25,7 +25,7 @@ _PROBE_MARKER = "TO-PROBE"
 
 def build_args(suite_path: str = "", keyword: str = "",
                markers: str = "", node_ids=(),
-               extra=()) -> list:
+               extra=(), numprocesses: int = 0) -> list:
     """argv after the interpreter — junit under Reports/ so the shared
     collect path finds it untouched. ``suite_path`` is the
     project-relative file/directory; ``node_ids`` may carry
@@ -33,6 +33,10 @@ def build_args(suite_path: str = "", keyword: str = "",
     ``-k``/``-m``.
     """
     args = ["-m", "pytest", "--junitxml", "Reports/junit.xml", "-q"]
+    if numprocesses > 0:
+        # pytest-xdist — optional dependency checked by readiness
+        # (opt_xdist), never auto-installed.
+        args += ["-n", str(numprocesses)]
     if keyword:
         args += ["-k", keyword]
     if markers:
@@ -117,6 +121,8 @@ for lib in ${REQUIRED_LIBS:-}; do
     && p "lib_$lib=ok" || p "lib_$lib=MISSING"
 done
 unset IFS
+"$PY" -c "import xdist" >/dev/null 2>&1 \
+  && p "opt_xdist=ok" || p "opt_xdist=absent"
 mkdir -p Reports/.wtest && rmdir Reports/.wtest \\
   && p "workspace_write=ok" || p "workspace_write=denied"
 if [ -n "%APP_URL%" ]; then
@@ -144,6 +150,7 @@ if defined REQUIRED_LIBS (
     "%PY%" -c "import %%l" >nul 2>&1 && call :p lib_%%l=ok || call :p lib_%%l=MISSING
   )
 )
+"%PY%" -c "import xdist" >nul 2>&1 && call :p opt_xdist=ok || call :p opt_xdist=absent
 mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul && call :p workspace_write=ok || call :p workspace_write=denied
 if not "%APP_URL%"=="" (
   curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1 && call :p app_url=reachable || call :p app_url=UNREACHABLE from this target

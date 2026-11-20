@@ -75,3 +75,17 @@ def test_probe_scripts_present():
     s = robotfw.probe_scripts("http://x")
     assert "probe.sh" in s and "probe.cmd" in s
     assert "PYBIN" in s["probe.sh"] and "robot" in s["probe.cmd"]
+
+
+def test_build_args_pabot():
+    from testorchestrator.adapters import robotfw
+    a = robotfw.build_args(suite_path="tests/", pabot_processes=3)
+    assert a[:2] == ["-m", "pabot.pabot"]
+    assert a[a.index("--processes") + 1] == "3"
+    assert "--xunit" in a and "junit.xml" in a
+
+
+def test_build_args_no_pabot_by_default():
+    from testorchestrator.adapters import robotfw
+    a = robotfw.build_args(suite_path="tests/")
+    assert a[:2] == ["-m", "robot"] and "--processes" not in a

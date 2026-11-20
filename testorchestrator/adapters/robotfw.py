@@ -28,7 +28,8 @@ _PROBE_MARKER = "TO-PROBE"
 
 
 def build_args(suite_path: str = "", test: str = "",
-               suite: str = "", include=(), exclude=()) -> list:
+               suite: str = "", include=(), exclude=(),
+               pabot_processes: int = 0) -> list:
     """argv after the interpreter — every output under Reports/ so the
     shared collect path finds junit + native evidence untouched.
 
@@ -38,11 +39,21 @@ def build_args(suite_path: str = "", test: str = "",
     report.html. (RF7 removed ``--xunitskipnoncritical``; skipped
     non-critical tests map to xunit <skipped> by default.)
     """
-    args = ["-m", "robot",
-            "--outputdir", "Reports",
-            "--xunit", "junit.xml",
-            "--log", "log.html",
-            "--report", "report.html"]
+    if pabot_processes > 0:
+        # Pabot suite-level parallelism — optional dependency checked
+        # by readiness (opt_pabot), never auto-installed. Pabot merges
+        # per-suite output.xml into a single Reports/output.xml; the
+        # merged --xunit keeps the shared JUnit collect path.
+        args = ["-m", "pabot.pabot",
+                "--processes", str(pabot_processes),
+                "--outputdir", "Reports",
+                "--xunit", "junit.xml"]
+    else:
+        args = ["-m", "robot",
+                "--outputdir", "Reports",
+                "--xunit", "junit.xml",
+                "--log", "log.html",
+                "--report", "report.html"]
     if suite:
         args += ["--suite", suite]
     if test:
@@ -145,6 +156,8 @@ for lib in ${REQUIRED_LIBS:-}; do
     && p "lib_$lib=ok" || p "lib_$lib=MISSING"
 done
 unset IFS
+"$PY" -c "import pabot" >/dev/null 2>&1 \
+  && p "opt_pabot=ok" || p "opt_pabot=absent"
 mkdir -p Reports/.wtest && rmdir Reports/.wtest \\
   && p "workspace_write=ok" || p "workspace_write=denied"
 if [ -n "%APP_URL%" ]; then
@@ -172,6 +185,7 @@ if defined REQUIRED_LIBS (
     "%PY%" -c "import %%l" >nul 2>&1 && call :p lib_%%l=ok || call :p lib_%%l=MISSING
   )
 )
+"%PY%" -c "import pabot" >nul 2>&1 && call :p opt_pabot=ok || call :p opt_pabot=absent
 mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul && call :p workspace_write=ok || call :p workspace_write=denied
 if not "%APP_URL%"=="" (
   curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1 && call :p app_url=reachable || call :p app_url=UNREACHABLE from this target
