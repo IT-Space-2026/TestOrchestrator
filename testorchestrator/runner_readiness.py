@@ -217,6 +217,8 @@ def poll(runtime) -> bool:
             "no markers — inspect the build log")
     else:
         runtime.last_diagnostic = _summarize(probe, pend["kind"])
+        runtime.probe_json = json.dumps(
+            {k: v for k, v in probe.items()})
     from .execution import utcnow
     runtime.last_check_at = utcnow()
     db.session.commit()

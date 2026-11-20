@@ -70,6 +70,98 @@ def _snapshot_runtime_kind(rc: dict) -> str:
     return (getattr(rt, "runtime_kind", "") or "kre") if rt else "kre"
 
 
+def _require_probe_opt(runtime, marker: str, desc: str) -> None:
+    """Dispatch gate for optional parallel dependencies: the
+    readiness probe must have REPORTED the marker ok on this target —
+    informational absence is fine in sequential/default mode, but a
+    parallel run that needs the dependency is rejected, never
+    silently downgraded to sequential."""
+    try:
+        markers = json.loads(getattr(runtime, "probe_json", "") or "{}")
+    except Exception:
+        markers = {}
+    if markers.get(marker) != "ok":
+        raise DispatchError(
+            f"{desc} is required but readiness reported "
+            f"{marker}={markers.get(marker, 'never-probed')!r} on this "
+            "target — install it and re-run the readiness probe")
+
+
+def _gated_pabot(runtime, rc: dict) -> int:
+    n = (int(rc.get("parallel") or 0)
+         if (rc.get("parallel_mode") or "default") == "parallel"
+         else 0)
+    if n:
+        _require_probe_opt(runtime, "opt_pabot",
+                           f"pabot (parallel_mode=parallel, "
+                           f"--processes {n})")
+    return n
+
+
+_PARALLEL_MODES = ("default", "sequential", "parallel")
+
+
+def _validate_parallel(rc: dict, kind: str) -> None:
+    """Server-side parallel/shard validation — every entry path
+    (portal form, API, schedule, retry) flows through
+    create_execution, so a bad combination is REJECTED here, never
+    silently clamped or downgraded to sequential.
+
+    Semantics: parallel_mode "default" lets the framework choose;
+    "sequential" forces one process where the framework supports it;
+    "parallel" requires parallel >= 1. A worker count never implies
+    sharding; shard index/total validate as a pair and only apply to
+    Playwright (other kinds use unit-level partition manifests)."""
+    try:
+        par = int(rc.get("parallel") or 0)
+    except (TypeError, ValueError):
+        raise DispatchError("parallel must be an integer")
+    mode = str(rc.get("parallel_mode") or "").strip() or (
+        "parallel" if par > 0 else "default")
+    if mode not in _PARALLEL_MODES:
+        raise DispatchError(
+            f"unknown parallel_mode {mode!r} "
+            f"(choose from {', '.join(_PARALLEL_MODES)})")
+    if par > 64 or par < 0:
+        raise DispatchError("parallel must be between 0 and 64")
+    if mode == "sequential" and par > 0:
+        raise DispatchError(
+            "parallel_mode=sequential conflicts with parallel>0 — "
+            "pick one")
+    if mode == "parallel" and par < 1:
+        raise DispatchError(
+            "parallel_mode=parallel requires parallel >= 1")
+    if kind == "cypress" and (mode == "parallel" or par > 0):
+        raise DispatchError(
+            "parallel is not supported for cypress — Cypress has no "
+            "local in-process parallelism and Cypress Cloud is not "
+            "required; use spec partitioning (unit run) instead")
+    if kind == "kre" and (mode == "parallel" or par > 0):
+        raise DispatchError("parallel is not supported for KRE runs")
+    rc["parallel_mode"] = mode
+    rc["parallel"] = par
+    # Shard pair: both-or-neither, index within 1..total, playwright
+    # only. A shard assignment is NOT created by a worker count.
+    si, st = rc.get("shard_index"), rc.get("shard_total")
+    if bool(si) != bool(st):
+        raise DispatchError(
+            "shard_index and shard_total must be given together")
+    if si:
+        try:
+            si, st = int(si), int(st)
+        except (TypeError, ValueError):
+            raise DispatchError("shard index/total must be integers")
+        if st < 1 or not (1 <= si <= st):
+            raise DispatchError(
+                f"invalid shard {si}/{st} — index must be within "
+                "1..total")
+        if kind != "playwright":
+            raise DispatchError(
+                f"--shard is playwright-only (runtime kind {kind!r}); "
+                f"partition other frameworks via unit runs")
+        rc["shard_index"], rc["shard_total"] = si, st
+
+
 def create_execution(username: str, suite: Suite = None,
                      binding: GitBinding = None,
                      plan_id: str = "",
@@ -79,7 +171,8 @@ def create_execution(username: str, suite: Suite = None,
                      schedule_id: str = "",
                      source_item=None,
                      role: str = "", parent_id: str = "",
-                     unit_index=None, unit_key: str = "") -> Execution:
+                     unit_index=None, unit_key: str = "",
+                     commit: bool = True) -> Execution:
     """Create an immutable execution snapshot (§4, A07). Exactly one
     target: a TO suite OR a repository DiscoveredItem — never both,
     never neither. Repo-def runs snapshot their durable identity
@@ -101,6 +194,7 @@ def create_execution(username: str, suite: Suite = None,
     if source_item is not None:
         rc.setdefault("suite_path", source_item.path)
         rc.setdefault("collection", source_item.kind == "collection")
+    _validate_parallel(rc, _snapshot_runtime_kind(rc))
     snapshot = {
         "plan_id": plan_id,
         "plan_run_id": (extra_snapshot or {}).get("plan_run_id", ""),
@@ -158,12 +252,19 @@ def create_execution(username: str, suite: Suite = None,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
                 int(rc.get("timeout_seconds") or 0),
-            # Framework-local parallelism (2.6): bounded process/
-            # worker count — playwright --workers, pytest -n (xdist),
-            # robot pabot --processes. Cypress has no local
-            # in-process parallelism; use spec partitioning (units).
-            "parallel":
-                min(max(int(rc.get("parallel") or 0), 0), 64),
+            # Framework-local parallelism (2.6): validated in
+            # _validate_parallel() — mode is explicit:
+            #   default    = no flags; the framework decides
+            #   sequential = forced single process (playwright
+            #                --workers 1; others already sequential)
+            #   parallel   = playwright --workers N, pytest -n N
+            #                (xdist), robot pabot --processes N
+            "parallel_mode": rc.get("parallel_mode") or "default",
+            "parallel": int(rc.get("parallel") or 0),
+            # Playwright shard i/N — assignment only, never implied
+            # by a worker count. Validated pairwise.
+            "shard_index": int(rc.get("shard_index") or 0),
+            "shard_total": int(rc.get("shard_total") or 0),
             # Requested version-gated KRE options — applied only if the
             # detected runtime version supports them (adapters/kre.py).
             "kre_options": {
@@ -230,16 +331,19 @@ def create_execution(username: str, suite: Suite = None,
     # their one-shot event is consumed even when no runner was
     # eligible at that tick. A "parent" execution owns no process —
     # it aggregates its unit children, never dispatches itself.
-    if role == "parent":
+    if role != "parent":
+        # Dispatch route: the orchestrator claim is persisted in the
+        # same transaction as the execution (§7) — unless the caller
+        # is composing a larger atomic unit (create_unit_run).
+        kind = "orchestrator-dispatch"
+        if "dispatch_transport" not in snapshot:
+            snapshot["dispatch_transport"] = "buildbot"
+            execution.snapshot_json = json.dumps(snapshot)
+        db.session.add(OutboxEvent(
+            kind=kind,
+            payload_json=json.dumps({"execution_id": execution.id})))
+    if commit:
         db.session.commit()
-        return execution
-    kind = "orchestrator-dispatch"
-    if "dispatch_transport" not in snapshot:
-        snapshot["dispatch_transport"] = "buildbot"
-        execution.snapshot_json = json.dumps(snapshot)
-    db.session.add(OutboxEvent(
-        kind=kind, payload_json=json.dumps({"execution_id": execution.id})))
-    db.session.commit()
     return execution
 
 
@@ -253,14 +357,22 @@ def create_unit_run(username: str, units: list[dict], **kw) -> tuple:
     aggregates their outcomes (aggregate_parent_runs) and propagates
     cancellation (request_cancel)."""
     if not units:
-        raise DispatchError("unit run requires at least one unit")
-    parent = create_execution(username, role="parent", **kw)
+        raise DispatchError(
+            "unit run requires at least one unit — an intentionally "
+            "empty selection is a config error, not a zero-unit run")
+    # ONE transaction: parent + every unit child + the expected count.
+    # A crash mid-creation leaves no parent row at all — a parent with
+    # unit_count unset can never exist, so a partially formed unit set
+    # can never aggregate as if complete.
+    parent = create_execution(username, role="parent",
+                              commit=False, **kw)
     exs = []
     for u in units:
         i = int(u["index"])
         exs.append(create_execution(
             username, role="unit", parent_id=parent.id, unit_index=i,
             unit_key=str(u.get("key") or f"unit {i + 1}"),
+            commit=False,
             extra_snapshot={"parent_id": parent.id,
                             "unit": u}, **kw))
     parent.unit_count = len(exs)
@@ -285,10 +397,12 @@ def aggregate_parent_runs() -> int:
             Execution.state.in_([ExecutionState.QUEUED,
                                  ExecutionState.RUNNING,
                                  ExecutionState.CANCEL_REQUESTED])).all():
+        if p.unit_count is None:
+            continue   # still forming — count is committed with the
+        # full child set; a parent without it is incomplete, never green
         children = Execution.query.filter_by(parent_id=p.id).all()
-        expected = p.unit_count if p.unit_count is not None else -1
-        if not children or len(children) < expected:
-            continue   # still forming — children not all persisted yet
+        if not children or len(children) < p.unit_count:
+            continue   # children not all persisted yet
         cancel_was_requested = (
             p.state == ExecutionState.CANCEL_REQUESTED)
         if cancel_was_requested and not all(
@@ -1199,16 +1313,21 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         if not ok_b:
             _fail(ex, "config", browser_val)
             return
-        if node_kind == "cypress" and int(
-                rc.get("parallel") or 0) > 0:
+        _pmode = rc.get("parallel_mode") or "default"
+        _pw_workers = (1 if _pmode == "sequential"
+                       else int(rc.get("parallel") or 0)
+                       if _pmode == "parallel" else 0)
+        if node_kind == "cypress" and _pw_workers:
             raise DispatchError(
-                "parallel is not supported for cypress — Cypress has "
-                "no local in-process parallelism; use spec "
+                "parallel is not supported for cypress — use spec "
                 "partitioning (unit run) instead")
+        _shard = (str(_unit.get("shard") or "")
+                  or (f"{int(rc['shard_index'])}/{int(rc['shard_total'])}"
+                      if rc.get("shard_index") else ""))
         node_args = nodefw.build_args(
             node_kind, browser_val,
-            workers=int(rc.get("parallel") or 0),
-            shard=str(_unit.get("shard") or ""))
+            workers=_pw_workers,
+            shard=_shard)
         node_env = nodefw.junit_env(node_kind)
         win = (runner.os_arch or "").lower().startswith("win")
         # npm sits next to npx — an explicit executable_path resolves
@@ -1265,7 +1384,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             suite=(rc.get("robot_suite") or "").strip(),
             include=_tag_list(rc.get("robot_include")),
             exclude=_tag_list(rc.get("robot_exclude")),
-            pabot_processes=int(rc.get("parallel") or 0))
+            pabot_processes=(
+                _gated_pabot(runtime, rc)))
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
             or ("python.exe" if win else "python3")
@@ -1305,11 +1425,19 @@ def _submit_buildbot(ex: Execution, runner: Runner,
     if node_kind == pytestfw.KIND:
         # python -m pytest under the runtime's configured interpreter —
         # junit under Reports/, same spec/collect pipeline as robot.
+        _pprocs = (int(rc.get("parallel") or 0)
+                   if (rc.get("parallel_mode") or "default")
+                   == "parallel" else 0)
+        if _pprocs:
+            _require_probe_opt(
+                runtime, "opt_xdist",
+                "pytest-xdist (parallel_mode=parallel, -n "
+                f"{_pprocs})")
         pytest_args = pytestfw.build_args(
             suite_path=(rc.get("suite_path") or "").strip(),
             keyword=(rc.get("pytest_keyword") or "").strip(),
             markers=(rc.get("pytest_markers") or "").strip(),
-            numprocesses=int(rc.get("parallel") or 0))
+            numprocesses=_pprocs)
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
             or ("python.exe" if win else "python3")

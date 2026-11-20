@@ -297,6 +297,10 @@ class RuntimeConnection(db.Model):
     enabled = db.Column(db.Boolean, nullable=False, default=True)
     last_diagnostic = db.Column(db.Text, nullable=False, default="")
     last_check_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Machine-readable probe markers from the last completed readiness
+    # run — optional parallel deps (opt_xdist/opt_pabot) are gated on
+    # these at dispatch; the human summary lives in last_diagnostic.
+    probe_json = db.Column(db.Text, nullable=False, default="")
     # remote: the unique worker label the legacy installation was
     # bound to — empty => local (portal-host) execution.
     worker_label = db.Column(db.String(128), nullable=False, default="")

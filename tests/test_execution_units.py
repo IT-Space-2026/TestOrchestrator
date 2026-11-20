@@ -153,3 +153,192 @@ def test_unit_results_stay_distinct(app):
         n = TestResult.query.filter(
             TestResult.execution_id.in_(kids)).count()
         assert n == 2   # one per unit — aggregation never collapses
+
+
+def test_forming_parent_never_aggregates(app):
+    """A parent row with unit_count unset is 'still forming' — even if
+    all existing children are terminal, it must NOT roll up. This is
+    the partial-creation guard."""
+    sid = _env(app)
+    pid, kids = _mk_units(app, sid, 2)
+    with app.app_context():
+        p = db.session.get(Execution, pid)
+        p.unit_count = None      # simulate interrupted creation
+        db.session.commit()
+        for k in kids:
+            _finish(app, k, Outcome.PASSED)
+        dispatch.aggregate_parent_runs()
+        db.session.refresh(p)
+        assert p.state == ExecutionState.QUEUED
+        assert p.outcome == Outcome.NONE
+
+
+def test_empty_units_rejected(app):
+    sid = _env(app)
+    with app.app_context():
+        import pytest as _pt
+        s = db.session.get(Suite, sid)
+        with _pt.raises(dispatch.DispatchError):
+            dispatch.create_unit_run("m", [], suite=s)
+
+
+def test_children_share_frozen_revision(app):
+    sid = _env(app)
+    pid, kids = _mk_units(app, sid, 2)
+    with app.app_context():
+        p = db.session.get(Execution, pid)
+        for k in kids:
+            e = db.session.get(Execution, k)
+            assert e.source_sha == p.source_sha == "abc"
+            assert e.binding_id == p.binding_id
+
+
+def test_redrive_never_double_launches_child(app):
+    """Competing sweep passes must not double-launch: the second
+    redrive sees dispatch_id already set and skips."""
+    sid = _env(app)
+    pid, kids = _mk_units(app, sid, 2)
+    with app.app_context():
+        c = db.session.get(Execution, kids[0])
+        c.dispatch_id = "bb:99"   # claimed by a competing tick
+        c.state = ExecutionState.DISPATCHED
+        db.session.commit()
+        dispatch._redrive_queued_remote()
+        db.session.refresh(c)
+        assert c.dispatch_id == "bb:99"   # not overwritten
+
+
+def test_cancel_race_mixed_children(app):
+    """Parent cancel with children in QUEUED + DISPATCHED + terminal:
+    propagation covers all non-terminal, completed children are
+    untouched, and the rollup waits for real terminal states."""
+    sid = _env(app)
+    pid, kids = _mk_units(app, sid, 3)
+    with app.app_context():
+        db.session.get(Execution, kids[0]).state = \
+            ExecutionState.DISPATCHED
+        _finish(app, kids[1], Outcome.PASSED)
+        db.session.commit()
+        assert dispatch.request_cancel(pid, "op")
+        kdb = [db.session.get(Execution, k) for k in kids]
+        assert kdb[0].state == ExecutionState.CANCEL_REQUESTED
+        assert kdb[1].state == ExecutionState.COMPLETED  # untouched
+        assert kdb[2].state == ExecutionState.CANCEL_REQUESTED
+        # roll up after queued/running children reach terminal
+        kdb[0].state = ExecutionState.CANCELED
+        kdb[0].outcome = Outcome.INCOMPLETE
+        kdb[2].state = ExecutionState.CANCELED
+        kdb[2].outcome = Outcome.INCOMPLETE
+        db.session.commit()
+        dispatch.aggregate_parent_runs()
+        p = db.session.get(Execution, pid)
+        # one child PASSED but two cancelled + cancel was requested ->
+        # CANCELED/INCOMPLETE, never a partial pass
+        assert p.state == ExecutionState.CANCELED
+        assert p.outcome == Outcome.INCOMPLETE
+
+
+def test_identical_reports_across_units_not_deduped(app):
+    """Two units emitting byte-identical junit remain two result
+    sets — dedup is provenance-scoped, never execution-global."""
+    sid = _env(app)
+    pid, kids = _mk_units(app, sid, 2)
+    JUNIT = (b'<?xml version="1.0"?><testsuite tests="1">'
+             b'<testcase classname="c" name="t" time="0.1"/>'
+             b'</testsuite>')
+    with app.app_context():
+        # Byte-identical junit arriving from two distinct unit dirs:
+        # _same_report_source must NOT link them (provenance differs).
+        from testorchestrator import dispatch as _d
+        assert not _d._same_report_source(
+            "unit-0/Reports/junit.xml", "unit-1/Reports/junit.xml")
+        assert _d._same_report_source(
+            "Reports/junit.xml", "proj/src/Reports/junit.xml")
+        from testorchestrator.execution import CaseStatus, TestResult
+        for k in kids:
+            db.session.add(TestResult(
+                execution_id=k, classname="c", case_name="t",
+                status=CaseStatus.PASSED, attempt=1))
+            _finish(app, k, Outcome.PASSED)
+        db.session.commit()
+        dispatch.aggregate_parent_runs()
+        # each unit's own row survives — no cross-execution collapse
+        assert TestResult.query.filter(
+            TestResult.execution_id.in_(kids)).count() == 2
+
+
+def test_unit_artifacts_outlive_parent(app):
+    """Children keep their own report/workspace paths — a failed or
+    cancelled parent never rewrites them."""
+    sid = _env(app)
+    pid, kids = _mk_units(app, sid, 2)
+    with app.app_context():
+        for k in kids:
+            e = db.session.get(Execution, k)
+            e.report_dir = f"/tmp/reports-{k[:8]}"
+            _finish(app, k, Outcome.FAILED)
+        db.session.commit()
+        dispatch.aggregate_parent_runs()
+        for k in kids:
+            e = db.session.get(Execution, k)
+            assert e.report_dir == f"/tmp/reports-{k[:8]}"
+            assert e.outcome == Outcome.FAILED
+
+
+# ---------- parallel config validation (server-side, all paths) ------
+
+def _vpar(app, sid, rc):
+    with app.app_context():
+        s = db.session.get(Suite, sid)
+        return dispatch.create_execution(
+            "m", s, source_sha="x", run_config=rc).id
+
+
+def test_parallel_validation(app):
+    import pytest as _pt
+    sid = _env(app)
+    # default: framework chooses, no flags
+    eid = _vpar(app, sid, {"parallel": 0})
+    with app.app_context():
+        e = db.session.get(Execution, eid)
+        rc = e.snapshot()["run_config"]
+        assert rc["parallel_mode"] == "default"
+    # sequential mode is explicit — survives to snapshot
+    eid = _vpar(app, sid, {"parallel_mode": "sequential"})
+    with app.app_context():
+        e = db.session.get(Execution, eid)
+        assert e.snapshot()["run_config"]["parallel_mode"] == \
+            "sequential"
+    for bad, msg in [
+            ({"parallel": 65}, "between"),
+            ({"parallel": 2, "parallel_mode": "sequential"},
+             "conflicts"),
+            ({"parallel": 0, "parallel_mode": "parallel"},
+             "requires parallel >= 1"),
+            ({"parallel_mode": "bogus"}, "unknown parallel_mode"),
+            ({"shard_index": 1}, "together"),
+            ({"shard_index": 3, "shard_total": 2}, "invalid shard"),
+            ({"shard_index": 1, "shard_total": 2},
+             "playwright-only"),  # suite runtime resolves kre
+            ]:
+        with _pt.raises(dispatch.DispatchError, match=msg):
+            _vpar(app, sid, bad)
+
+
+def test_parallel_persisted_in_snapshot(app):
+    sid = _env(app)
+    with app.app_context():
+        from testorchestrator.execution import (Runner,
+                                                RuntimeConnection)
+        r = Runner(name="pw", connection_mode="local", max_slots=2)
+        db.session.add(r); db.session.flush()
+        rt = RuntimeConnection(name="rt", runner_id=r.id,
+                               executable_path="/usr/bin/python3",
+                               runtime_kind="pytest", enabled=True)
+        db.session.add(rt); db.session.commit()
+        rtid = rt.id
+    eid = _vpar(app, sid, {"parallel": 4, "runtime_id": rtid})
+    with app.app_context():
+        e = db.session.get(Execution, eid)
+        rc = e.snapshot()["run_config"]
+        assert rc["parallel_mode"] == "parallel" and rc["parallel"] == 4
