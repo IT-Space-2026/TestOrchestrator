@@ -1200,6 +1200,56 @@ def executions():
         ("admin", "test_manager", "tester"))
 
 
+@portal_bp.route("/reconciliation")
+@role_required(Role.ADMIN, Role.TEST_MANAGER)
+def reconciliation():
+    """Ambiguous-execution queue (§7/A06).
+
+    Every row here either holds runner capacity in an uncertain state
+    or needs operator attention before its resources can be trusted:
+
+    - UNKNOWN — original process may still be alive; slot+procs stay
+      charged until an admin confirms it stopped (resolve on detail).
+    - CANCEL_REQUESTED — cancel in flight; may be racing a submission
+      with no persisted Buildbot id (must NOT be force-resolved).
+    - non-terminal with an expired lease — inside the ambiguity window
+      before the lease sweep marks them UNKNOWN.
+
+    Each row shows the capacity it holds (bb slot + open reservations)
+    and how stale its heartbeat/lease is — never a silent stall."""
+    from ..execution import ResourceReservation, Runner
+    now = utcnow()
+    ambiguous = (Execution.query.filter(
+        Execution.state.in_([ExecutionState.UNKNOWN,
+                             ExecutionState.CANCEL_REQUESTED]))
+        .order_by(Execution.created_at).all())
+    expired_lease = (Execution.query.filter(
+        Execution.state.notin_([
+            ExecutionState.COMPLETED, ExecutionState.FAILED,
+            ExecutionState.CANCELED, ExecutionState.UNKNOWN,
+            ExecutionState.CANCEL_REQUESTED, ExecutionState.QUEUED]),
+        Execution.lease_expires_at.isnot(None),
+        Execution.lease_expires_at < now).all())
+    rows = []
+    for ex in ambiguous + expired_lease:
+        if not current_user.project_allowed(ex.project_id or ""):
+            continue
+        resv = ResourceReservation.query.filter_by(
+            execution_id=ex.id, released_at=None).all()
+        runner = db.session.get(Runner, ex.runner_id) \
+            if ex.runner_id else None
+        rows.append({
+            "ex": ex, "runner": runner, "reservations": resv,
+            "lease_age_s": ((now - ex.lease_expires_at).total_seconds()
+                            if ex.lease_expires_at
+                            and ex.lease_expires_at < now else 0),
+            "heartbeat_age_s": ((now - ex.heartbeat_at).total_seconds()
+                                if ex.heartbeat_at else None),
+        })
+    return render_template("portal/reconciliation.html", rows=rows,
+                           plain_form=PlainForm())
+
+
 @portal_bp.route("/executions/bulk-cancel", methods=["POST"])
 @role_required(*RUN_ROLES)
 def bulk_cancel_executions():

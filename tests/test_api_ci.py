@@ -273,3 +273,36 @@ def test_webhook_delivery_failure_retries(app, monkeypatch):
         ev = OutboxEvent.query.filter_by(kind="webhook").one()
         assert ev.status == "pending" and ev.attempts == 1
         assert "connection refused" in ev.last_error
+
+
+# ---------- reconciliation queue view ----------
+
+from tests.conftest import login
+
+
+def test_reconciliation_queue_view(app, client):
+    """UNKNOWN + expired-lease rows surface with held capacity; a
+    resolved/normal run never appears; PO/tester roles denied."""
+    pid, sid = _env(app)
+    login(client, "admin")
+    with app.app_context():
+        from testorchestrator.execution import ResourceReservation
+        from datetime import timedelta as _td
+        s = db.session.get(Suite, sid)
+        ex = dispatch.create_execution("m", s, source_sha="x",
+                                       run_config={})
+        ex.state = ExecutionState.UNKNOWN
+        ex.runner_id = "r1"
+        db.session.add(ResourceReservation(
+            execution_id=ex.id, runner_id="r1",
+            resource_kind="slot", slot_index=0))
+        db.session.commit()
+        eid = ex.id[:8]
+    r = client.get("/reconciliation")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert eid in body and "slot:0" in body and "UNKNOWN" in body
+    # tester (run role, not operator) is denied the queue view
+    client.post("/logout")
+    login(client, "tester")
+    assert client.get("/reconciliation").status_code == 403

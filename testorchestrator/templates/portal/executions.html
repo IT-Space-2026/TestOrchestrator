@@ -3,6 +3,10 @@
 {% block content %}
 <p><a class="button ghost sm" href="{{ url_for('portal.projects') }}">← Back to projects</a></p>
 <h1>Executions</h1>
+{% if current_user.is_admin or current_user.role.value == 'test_manager' %}
+<p><a class="button secondary sm" href="{{ url_for('portal.reconciliation') }}">Reconciliation queue</a>
+<span class="muted">— ambiguous executions holding runner capacity</span></p>
+{% endif %}
 
 <form method="get" class="filter-bar card">
   <div class="field"><label for="q">ID prefix</label>
