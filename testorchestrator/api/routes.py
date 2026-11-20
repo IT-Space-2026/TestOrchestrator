@@ -272,6 +272,59 @@ def download_artifact(execution_id, artifact_id):
                      download_name=target.name, as_attachment=True)
 
 
+@api_bp.route("/executions/<execution_id>/manifest")
+@api_token_required()
+def get_manifest(execution_id):
+    """Sealed evidence index + live re-verification.
+
+    Returns the recorded manifest.json plus a `verification` block
+    that re-hashes every listed artifact file NOW — ok / mismatch /
+    missing per file — so a pipeline can prove the evidence it
+    fetched is exactly what the run produced."""
+    ex = _scope_execution(db.session.get(Execution, execution_id))
+    root = Path(ex.report_dir or "")
+    path = (root / "manifest.json")
+    doc = None
+    if path.is_file():
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            doc = None
+    if doc is None:
+        # Manifest predates this run's evidence layout (or was pruned
+        # with its directory) — rebuild the same shape from the
+        # registered artifact rows instead of inventing content.
+        rows = Artifact.query.filter_by(execution_id=ex.id).all()
+        if not rows:
+            return _error(404, "manifest", "no evidence manifest")
+        doc = {"schema": "to-evidence-manifest/1",
+               "execution_id": ex.id, "generated_at": None,
+               "deployed_rev": None, "dispatch_id": ex.dispatch_id,
+               "bb_slot": ex.bb_slot,
+               "rebuilt_from_registry": True,
+               "artifacts": [{
+                   "rel_path": a.rel_path, "kind": a.kind,
+                   "sha256": a.sha256, "size": a.size, "mime": a.mime,
+                   "mapped": a.mapped,
+               } for a in sorted(rows, key=lambda r: r.rel_path)]}
+    from ..results import sha256_file
+    verification = {"ok": 0, "mismatch": [], "missing": []}
+    for item in doc.get("artifacts", []):
+        target = (root / item["rel_path"]).resolve()
+        if not str(target).startswith(str(root.resolve()) + "/"):
+            verification["missing"].append(item["rel_path"])
+            continue
+        if not target.is_file():
+            verification["missing"].append(item["rel_path"])
+            continue
+        if sha256_file(target) != item["sha256"]:
+            verification["mismatch"].append(item["rel_path"])
+            continue
+        verification["ok"] += 1
+    doc["verification"] = verification
+    return jsonify(manifest=doc)
+
+
 @api_bp.route("/executions/<execution_id>/cancel", methods=["POST"])
 @api_token_required(write=True)
 def cancel(execution_id):

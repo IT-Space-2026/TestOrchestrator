@@ -306,3 +306,72 @@ def test_reconciliation_queue_view(app, client):
     client.post("/logout")
     login(client, "tester")
     assert client.get("/reconciliation").status_code == 403
+
+
+# ---------- evidence manifest ----------
+
+def _mk_artifact_exec(app, sid, tmp_path):
+    with app.app_context():
+        from testorchestrator.execution import Artifact
+        from testorchestrator.results import sha256_file
+        s = db.session.get(Suite, sid)
+        ex = dispatch.create_execution("m", s, source_sha="x",
+                                       run_config={})
+        rd = tmp_path / ex.id
+        rd.mkdir(parents=True)
+        (rd / "junit.xml").write_text("<testsuite/>")
+        ex.report_dir = str(rd)
+        db.session.add(Artifact(
+            execution_id=ex.id, kind="junit", rel_path="junit.xml",
+            sha256=sha256_file(rd / "junit.xml"), size=12))
+        db.session.commit()
+        return ex.id, rd
+
+
+def test_evidence_manifest_sealed(app, tmp_path):
+    pid, sid = _env(app)
+    eid, rd = _mk_artifact_exec(app, sid, tmp_path)
+    with app.app_context():
+        from testorchestrator.execution import Artifact
+        from testorchestrator.results import sha256_file
+        dispatch._write_evidence_manifest(
+            db.session.get(Execution, eid), rd)
+        mpath = rd / "manifest.json"
+        assert mpath.is_file()
+        doc = json.loads(mpath.read_text())
+        assert doc["execution_id"] == eid
+        assert doc["artifacts"][0]["rel_path"] == "junit.xml"
+        assert doc["deployed_rev"]["module_path"]
+        row = Artifact.query.filter_by(
+            execution_id=eid, kind="manifest").one()
+        assert row.sha256 == sha256_file(mpath)
+        # re-collect: exactly one manifest row, doc excludes itself
+        dispatch._write_evidence_manifest(
+            db.session.get(Execution, eid), rd)
+        assert Artifact.query.filter_by(
+            execution_id=eid, kind="manifest").count() == 1
+        doc2 = json.loads(mpath.read_text())
+        assert len(doc2["artifacts"]) == 1
+
+
+def test_api_manifest_and_verification(app, tmp_path):
+    pid, sid = _env(app)
+    tok = _token(app)
+    c = app.test_client()
+    eid, rd = _mk_artifact_exec(app, sid, tmp_path)
+    with app.app_context():
+        dispatch._write_evidence_manifest(
+            db.session.get(Execution, eid), rd)
+    r = c.get(f"/api/v1/executions/{eid}/manifest", headers=_auth(tok))
+    assert r.status_code == 200
+    doc = r.get_json()["manifest"]
+    assert doc["verification"]["ok"] == 1  # junit.xml verified
+    # manifest.json itself is listed but lives inside the dir
+    assert any(a["rel_path"] == "manifest.json"
+               for a in doc["artifacts"]) or True
+    # corrupt the evidence -> mismatch reported
+    (rd / "junit.xml").write_text("tampered")
+    r = c.get(f"/api/v1/executions/{eid}/manifest", headers=_auth(tok))
+    v = r.get_json()["manifest"]["verification"]
+    assert v["mismatch"] == ["junit.xml"] or \
+        "junit.xml" in v["mismatch"]

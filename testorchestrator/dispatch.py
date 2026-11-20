@@ -1428,20 +1428,24 @@ def _snapshot_suite_path(ex: Execution) -> str:
 
 def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
     """Evidence collection: JUnit discovery + manifest with checksums;
-    every file is registered, unmapped files stay at run level (§9)."""
+    every file is registered, unmapped files stay at run level (§9).
+    Runner logs are mirrored INTO the evidence root so every rel_path
+    resolves under report_dir — a logs/ entry is never registered for
+    a file the download path cannot reach."""
+    logs_in = report_dir / "logs"
+    try:
+        for log_path in sorted(log_dir.glob("kre-*.log")):
+            logs_in.mkdir(parents=True, exist_ok=True)
+            (logs_in / log_path.name).write_bytes(log_path.read_bytes())
+    except OSError:
+        pass  # log mirroring is best-effort; producers keep log_dir
     junit_files = set(kre_adapter.discover_reports(report_dir))
     manifest = results_mod.build_evidence_manifest(report_dir, junit_files)
-    # Runner logs are evidence too — including the recorded argv.
-    for log_path in sorted(log_dir.glob("kre-*.log")):
-        manifest.append({
-            "rel_path": f"logs/{log_path.name}",
-            "kind": "log",
-            "sha256": results_mod.sha256_file(log_path),
-            "size": log_path.stat().st_size,
-            "mime": "text/plain",
-            "active_content": False,
-        })
     for item in manifest:
+        if item["rel_path"] == "manifest.json":
+            continue  # sealed index — rewritten+registered separately
+        if item["rel_path"].startswith("logs/"):
+            item["kind"] = "log"
         db.session.add(Artifact(
             execution_id=ex.id,
             kind=item["kind"], rel_path=item["rel_path"],
@@ -1449,6 +1453,7 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             mapped=item["kind"] == "junit",
         ))
     db.session.commit()
+    _write_evidence_manifest(ex, report_dir)
     # Local-report status is tracked separately from state/outcome.
     try:
         from . import reporting
@@ -1458,6 +1463,50 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             reporting.refresh_failed(ex, exc)
         except Exception:
             pass  # reporting must never break the execution pipeline
+
+
+def _write_evidence_manifest(ex: Execution, report_dir: Path) -> None:
+    """Sealed evidence index: manifest.json lands INSIDE the report
+    dir listing every registered artifact (path/kind/sha256/size) plus
+    execution identity + deployed source state — then it is registered
+    as an artifact itself, so the standard checksum contract covers
+    the manifest too. Tampering with any artifact OR the manifest
+    breaks a recorded hash; deletion removes both honestly."""
+    try:
+        rows = [a for a in Artifact.query.filter_by(
+            execution_id=ex.id).all() if a.kind != "manifest"]
+        from .deploy_info import deployed_revision
+        snap = ex.snapshot()
+        doc = {
+            "schema": "to-evidence-manifest/1",
+            "execution_id": ex.id,
+            "generated_at": utcnow().isoformat(),
+            "deployed_rev": deployed_revision(),
+            "dispatch_id": ex.dispatch_id,
+            "bb_slot": ex.bb_slot,
+            "attempts": snap.get("bb_attempts", []),
+            "artifacts": [{
+                "rel_path": a.rel_path, "kind": a.kind,
+                "sha256": a.sha256, "size": a.size, "mime": a.mime,
+                "mapped": a.mapped,
+            } for a in sorted(rows, key=lambda r: r.rel_path)],
+        }
+        path = report_dir / "manifest.json"
+        path.write_text(json.dumps(doc, indent=2, sort_keys=True),
+                        encoding="utf-8")
+        Artifact.query.filter_by(execution_id=ex.id,
+                                 kind="manifest").delete()
+        db.session.add(Artifact(
+            execution_id=ex.id, kind="manifest",
+            rel_path="manifest.json",
+            sha256=results_mod.sha256_file(path),
+            size=path.stat().st_size, mime="application/json",
+            mapped=False))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            "evidence manifest write failed for %s", ex.id)
 
 
 def _same_report_source(a: str, b: str) -> bool:
