@@ -13,6 +13,7 @@ The trusted public key lives outside the payload at TO_UPDATE_KEY.
 
 import hashlib
 import json
+import os
 import shutil
 import tarfile
 from datetime import datetime, timezone
@@ -219,7 +220,39 @@ def recover(backup_tar: Path, target_dir: Path) -> dict:
             if not names:
                 raise UpdateError(
                     f"backup empty or unreadable: {backup_tar}")
-            tar.extractall(target_dir, filter="data")
+            member_set = set(names)
+
+            def _restore_filter(member, dest,
+                                _set=member_set):
+                # tarfile.data_filter refuses absolute links, but
+                # instances legitimately contain them (e.g. an
+                # installer-generated master.cfg symlink whose target
+                # is another file in the same backup). Rewrite such a
+                # link to its relative form — restored semantics stay
+                # identical and the link can never escape dest. A link
+                # pointing at nothing in the archive is machine-
+                # specific and is skipped rather than restored broken.
+                if member.islnk() or member.issym():
+                    link = member.linkname or ""
+                    if link.startswith("/") or \
+                            (len(link) > 1 and link[1] == ":"):
+                        parts = [p for p in link.replace(
+                            "\\", "/").split("/") if p not in ("", ".")]
+                        cand = None
+                        for i in range(len(parts)):
+                            c = "/".join(parts[i:])
+                            if c in _set:
+                                cand = c
+                                break
+                        if cand is None:
+                            return None
+                        rel = os.path.relpath(
+                            cand, os.path.dirname(member.name) or ".")
+                        member = member.replace(
+                            linkname=rel, deep=False)
+                return tarfile.data_filter(member, dest)
+
+            tar.extractall(target_dir, filter=_restore_filter)
     except (tarfile.TarError, EOFError, OSError) as exc:
         raise UpdateError(
             f"backup archive unreadable/incomplete: {exc}") from exc

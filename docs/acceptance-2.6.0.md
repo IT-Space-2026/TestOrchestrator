@@ -208,13 +208,48 @@ not yet clean-package):
   UI files, `test_cancel_kills_process_tree` pgrep-flake vs live
   `slow-kre` from SSH run `3891f37d`).
 
+## Reconciliation UI + manifests — live verified (12:47–13:04)
+
+- `/reconciliation` admin view lists ambiguous executions (UNKNOWN /
+  stale-cancel / orphaned-DISPATCHED) with held capacity + age; real
+  UNKNOWN row `4613887f` rendered (commit `adc7945`).
+- Sealed evidence manifests: `_collect` writes `manifest.json` into
+  report_dir, registers it `kind=manifest`; API
+  `GET /executions/<id>/manifest` re-verifies every listed file
+  (existence + root-containment + SHA-256).
+- **Bug found + fixed** (`c7642ac`): `kre-*.log` artifacts registered
+  as `logs/…` relative to report_dir but stored under workspace root —
+  permanently undownloadable (404). `_collect` now mirrors logs into
+  `report_dir/logs/`; live re-run `1e2edef6`: 3 artifacts, 0
+  missing/mismatched, log download 200.
+- History matrices (commit `cf1e932`): `/suites/<id>/matrix` and
+  `/discovered/<id>/matrix` — case_ref rows × 15 recent terminal
+  executions; flaky rows and persistent failures ranked first; skips
+  stay skips, unresolved marked. Live item `406c580c`: 15 execs,
+  real case rows.
+
+## Backup/restore — live verified (13:06–13:09)
+
+- `backup_state` on the live instance → `backup-20261120T120654Z.tar.gz`.
+- **Bug found + fixed**: instance contains an installer-generated
+  absolute symlink (`buildbot/master/master.cfg` →
+  `/abs/…/data/buildbot/master.cfg`); `tarfile` `data` filter rejects
+  absolute links → backups were unrestorable. `recover` now rewrites
+  absolute links that resolve inside the archive to relative form and
+  skips links pointing outside it.
+- Live restore: 11,142 members extracted; table counts match exactly —
+  executions 816, test_results 722, artifacts 2927, users 1, runners 2,
+  schedules 7; link restored as relative `../master.cfg`; restored
+  instance boots (`create_app`) with secret store intact.
+- Regression coverage: `test_absolute_symlink_restored_relative`,
+  `test_absolute_link_to_outside_member_skipped` (+14 existing).
+
 ## Open
 - ~~Worker PB-loss retry/orphan correctness~~ — **resolved**; see
   "PB-loss resolution — implemented + re-verified" above.
 - Windows matrix: Robot + pytest on a real Windows host — release
   blocker, unverified (no host).
-- Representative 2.5.1 upgrade + restore acceptance.
-- Remaining release milestones: reconciliation UI, history/matrices,
-  CI APIs/webhooks, artifact lifecycle, maintenance controls,
-  dashboards/docs; final clean-package eight-combination smoke
-  matrix.
+- Representative 2.5.1 upgrade acceptance (backup/restore verified
+  above; a real 2.5.1→2.6.0 instance upgrade remains).
+- Final clean-package eight-combination smoke matrix — pending all
+  blockers.
