@@ -763,3 +763,19 @@ def test_exec_spec_posix_flag():
     assert s["posix"] is False
     s = buildbot_cfg.node_exec_spec(None, "npx", ["x"])
     assert s["posix"] is True
+
+
+def test_execution_snapshot_records_deployed_rev(app):
+    """Every evidence row carries the exact deployed code it ran on —
+    module path + git state, so a stale-tree process can't pass as a
+    synchronized deployment in the ledger."""
+    sid = _env(app)
+    with app.app_context():
+        ex = dispatch.create_execution(
+            "u", db.session.get(Suite, sid), source_sha="x",
+            run_config={})
+        rev = ex.snapshot()["deployed_rev"]
+        assert rev["module_path"].endswith("testorchestrator")
+        # the repo checkout resolves a git head and branch
+        assert len(rev["git_head"]) == 40
+        assert rev["git_branch"]

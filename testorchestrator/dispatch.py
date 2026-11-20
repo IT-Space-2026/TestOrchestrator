@@ -303,6 +303,11 @@ def create_execution(username: str, suite: Suite = None,
                 and _rt.runner.target_type in (
                     "local", "buildbot-worker", "ssh"):
             snapshot["dispatch_transport"] = "buildbot"
+    # Every evidence row carries the exact deployed code it ran on —
+    # module path + git state catches stale-tree mismatches where the
+    # running process is not the tree acceptance believes was tested.
+    from . import deploy_info
+    snapshot["deployed_rev"] = deploy_info.deployed_revision()
     snapshot.update(extra_snapshot or {})
     execution = Execution(
         project_id=project_id,

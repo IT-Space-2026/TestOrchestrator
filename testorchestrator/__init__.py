@@ -406,6 +406,26 @@ def register_cli(app: Flask) -> None:
                     f"Buildbot health check failed: {exc}")
             click.echo(f"health: masters={info.get('masters')}")
 
+    @app.cli.command("diag")
+    @click.option("--root", default="",
+                  help="install root to compare payload tree against "
+                       "(default: cwd)")
+    def diag(root):
+        """Deployed-revision diagnostic: the exact code this process
+        imported vs the payload tree deploys write to. Catches the
+        stale-tree mismatch where a deployment is a no-op for the
+        running services — run this before recording acceptance
+        evidence."""
+        import json as _json
+        from . import deploy_info
+        info = deploy_info.diagnose(Path(root) if root else None)
+        click.echo(_json.dumps(info, indent=2))
+        if info["mismatch"]:
+            raise click.ClickException(
+                "deployed-revision mismatch — running code is NOT the "
+                "payload tree; sync both trees and restart before "
+                "recording evidence")
+
     @app.cli.command("network-rollback")
     def network_rollback():
         """Local recovery: restore the last known good network
