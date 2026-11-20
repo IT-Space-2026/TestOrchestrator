@@ -1051,3 +1051,17 @@ body.modal-open{overflow:hidden}
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--bg); color: var(--fg); }
 .users-actions { justify-content: flex-end; }
+/* System → Users table — designed treatment on the shared audit-table */
+.users-table thead th {
+  background: rgba(26,86,219,.06);
+  color: var(--accent);
+  border-bottom: 2px solid var(--border);
+  padding: .65rem .8rem;
+}
+.users-table td { padding: .65rem .8rem; }
+.users-table tbody tr:first-child td { border-top: none; }
+.users-table tbody tr:hover td { background: rgba(26,86,219,.04); }
+@media (prefers-color-scheme: dark) {
+  .users-table thead th { background: rgba(109,155,245,.10); }
+  .users-table tbody tr:hover td { background: rgba(109,155,245,.07); }
+}

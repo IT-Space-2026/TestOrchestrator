@@ -10,7 +10,7 @@
 {% endwith %}
 
 <section class="card">
-  <table class="audit-table">
+  <table class="audit-table users-table">
     <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Project access</th><th>Actions</th></tr></thead>
     <tbody>
       {% for u in users %}
@@ -23,7 +23,8 @@
           {% else %}<span class="badge danger">disabled</span>{% endif %}
           {% if u.must_change_password %}<span class="badge warn">must change</span>{% endif %}
         </td>
-        <td class="cell-actions">
+        <td>
+          <div class="cell-actions">
           {% if u.role.value == "admin" %}
             <span class="muted">All projects <small>(via role)</small></span>
           {% elif u.assigned_project_ids() %}
@@ -32,8 +33,10 @@
             <span class="badge warn">none assigned</span>
           {% endif %}
           <a class="button ghost sm" href="{{ url_for('system.user_access', user_id=u.id) }}">Edit</a>
+          </div>
         </td>
-        <td class="cell-actions users-actions">
+        <td>
+          <div class="cell-actions users-actions">
           <form method="post" action="{{ url_for('system.reset_user', user_id=u.id) }}" class="inline">
             {{ reset_form.csrf_token }}
             <input type="password" name="temporary_password" minlength="12"
@@ -51,6 +54,7 @@
             {{ apply_form.csrf_token }}
             <button type="submit" class="button danger sm">Delete</button>
           </form>
+          </div>
         </td>
       </tr>
       {% endfor %}
