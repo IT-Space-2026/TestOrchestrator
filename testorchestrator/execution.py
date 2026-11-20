@@ -469,6 +469,15 @@ class Execution(db.Model):
     # a QUEUED execution past it fails with an explicit queue reason.
     queue_deadline_at = db.Column(db.DateTime(timezone=True),
                                   nullable=True)
+    # CI API idempotency: a client-supplied reference; a repeated POST
+    # with the same (token, client_ref) returns this execution instead
+    # of double-launching — same contract as SubmitToken for the UI.
+    client_ref = db.Column(db.String(128), nullable=False, default="",
+                           index=True)
+    # Webhook fan-out marker: set once every enabled endpoint has been
+    # enqueued for this execution's terminal/UNKNOWN state — durable so
+    # a crash between transition and enqueue is retried, never lost.
+    notified_at = db.Column(db.DateTime(timezone=True), nullable=True)
     # Report publication to the bound source repo
     # (TestOrchestrator/Reports/<execution-id>/ at repo ROOT) —
     # distinct from evidence export and from the test outcome.
@@ -665,6 +674,61 @@ class SubmitToken(db.Model):
     __table_args__ = (db.UniqueConstraint(
         "schedule_id", "username", "token",
         name="uq_submit_tokens"),)
+
+
+class ApiToken(db.Model):
+    """CI/CD API credential (§12). Only a SHA-256 of the token is
+    persisted — the bearer value is shown once at creation and is
+    unrecoverable afterwards. Revocation is a tombstone: the row
+    survives for audit, the credential stops working immediately."""
+    __tablename__ = "api_tokens"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    name = db.Column(db.String(128), nullable=False)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True)
+    # Portal-equivalent capability tier: 'read' (poll status/results)
+    # or 'run' (additionally trigger/cancel/retry). Tokens are never
+    # admin — infrastructure/secrets/users stay UI-only.
+    scope = db.Column(db.String(16), nullable=False, default="read")
+    # Same project-scoping contract as User.allowed_projects.
+    allowed_projects = db.Column(db.Text, nullable=False, default="[]")
+    created_by = db.Column(db.String(64), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    last_used_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    revoked_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    def project_allowed(self, project_id: str) -> bool:
+        allowed = json.loads(self.allowed_projects or "[]")
+        return not allowed or project_id in allowed
+
+
+class WebhookEndpoint(db.Model):
+    """Outbound notification subscription (§integrations). Matching
+    executions are delivered via the durable outbox — a subscriber
+    outage retries with backoff, never drops the event silently.
+    `secret_ref` names a SecretRef (kind 'webhook') holding the HMAC
+    key; the key bytes never appear in this row, logs, or audit."""
+    __tablename__ = "webhook_endpoints"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    name = db.Column(db.String(128), nullable=False)
+    url = db.Column(db.String(1024), nullable=False)
+    # Comma-separated execution states to notify on — e.g.
+    # "completed,failed,canceled"; 'unknown' is opt-in.
+    events = db.Column(db.String(256), nullable=False,
+                      default="completed,failed,canceled")
+    secret_ref = db.Column(db.String(64), nullable=False, default="")
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    # Empty = all projects; otherwise JSON list of project ids.
+    project_scope = db.Column(db.Text, nullable=False, default="[]")
+    created_by = db.Column(db.String(64), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    def event_set(self) -> set:
+        return {e.strip().lower() for e in self.events.split(",")
+                if e.strip()}
+
+    def project_allowed(self, project_id: str) -> bool:
+        allowed = json.loads(self.project_scope or "[]")
+        return not allowed or project_id in allowed
 
 
 class DiscoveredItem(db.Model):

@@ -54,6 +54,115 @@ git_export_ref: main</pre></details>
   <p><button class="button" type="submit">Save integration settings</button></p>
 </form>
 
+<section class="card">
+  <h2>CI API tokens</h2>
+  <p class="muted">Bearer credentials for the <code>/api/v1</code>
+    automation surface (trigger runs, poll status, fetch results and
+    evidence). Only a hash is stored — the token is shown once at
+    creation. Scope <code>read</code> polls; <code>run</code>
+    additionally triggers, cancels, and retries. Project scoping works
+    exactly like user project scope.</p>
+  {% if api_tokens %}
+  <table>
+    <tr><th>Name</th><th>Scope</th><th>Projects</th><th>Created</th>
+        <th>Last used</th><th></th></tr>
+    {% for t in api_tokens %}
+    <tr>
+      <td>{{ t.name }}</td>
+      <td>{{ t.scope }}</td>
+      <td>{{ t.allowed_projects if t.allowed_projects != '[]' else 'all' }}</td>
+      <td>{{ t.created_at }}</td>
+      <td>{{ t.last_used_at or '—' }}</td>
+      <td>{% if not t.revoked_at %}
+        <form method="post" style="display:inline"
+              action="{{ url_for('system.revoke_api_token', token_id=t.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="button secondary" type="submit">Revoke</button>
+        </form>
+      {% else %}revoked {{ t.revoked_at }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  <form method="post" action="{{ url_for('system.create_api_token') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label>Name<br>
+      <input type="text" name="name" size="30" required
+             placeholder="ci-pipeline"></label></div>
+    <div class="field"><label>Scope<br>
+      <select name="scope">
+        <option value="read">read — poll status/results</option>
+        <option value="run">run — also trigger/cancel/retry</option>
+      </select></label></div>
+    <div class="field"><label>Project scope <span class="muted">(none selected = all)</span><br>
+      {% for p in projects %}
+      <label class="inline"><input type="checkbox" name="project_ids"
+             value="{{ p.id }}"> {{ p.name }}</label>
+      {% endfor %}</label></div>
+    <button class="button" type="submit">Create token</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Webhooks — execution notifications</h2>
+  <p class="muted">HTTP POST subscribers for execution state changes.
+    Delivery is durable (outbox with backoff); payloads carry
+    <code>X-TO-Event</code> and, when signed, an
+    <code>X-TO-Signature: sha256=…</code> HMAC of the body. Event names
+    are execution states: completed, failed, canceled, unknown.</p>
+  {% if webhooks %}
+  <table>
+    <tr><th>Name</th><th>URL</th><th>Events</th><th>Signed</th>
+        <th>Enabled</th><th></th></tr>
+    {% for w in webhooks %}
+    <tr>
+      <td>{{ w.name }}</td>
+      <td>{{ w.url }}</td>
+      <td>{{ w.events }}</td>
+      <td>{{ 'yes' if w.secret_ref else 'no' }}</td>
+      <td>{{ 'yes' if w.enabled else 'no' }}</td>
+      <td>
+        <form method="post" style="display:inline"
+              action="{{ url_for('system.toggle_webhook', endpoint_id=w.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="button secondary" type="submit">
+            {{ 'Disable' if w.enabled else 'Enable' }}</button>
+        </form>
+        <form method="post" style="display:inline"
+              action="{{ url_for('system.delete_webhook', endpoint_id=w.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="button secondary" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  <form method="post" action="{{ url_for('system.create_webhook') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field"><label>Name<br>
+      <input type="text" name="name" size="30" required
+             placeholder="ci-notify"></label></div>
+    <div class="field"><label>URL<br>
+      <input type="url" name="url" size="46" required
+             placeholder="https://ci.example/hooks/testorchestrator"></label></div>
+    <div class="field"><label>Events<br>
+      <input type="text" name="events" size="46"
+             value="completed,failed,canceled"></label>
+      <small>Comma-separated states; add <code>unknown</code> to also
+        hear about reconciled-ambiguous runs.</small></div>
+    <div class="field"><label>Project scope <span class="muted">(none selected = all)</span><br>
+      {% for p in projects %}
+      <label class="inline"><input type="checkbox" name="project_ids"
+             value="{{ p.id }}"> {{ p.name }}</label>
+      {% endfor %}</label></div>
+    <div class="field"><label class="inline">
+      <input type="checkbox" name="sign" value="1" checked>
+      Sign payloads (generated HMAC key, stored encrypted)</label></div>
+    <button class="button" type="submit">Create webhook</button>
+  </form>
+</section>
+
 <p class="muted">Reporting is configured under
 <a href="{{ url_for('system.reporting_page') }}">System → Reporting</a>;
 network/bind settings under

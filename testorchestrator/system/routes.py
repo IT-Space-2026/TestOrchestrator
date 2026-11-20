@@ -308,11 +308,133 @@ def reporting_page():
 @system_bp.route("/integrations")
 @role_required(Role.ADMIN)
 def integrations_page():
-    """Subsystem-separated integration config (Git evidence export).
-    Each section is its own labelled card; secrets are referenced by
-    name only."""
-    return render_template("system/integrations.html",
-                           settings=settings_mod.all_settings())
+    """Subsystem-separated integration config (Git evidence export,
+    CI API tokens, webhook endpoints). Each section is its own
+    labelled card; secrets are referenced by name only."""
+    from ..execution import ApiToken, Project, WebhookEndpoint
+    return render_template(
+        "system/integrations.html",
+        settings=settings_mod.all_settings(),
+        api_tokens=ApiToken.query.order_by(ApiToken.created_at).all(),
+        webhooks=WebhookEndpoint.query.order_by(
+            WebhookEndpoint.created_at).all(),
+        projects=Project.query.order_by(Project.name).all())
+
+
+@system_bp.route("/integrations/tokens", methods=["POST"])
+@role_required(Role.ADMIN)
+def create_api_token():
+    """Mint a CI bearer credential. The plaintext token is shown ONCE
+    via flash — only its SHA-256 is stored; loss means re-mint."""
+    import hashlib
+    import json as _json
+    import secrets as _secrets
+    from ..execution import ApiToken
+    name = (request.form.get("name") or "").strip()
+    scope = request.form.get("scope") or "read"
+    if not name or scope not in ("read", "run"):
+        flash("Token name and a valid scope (read|run) are required.",
+              "error")
+        return redirect(url_for("system.integrations_page"))
+    projects = _json.dumps(request.form.getlist("project_ids"))
+    token = "to_" + _secrets.token_hex(24)
+    row = ApiToken(name=name, scope=scope, allowed_projects=projects,
+                   token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                   created_by=current_user.username)
+    db.session.add(row)
+    db.session.commit()
+    record_audit(current_user.username, "api.token.created",
+                 f"{name} scope={scope}")
+    flash(f"API token for {name!r} — store it now, it will not be "
+          f"shown again: {token}", "info")
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/tokens/<token_id>/revoke",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def revoke_api_token(token_id):
+    from ..execution import ApiToken, utcnow
+    row = db.session.get(ApiToken, token_id)
+    if row is None:
+        abort(404)
+    if row.revoked_at is None:
+        row.revoked_at = utcnow()
+        db.session.commit()
+        record_audit(current_user.username, "api.token.revoked", row.name)
+        flash(f"Token {row.name!r} revoked.", "info")
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/webhooks", methods=["POST"])
+@role_required(Role.ADMIN)
+def create_webhook():
+    """Subscribe a URL to execution-state notifications. The optional
+    HMAC key is generated into the encrypted secret store — the
+    endpoint row only references its name."""
+    import json as _json
+    import secrets as _secrets
+    from ..execution import WebhookEndpoint
+    from .. import secrets_store
+    name = (request.form.get("name") or "").strip()
+    url = (request.form.get("url") or "").strip()
+    events = ",".join(e.strip().lower() for e in
+                      (request.form.get("events") or "").split(",")
+                      if e.strip()) or "completed,failed,canceled"
+    if not name or not url.startswith(("http://", "https://")):
+        flash("Webhook name and an http(s) URL are required.", "error")
+        return redirect(url_for("system.integrations_page"))
+    ep = WebhookEndpoint(
+        name=name, url=url, events=events,
+        project_scope=_json.dumps(request.form.getlist("project_ids")),
+        created_by=current_user.username)
+    db.session.add(ep)
+    db.session.flush()
+    if request.form.get("sign"):
+        ref = f"webhook-{ep.id[:12]}"
+        secrets_store.store_secret(current_app, ref, "webhook",
+                                   _secrets.token_hex(32))
+        ep.secret_ref = ref
+    db.session.commit()
+    record_audit(current_user.username, "webhook.endpoint.created",
+                 f"{name} -> {url} events={events}")
+    flash(f"Webhook {name!r} created.", "info")
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/webhooks/<endpoint_id>/toggle",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def toggle_webhook(endpoint_id):
+    from ..execution import WebhookEndpoint
+    ep = db.session.get(WebhookEndpoint, endpoint_id)
+    if ep is None:
+        abort(404)
+    ep.enabled = not ep.enabled
+    db.session.commit()
+    record_audit(current_user.username,
+                 "webhook.endpoint." + ("enabled" if ep.enabled
+                                        else "disabled"), ep.name)
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/webhooks/<endpoint_id>/delete",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def delete_webhook(endpoint_id):
+    from ..execution import WebhookEndpoint
+    from .. import secrets_store
+    ep = db.session.get(WebhookEndpoint, endpoint_id)
+    if ep is None:
+        abort(404)
+    if ep.secret_ref:
+        secrets_store.delete_secret(ep.secret_ref)
+    db.session.delete(ep)
+    db.session.commit()
+    record_audit(current_user.username, "webhook.endpoint.deleted",
+                 ep.name)
+    flash(f"Webhook {ep.name!r} deleted.", "info")
+    return redirect(url_for("system.integrations_page"))
 
 
 @system_bp.route("/integrations/save", methods=["POST"])

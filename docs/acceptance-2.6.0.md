@@ -177,6 +177,37 @@ not yet clean-package):
   `test_misfire_skip_policy`, `test_reservations_*`,
   `test_queue_deadline_*` (63 passed).
 
+## CI API + webhooks — live verified (12:26–12:30)
+
+`/api/v1` bearer-token surface + durable outbound notifications
+(migration `z8a9b0c1d2e3`; token `ci-live-check` scope `run`):
+
+- `POST /api/v1/executions` → `abca0eac` created from discovered item
+  `pyxpar59`, `client_ref="ci-live-001"` persisted, `deployed_rev`
+  stamped in response.
+- Idempotent replay: identical `client_ref` POST returned the SAME
+  execution id with `idempotent_replay=true` — no double-launch.
+- `GET /executions/<id>` → `dispatched`, `bb_slot=0`,
+  `attempts=[{buildid:796, number:122}]` — Buildbot attempt chain
+  visible through the API.
+- Run completed PASSED; `_enqueue_terminal_notifications` fanned out;
+  `webhook` outbox events delivered to a local receiver with
+  `X-TO-Event: execution.completed` + `X-TO-Signature: sha256=…`
+  (HMAC key in the encrypted secret store — never inline).
+- Two deliveries = two genuinely-terminal executions (`68e44b0a` SSH
+  + `abca0eac`) — not a double-enqueue; `notified_at` stamps prevent
+  re-fan-out, and zero-endpoint sweeps mark executions so
+  later-created endpoints never replay history. Upgrade backfills
+  `notified_at` for already-terminal rows.
+- Regression coverage: `tests/test_api_ci.py` (10) — auth 401s,
+  read-vs-run scope, project scoping (403 trigger / invisible read),
+  cancel, retry-chain, cases/artifacts, enqueue filter+scope,
+  signed delivery, retry-on-failure.
+- CSRF exemption scoped to `api_bp` only (bearer, no cookies).
+- Full suite: 734 passed (env-blocked: licence-key file, 2 Playwright
+  UI files, `test_cancel_kills_process_tree` pgrep-flake vs live
+  `slow-kre` from SSH run `3891f37d`).
+
 ## Open
 - ~~Worker PB-loss retry/orphan correctness~~ — **resolved**; see
   "PB-loss resolution — implemented + re-verified" above.

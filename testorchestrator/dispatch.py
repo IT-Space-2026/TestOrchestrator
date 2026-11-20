@@ -2028,8 +2028,97 @@ def _handle_event(event: OutboxEvent) -> None:
             runner.heartbeat_at = utcnow()
             runner.health = "ok"
             db.session.commit()
+    elif event.kind == "webhook":
+        _deliver_webhook(payload["endpoint_id"], payload["execution_id"])
     else:
         raise DispatchError(f"unknown outbox kind {event.kind!r}")
+
+
+def _deliver_webhook(endpoint_id: str, execution_id: str) -> None:
+    """POST one execution's terminal notification to one subscriber.
+    Any failure raises — the outbox retry/backoff owns the record;
+    a non-2xx is an error, never a silent drop. The HMAC signature
+    lets the subscriber verify authenticity without a shared
+    channel: X-TO-Signature = sha256=<hmac(body, key)>."""
+    import hmac as _hmac
+    import urllib.request as _req
+    from .execution import WebhookEndpoint
+    ep = db.session.get(WebhookEndpoint, endpoint_id)
+    ex = db.session.get(Execution, execution_id)
+    if ep is None or not ep.enabled or ex is None:
+        return  # endpoint deleted/disabled or exec gone — nothing owed
+    body = json.dumps({
+        "event": f"execution.{ex.state.value.lower()}",
+        "execution_id": ex.id,
+        "state": ex.state.value,
+        "outcome": ex.outcome.value if ex.outcome else None,
+        "project_id": ex.project_id,
+        "suite_id": ex.suite_id,
+        "framework": ex.framework,
+        "runner_id": ex.runner_id,
+        "created_at": ex.created_at.isoformat() if ex.created_at else None,
+        "finished_at": ex.finished_at.isoformat() if ex.finished_at else None,
+        "error_kind": ex.error_kind,
+        "error_text": ex.error_text[:500],
+        "client_ref": ex.client_ref,
+    }).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-TO-Event": f"execution.{ex.state.value.lower()}",
+        "X-TO-Execution": ex.id,
+    }
+    if ep.secret_ref:
+        from . import secrets_store
+        from flask import current_app
+        try:
+            key = secrets_store.read_secret(current_app, ep.secret_ref)
+        except Exception:
+            key = ""
+        if key:
+            headers["X-TO-Signature"] = "sha256=" + _hmac.new(
+                key.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    req = _req.Request(ep.url, data=body, headers=headers,
+                     method="POST")
+    with _req.urlopen(req, timeout=15) as resp:
+        if resp.status >= 400:
+            raise DispatchError(
+                f"webhook {ep.name!r} returned HTTP {resp.status}")
+    record_audit("system", "webhook.delivered",
+                 f"{ep.name}: {ex.id} {ex.state.value}")
+
+
+def _enqueue_terminal_notifications() -> int:
+    """Fan-out sweep: terminal or UNKNOWN executions whose webhook
+    enqueue marker is unset get one outbox event per matching enabled
+    endpoint, then notified_at — durable, so a crash between the state
+    transition and this sweep retries instead of dropping the
+    notification. Runs in the worker loop; covers transitions made by
+    any process (reconciler, UI resolve, deadline sweep)."""
+    due = Execution.query.filter(
+        Execution.state.in_(_TERMINAL_STATES + [ExecutionState.UNKNOWN]),
+        Execution.notified_at.is_(None),
+    ).limit(50).all()
+    if not due:
+        return 0
+    from .execution import WebhookEndpoint
+    endpoints = WebhookEndpoint.query.filter_by(enabled=True).all()
+    n = 0
+    for ex in due:
+        state_name = ex.state.value.lower()
+        for ep in endpoints:
+            if state_name not in ep.event_set():
+                continue
+            if not ep.project_allowed(ex.project_id):
+                continue
+            db.session.add(OutboxEvent(
+                kind="webhook",
+                payload_json=json.dumps({
+                    "endpoint_id": ep.id,
+                    "execution_id": ex.id})))
+            n += 1
+        ex.notified_at = utcnow()
+    db.session.commit()
+    return n
 
 
 _TERMINAL_STATES = [
@@ -2448,6 +2537,7 @@ def worker_once() -> int:
           + enforce_plan_policies() + _resolve_unlaunched_cancels()
           + aggregate_parent_runs()
           + _release_terminal_reservations() + _expire_queue_deadlines()
+          + _enqueue_terminal_notifications()
           + _heartbeat_local_runners() + _redrive_queued_remote())
     return n
 

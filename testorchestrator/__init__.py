@@ -106,11 +106,14 @@ def create_app(config_object=Config) -> Flask:
     from .main import main_bp
     from .system import system_bp
     from .portal import portal_bp
+    from .api import api_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(system_bp)
     app.register_blueprint(portal_bp)
+    app.register_blueprint(api_bp)
+    csrf.exempt(api_bp)
     from .system.setup_routes import setup_bp
     app.register_blueprint(setup_bp)
 
