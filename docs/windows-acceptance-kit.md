@@ -55,6 +55,7 @@ Windows claims must come from this procedure on the packaged build.
 | W12 | Webhook | Terminal run with endpoint configured | `execution.completed/failed` delivered, HMAC-signed, `X-TO-Event` header present |
 | W13 | Paths with spaces | Configure worker basedir/workspace under `C:\TO Work\…` (or similar with spaces) and run one suite | COMPLETED; no argv/path quoting failure; artifacts upload from the spaced path |
 | W14 | Service account | Worker service runs under its service account (not interactive user); run one suite after reboot/logoff | Worker stays connected; run COMPLETED under the service account context |
+| W15 | Logging + export | On the Windows controller: run one suite, then Admin → Operational Logs + Audit Trail → Export CSV (one small, one over `logs_export_inline_max` → background job) | CSV downloads, UTF-8 + formula-protected cells correct; export file under `<instance>\log-exports` inherits the service-account ACL (not world-readable) — **this is the Windows file-protection evidence; the Linux `0600` test does not count**; audit rows show export request + download; with `logs_json_enabled` the NDJSON file rotates and lines parse |
 
 ## 4. Evidence to capture per row
 

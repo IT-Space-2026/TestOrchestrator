@@ -1,10 +1,9 @@
 # TestOrchestrator 2.6.0 — acceptance evidence ledger
 
 **Branch**: `feature/2.6.0-node-runners` (PR #4 — draft).
-**Current head at recording**: `52bbfeb` — ledger-only commit on top
-of `d6c14b3` (verified: `52bbfeb` changes only
-`docs/acceptance-2.6.0.md`). Logging-hardening work lands after it
-(new application revision — recorded at its own head below).
+**Current head at recording**: `f96fcc1` — logging hardening +
+cancellation-isolation fixes (application code) + ledger.
+**Application revision tested by Run F**: `f96fcc1`.
 **Application revision tested by Run E**: `d6c14b3`.
 **Earlier tested candidate**: `57445bc` (full-suite Run C below).
 Historical: all commits between `57445bc` and `34c2cca`…`adf4490` were
@@ -478,6 +477,17 @@ Review-driven fixes and evidence, all in this head's follow-up commit:
   persistence, then through CSV + JSONL + audit export. Pattern-based
   limits documented — not claimed to catch every secret.
 
+Run F — **batch full suite at `f96fcc1`** (hardening head; 7m37s):
+**817 passed, 1 failed, 1 skipped.** The sole failure is
+`test_production_key_auto_loaded` — the same external licence-issuer-
+key environmental blocker (absent `/tmp/to-license-issuer/
+private.pem`); still blocked, not passed. **Both
+`test_cancel_kills_process_tree` variants pass inside the batch** —
+the isolation fixes hold under batch conditions, with the live
+`c251-slow-kre` acceptance fixture running concurrently. The +10
+test delta vs Run E is this round's new coverage (export boundary/
+cap/cleanup, sink hardening, redaction).
+
 `TO_INSTANCE_DIR=/tmp/to-preview-data`, waitress on :39995, seeded:
 User Admin/`Review-Preview-#2026!`, Project `62d2f3e1b4654e5680fd187795c454f7`,
 GitBinding `authoring_writable=true`, one local Runner + pytest
@@ -500,10 +510,10 @@ need `can_author` (binding authoring flag) — an empty-seed instance
   kit W6. Not claimed accepted.
 - Windows matrix: Robot + pytest on a real Windows host —
   **blocked infrastructure**: no Windows host exists in this
-  environment. Repeatable kit prepared and kept ready (W1–W14 incl.
+  environment. Repeatable kit prepared and kept ready (W1–W15 incl.
   W6 retry policy, W13 paths-with-spaces, W14 service account):
   `docs/windows-acceptance-kit.md`. On host availability: run
-  W1–W14, fix discovered defects, then the packaged matrix. Linux-
+  W1–W15, fix discovered defects, then the packaged matrix. Linux-
   actionable work that remained (logging hardening + verification,
   cancellation-isolation fix, controlled `/tmp/to251d` restart and
   active-revision verification) is tracked in this ledger — Windows
@@ -518,9 +528,9 @@ need `can_author` (binding authoring flag) — an empty-seed instance
   export + structured output implemented and covered per
   `docs/packaged-acceptance.md` §5a — **reported implemented with
   focused coverage, not yet final-package accepted**. Run E
-  (`806/2/1`) is the full-suite evidence at `d6c14b3`; a rerun on
-  the hardening head is recorded when the suite finishes. Windows-
-  side logging checks fold into the W-matrix row.
+  (`806/2/1`) is the full-suite evidence at `d6c14b3`; Run F
+  (`817/1/1`) is the evidence at hardening head `f96fcc1`. Windows-
+  side logging checks fold into the W-matrix row (now W15).
 - `/tmp/to251d` controlled restart — pending (SSH execution in
   flight; do not restart during it). After it finishes: restart,
   verify loaded revision + required DB migration.

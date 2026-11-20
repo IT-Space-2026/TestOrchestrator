@@ -133,6 +133,11 @@ page shows filters, cutoff, row count, and expiry.
   Administrator (role re-checked at download). Above
   `logs_export_max_rows` (250 000) the request is **refused** — narrow
   the filters; exports never silently truncate.
+- File protection: the `0600` mode is the Linux mechanism, verified by
+  test. On Windows the export directory sits under the instance dir,
+  which is protected by the service-account ACL the installer applies —
+  the Windows W-matrix check verifies export-file ACLs on the real host
+  (the Linux `0600` test is not counted as Windows evidence).
 - Every request, completion/failure and download is audited with
   filters, count, actor and export id — not exported contents.
 
