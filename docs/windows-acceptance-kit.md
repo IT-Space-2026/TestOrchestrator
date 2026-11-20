@@ -53,6 +53,8 @@ Windows claims must come from this procedure on the packaged build.
 | W10 | Schedule | Interval schedule on the Windows target | Fires once per interval; overlap/misfire policy honored; audit rows present |
 | W11 | Manifest + downloads | Any W1–W4 run | `manifest.json` sealed in report dir; API verify → all `ok`; every artifact downloads 200 |
 | W12 | Webhook | Terminal run with endpoint configured | `execution.completed/failed` delivered, HMAC-signed, `X-TO-Event` header present |
+| W13 | Paths with spaces | Configure worker basedir/workspace under `C:\TO Work\…` (or similar with spaces) and run one suite | COMPLETED; no argv/path quoting failure; artifacts upload from the spaced path |
+| W14 | Service account | Worker service runs under its service account (not interactive user); run one suite after reboot/logoff | Worker stays connected; run COMPLETED under the service account context |
 
 ## 4. Evidence to capture per row
 

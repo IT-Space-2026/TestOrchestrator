@@ -21,27 +21,31 @@ records the exact commit + `deployed_rev`.
 
 ## 2. Eight-combination smoke matrix
 
-Controller package × worker target/transport, with the
-release-critical frameworks assigned so Windows Robot+pytest are
-covered and each transport is exercised:
+The agreed matrix is **framework × execution target** — 4 frameworks
+× (Linux worker, Linux SSH, Windows worker) = 8 required cells.
+Controller operating-system support is a SEPARATE dimension covered
+by §4/§5 (install + upgrade on each controller package), not by this
+matrix — describing it as a controller-OS matrix would claim
+coverage it does not test.
 
-| # | Controller | Execution target | Transport | Suite |
-|---|---|---|---|---|
-| C1 | Linux pkg | Linux PB worker | outbound PB | pytest |
-| C2 | Linux pkg | Linux PB worker | outbound PB | Robot |
-| C3 | Linux pkg | Windows PB worker | outbound PB | pytest |
-| C4 | Linux pkg | Windows PB worker | outbound PB | Robot |
-| C5 | Linux pkg | agentless SSH → Linux host | SSH/SFTP | pytest |
-| C6 | Windows pkg | Linux PB worker | outbound PB | pytest |
-| C7 | Windows pkg | Windows PB worker | outbound PB | Robot |
-| C8 | Windows pkg | agentless SSH → Linux host | SSH/SFTP | pytest |
+| Framework | Linux PB worker | Linux SSH target | Windows PB worker |
+|---|---|---|---|
+| Playwright | required | required | not newly claimed |
+| Cypress | required | required | not newly claimed |
+| Robot Framework | required | required | **required** |
+| pytest | required | required | **required** |
+
+"Not newly claimed" = Playwright/Cypress on Windows were already
+exercised on the Windows worker path in earlier acceptance and are
+not re-gated here; Robot+pytest on Windows are the release-critical
+new claims and map to kit rows W1–W4.
 
 Each cell: install → register/probe → run one fast suite → verify
 COMPLETED + normalized results + sealed manifest + artifact
 downloads + `deployed_rev` attribution. A cell blocked by an
 unavailable host is recorded **BLOCKED**, never silently dropped —
-the matrix is accepted only when all 8 are PASS or an explicit
-waiver is recorded in the ledger.
+the matrix is accepted only when all 8 required cells are PASS or an
+explicit waiver is recorded in the ledger.
 
 ## 3. Parallel + recovery re-verification on the package
 
@@ -57,14 +61,29 @@ Re-run the Stage-5 core on packaged builds (not the dev tree):
   restart; SSH-session loss — all three distinct.
 - `retry_enabled=false` + `max_attempts=1`: the resubmit is blocked,
   execution → UNKNOWN on the reconciliation queue.
+- Windows worker PB loss: the resubmitted build is BLOCKED by the
+  PowerShell prep counter (`TO_RETRY_BLOCKED`, exit 70) — no second
+  CLI launch on the worker; execution → UNKNOWN (kit row W6).
+- Paths containing spaces: at least one Windows run under a
+  workspace/workdir with spaces (`C:\TO Work\…`) completes.
+- Service-account readiness: the Windows worker service runs under
+  its service account and a run completes without interactive
+  login.
 
 ## 4. Upgrade + restore on packages
 
 - Install 2.5.1 package, seed executions/history/schedules/secrets,
   upgrade in place to 2.6.0 (`toctl db-upgrade` runs at service
   start): all rows preserved, `notified_at` backfilled, boot clean.
+- Membership after upgrade: users with prior explicit
+  `allowed_projects` keep them; previously-unrestricted users are
+  flagged `none — needs assignment` on the Users page (the review
+  workflow) — no silent mass-grant.
 - `toctl backup` → `recover` to a scratch dir: member count, table
   counts equal, symlink members restore, instance boots.
+- Restore preserves assignments: restore a backup taken after
+  configuring memberships; verify each user's `allowed_projects`
+  survives and enforcement still applies.
 - `flask diag` (deployed-revision) run pre-acceptance to prove the
   packaged tree is what the services import.
 
@@ -77,6 +96,10 @@ Re-run the Stage-5 core on packaged builds (not the dev tree):
   only.
 - RBAC: project scoping + role gates on the new surfaces
   (reconciliation, matrix, API tokens, webhooks).
+- Project membership on the package: two projects × two same-role
+  users — list/detail/artifact/API isolation, identifier
+  substitution denied, revocation effective without logout,
+  admin-retains-all, unassigned user sees the empty state.
 
 ## 6. Exit criteria
 
