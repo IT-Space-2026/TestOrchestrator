@@ -1,14 +1,30 @@
 # TestOrchestrator 2.6.0 — acceptance evidence ledger
 
 **Stage 5 status: parallel + recovery scenarios exercised; PB-loss
-retry/orphan correctness implemented and re-verified (commit
-pending).** The earlier "same brid re-ran → PASSED" row proved only a
+retry/orphan correctness implemented and re-verified (`b049fab`,
+pushed).** The earlier "same brid re-ran → PASSED" row proved only a
 final outcome. The mechanism is now: per-attempt pidfile +
 `TO_EXEC_ID` env marker (kills are env-verified), retry-prep orphan
 resolution, per-attempt `attempt-<buildno>` artifact dirs, portal-side
 `bb_attempts` snapshot tracking + `buildbot_retry_attempt` audit.
 Re-verified live on both transports — see "Worker PB loss" below.
 The original 11:12 run remains marked as the pre-fix evidence it is.
+
+**Explicit policy chosen (per transport):**
+- **SSH/agentless** → policy 1, reattach without relaunch: the remote
+  `setsid` run (run.pid/pgid) persists across dispatcher death; the
+  reconnecting dispatcher RESUMES it — true single-launch, verified
+  (remote 3791749 resumed, new dispatcher 3791835).
+- **PB workers** → policy 2, confirm-then-configured-retry: the retry
+  `prep` step resolves the recorded pid — env-marker-verified kill if
+  alive, "already exited" if not — before re-staging; the interrupted
+  attempt is recorded (RETRY, own artifact dir, audit) and Buildbot's
+  unconditional resubmit becomes the explicitly-permitted retry,
+  each attempt a distinct identity+outcome. Nothing is silently
+  repeated: no retry begins while the prior attempt's liveness is
+  unresolved (prep blocks on the env-verified check), and an
+  unresolvable orphan is left running and reported, never killed
+  blind.
 
 Candidate under test: `feature/2.6.0-node-runners`, evidence below
 recorded at commits `b70e73b` (slot-builders), `e859b52`
@@ -172,7 +188,21 @@ not yet clean-package):
 - **UNKNOWN retains resources** (code invariant): `UNKNOWN ∈
   _ACTIVE_STATES` (slot+procs charge held) and `UNKNOWN ∉
   _TERMINAL_STATES` (reservation rows stay open) — capacity stays
-  blocked until operator reconciliation.
+  blocked until operator reconciliation. A connection loss never
+  frees a slot/environment while the original may still be using it.
+- **Two distinct deadlines**: `queue_timeout_seconds` →
+  `queue_deadline_at` → FAILED `error_kind='queue'` (only while
+  QUEUED, verified above) vs `timeout_seconds` → runtime deadline
+  enforced inside the invocation (`exec_timeout`, tree force-killed
+  before slot release) → FAILED run outcome. Distinct kinds,
+  distinct surfaces.
+- **Time zones / DST — not applicable by design**: schedules are
+  `once` (absolute UTC `next_run_at`) or `interval` (`now +
+  interval_minutes` duration arithmetic). There is no wall-clock
+  cron kind, so no schedule can be DST-shifted; every comparison is
+  absolute-time UTC. If wall-clock scheduling is ever added it will
+  need an explicit tz field + DST policy — recorded here so the
+  requirement isn't silently forgotten.
 - Regression coverage: `test_fifo_redrive_skips_blocked`,
   `test_misfire_skip_policy`, `test_reservations_*`,
   `test_queue_deadline_*` (63 passed).
