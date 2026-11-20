@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block content_class %}wide{% endblock %}
 {% block content %}
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% for category, message in messages %}
@@ -63,15 +64,16 @@
       <a class="button secondary"
          href="{{ url_for('system.operational_logs_export') }}?format=jsonl&{{ filter_qs }}">JSONL</a>
     </div>
-    <div class="filter-actions tail-toggle">
-      <label class="check-label">
-        <input type="checkbox" id="live-tail"><span>Live tail</span></label>
-      <span id="tail-status" class="tail-status paused"><small>paused</small></span>
-    </div>
   </form>
 </div>
 
 <div class="card">
+  <div class="log-toolbar">
+    <label class="check-label tail-pill">
+      <input type="checkbox" id="live-tail"><span>Live tail</span></label>
+    <span id="tail-status" class="tail-status paused"><small>paused</small></span>
+    <span class="muted toolbar-right"><small>{{ page.total }} rows</small></span>
+  </div>
   <table class="data-table" id="log-table">
     <thead><tr>
       <th>Time</th><th>Severity</th><th>Component</th><th>Category</th>

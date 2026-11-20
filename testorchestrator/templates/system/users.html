@@ -37,12 +37,19 @@
         </td>
         <td>
           <div class="cell-actions users-actions">
-          <form method="post" action="{{ url_for('system.reset_user', user_id=u.id) }}" class="inline">
-            {{ reset_form.csrf_token }}
-            <input type="password" name="temporary_password" minlength="12"
-                   placeholder="new temp password" required class="pw-mini">
-            <button type="submit" class="button secondary sm">Reset</button>
-          </form>
+          <details class="inline-details">
+            <summary class="button secondary sm">Reset</summary>
+            <form method="post" class="edit-form"
+                  action="{{ url_for('system.reset_user', user_id=u.id) }}">
+              {{ reset_form.csrf_token }}
+              <div class="field"><label>New temporary password</label>
+                <input type="password" name="temporary_password"
+                       minlength="12" required></div>
+              <button type="submit" class="button sm">Reset password</button>
+              <button type="button" class="button danger sm"
+                      data-cancel-details>Cancel</button>
+            </form>
+          </details>
           {% if u.is_active %}
           <form method="post" action="{{ url_for('system.deactivate_user', user_id=u.id) }}" class="inline">
             {{ apply_form.csrf_token }}
