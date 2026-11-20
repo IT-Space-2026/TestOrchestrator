@@ -1626,6 +1626,9 @@ def edit_runner(runner_id):
     ms = request.form.get("max_slots")
     if ms:
         runner.max_slots = int(ms)
+    mp = request.form.get("max_procs")
+    if mp is not None:
+        runner.max_procs = int(mp) if mp.strip() else None
     ls = request.form.get("license_slots")
     if ls is not None:
         runner.license_slots = int(ls) if ls.strip() else None

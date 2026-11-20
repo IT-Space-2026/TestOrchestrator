@@ -833,6 +833,60 @@ def _active_count_subquery(runner: Runner, exclude_id):
             .scalar_subquery())
 
 
+def requested_procs(ex: Execution) -> int:
+    """Framework processes this run asks for: the parallel count in
+    parallel mode, else 1. Framework-default runs (no flags) count 1 —
+    the budget is over REQUESTED concurrency, honestly labelled."""
+    try:
+        rc = ex.snapshot().get("run_config") or {}
+    except Exception:
+        return 1
+    if (rc.get("parallel_mode") or "default") == "parallel":
+        return max(1, int(rc.get("parallel") or 1))
+    return 1
+
+
+def _active_procs_subquery(runner: Runner, exclude_id):
+    """Sum of requested procs across active executions on the runner.
+    Stored per execution in snapshot_json — SQLite json_extract reads
+    it directly inside the CAS."""
+    from sqlalchemy import func
+    procs = func.coalesce(func.json_extract(
+        Execution.snapshot_json,
+        "$.run_config.parallel"), 0)
+    mode = func.coalesce(func.json_extract(
+        Execution.snapshot_json,
+        "$.run_config.parallel_mode"), "default")
+    eff = db.case((mode == "parallel", procs), else_=1)
+    return (db.session.query(func.coalesce(func.sum(eff), 0))
+            .filter(Execution.runner_id == runner.id,
+                    Execution.id != exclude_id,
+                    Execution.state.in_(_ACTIVE_STATES))
+            .scalar_subquery())
+
+
+def procs_within_budget(runner: Runner, ex: Execution) -> bool:
+    """Combined-capacity rule: job slots AND the process budget are
+    independent ceilings — an admitted job must not bypass the
+    intended process budget via its own parallel setting."""
+    if not runner.max_procs:
+        return True
+    active = db.session.query(db.func.coalesce(
+        db.func.sum(db.case((
+            db.func.coalesce(db.func.json_extract(
+                Execution.snapshot_json,
+                "$.run_config.parallel_mode"), "default")
+            == "parallel",
+            db.func.coalesce(db.func.json_extract(
+                Execution.snapshot_json,
+                "$.run_config.parallel"), 0)), else_=1)), 0)
+    ).filter(
+        Execution.runner_id == runner.id,
+        Execution.id != ex.id,
+        Execution.state.in_(_ACTIVE_STATES)).scalar()
+    return int(active or 0) + requested_procs(ex) <= runner.max_procs
+
+
 def _runner_cap(runner: Runner) -> int:
     return capacity_limit(runner)
 
@@ -845,11 +899,20 @@ def _assign_runner(ex: Execution, runner: Runner,
     runner's slots. Both the local path (then claims PREPARING) and
     the remote/agent path (agent picks up DISPATCHED) consume the slot
     here — capacity is reserved from assignment, not launch."""
-    n = db.session.query(Execution).filter(
+    conds = [
         Execution.id == ex.id,
         Execution.state == ExecutionState.QUEUED,
-        _active_count_subquery(runner, ex.id) < _runner_cap(runner),
-    ).update({"state": ExecutionState.DISPATCHED,
+        _active_count_subquery(runner, ex.id) < _runner_cap(runner)]
+    # Combined capacity: the new job's requested procs plus the
+    # already-active proc sum must fit the process budget — an
+    # admitted job can never bypass the intended budget through its
+    # own parallel setting. NULL max_procs = job slots only.
+    if runner.max_procs:
+        conds.append(
+            _active_procs_subquery(runner, ex.id)
+            + requested_procs(ex) <= runner.max_procs)
+    n = db.session.query(Execution).filter(*conds).update(
+        {"state": ExecutionState.DISPATCHED,
               "runner_id": runner.id,
               "runtime_id": runtime.id,
               "lease_expires_at": utcnow() + timedelta(

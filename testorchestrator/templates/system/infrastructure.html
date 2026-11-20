@@ -160,6 +160,7 @@ or license KRE.</p>
               <div class="field"><label>Workspace root</label><input name="workspace_root" value="{{ r.workspace_root }}"></div>
               {% endif %}
               <div class="field"><label>Max slots</label><input name="max_slots" value="{{ r.max_slots }}"></div>
+              <div class="field"><label>Max procs</label><input name="max_procs" value="{{ r.max_procs or '' }}" placeholder="unlimited"><small>total framework processes across all concurrent jobs; empty = unconstrained</small></div>
               <div class="field"><label>License slots</label><input name="license_slots" value="{{ r.license_slots if r.license_slots is not none else '' }}" placeholder="(unlimited)"></div>
               <button type="submit" class="button">Apply</button>
               <button type="button" class="button danger" data-cancel-details>Cancel</button>

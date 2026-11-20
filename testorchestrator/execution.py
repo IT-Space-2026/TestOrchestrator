@@ -232,6 +232,12 @@ class Runner(db.Model):
     # capacity) and licence seats are independent limits. NULL/0 = the
     # operator declared no licence constraint (never assumed seats).
     license_slots = db.Column(db.Integer, nullable=True)
+    # Process budget (2.6): total framework worker/processes across ALL
+    # concurrent runs on this target. A job admitted under max_slots
+    # must not bypass the intended process budget through its own
+    # parallel setting — the CAS admission counts requested parallel
+    # procs (default 1 per job). NULL = unconstrained (job slots only).
+    max_procs = db.Column(db.Integer, nullable=True)
     health = db.Column(db.String(16), nullable=False, default="unknown")
     heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
     draining = db.Column(db.Boolean, nullable=False, default=False)

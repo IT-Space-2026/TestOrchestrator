@@ -399,3 +399,38 @@ def test_discover_cypress_specs(app, tmp_path):
         with _pt.raises(dispatch.DispatchError, match="empty"):
             dispatch.discover_cypress_specs(
                 b, sha="s1", spec_pattern="nope/**/*.cy.*")
+
+
+# ---------- combined capacity: job slots AND process budget ----------
+
+def test_proc_budget_blocks_parallel_jobs(app):
+    """max_slots admits the jobs, but max_procs must reject the second
+    parallel run when its own -n would breach the process budget."""
+    from testorchestrator.execution import (Runner, RuntimeConnection)
+    sid = _env(app)
+    with app.app_context():
+        p2 = db.session.get(Suite, sid)
+        r = Runner(name="cap", connection_mode="local", max_slots=4,
+                   max_procs=4)
+        db.session.add(r); db.session.flush()
+        rt = RuntimeConnection(name="rt2", runner_id=r.id,
+                               executable_path="/usr/bin/python3",
+                               runtime_kind="pytest", enabled=True)
+        db.session.add(rt); db.session.commit()
+        rid, rtid = r.id, rt.id
+        mk = lambda: dispatch.create_execution(
+            "m", db.session.get(Suite, sid), source_sha="x",
+            run_config={"runtime_id": rtid, "runner_id": rid,
+                        "parallel": 3, "parallel_mode": "parallel"})
+        e1, e2 = mk(), mk()
+        assert dispatch.requested_procs(e1) == 3
+        # First job admitted: 3 of 4 procs used, one job slot left but
+        # the second -n 3 would total 6 > 4 -> stays QUEUED.
+        assert dispatch._assign_runner(e1, r, rt)
+        assert not dispatch._assign_runner(e2, r, rt)
+        db.session.refresh(e2)
+        assert e2.state == ExecutionState.QUEUED
+        # Unconstrained runner (max_procs NULL) still admits both jobs.
+        r.max_procs = None
+        db.session.commit()
+        assert dispatch._assign_runner(e2, r, rt)
