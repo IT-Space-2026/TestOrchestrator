@@ -372,19 +372,36 @@ Still open gap: `test_production_key_auto_loaded` remains
 environment-blocked (external key required) — recorded as a gap,
 not a pass. The 1 skipped test is a separately identified skip.
 
-A final-head full-suite run is required after the acceptance fixes
-(project-access changes, retry surfacing, Windows prep) — recorded
-below when complete. Earlier evidence stays attributed to its own
-revision (734-passed pre-retry-hardening; 71-targeted acceptance
-suites).
+Run C — **batch full suite at `57445bc`** (post project-access +
+retry-surfacing + Windows-prep changes; 8m08s):
+**781 passed, 3 failed, 1 skipped.** Failures decomposed:
+
+- 1× `test_production_key_auto_loaded` — external licence-issuer key
+  gap, unchanged (recorded as a gap, not a pass).
+- 2× `test_infra_controls_browser` — preview fixture lacked the
+  `rem-1`/`rem-2` remote-runner rows the test selects from.
+  Seeded into the preview DB → **all 5 infra tests pass** (13s).
+  Fixture recipe updated below.
+
+Run D — **targeted reruns at `57445bc`** of the environment-fixed
+tests: 10/10 modal + 5/5 infra pass. The batch tally stands as
+recorded; reruns are separate rows. Earlier evidence stays
+attributed to its own revision (734-passed pre-retry-hardening;
+751-passed batch at `8fc0ae5`; 71-targeted acceptance suites).
 
 ## Preview-fixture recipe (reproducible)
 
 `TO_INSTANCE_DIR=/tmp/to-preview-data`, waitress on :39995, seeded:
 User Admin/`Review-Preview-#2026!`, Project `62d2f3e1b4654e5680fd187795c454f7`,
 GitBinding `authoring_writable=true`, one local Runner + pytest
-RuntimeConnection. Modal buttons need `can_author` (binding
-authoring flag) — an empty-seed instance 404s/omits them.
+RuntimeConnection, **two remote runners `rem-1`/`rem-2`
+(connection_mode=remote, target_type=buildbot-worker)** for the
+infrastructure browser tests, and `import testorchestrator.logs`
+before `db.create_all()` so `operational_logs` exists (the
+create_all path doesn't import the model — production gets it via
+migrations; the modal/infra tests 500 without it). Modal buttons
+need `can_author` (binding authoring flag) — an empty-seed instance
+404s/omits them.
 
 ## Open
 - ~~Worker PB-loss retry/orphan correctness~~ — **resolved**; see
@@ -398,8 +415,9 @@ authoring flag) — an empty-seed instance 404s/omits them.
   `docs/windows-acceptance-kit.md`.
 - Final clean-package eight-combination smoke matrix — pending
   Windows. Procedure defined: `docs/packaged-acceptance.md`.
-- Final-head full suite — pending after project-access changes
-  land (Run A at `8fc0ae5` is superseded for sign-off purposes).
+- ~~Final-head full suite~~ — Run C at `57445bc`: 781 passed,
+  3 failed (2 preview-fixture → fixed+rerun pass; 1 external-key
+  gap). Recorded separately from earlier runs.
 
 ## Project access (membership) — implemented post-freeze under the
 ## approved access change
