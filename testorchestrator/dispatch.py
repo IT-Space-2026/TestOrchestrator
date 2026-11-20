@@ -2203,6 +2203,31 @@ def _heartbeat_local_runners() -> int:
     return len(runners)
 
 
+def _resolve_unlaunched_cancels() -> int:
+    """A cancel that lands while an execution is still QUEUED has no
+    remote process to confirm — no dispatch_id, no started_at means
+    nothing ever launched, so the cancellation is already fact.
+    Without this the row parks in CANCEL_REQUESTED forever: the
+    dispatch boundary only audits-and-skips it, the buildbot
+    reconciler only follows executions holding a brid, and a parent
+    can never roll up while a child stays non-terminal."""
+    n = 0
+    for ex in Execution.query.filter(
+            Execution.state == ExecutionState.CANCEL_REQUESTED,
+            Execution.role != "parent",
+            db.or_(Execution.dispatch_id.is_(None),
+                   Execution.dispatch_id == ""),
+            Execution.started_at.is_(None)).all():
+        ex.state = ExecutionState.CANCELED
+        ex.outcome = Outcome.INCOMPLETE
+        ex.finished_at = utcnow()
+        record_audit("system", "execution.cancel_confirmed_unlaunched",
+                     ex.id)
+        db.session.commit()
+        n += 1
+    return n
+
+
 def _redrive_queued_remote(limit: int = 10) -> int:
     """Capacity-blocked executions: their dispatch outbox event is
     consumed once — a lost capacity CAS or a no-runner tick must not
@@ -2238,7 +2263,8 @@ def worker_once() -> int:
         except Exception:
             pass  # orchestrator unreachable — retry next cycle
     n += (reconcile_stale() + fire_due_schedules() + process_outbox()
-          + enforce_plan_policies() + aggregate_parent_runs()
+          + enforce_plan_policies() + _resolve_unlaunched_cancels()
+          + aggregate_parent_runs()
           + _heartbeat_local_runners() + _redrive_queued_remote())
     return n
 

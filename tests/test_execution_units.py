@@ -4,6 +4,7 @@ propagation, and no dispatch of the parent itself."""
 import json
 
 from testorchestrator import dispatch
+from testorchestrator.dispatch import utcnow
 from testorchestrator.execution import (Execution, ExecutionState,
                                         Outcome, Project, Suite)
 from testorchestrator.extensions import db
@@ -553,6 +554,36 @@ def test_reservations_release_and_hold(app):
         assert dispatch._assign_runner(mk(), r, rt)
 
 
+def test_queued_child_cancel_terminalizes_and_parent_rolls_up(app):
+    """A unit cancelled while still QUEUED has no dispatch_id — no
+    remote process exists to confirm. It must reach CANCELED so the
+    parent can roll up; parking in CANCEL_REQUESTED strands both."""
+    sid = _env(app)
+    with app.app_context():
+        parent, kids = dispatch.create_unit_run(
+            "u", [{"index": 0, "key": "k0"},
+                  {"index": 1, "key": "k1"}],
+            suite=db.session.get(Suite, sid), source_sha="y",
+            run_config={})
+        # unit 0 dispatched, unit 1 still queued when the cancel lands
+        kids[0].dispatch_id = "bb:9001"
+        kids[0].state = ExecutionState.DISPATCHED
+        kids[0].started_at = utcnow()
+        db.session.commit()
+        dispatch.request_cancel(parent.id, "u")
+        kids[0].state = ExecutionState.CANCELED   # buildbot confirmed
+        kids[0].outcome = Outcome.INCOMPLETE
+        db.session.commit()
+        n = dispatch._resolve_unlaunched_cancels()
+        assert n == 1
+        assert kids[1].state == ExecutionState.CANCELED
+        assert kids[1].outcome == Outcome.INCOMPLETE
+        dispatch.aggregate_parent_runs()
+        db.session.refresh(parent)
+        assert parent.state == ExecutionState.CANCELED
+        assert parent.outcome == Outcome.INCOMPLETE
+
+
 def test_pytest_serial_flag(app):
     from testorchestrator.adapters import pytestfw
     a = pytestfw.build_args(suite_path="tests/", force_serial=True)
@@ -591,6 +622,7 @@ def test_slot_builders_and_pick(app):
         s2 = dispatch._pick_slot(e2, r)
         assert s2 != s1
         e2.bb_slot = s2
+        e2.runner_id = r.id
         e2.state = ExecutionState.RUNNING
         db.session.commit()
         # both busy -> deterministic fallback still in range

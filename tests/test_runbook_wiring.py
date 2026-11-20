@@ -290,7 +290,12 @@ def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
             "requested_runner": "", "requested_runtime": "",
             "collection": False,
             "suite_path": "",
+            "robot_suite": "", "robot_test": "",
+            "robot_include": "", "robot_exclude": "",
+            "pytest_keyword": "", "pytest_markers": "",
             "timeout_seconds": 0,
+            "parallel_mode": "default", "parallel": 0,
+            "shard_index": 0, "shard_total": 0,
             "kre_options": {}, "kre_options_allow_drop": False}
     with app.app_context():
         dispatch.run_execution(ex_id)
