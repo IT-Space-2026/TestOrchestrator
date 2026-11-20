@@ -96,10 +96,37 @@ Re-run the Stage-5 core on packaged builds (not the dev tree):
   only.
 - RBAC: project scoping + role gates on the new surfaces
   (reconciliation, matrix, API tokens, webhooks).
-- Project membership on the package: two projects × two same-role
-  users — list/detail/artifact/API isolation, identifier
-  substitution denied, revocation effective without logout,
-  admin-retains-all, unassigned user sees the empty state.
+- Project membership on the package — two projects × two
+  same-role non-admin users with different assignments:
+  - Direct object/API/artifact access denied cross-project;
+    project-filtered lists (projects page, executions list +
+    filter dropdowns, dashboard, matrices) show only assigned
+    data.
+  - API tokens bounded by the owner's **current** permissions —
+    token scope ∩ owner role ∩ owner membership, re-evaluated
+    every request; deactivated owner → 401.
+  - Revocation before queued/scheduled dispatch: pending work
+    whose submitter lost membership fails `error_kind='access'`
+    (audited `execution.access_blocked`) instead of launching;
+    schedule-fired runs carry creator identity so a revoked
+    creator's schedule stops producing runs.
+  - Existing-session and live-log access after revocation:
+    denied on the next protected request without logout (no
+    persistent log streams exist — every log/artifact request is
+    rechecked, so revocation covers them per-request).
+  - Restore preserves assignments (§4 row): each user's
+    `allowed_projects` survives backup→restore and enforcement
+    still applies.
+  - Legacy-user review workflow: users page flags unassigned
+    non-admins ("none — needs assignment"); Administrator keeps
+    global access throughout, no silent re-grant.
+  - Regression cases that must stay green:
+    `test_pending_work_blocked_when_access_revoked`,
+    `test_schedule_created_runs_blocked_after_creator_revoked`,
+    `test_token_bounded_by_owner_membership`,
+    `test_token_membership_revocation_applies_next_request`,
+    `test_revocation_takes_effect_without_logout` —
+    `tests/test_project_access.py` (17 tests).
 
 ## 6. Exit criteria
 

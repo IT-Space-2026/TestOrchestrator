@@ -1,5 +1,16 @@
 # TestOrchestrator 2.6.0 — acceptance evidence ledger
 
+**Branch**: `feature/2.6.0-node-runners` (PR #4 — draft).
+**Current head at recording**: `45aada1a90990d73a5e189bf8425c74475802582`
+(`45aada1`, 2026-11-20). Each ledger-only commit after this moves
+head again — all post-`57445bc` commits are documentation-only, so
+the application code under test has been identical since `34c2cca`.
+**Tested candidate**: `57445bc` (full-suite Run C below). Subsequent
+commits: `45aada1` + this ledger update = docs-only; no application
+code changed after Run C, so no regression rerun was triggered by
+them. A final-head full suite on the packaged release commit remains
+a required row in `docs/packaged-acceptance.md` §6.
+
 **Stage 5 status: parallel + recovery scenarios exercised; PB-loss
 retry/orphan correctness implemented and re-verified (`b049fab`,
 pushed).** The earlier "same brid re-ran → PASSED" row proved only a
@@ -60,22 +71,30 @@ non-idempotent warning inline, execution detail shows the effective
 policy. `test_retry_policy_persisted_in_snapshot` covers the full
 create_execution→snapshot→spec chain for `retry_enabled=false`.
 
-**Windows retry policy — decided, enforced (pending host verify):**
-No confirmed-orphan resolution exists on Windows, so automatic
-relaunch is DISABLED there — chosen option 2 (enforced disablement)
-of the policy set. Enforcement: (a) `_retry_policy(posix=False)`
-forces `retry_enabled=false/max_attempts=1` into the spec
-irrespective of run_config; (b) a PowerShell `prep` step
-(`doStepIf=_win`) keeps `.to_exec_attempt_<id>` and exits 70/
-`TO_RETRY_BLOCKED` on ANY attempt > 1 — unconditional, so no spec
-can slip a relaunch through. POSIX `rm`-based cleanup replaced by a
-PowerShell variant on Windows (`rm` does not exist there — defect
-caught pre-acceptance). Tests: `test_windows_spec_forces_retry_
+**Windows retry policy — implemented; real-host verification
+pending.** NOT accepted. No confirmed-orphan resolution exists on
+Windows, so automatic relaunch is DISABLED there — chosen option 2
+(enforced disablement) of the policy set. Enforcement: (a)
+`_retry_policy(posix=False)` forces `retry_enabled=false/
+max_attempts=1` into the spec irrespective of run_config; (b) a
+PowerShell `prep` step (`doStepIf=_win`) keeps
+`.to_exec_attempt_<id>` and exits 70/`TO_RETRY_BLOCKED` on ANY
+attempt > 1 — unconditional, so no spec can slip a relaunch
+through. POSIX `rm`-based cleanup replaced by a PowerShell variant
+on Windows (`rm` does not exist there — defect caught
+pre-acceptance). Tests: `test_windows_spec_forces_retry_
 disabled`, `test_win_prep_blocks_any_second_attempt`,
 `test_win_and_posix_predicates_partition`,
-`test_win_cleanup_uses_powershell_not_rm`. Kit row W6 updated —
-verify on the real host that no second CLI ever launches and the
-run lands UNKNOWN on Reconciliation.
+`test_win_cleanup_uses_powershell_not_rm`. Kit row W6 is the
+acceptance gate — on the real host it must verify: the
+`.to_exec_attempt_<eid>` counter persists across the
+cleanup/re-staging/retry sequence (file still present, contents
+`2`); the second attempt is blocked in `prep` **before the test
+CLI starts** (no `run`-step stdio, no pytest/robot process ever
+spawned — `Get-Process` before/after reconnect); the resulting
+**UNKNOWN** retains reservations and appears on `/reconciliation`
+with the `buildbot_retry_attempt` audit. Until W6 passes on a real
+host this row stays open.
 
 Candidate under test: `feature/2.6.0-node-runners`, evidence below
 recorded at commits `b70e73b` (slot-builders), `e859b52`
@@ -374,18 +393,23 @@ not a pass. The 1 skipped test is a separately identified skip.
 
 Run C — **batch full suite at `57445bc`** (post project-access +
 retry-surfacing + Windows-prep changes; 8m08s):
-**781 passed, 3 failed, 1 skipped.** Failures decomposed:
+**781 passed, 3 failed, 1 skipped.** Per-failure accounting — each
+linked to its Run D outcome; no combined tally is claimed:
 
-- 1× `test_production_key_auto_loaded` — external licence-issuer key
-  gap, unchanged (recorded as a gap, not a pass).
-- 2× `test_infra_controls_browser` — preview fixture lacked the
-  `rem-1`/`rem-2` remote-runner rows the test selects from.
-  Seeded into the preview DB → **all 5 infra tests pass** (13s).
-  Fixture recipe updated below.
+| Run C failure | Cause | Run D outcome | Remediation |
+|---|---|---|---|
+| `test_infra_controls_browser::test_second_runner_selected_persists` | Preview fixture: DB had only `preview-worker`; the test selects `option.nth(2)` (needs `rem-1`/`rem-2` remote runners) | **passed** (rerun) | fixture-only: seeded `rem-1`/`rem-2` remote runners into the preview DB — **no application code changed** |
+| `test_infra_controls_browser::test_runner_selection_survives_validation_error` | Same fixture gap (same `nth(2)` selection) | **passed** (rerun) | fixture-only, same seeding — **no application code changed** |
+| `test_production_key_auto_loaded` | External licence-issuer key absent — environmental by design | **still blocked** — recorded as a gap, not a pass | none possible in this environment; requires the external key |
 
 Run D — **targeted reruns at `57445bc`** of the environment-fixed
-tests: 10/10 modal + 5/5 infra pass. The batch tally stands as
-recorded; reruns are separate rows. Earlier evidence stays
+tests: 5/5 infra pass (13s) — the whole
+`test_infra_controls_browser` module, not only the two failures.
+The batch tally stands as recorded; reruns are separate rows.
+**No application code changed after Run C** — the only post-`57445bc`
+commits are ledger updates, so Run C remains the full-suite evidence
+at head; the packaged-candidate full suite is retained as a required
+row in `docs/packaged-acceptance.md` §6. Earlier evidence stays
 attributed to its own revision (734-passed pre-retry-hardening;
 751-passed batch at `8fc0ae5`; 71-targeted acceptance suites).
 
@@ -408,16 +432,22 @@ need `can_author` (binding authoring flag) — an empty-seed instance
   "PB-loss resolution — implemented + re-verified" above. Retry
   boundaries hardened (confirmed-terminate, mismatch-block,
   explicit retry_enabled/max_attempts, TO_RETRY_BLOCKED→UNKNOWN).
-- Windows retry safety: enforced disablement implemented
-  (`d4c7e85`) — real-host verification pending in kit W6.
-- Windows matrix: Robot + pytest on a real Windows host — release
-  blocker, unverified (no host). Repeatable kit prepared:
-  `docs/windows-acceptance-kit.md`.
+- Windows retry safety: **implemented; real-host verification
+  pending** — enforced disablement (`d4c7e85`), acceptance gate is
+  kit W6. Not claimed accepted.
+- Windows matrix: Robot + pytest on a real Windows host —
+  **blocked infrastructure**: no Windows host exists in this
+  environment; nothing remains implementable on the Linux side.
+  Repeatable kit prepared and kept ready (W1–W14 incl. W6 retry
+  policy, W13 paths-with-spaces, W14 service account):
+  `docs/windows-acceptance-kit.md`. On host availability: run
+  W1–W14, fix discovered defects, then the packaged matrix.
 - Final clean-package eight-combination smoke matrix — pending
   Windows. Procedure defined: `docs/packaged-acceptance.md`.
 - ~~Final-head full suite~~ — Run C at `57445bc`: 781 passed,
   3 failed (2 preview-fixture → fixed+rerun pass; 1 external-key
-  gap). Recorded separately from earlier runs.
+  gap). Recorded separately from earlier runs. Packaged-candidate
+  suite remains a `packaged-acceptance.md` §6 row.
 
 ## Project access (membership) — implemented post-freeze under the
 ## approved access change
