@@ -74,6 +74,12 @@
              placeholder="3600">
       <small>Running time from process launch — queue time excluded.
       Blank or 0 = 3600&nbsp;s default. No unlimited mode.</small></div>
+    <div class="field"><label for="queue_timeout_seconds">Queue deadline (seconds)</label>
+      <input type="number" name="queue_timeout_seconds" id="queue_timeout_seconds" min="0" max="86400"
+             placeholder="unlimited">
+      <small>How long the run may wait QUEUED for capacity before it
+      fails with an explicit queue reason. Blank or 0 = wait
+      indefinitely.</small></div>
     <div class="field"><label for="browser_type">Browser</label>
       <select name="browser_type" id="browser_type">
         <optgroup label="KRE (Katalon)">

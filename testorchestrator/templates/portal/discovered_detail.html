@@ -136,6 +136,8 @@
       each shard is a separate unit of a partitioned run.</small></div>
     <div class="field"><label for="timeout_seconds">Timeout (s)</label>
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" placeholder="3600"></div>
+    <div class="field"><label for="queue_timeout_seconds">Queue deadline (s)</label>
+      <input type="number" name="queue_timeout_seconds" id="queue_timeout_seconds" min="0" placeholder="unlimited"></div>
     <button type="submit" class="button">Run {{ item.kind }}</button>
   </form>
 

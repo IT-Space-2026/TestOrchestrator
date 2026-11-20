@@ -81,6 +81,10 @@ class ScheduleForm(FlaskForm):
         "Overlap", choices=[("allow", "Allow overlap"),
                             ("skip", "Skip if previous run active")],
         default="allow")
+    misfire_policy = SelectField(
+        "Missed fire", choices=[("late", "Run once late"),
+                                ("skip", "Skip if past interval")],
+        default="late")
 
 
 class PlainForm(FlaskForm):

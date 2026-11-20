@@ -190,6 +190,12 @@ class Schedule(db.Model):
     # an active execution from this schedule exists.
     overlap_policy = db.Column(db.String(16), nullable=False,
                                default="allow")
+    # late = a missed fire runs once late on the next tick (default,
+    # previous behaviour); skip = an occurrence overdue past its
+    # interval is dropped and audited — the schedule never catch-up
+    # storms after a long outage.
+    misfire_policy = db.Column(db.String(16), nullable=False,
+                               default="late")
     interval_minutes = db.Column(db.Integer, nullable=True)
     next_run_at = db.Column(db.DateTime(timezone=True), nullable=True)
     last_run_at = db.Column(db.DateTime(timezone=True), nullable=True)
@@ -456,6 +462,13 @@ class Execution(db.Model):
     # heartbeat means UNKNOWN, never silent duplicate dispatch.
     lease_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
     heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Actionable cause while QUEUED (which capacity/policy gate blocks
+    # dispatch) — a wait is never a silent stall. Cleared on launch.
+    wait_reason = db.Column(db.String(256), nullable=False, default="")
+    # Optional queue deadline (queue_timeout_seconds in run_config):
+    # a QUEUED execution past it fails with an explicit queue reason.
+    queue_deadline_at = db.Column(db.DateTime(timezone=True),
+                                  nullable=True)
     # Report publication to the bound source repo
     # (TestOrchestrator/Reports/<execution-id>/ at repo ROOT) —
     # distinct from evidence export and from the test outcome.
@@ -519,6 +532,32 @@ class Execution(db.Model):
             return [tuple(k) for k in json.loads(self.suite_keys_json)]
         except (TypeError, ValueError):
             return []
+
+
+class ResourceReservation(db.Model):
+    """Durable resource-ownership ledger (§6). Written atomically in
+    the assignment transaction — a held slot/proc charge has a row
+    keyed to its owning execution before the run ever launches.
+    ``released_at`` is set only when the execution reaches a
+    CONFIRMED terminal state: UNKNOWN keeps its reservation open
+    because the process may still own the resource. Capacity
+    admission still derives from execution states (proven CAS);
+    this table is the ownership record — whose resource, how much,
+    held from when until which terminal outcome."""
+
+    __tablename__ = "resource_reservations"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    execution_id = db.Column(db.String(32), db.ForeignKey("executions.id"),
+                             nullable=False, index=True)
+    runner_id = db.Column(db.String(32), nullable=False, index=True)
+    resource_kind = db.Column(db.String(16), nullable=False)  # slot|procs
+    slot_index = db.Column(db.Integer, nullable=True)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    acquired_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    released_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    release_state = db.Column(db.String(32), nullable=False, default="")
+    execution = db.relationship("Execution", backref=db.backref(
+        "reservations", cascade="all, delete-orphan"))
 
 
 class CaseStatus(str, enum.Enum):

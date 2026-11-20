@@ -752,6 +752,8 @@ def run_discovered(item_id):
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "timeout_seconds":
             int(request.form.get("timeout_seconds") or 0),
+        "queue_timeout_seconds":
+            int(request.form.get("queue_timeout_seconds") or 0),
         "parallel":
             min(max(int(request.form.get("parallel") or 0), 0), 64),
         "parallel_mode": request.form.get("parallel_mode", "").strip(),
@@ -812,6 +814,8 @@ def partition_discovered(item_id):
             "browser": request.form.get("browser_type", "").strip(),
             "timeout_seconds":
                 int(request.form.get("timeout_seconds") or 0),
+            "queue_timeout_seconds":
+                int(request.form.get("queue_timeout_seconds") or 0),
             "suite_path": item.path,
             "collection": item.kind == "collection",
         }
@@ -1677,6 +1681,8 @@ def launch_execution(suite_id):
             request.form.get("remote_webdriver_type", "").strip(),
         "timeout_seconds":
             int(request.form.get("timeout_seconds") or 0),
+        "queue_timeout_seconds":
+            int(request.form.get("queue_timeout_seconds") or 0),
         "parallel":
             min(max(int(request.form.get("parallel") or 0), 0), 64),
         "parallel_mode": request.form.get("parallel_mode", "").strip(),
@@ -2173,6 +2179,7 @@ def create_schedule(project_id):
             interval_minutes=interval if kind == "interval" else None,
             next_run_at=run_at, enabled=True,
             overlap_policy=form.overlap_policy.data or "allow",
+            misfire_policy=form.misfire_policy.data or "late",
             run_config_json=json.dumps({
                 "profile": form.execution_profile.data or "default",
                 "browser": form.browser_type.data or "",

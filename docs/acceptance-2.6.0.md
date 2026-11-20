@@ -139,16 +139,51 @@ FAILED honest abort), SSH-session loss (bb:254 lineage).
   historical record for the earlier candidate; this is the
   revalidation row, not a relabel.
 
+## Queue & resource policies — live verified (12:10–12:19)
+
+Evidence on live instance (`/tmp/to251d`, working tree synced —
+not yet clean-package):
+
+- **Slot capacity + wait reasons**: 3 sequential runs on
+  `max_slots=2` — `f8579d42`/`870355f4` DISPATCHED (slots 0/1),
+  `939da91d` QUEUED with `wait_reason="capacity: runner
+  'c260-linux-worker' job slots full (2/2 in use)"`; on release it
+  redrove FIFO → DISPATCHED slot 1 → COMPLETED.
+- **Reservation ledger**: `939da91d` acquired `resource_reservations`
+  rows `slot` idx 1 + `procs` qty 1 at dispatch; on COMPLETED both
+  `released_at` set, `release_state='terminal'`.
+- **Procs budget + starvation avoidance**: `max_procs=3`; strays
+  `8b99b7a2`+`f82dae23` and fillers `462a79f6`/`929b0c54` (charge 2
+  each) queued behind full capacity while charge-1 `997e16e0`
+  (created later) was admitted — deeper-scan FIFO skips
+  head-of-line-blocked jobs instead of starving them.
+- **Queue deadline**: `462a79f6` `queue_deadline_at` passed while
+  blocked → FAILED `error_kind='queue'` ("queue deadline exceeded —
+  still waiting (…); increase runner capacity or
+  queue_timeout_seconds") + audit `execution.queue_deadline_expired`.
+  Deadline applies to QUEUED only; dispatched runs unaffected.
+- **Schedule misfire**: schedule `1c47d7c8` 1801 s overdue vs 10 m
+  interval, `misfire_policy=skip` → occurrence dropped, `next_run_at`
+  advanced one interval, audit `schedule.misfire_skipped` — no
+  catch-up storm, no double-dispatch.
+- **Explicit invalid runner**: execution pinned to nonexistent
+  runner id → immediate FAILED "no fallback to another target"
+  (fail-fast for explicit targets; wildcard waits instead).
+- **UNKNOWN retains resources** (code invariant): `UNKNOWN ∈
+  _ACTIVE_STATES` (slot+procs charge held) and `UNKNOWN ∉
+  _TERMINAL_STATES` (reservation rows stay open) — capacity stays
+  blocked until operator reconciliation.
+- Regression coverage: `test_fifo_redrive_skips_blocked`,
+  `test_misfire_skip_policy`, `test_reservations_*`,
+  `test_queue_deadline_*` (63 passed).
+
 ## Open
-- **Worker PB-loss retry/orphan correctness** — release-blocking;
-  the retry ran with the orphan still active in the shared
-  builddir, attempt provenance of uploaded results unestablished,
-  retry unrecorded as an attempt. Fix: pidfile orphan resolution at
-  retry prep + per-attempt artifact dirs + portal attempt tracking.
+- ~~Worker PB-loss retry/orphan correctness~~ — **resolved**; see
+  "PB-loss resolution — implemented + re-verified" above.
 - Windows matrix: Robot + pytest on a real Windows host — release
   blocker, unverified (no host).
 - Representative 2.5.1 upgrade + restore acceptance.
-- Remaining release milestones: resource locks, reconciliation UI,
-  history/matrices, CI APIs/webhooks, artifact lifecycle, maintenance
-  controls, dashboards/docs; final clean-package eight-combination
-  smoke matrix.
+- Remaining release milestones: reconciliation UI, history/matrices,
+  CI APIs/webhooks, artifact lifecycle, maintenance controls,
+  dashboards/docs; final clean-package eight-combination smoke
+  matrix.

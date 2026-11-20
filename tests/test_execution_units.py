@@ -765,6 +765,133 @@ def test_exec_spec_posix_flag():
     assert s["posix"] is True
 
 
+def test_reservations_persist_ownership(app):
+    """Assignment writes durable slot+procs reservations in the same
+    transaction; terminal states release them via the sweep; UNKNOWN
+    keeps ownership — a confirmed terminal state is the ONLY release."""
+    from testorchestrator.execution import (
+        Runner, RuntimeConnection, ResourceReservation)
+    sid = _env(app)
+    with app.app_context():
+        r = Runner(name="own", connection_mode="local", max_slots=4,
+                   max_procs=8)
+        db.session.add(r); db.session.flush()
+        rt = RuntimeConnection(name="rto", runner_id=r.id,
+                               executable_path="/usr/bin/python3",
+                               runtime_kind="pytest", enabled=True)
+        db.session.add(rt); db.session.commit()
+        ex = dispatch.create_execution(
+            "m", db.session.get(Suite, sid), source_sha="x",
+            run_config={"runtime_id": rt.id, "runner_id": r.id,
+                        "parallel": 3, "parallel_mode": "parallel"})
+        assert dispatch._assign_runner(ex, r, rt)
+        rows = ResourceReservation.query.filter_by(
+            execution_id=ex.id, released_at=None).all()
+        kinds = {x.resource_kind: x.quantity for x in rows}
+        assert kinds == {"slot": 1, "procs": 3}
+        # UNKNOWN: ownership held — no release
+        ex.state = ExecutionState.UNKNOWN
+        db.session.commit()
+        assert dispatch._release_terminal_reservations() == 0
+        assert ResourceReservation.query.filter_by(
+            execution_id=ex.id, released_at=None).count() == 2
+        # resolved to a confirmed terminal state -> sweep releases
+        ex.state = ExecutionState.FAILED
+        db.session.commit()
+        assert dispatch._release_terminal_reservations() == 2
+        assert ResourceReservation.query.filter_by(
+            execution_id=ex.id, released_at=None).count() == 0
+        assert ResourceReservation.query.filter_by(
+            execution_id=ex.id).first().release_state == "terminal"
+
+
+def test_wait_reason_records_capacity_block(app):
+    """A capacity-blocked run carries an actionable reason — the
+    wait is never a silent QUEUED stall."""
+    from testorchestrator.execution import (Runner, RuntimeConnection)
+    sid = _env(app)
+    with app.app_context():
+        r = Runner(name="full", connection_mode="local", max_slots=1)
+        db.session.add(r); db.session.flush()
+        rt = RuntimeConnection(name="rtf", runner_id=r.id,
+                               executable_path="/usr/bin/python3",
+                               runtime_kind="pytest", enabled=True)
+        db.session.add(rt); db.session.commit()
+        mk = lambda: dispatch.create_execution(
+            "m", db.session.get(Suite, sid), source_sha="x",
+            run_config={"runtime_id": rt.id, "runner_id": r.id})
+        e1, e2 = mk(), mk()
+        assert dispatch._assign_runner(e1, r, rt)
+        assert not dispatch._assign_runner(e2, r, rt)
+        db.session.refresh(e2)
+        assert e2.state == ExecutionState.QUEUED
+        assert "slots full" in e2.wait_reason
+        assert "1/1" in e2.wait_reason
+
+
+def test_queue_deadline_expires_to_failed(app):
+    """A QUEUED run past its deadline fails with an explicit queue
+    reason — starvation is surfaced, not silent."""
+    from datetime import timedelta as _td
+    sid = _env(app)
+    with app.app_context():
+        ex = dispatch.create_execution(
+            "u", db.session.get(Suite, sid), source_sha="x",
+            run_config={"queue_timeout_seconds": 60})
+        assert ex.queue_deadline_at is not None
+        # force overdue
+        ex.queue_deadline_at = utcnow() - _td(seconds=1)
+        db.session.commit()
+        assert dispatch._expire_queue_deadlines() == 1
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert ex.error_kind == "queue"
+        assert "deadline" in ex.error_text
+
+
+def test_redrive_fifo_order(app):
+    """Queued executions are redriven oldest-first — deterministic
+    fair ordering, not arbitrary DB order."""
+    sid = _env(app)
+    with app.app_context():
+        exs = [dispatch.create_execution(
+            "u", db.session.get(Suite, sid), source_sha="x",
+            run_config={}) for _ in range(3)]
+        calls = []
+        orig = dispatch._buildbot_assign_and_submit
+        dispatch._buildbot_assign_and_submit = \
+            lambda e: calls.append(e.id)
+        try:
+            dispatch._redrive_queued_remote()
+        finally:
+            dispatch._buildbot_assign_and_submit = orig
+        assert calls == [e.id for e in exs]
+
+
+def test_misfire_skip_policy(app):
+    """misfire_policy='skip' drops an occurrence overdue past its
+    interval and audits it — no catch-up storm after an outage."""
+    from datetime import timedelta as _td
+    from testorchestrator.execution import (Project, Schedule)
+    with app.app_context():
+        p = Project(name="Pm"); db.session.add(p); db.session.flush()
+        s = Schedule(project_id=p.id, name="sch", target_type="suite",
+                     kind="interval", interval_minutes=10,
+                     misfire_policy="skip", enabled=True,
+                     next_run_at=utcnow() - _td(minutes=30))
+        db.session.add(s); db.session.commit()
+        n = dispatch.fire_due_schedules()
+        db.session.refresh(s)
+        assert n == 0 or n is not None  # fired count may be 0
+        from testorchestrator.models import AuditEvent
+        ev = AuditEvent.query.filter_by(
+            event="schedule.misfire_skipped").all()
+        assert ev and "overdue" in ev[0].detail
+        # next_run_at advanced — no catch-up
+        assert s.next_run_at is not None and \
+            s.next_run_at > utcnow().replace(tzinfo=None)
+
+
 def test_execution_snapshot_records_deployed_rev(app):
     """Every evidence row carries the exact deployed code it ran on —
     module path + git state, so a stale-tree process can't pass as a

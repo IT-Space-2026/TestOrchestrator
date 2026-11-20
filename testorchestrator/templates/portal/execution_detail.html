@@ -39,6 +39,9 @@
   <dt>Suite</dt><dd>{{ ex.snapshot().get('suite_name') }} (v{{ ex.snapshot().get('suite_version') }})</dd>
   <dt>Source SHA</dt><dd><code>{{ ex.source_sha or "—" }}</code></dd>
   <dt>State</dt><dd><strong>{{ ex.state.value }}</strong></dd>
+  {% if ex.wait_reason %}
+  <dt>Waiting because</dt><dd>{{ ex.wait_reason }}</dd>
+  {% endif %}
   <dt>Outcome</dt><dd>{{ ex.outcome.value }}</dd>
   <dt>Orchestrator run</dt><dd><code>{{ ex.dispatch_id or "—" }}</code></dd>
   {% if ex.snapshot().get('attempt', 1) > 1 or ex.snapshot().get('retry_of') %}

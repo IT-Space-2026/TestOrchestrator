@@ -39,7 +39,8 @@ from .adapters.buildbot import BuildbotAdapter
 from . import buildbot_cfg
 from .execution import (Artifact, DiscoveredItem, Execution,
                         ExecutionState, GitBinding,
-                        OutboxEvent, Outcome, Plan, Release, Runner,
+                        OutboxEvent, Outcome, Plan, Release,
+                        ResourceReservation, Runner,
                         RuntimeConnection, Schedule, Suite, SyncState,
                         TestResult, utcnow)
 from sqlalchemy.exc import OperationalError
@@ -328,6 +329,13 @@ def create_execution(username: str, suite: Suite = None,
         unit_index=unit_index, unit_key=(unit_key or "")[:128],
     )
     db.session.add(execution)
+    try:
+        qd = int(rc.get("queue_timeout_seconds") or 0)
+        if qd > 0:
+            execution.queue_deadline_at = utcnow() + timedelta(
+                seconds=qd)
+    except (TypeError, ValueError):
+        pass
     db.session.flush()  # id assigned before outbox references it
 
     # Dispatch route: Buildbot is the sole orchestrator — persisted in
@@ -807,11 +815,17 @@ def effective_slots(runner: Runner) -> int:
 
 def pick_runner(execution: Execution) -> Runner | None:
     """Enabled, non-draining runners with project scope and free slots —
-    local and remote modes both eligible (remote requires a live agent)."""
+    local and remote modes both eligible. PB workers known-unreachable
+    are skipped: a healthy alternative with capacity should win (the
+    health field is refreshed by the reconcile sweep each tick;
+    explicit picks are unaffected — master queues honestly)."""
     runners = Runner.query.filter_by(enabled=True, draining=False).all()
     for runner in runners:
         allowed = json.loads(runner.allowed_projects or "[]")
         if allowed and execution.project_id not in allowed:
+            continue
+        if runner.target_type == "buildbot-worker" \
+                and runner.health == "unreachable":
             continue
         if effective_slots(runner) <= 0:
             continue
@@ -1024,14 +1038,58 @@ def _assign_runner(ex: Execution, runner: Runner,
               "runtime_id": runtime.id,
               "lease_expires_at": utcnow() + timedelta(
                   seconds=LEASE_SECONDS),
-              "heartbeat_at": utcnow()},
+              "heartbeat_at": utcnow(),
+              "wait_reason": ""},
              synchronize_session=False)
+    if n:
+        # Durable ownership ledger — written in the SAME transaction
+        # as the assignment: the reservation exists before the run
+        # launches, keyed to this execution, released only on a
+        # confirmed terminal state (UNKNOWN keeps it).
+        db.session.add(ResourceReservation(
+            execution_id=ex.id, runner_id=runner.id,
+            resource_kind="slot", quantity=1,
+            acquired_at=utcnow()))
+        procs = requested_procs(ex)
+        if procs:
+            db.session.add(ResourceReservation(
+                execution_id=ex.id, runner_id=runner.id,
+                resource_kind="procs", quantity=procs,
+                acquired_at=utcnow()))
     db.session.commit()
     if n:
         db.session.refresh(ex)
     else:
         db.session.rollback()
+        ex.wait_reason = _capacity_block_reason(runner, ex)
+        db.session.commit()
     return bool(n)
+
+
+def _capacity_block_reason(runner: Runner, ex: Execution) -> str:
+    """Why this runner could not admit the execution — the actionable
+    wait reason surfaced instead of a silent QUEUED stall."""
+    active = Execution.query.filter(
+        Execution.runner_id == runner.id,
+        Execution.id != ex.id,
+        Execution.state.in_(_ACTIVE_STATES)).count()
+    cap = capacity_limit(runner)
+    if active >= cap:
+        lic = (f" (licence seats {runner.license_slots})"
+               if runner.license_slots else "")
+        return (f"capacity: runner '{runner.name}' job slots full "
+                f"({active}/{cap} in use{lic})")
+    if runner.max_procs:
+        used = int(db.session.execute(
+            db.select(_active_procs_subquery(runner, ex.id))
+        ).scalar() or 0)
+        need = requested_procs(ex)
+        if used + need > runner.max_procs:
+            free = max(0, runner.max_procs - used)
+            return (f"capacity: '{runner.name}' process budget "
+                    f"{used}/{runner.max_procs} in use; this run "
+                    f"requests {need} (only {free} free)")
+    return f"capacity: assignment race on '{runner.name}' — retrying"
 
 
 def _claim_for_start(ex: Execution,
@@ -1878,6 +1936,23 @@ def _buildbot_assign_and_submit(ex: Execution) -> None:
         _fail(ex, "infrastructure", sel_err)
         return
     if runner is None:
+        scoped = [r for r in Runner.query.filter_by(
+            enabled=True, draining=False).all()
+            if not json.loads(r.allowed_projects or "[]")
+            or ex.project_id in json.loads(
+                r.allowed_projects or "[]")]
+        unreachable = [r for r in scoped
+                       if r.target_type == "buildbot-worker"
+                       and r.health == "unreachable"]
+        if unreachable and len(unreachable) == len(scoped):
+            ex.wait_reason = (
+                "all eligible runners unreachable — workers "
+                "offline; run waits for reconnect")
+        else:
+            ex.wait_reason = (
+                "no eligible runner with free capacity (enabled, "
+                "non-draining, project scope) — retried each tick")
+        db.session.commit()
         return
     if runner.max_procs and requested_procs(ex) >= UNBOUNDED_PROCS:
         # A framework-default playwright run auto-scales to ~cpu/2 —
@@ -1908,6 +1983,7 @@ def _buildbot_assign_and_submit(ex: Execution) -> None:
             ex.error_text = (
                 ex.error_text + " | buildbot master unreachable; "
                 "held QUEUED for redrive")[:2000]
+            _release_reservations(ex, "requeued")
             db.session.commit()
             return
         _fail(ex, "infrastructure",
@@ -1954,6 +2030,61 @@ def _handle_event(event: OutboxEvent) -> None:
             db.session.commit()
     else:
         raise DispatchError(f"unknown outbox kind {event.kind!r}")
+
+
+_TERMINAL_STATES = [
+    ExecutionState.COMPLETED, ExecutionState.FAILED,
+    ExecutionState.CANCELED,
+]
+
+
+def _release_reservations(ex: Execution, release_state: str) -> int:
+    """Mark this execution's open reservations released — durable
+    ownership ledger. Called on confirmed terminal transitions and on
+    the connect-failure requeue (where the slot is honestly freed)."""
+    rows = ResourceReservation.query.filter_by(
+        execution_id=ex.id, released_at=None).all()
+    for r in rows:
+        r.released_at = utcnow()
+        r.release_state = release_state
+    return len(rows)
+
+
+def _release_terminal_reservations() -> int:
+    """Sweep: any reservation still open on a confirmed-terminal
+    execution is released — capacity may only be freed by a terminal
+    state, and this pass also repairs rows whose terminal transition
+    predates the ledger. UNKNOWN is deliberately NOT terminal."""
+    rows = (ResourceReservation.query
+            .join(Execution,
+                  ResourceReservation.execution_id == Execution.id)
+            .filter(ResourceReservation.released_at.is_(None),
+                    Execution.state.in_(_TERMINAL_STATES)).all())
+    for r in rows:
+        r.released_at = utcnow()
+        r.release_state = "terminal"
+    if rows:
+        db.session.commit()
+    return len(rows)
+
+
+def _expire_queue_deadlines() -> int:
+    """Queue deadline: a QUEUED execution past queue_deadline_at fails
+    with an explicit reason — capacity starvation is surfaced, never
+    an indefinite silent wait."""
+    now = utcnow()
+    due = Execution.query.filter(
+        Execution.state == ExecutionState.QUEUED,
+        Execution.queue_deadline_at.isnot(None),
+        Execution.queue_deadline_at < now).all()
+    for ex in due:
+        _fail(ex, "queue",
+              f"queue deadline exceeded — still waiting "
+              f"({ex.wait_reason or 'no eligible runner'}); "
+              "increase runner capacity or queue_timeout_seconds")
+        record_audit("system", "execution.queue_deadline_expired",
+                     ex.id)
+    return len(due)
 
 
 def reconcile_stale() -> int:
@@ -2027,6 +2158,22 @@ def fire_due_schedules(now=None) -> int:
         if not claimed:
             db.session.rollback()
             continue  # another worker claimed this fire
+        # Misfire policy ('late' default = previous behaviour): a
+        # missed interval fire runs once late. 'skip' drops an
+        # occurrence overdue past its interval — the claim above
+        # already advanced next_run_at, so a skipped fire can never
+        # catch-up storm after an outage. Evaluated on the pre-claim
+        # due time (overdue captured before the update).
+        overdue_s = 0.0
+        if sched.next_run_at:
+            nra = sched.next_run_at
+            if nra.tzinfo is None:
+                overdue_s = max(
+                    0.0, (now.replace(tzinfo=None) - nra)
+                    .total_seconds())
+            else:
+                overdue_s = max(
+                    0.0, (now - nra).total_seconds())
         try:
             # Post-claim refresh: fire the row's CURRENT config/target —
             # a concurrent edit/disable/delete between the due scan and
@@ -2034,6 +2181,17 @@ def fire_due_schedules(now=None) -> int:
             # raises here and stays unfired.
             db.session.refresh(sched)
             cfg = sched.run_config()
+            if sched.kind == "interval" \
+                    and sched.misfire_policy == "skip" \
+                    and sched.interval_minutes \
+                    and overdue_s > sched.interval_minutes * 60:
+                record_audit(
+                    "system", "schedule.misfire_skipped",
+                    f"{sched.id}: overdue {int(overdue_s)}s > "
+                    f"interval {sched.interval_minutes}m — "
+                    "occurrence dropped (misfire_policy=skip)")
+                db.session.commit()
+                continue
             # Overlap policy (interval schedules only — 'once' fires a
             # single time): skip = drop this occurrence while a previous
             # execution from THIS schedule is still active. Evaluated
@@ -2253,11 +2411,18 @@ def _redrive_queued_remote(limit: int = 10) -> int:
     dispatch_id is empty — assignment precedes submit, so QUEUED + no
     dispatch_id proves no run was ever started; _submit_buildbot
     additionally reconciles by execution-id property before forcing a
-    new buildrequest."""
+    new buildrequest.
+    Fair ordering: oldest-first (created_at). A job that cannot fit
+    now does not starve younger ones — the scan continues past it
+    (bounded), and its wait_reason records exactly which gate blocks
+    it."""
     n = 0
     for ex in Execution.query.filter(
             Execution.state == ExecutionState.QUEUED,
-            Execution.role != "parent").limit(limit):
+            Execution.role != "parent").order_by(
+            Execution.created_at.asc()).limit(100):
+        if n >= limit:
+            break
         transport = ex.snapshot().get("dispatch_transport")
         if transport == "buildbot" and not ex.dispatch_id:
             _buildbot_assign_and_submit(ex)
@@ -2282,6 +2447,7 @@ def worker_once() -> int:
     n += (reconcile_stale() + fire_due_schedules() + process_outbox()
           + enforce_plan_policies() + _resolve_unlaunched_cancels()
           + aggregate_parent_runs()
+          + _release_terminal_reservations() + _expire_queue_deadlines()
           + _heartbeat_local_runners() + _redrive_queued_remote())
     return n
 
