@@ -4,9 +4,13 @@ Applies to **TestOrchestrator 2.5.1** (verified build commit
 `1adf71b8d5f8`).
 
 All screenshots were captured from a real Linux installation of the
-published release package using safe demonstration data. Where a
-fixture stood in for licensed software, that is stated on the
-screenshot caption and in the text.
+published release package using safe demonstration data. Application
+screens show the **user's point of view** — captured as a
+non-administrator account (Test Manager), so the navigation and
+controls are exactly what a regular user sees; administrator-only
+pages appear only where the text describes administrator setup and
+are labelled as such. Where a fixture stood in for licensed
+software, that is stated on the screenshot caption and in the text.
 
 ---
 
@@ -377,7 +381,7 @@ or a portal suite.
 
 **Create:**
 
-1. Open the project → **Schedules** → **New schedule**.
+1. Open the project → **Schedules-Executions** → **Create schedule**.
 2. Fields:
    - **Schedule name** — required.
    - **Runs** (target) — pick **one** entry via the two-panel

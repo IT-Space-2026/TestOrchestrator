@@ -7,6 +7,23 @@
   and a **populated instance** carrying real project/execution history.
   `install-transcript.png` is a terminal rendering of actual
   `install.sh`/`install.py` output lines from the 2.5.0 package.
+- **User point of view:** all `user/` frames are captured as the
+  non-administrator account `manager` (role **Test Manager**) — the
+  sidebar shows only what a regular user sees. `admin/` frames are
+  captured as Administrator and used only for administrator-context
+  captions.
+- **Recapture (2.5.1 docs pass):** `user/` frames re-captured on the
+  populated 2.5.1 instance — earlier frames had been taken as
+  Administrator on a development tree and included a *Method Not
+  Allowed* error page (`schedules.png`), a development-version
+  infrastructure page (`admin/infrastructure.png`), a duplicate
+  (`release-new.png`/`schedule-new.png` were the same frame), and a
+  `login.png` that showed the unsupported-version notice (the
+  seeded licence did not verify; a valid documentation licence now
+  seeds the instance, and `login-unsupported.png` is a genuine
+  no-licence capture). `execution-rlabs.png` shows the generated
+  report file itself — the portal serves reports sandboxed, so the
+  frame is the report document, not the portal chrome.
 - **Environment:** isolated documentation installs
 - **Data notes:** project "Katalon-cert Demo" is a real Katalon
   project with **genuine Katalon 11.7.0 report output** (imported);
