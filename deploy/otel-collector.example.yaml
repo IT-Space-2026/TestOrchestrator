@@ -11,7 +11,7 @@
 #   -<timestamp>-<pid> suffixes — the glob covers them).
 # - The collector needs READ access to the directory; it must NOT be
 #   able to write/delete there.
-# - filelog checkpoints survive restarts (storage extension) — after a
+# - file_log checkpoints survive restarts (storage extension) — after a
 #   collector outage it resumes where it stopped; on rotation the new
 #   file is picked up as a new fingerprint.
 # - Duplicates are possible (checkpoint loss, collector restart
@@ -23,14 +23,14 @@
 #   the authoritative store; file output is at-least-once only while
 #   the file exists.
 #
-# Requires: opentelemetry-collector-contrib (filelog receiver).
+# Verified: otelcol-contrib v0.165.0 (file_log receiver).
 
 extensions:
   file_storage:
     directory: /var/lib/otelcol/filelog-checkpoints   # survives restarts
 
 receivers:
-  filelog/testorchestrator:
+  file_log/testorchestrator:
     include:
       - /var/lib/testorchestrator/logs/events*.jsonl
     start_at: end            # new installs: don't replay history
@@ -73,6 +73,6 @@ service:
   extensions: [file_storage]
   pipelines:
     logs:
-      receivers: [filelog/testorchestrator]
+      receivers: [file_log/testorchestrator]
       processors: [batch]
       exporters: [debug]           # add your exporter here

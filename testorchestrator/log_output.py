@@ -35,6 +35,7 @@ _std = logging.getLogger("testorchestrator.log_output")
 
 _STATE = {"written": 0, "dropped": 0, "rotated": 0,
           "last_error": "", "last_write_at": None}
+_rotate_seq = 0
 _lock = threading.Lock()
 _cfg_cache = {"at": 0.0, "cfg": None}
 _CFG_TTL_S = 5.0
@@ -89,12 +90,19 @@ def status() -> dict:
 
 def _rotate(path: Path, cfg: dict) -> None:
     """Rename the active file aside when it reached the size cap, then
-    delete the oldest rotated files beyond max_files. Unique suffix
-    (timestamp + pid) makes concurrent rotations collision-free."""
+    delete the oldest rotated files beyond max_files. The suffix is
+    timestamp-to-nanoseconds + pid + a per-process sequence — two
+    rotations inside one second (burst writes) must NEVER collide and
+    clobber a file full of events."""
     import time as _t
+    global _rotate_seq
+    _rotate_seq += 1
     rotated = path.with_name(
-        f"{path.stem}-{_t.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}.jsonl")
+        f"{path.stem}-{_t.strftime('%Y%m%dT%H%M%S')}-{_t.time_ns() % 10**12}"
+        f"-{os.getpid()}-{_rotate_seq}.jsonl")
     try:
+        if rotated.exists():
+            return  # defensive: never overwrite a rotated file
         path.rename(rotated)
         _STATE["rotated"] += 1
     except OSError:

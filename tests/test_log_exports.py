@@ -98,18 +98,54 @@ def test_export_formula_injection_guard(client, login_as, app):
 def test_export_stable_order_and_cutoff(client, login_as, app):
     _seed_ops(app)
     with app.app_context():
-        mode, job, count, cutoff = logexport.request_export(
+        mode, job, count, cutoff, max_id = logexport.request_export(
             "operational", {}, "admin")
         assert mode == "inline" and count == 3
         # a row emitted AFTER the cutoff must not appear in the export
         logs.emit("dispatch", "after-cutoff")
-        q = logexport.query_for("operational", {}).filter(
-            logexport._cutoff_col("operational") <= cutoff)
+        # ...and neither may a row inserted late but carrying an OLDER
+        # occurred_at — a timestamp cutoff alone would wrongly admit it;
+        # the id high-water mark does not.
+        back = logs.emit("dispatch", "backdated late insert")
+        back.occurred_at = datetime.now(timezone.utc) - timedelta(days=2)
+        db.session.commit()
+        q = logexport.bounded_query("operational", {}, max_id)
         out = "".join(logexport.csv_lines("operational", q, cutoff))
     assert "after-cutoff" not in out
+    assert "backdated late insert" not in out
     # ordering: occurred_at DESC, id DESC — newest first
     ids = [r["event_id"] for r in _csv_rows(out)]
     assert ids == sorted(ids, reverse=True)
+
+
+def test_export_count_and_contents_share_one_boundary(app):
+    """The request-time count must equal the generated rows — both run
+    against the same id high-water mark."""
+    _seed_ops(app)
+    with app.app_context():
+        mode, job, count, cutoff, max_id = logexport.request_export(
+            "operational", {}, "admin")
+        logs.emit("dispatch", "not in scope")
+        out = "".join(logexport.csv_lines(
+            "operational",
+            logexport.bounded_query("operational", {}, max_id), cutoff))
+        rows = _csv_rows(out)
+        assert len(rows) == count == 3
+        assert "not in scope" not in {r["message"] for r in rows}
+
+
+def test_generation_cap_enforced_during_writing(app):
+    """Even with the id bound, generation enforces the cap — a writer
+    may never silently exceed it."""
+    _seed_ops(app)
+    with app.app_context():
+        q = logexport.bounded_query("operational", {},
+                                    logexport._max_id("operational"))
+        gen = logexport.csv_lines("operational", q, None, hard_limit=2)
+        next(gen)                      # header
+        next(gen); next(gen)           # rows 1–2
+        with pytest.raises(logexport.GenerationOverflowError):
+            next(gen)
 
 
 def test_audit_export_uses_audit_rows_only(client, login_as, app):
@@ -191,7 +227,7 @@ def _complete_job(app, kind="operational", username="admin"):
     _s.set("logs_export_inline_max", 0)
     db.session.commit()
     try:
-        mode, job, count, cutoff = logexport.request_export(
+        mode, job, count, cutoff, _mid = logexport.request_export(
             kind, {}, username)
     finally:
         _s.set("logs_export_inline_max", 10000)
@@ -241,6 +277,52 @@ def test_export_job_expires(client, login_as, app):
                     job.file_name).exists()
     assert client.get(
         f"/system/log-exports/{jid}/download").status_code == 410
+
+
+def test_concurrent_job_cap_is_db_wide(app):
+    """The 2-job cap counts queued/running rows in the shared DB — the
+    same limit applies across every portal process, not per worker."""
+    _seed_ops(app)
+    with app.app_context():
+        s.set("logs_export_inline_max", 0)
+        db.session.commit()
+        for i in range(logexport.MAX_JOBS):
+            db.session.add(logexport.LogExportJob(
+                created_by="other-proc", kind="operational",
+                filters_json="{}", status="running",
+                cutoff_utc=datetime.now(timezone.utc),
+                file_name=f"foreign-{i}.csv",
+                expires_at=datetime.now(timezone.utc)
+                + timedelta(hours=1)))
+        db.session.commit()
+        with pytest.raises(logexport.BusyError):
+            logexport.request_export("operational", {}, "admin")
+        s.set("logs_export_inline_max", 10000)
+        db.session.commit()
+
+
+def test_purge_removes_orphan_and_failed_files(app):
+    """Restart-time purge (create_app calls it) must remove .part
+    fragments, failed-job files and unknown orphans."""
+    _seed_ops(app)
+    with app.app_context():
+        from testorchestrator.config import INSTANCE_DIR
+        d = INSTANCE_DIR / "log-exports"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "crashed.csv.part").write_text("partial")
+        (d / "orphan.csv").write_text("no job row")
+        failed = logexport.LogExportJob(
+            created_by="admin", kind="operational", filters_json="{}",
+            status="failed", file_name="failed-job.csv",
+            cutoff_utc=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
+        db.session.add(failed)
+        db.session.commit()
+        (d / "failed-job.csv").write_text("should not be served")
+        logexport.purge_expired()
+        assert not (d / "crashed.csv.part").exists()
+        assert not (d / "orphan.csv").exists()
+        assert not (d / "failed-job.csv").exists()
 
 
 def test_interrupted_job_marked_failed(app):
@@ -318,6 +400,36 @@ def test_secrets_redacted_before_persistence_everywhere(client,
         out = client.get(url).data.decode()
         assert "hunter2" not in out and "sekrit99" not in out \
             and "AKIA9999" not in out
+
+
+def test_redaction_mixed_case_and_free_text(app):
+    """Mixed-case key names and secrets embedded in free text /
+    exception-style details are redacted before persistence in BOTH
+    log types."""
+    with app.app_context():
+        logs.emit("t", 'Traceback: conn failed "Authorization": '
+                  '"Bearer abcdef123456" api-Key=QWERTY42 '
+                  'Cookie: sessionid=zzz999')
+        record_audit("Admin", "auth.fail", "PASSWORD=hunter X-API-KEY=kk")
+        op = logs.OperationalLog.query.order_by(
+            logs.OperationalLog.id.desc()).first()
+        for secret in ("abcdef123456", "QWERTY42", "zzz999"):
+            assert secret not in op.message, secret
+        au = AuditEvent.query.order_by(AuditEvent.id.desc()).first()
+        assert "hunter" not in au.detail and "kk" not in au.detail
+
+
+def test_redaction_jsonl_and_csv_same_barrier(client, login_as, app):
+    with app.app_context():
+        logs.emit("t", "api_token=deadbeef42", details='{"secret": "x1"}')
+        record_audit("admin", "cfg", "client_secret=s3cr3t")
+    login_as("admin")
+    for url in ("/system/logs/export?format=csv",
+                    "/system/logs/export?format=jsonl",
+                    "/system/audit/export"):
+        out = client.get(url).data.decode()
+        for secret in ("deadbeef42", "x1", "s3cr3t"):
+            assert secret not in out, f"{secret} leaked via {url}"
 
 
 def test_redact_details_nested_keys(app):
@@ -413,6 +525,123 @@ def test_json_output_failure_never_breaks_emit(app, tmp_path,
         db.session.commit()
         log_output.reset_config_cache()
     bad.chmod(0o755)
+
+
+def test_concurrent_writers_during_rotation_bounded_disk(app, json_dir):
+    """Writers racing the rotation+retention path: every emitted line
+    must stay complete JSON, event_ids stay unique, and total on-disk
+    bytes remain bounded (active file + retained rotated files)."""
+    import threading
+    with app.app_context():
+        s.set("logs_json_enabled", True)
+        s.set("logs_json_max_bytes", 2000)
+        s.set("logs_json_max_files", 3)
+        db.session.commit()
+        log_output.reset_config_cache()
+
+        def work(n):
+            with app.app_context():
+                for i in range(60):
+                    logs.emit("t", f"w{n}-r{i} " + "x" * 40)
+
+        ts = [threading.Thread(target=work, args=(n,)) for n in range(4)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        s.set("logs_json_enabled", False)
+        db.session.commit()
+        log_output.reset_config_cache()
+
+    ids, total_bytes = set(), 0
+    files = list(json_dir.glob("events*.jsonl"))
+    assert files
+    for f in files:
+        total_bytes += f.stat().st_size
+        for line in f.read_text().splitlines():
+            ev = json.loads(line)            # complete JSON, no tearing
+            assert ev["event_id"] not in ids
+            ids.add(ev["event_id"])
+    # retention bound: <= max_files rotated (2KB each) + the active file
+    # + the one in-flight overshoot rotation can leave behind.
+    assert len([f for f in files if f.name != "events.jsonl"]) <= 4
+    assert total_bytes <= 2000 * 6
+    assert log_output.status()["rotated"] >= 1
+
+
+def test_oversized_record_and_stale_handle(app, json_dir):
+    """A single event larger than the per-file cap is still written
+    complete (the file bound is: max_bytes + at most one record), and
+    a writer holding a pre-rotation fd keeps appending to the ROTATED
+    file — POSIX rename semantics, data not lost."""
+    import os
+    with app.app_context():
+        s.set("logs_json_enabled", True)
+        s.set("logs_json_max_bytes", 300)
+        db.session.commit()
+        log_output.reset_config_cache()
+        logs.emit("t", "warm-up")
+        active = json_dir / "events.jsonl"
+        # 'another process' holding the current file open
+        stale_fd = os.open(active, os.O_WRONLY | os.O_APPEND)
+        try:
+            logs.emit("t", "x" * 2000)          # > cap → rotates + writes
+            logs.emit("t", "after-rotation")
+            os.write(stale_fd, b'{"stale":"write"}\n')
+        finally:
+            os.close(stale_fd)
+        s.set("logs_json_enabled", False)
+        db.session.commit()
+        log_output.reset_config_cache()
+
+    # the stale-fd line landed in a rotated file, not the new active
+    rotated = list(json_dir.glob("events-*.jsonl"))
+    assert rotated
+    assert '"stale"' not in (json_dir / "events.jsonl").read_text()
+    stale_lines = [l for f in rotated
+                   for l in f.read_text().splitlines() if '"stale"' in l]
+    assert stale_lines
+    # every line across files is still complete JSON
+    for f in json_dir.glob("events*.jsonl"):
+        for line in f.read_text().splitlines():
+            json.loads(line)
+
+
+def test_writer_recovers_across_restart(app, json_dir):
+    """'Restart': a fresh process state resumes appending — existing
+    file is kept, new events parse cleanly."""
+    with app.app_context():
+        s.set("logs_json_enabled", True)
+        db.session.commit()
+        log_output.reset_config_cache()
+        logs.emit("t", "before-restart")
+    log_output.reset_config_cache()   # new-process config re-read
+    log_output.reset_stats()          # counters are per-process
+    with app.app_context():
+        s.set("logs_json_enabled", True)
+        db.session.commit()
+        logs.emit("t", "after-restart")
+        s.set("logs_json_enabled", False)
+        db.session.commit()
+        log_output.reset_config_cache()
+    lines = (json_dir / "events.jsonl").read_text().splitlines()
+    evs = [json.loads(l) for l in lines]
+    assert [e["message"] for e in evs] == ["before-restart",
+                                         "after-restart"]
+
+
+def test_health_counters_are_per_process(app, json_dir):
+    """status() reflects THIS process only — the doc says so, the
+    counter semantics prove it (reset = a new process's view)."""
+    with app.app_context():
+        s.set("logs_json_enabled", True)
+        db.session.commit()
+        log_output.reset_config_cache()
+        logs.emit("t", "count me")
+        st = log_output.status()
+        assert st["written"] >= 1 and "dropped" in st \
+            and "rotated" in st and "last_error" in st
+        s.set("logs_json_enabled", False)
+        db.session.commit()
+        log_output.reset_config_cache()
 
 
 def test_concurrent_writers_produce_valid_lines(app, json_dir):

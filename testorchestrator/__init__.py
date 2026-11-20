@@ -140,6 +140,16 @@ def create_app(config_object=Config) -> Flask:
 
     install_gates(app)
 
+    # Log-export temp files from a previous life: mark stale jobs and
+    # remove their files + orphaned .part fragments at startup, so a
+    # crashed writer never leaves protected exports lying around.
+    try:
+        with app.app_context():
+            from . import logexport
+            logexport.purge_expired()
+    except Exception:
+        pass  # pre-migration DBs — next request retries anyway
+
     # ---- licence status (informational only) ----
     # The application licence is NOT an enforcement gate: every route and
     # operation works regardless of licence state. The only visible effect

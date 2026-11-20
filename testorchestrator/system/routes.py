@@ -553,12 +553,26 @@ def operational_logs():
     components = [r[0] for r in
                   db.session.query(logs.OperationalLog.component)
                   .distinct()]
+    from .. import log_output
+    sink = log_output.status() if _sink_enabled() else None
     return render_template("system/operational_logs.html",
                            rows=paged.items, page=paged,
                            filters=filters, filter_qs=_op_filter_qs(filters),
                            components=components,
                            severities=logs.SEVERITIES,
-                           categories=logs.CATEGORIES)
+                           categories=logs.CATEGORIES,
+                           sink_status=sink)
+
+
+def _sink_enabled() -> bool:
+    """Is any structured-output sink configured? (health row only shows
+    when relevant — counters are per-process, see external-logging.md)"""
+    from .. import settings as _sm
+    try:
+        return bool(_sm.get("logs_json_enabled") or
+                    _sm.get("logs_stdout_enabled"))
+    except Exception:
+        return False
 
 
 @system_bp.route("/logs/tail")
@@ -603,7 +617,7 @@ def operational_logs_export():
         fmt = "csv"
     filters = _op_log_filters()
     try:
-        mode, job, count, cutoff = logexport.request_export(
+        mode, job, count, cutoff, max_id = logexport.request_export(
             "operational", filters, current_user.username)
     except logexport.TooManyRowsError as exc:
         record_audit(current_user.username, "logs.export.denied",
@@ -628,12 +642,13 @@ def operational_logs_export():
     app = current_app._get_current_object()
     if fmt == "jsonl":
         return Response(
-            logexport.stream_jsonl(app, "operational", filters, cutoff),
+            logexport.stream_jsonl(app, "operational", filters, cutoff,
+                                   max_id),
             mimetype="application/x-ndjson",
             headers={"Content-Disposition":
                      f"attachment; filename={fname}l"})
     return Response(
-        logexport.stream_csv(app, "operational", filters, cutoff),
+        logexport.stream_csv(app, "operational", filters, cutoff, max_id),
         mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition":
                  f"attachment; filename={fname}"})

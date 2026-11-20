@@ -473,12 +473,20 @@ def test_cancel_kills_process_tree(app, tmp_path):
     t.join(timeout=30)
     assert done
     cpid = int(child_pid.read_text().strip())
+    # os.kill(pid, 0) also succeeds for a killed-but-not-yet-reaped
+    # zombie — poll /proc state briefly so a reaping race is not
+    # reported as a live child (Run E flake mechanism).
     import os
-    try:
-        os.kill(cpid, 0); alive = True
-    except OSError:
-        alive = False
-    assert not alive                        # child confirmed stopped
+    def _dead(pid):
+        try:
+            st = open(f"/proc/{pid}/stat").read().split()[2]
+            return st == "Z"
+        except OSError:
+            return True            # gone entirely
+    deadline = time.time() + 5
+    while not _dead(cpid) and time.time() < deadline:
+        time.sleep(0.05)
+    assert _dead(cpid)             # child confirmed stopped
     with app.app_context():
         ex = db.session.get(Execution, eid)
         assert ex.state == ExecutionState.CANCELED

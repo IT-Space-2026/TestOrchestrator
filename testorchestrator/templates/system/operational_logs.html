@@ -114,6 +114,20 @@
   {% endif %}
 </div>
 
+{% if sink_status %}
+<div class="card">
+  <p class="muted"><small>Structured output (this process):
+    {{ sink_status.written }} written · {{ sink_status.dropped }} dropped
+    · {{ sink_status.rotated }} rotations
+    {% if sink_status.last_error %}· last error:
+      <code>{{ sink_status.last_error }}</code>{% endif %}
+    {% if sink_status.last_write_at %}· last write
+      {{ sink_status.last_write_at }}{% endif %}
+    — counters are per-process; file delivery is best-effort, the
+    database is authoritative.</small></p>
+</div>
+{% endif %}
+
 <script src="{{ url_for('static', filename='js/operational_logs.js') }}" defer
         data-url="{{ url_for('system.operational_logs_tail') }}"></script>
 {% endblock %}

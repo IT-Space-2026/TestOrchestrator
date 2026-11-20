@@ -186,9 +186,13 @@ def test_cancel_kills_process_tree(app, pipeline_env, tmp_path):
         assert ex.state == ExecutionState.CANCELED
         assert ex.outcome == Outcome.INCOMPLETE
         assert ex.exit_status is not None  # termination acknowledged
-        # The remote process tree is dead — no orphaned sleep procs.
+        # The remote process tree is dead — no orphaned procs. The
+        # pattern is this test's unique tmp_path script, not a generic
+        # name: a global `pgrep -f slow-kre` also matches unrelated
+        # acceptance-run fixtures or shells whose cmdline contains the
+        # string (test-isolation defect seen in Run E).
         import subprocess as _sp
-        out = _sp.run(["pgrep", "-f", "slow-kre"],
+        out = _sp.run(["pgrep", "-f", str(slow_kre)],
                       capture_output=True, text=True)
         assert out.returncode != 0
 

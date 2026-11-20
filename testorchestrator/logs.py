@@ -89,10 +89,10 @@ def prune() -> None:
 
 
 SECRET_RE = re.compile(
-    r"(?i)(password|passwd|passphrase|secret|token|apikey|api_key"
+    r"(?i)[\"']?(password|passwd|passphrase|secret|token|apikey|api_key"
     r"|api-key|private_key|signing_key|licen[cs]e_key|client_secret"
     r"|credential|authorization|auth_header|cookie|set-cookie"
-    r"|x-api-key|bearer)\s*[:=]\s*\S+")
+    r"|x-api-key|bearer)[\"']?\s*[:=]\s*[\"']?\S+")
 
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}")
 
@@ -103,10 +103,12 @@ def redact(text: str) -> str:
     share the same redaction."""
     if not text:
         return ""
-    text = SECRET_RE.sub(
+    # Bearer first: a quote-tolerant SECRET_RE could otherwise consume
+    # the "Bearer" keyword as the value of e.g. Authorization: "Bearer…"
+    text = _BEARER_RE.sub("Bearer •••", str(text))
+    return SECRET_RE.sub(
         lambda m: m.group(0).split(m.group(1))[0] + m.group(1) + "=•••",
-        str(text))
-    return _BEARER_RE.sub("Bearer •••", text)
+        text)
 
 
 def query(filters: dict):

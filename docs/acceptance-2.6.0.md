@@ -1,15 +1,17 @@
 # TestOrchestrator 2.6.0 — acceptance evidence ledger
 
 **Branch**: `feature/2.6.0-node-runners` (PR #4 — draft).
-**Current head at recording**: `d6c14b3` — logging implementation
-(CSV export + structured output; application code). A ledger-only
-commit follows it.
-**Tested candidate**: `57445bc` (full-suite Run C below). Historical:
-all commits between `57445bc` and `34c2cca`…`adf4490` were
+**Current head at recording**: `52bbfeb` — ledger-only commit on top
+of `d6c14b3` (verified: `52bbfeb` changes only
+`docs/acceptance-2.6.0.md`). Logging-hardening work lands after it
+(new application revision — recorded at its own head below).
+**Application revision tested by Run E**: `d6c14b3`.
+**Earlier tested candidate**: `57445bc` (full-suite Run C below).
+Historical: all commits between `57445bc` and `34c2cca`…`adf4490` were
 documentation-only, so Run C remained the tested state until
-`d6c14b3`. **`d6c14b3` changed application code** — a new full-suite
-run is required on this head (Run E below) and the packaged-candidate
-suite stays a required row in `docs/packaged-acceptance.md` §6.
+`d6c14b3`. **`d6c14b3` changed application code** — Run E below is its
+full-suite evidence; the packaged-candidate suite stays a required row
+in `docs/packaged-acceptance.md` §6.
 
 **Stage 5 status: parallel + recovery scenarios exercised; PB-loss
 retry/orphan correctness implemented and re-verified (`b049fab`,
@@ -423,11 +425,58 @@ accounting — no combined tally:
 | Run E failure | Cause | Outcome | Remediation |
 |---|---|---|---|
 | `test_production_key_auto_loaded` | External licence-issuer key absent — environmental by design | **still blocked** — recorded as a gap, not a pass | none possible in this environment; requires the external key |
-| `test_pipeline::test_cancel_kills_process_tree` | Transient stray-process timing (`pgrep -f slow-kre` matched a tearing-down tree) | **passed** on isolated rerun (0.65s) | none — cancel path untouched by `d6c14b3`; flake retained as evidence |
+| `test_pipeline::test_cancel_kills_process_tree` | **Test-isolation defect — cause established**: the assertion `pgrep -f "slow-kre"` is a global process-table check; it matched the unrelated live SSH-acceptance fixture `/tmp/c251-slow-kre` (in-flight `run.sh` run) — the same mechanism previously recorded at the 734-passed run (live `slow-kre` from SSH run `3891f37d`). Cancel path itself not implicated | Failed in Run E; passed on isolated rerun; passed again post-fix with the live fixture still running | fixture fixed: pattern scoped to the test's unique `tmp_path` script. The sibling `test_process_contention` variant also hardened — `os.kill(pid,0)` can't distinguish a zombie; now polls `/proc` state for `Z`. Rerun evidence recorded below |
 
 Run E covers the logging acceptance tests (`test_log_exports.py`,
 20 tests — all pass inside the batch) plus every regression touched
 by `record_audit`/`emit` callers.
+
+**Deployment state — `/tmp/to251d`: payload updated** (logging modules
+synced into `/tmp/to251d/testorchestrator/`); **running services not
+restarted** (an SSH acceptance execution was in flight); **active
+revision not yet verified.** Controlled restart + loaded-revision and
+migration verification is a required gate below — the new code is not
+claimed active until then.
+
+### Logging hardening round (post-`d6c14b3`)
+
+Review-driven fixes and evidence, all in this head's follow-up commit:
+
+- **Export consistency**: selection boundary is now an id high-water
+  mark (`max_id`, stored on the request/job) — a row inserted after
+  export creation with an *older* `occurred_at` cannot leak in
+  (timestamp-only cutoff had that hole; regression test added).
+  `logs_export_max_rows` is enforced during generation, not just at
+  count time. The two-concurrent-job limit is a DB-backed claim —
+  enforced across processes, not per-worker. `.part` orphans and
+  failed-job files are purged at startup and post-restart (tested).
+- **Rotation collision found and fixed**: two rotations inside the
+  same second produced the same rotated filename (seconds+pid) and
+  the second rename clobbered the first — silent event loss.
+  Rotated names now carry nanosecond uniqueness; covered by the
+  concurrent-writers-during-rotation test.
+- **Sink guarantees stated precisely** (`docs/external-logging.md`):
+  best-effort delivery, loss/duplicates possible, local DB rows
+  authoritative, `event_id` is the downstream dedup key; health
+  counters are per-process and admin-visible on the Operational
+  Logs page.
+- **Real collector verification**: the shipped
+  `deploy/otel-collector.example.yaml` was run unmodified (test paths
+  aside) under `otelcol-contrib` v0.165.0 — `timestamp_utc` parsed to
+  record timestamp, `severity` mapped (`warning`→`Warn(13)`),
+  `event_id` + correlation fields preserved. Checkpoint resume after
+  restart recovered same-file events; a file created during the
+  outage correctly tails from `end` (documented loss window); live
+  appends picked up. `filelog`→`file_log` rename applied (deprecation
+  seen in the real run). The config provides no dedup — not
+  advertised as such.
+- **Redaction**: JSON-quoted secret keys (`{"secret": "x"}`) bypassed
+  the free-text pattern — fixed (quote-tolerant `SECRET_RE`, Bearer
+  substituted first so an `Authorization: "Bearer …"` value can't
+  consume the keyword). Tests cover nested lists/dicts, mixed-case
+  keys, free-text/exception-style secrets in both log types, before
+  persistence, then through CSV + JSONL + audit export. Pattern-based
+  limits documented — not claimed to catch every secret.
 
 `TO_INSTANCE_DIR=/tmp/to-preview-data`, waitress on :39995, seeded:
 User Admin/`Review-Preview-#2026!`, Project `62d2f3e1b4654e5680fd187795c454f7`,
@@ -451,21 +500,30 @@ need `can_author` (binding authoring flag) — an empty-seed instance
   kit W6. Not claimed accepted.
 - Windows matrix: Robot + pytest on a real Windows host —
   **blocked infrastructure**: no Windows host exists in this
-  environment; nothing remains implementable on the Linux side.
-  Repeatable kit prepared and kept ready (W1–W14 incl. W6 retry
-  policy, W13 paths-with-spaces, W14 service account):
+  environment. Repeatable kit prepared and kept ready (W1–W14 incl.
+  W6 retry policy, W13 paths-with-spaces, W14 service account):
   `docs/windows-acceptance-kit.md`. On host availability: run
-  W1–W14, fix discovered defects, then the packaged matrix.
+  W1–W14, fix discovered defects, then the packaged matrix. Linux-
+  actionable work that remained (logging hardening + verification,
+  cancellation-isolation fix, controlled `/tmp/to251d` restart and
+  active-revision verification) is tracked in this ledger — Windows
+  being blocked never implied nothing was left on Linux.
 - Final clean-package eight-combination smoke matrix — pending
   Windows. Procedure defined: `docs/packaged-acceptance.md`.
 - ~~Final-head full suite~~ — Run C at `57445bc`: 781 passed,
   3 failed (2 preview-fixture → fixed+rerun pass; 1 external-key
   gap). Recorded separately from earlier runs. Packaged-candidate
   suite remains a `packaged-acceptance.md` §6 row.
-- Logging implementation (`d6c14b3`): CSV export + structured output
-  accepted per `docs/packaged-acceptance.md` §5a; Run E below is the
-  full-suite result on that head. Windows-side logging checks fold
-  into the W-matrix row.
+- Logging implementation (`d6c14b3` + hardening follow-up): CSV
+  export + structured output implemented and covered per
+  `docs/packaged-acceptance.md` §5a — **reported implemented with
+  focused coverage, not yet final-package accepted**. Run E
+  (`806/2/1`) is the full-suite evidence at `d6c14b3`; a rerun on
+  the hardening head is recorded when the suite finishes. Windows-
+  side logging checks fold into the W-matrix row.
+- `/tmp/to251d` controlled restart — pending (SSH execution in
+  flight; do not restart during it). After it finishes: restart,
+  verify loaded revision + required DB migration.
 
 ## Project access (membership) — implemented post-freeze under the
 ## approved access change

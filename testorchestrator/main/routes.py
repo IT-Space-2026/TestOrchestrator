@@ -233,7 +233,7 @@ def audit_export():
     from .. import logexport
     filters = _audit_filters()
     try:
-        mode, job, count, cutoff = logexport.request_export(
+        mode, job, count, cutoff, max_id = logexport.request_export(
             "audit", filters, current_user.username)
     except logexport.TooManyRowsError as exc:
         record_audit(current_user.username, "logs.export.denied",
@@ -254,7 +254,8 @@ def audit_export():
                                 job_id=job.id))
     fname = logexport.export_filename("audit", "inline", cutoff)
     app = current_app._get_current_object()
-    return Response(logexport.stream_csv(app, "audit", filters, cutoff),
+    return Response(logexport.stream_csv(app, "audit", filters, cutoff,
+                                         max_id),
                     mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition":
                              f"attachment; filename={fname}"})
