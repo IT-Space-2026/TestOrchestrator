@@ -1323,8 +1323,37 @@ def reconciliation():
             "heartbeat_age_s": ((now - ex.heartbeat_at).total_seconds()
                                 if ex.heartbeat_at else None),
         })
+    # Orphaned evidence dirs — top-level dirs under managed roots no
+    # Execution row owns (crashed confirms, deletion races). Listed
+    # only; removal is the explicit admin action below.
+    from .. import evidence
+    try:
+        orphan_dirs = [str(d) for d in evidence.find_orphans()]
+    except Exception:
+        orphan_dirs = []
     return render_template("portal/reconciliation.html", rows=rows,
+                           orphan_dirs=orphan_dirs,
                            plain_form=PlainForm())
+
+
+@portal_bp.route("/reconciliation/prune-orphans", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def prune_orphan_evidence():
+    """Remove orphaned evidence dirs — explicit admin action.
+    prune_orphans re-guards every path at delete time (managed-root
+    containment, no symlinks, no live references); it can only ever
+    touch application-owned roots."""
+    PlainForm().validate_on_submit()
+    from .. import evidence
+    res = evidence.prune_orphans(dry_run=False)
+    record_audit(current_user.username, "evidence.orphans_pruned",
+                 json.dumps({"removed": res["removed"]}))
+    if res["removed"]:
+        flash(f"Removed {len(res['removed'])} orphaned evidence "
+              f"dir(s).", "info")
+    else:
+        flash("No orphaned evidence dirs to remove.", "info")
+    return redirect(url_for("portal.reconciliation"))
 
 
 @portal_bp.route("/executions/bulk-cancel", methods=["POST"])

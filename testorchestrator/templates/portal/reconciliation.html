@@ -52,4 +52,26 @@ children stopped, and it releases the held capacity. A
 CANCEL_REQUESTED row with no persisted orchestrator id may still be
 in flight — do not force-resolve it; the reconciler owns it.</p>
 {% endif %}
+
+<h2 style="margin-top:1.5em">Orphaned evidence dirs</h2>
+<p class="muted">Top-level dirs under managed evidence roots that no
+execution owns — from crashed collects or deletion races. Only
+application-owned, unreferenced dirs are ever listed or removed.</p>
+{% if orphan_dirs %}
+<table class="data">
+  <thead><tr><th>Path</th></tr></thead>
+  {% for d in orphan_dirs %}
+  <tr><td><code>{{ d }}</code></td></tr>
+  {% endfor %}
+</table>
+<form method="post"
+      action="{{ url_for('portal.prune_orphan_evidence') }}"
+      onsubmit="return confirm('Remove {{ orphan_dirs|length }} orphaned evidence dir(s)? Only unreferenced application-owned dirs are deleted.')">
+  {{ plain_form.hidden_tag() }}
+  <button type="submit" class="button secondary">Prune orphans
+    ({{ orphan_dirs|length }})</button>
+</form>
+{% else %}
+<p class="muted">No orphaned evidence dirs.</p>
+{% endif %}
 {% endblock %}

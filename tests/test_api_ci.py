@@ -308,6 +308,37 @@ def test_reconciliation_queue_view(app, client):
     assert client.get("/reconciliation").status_code == 403
 
 
+def test_orphan_evidence_listed_and_pruned(app, client, tmp_path,
+                                           monkeypatch):
+    """An unreferenced dir under a managed root is listed on the
+    reconciliation page and removed by the prune action; a live
+    execution's dir is never touched."""
+    from testorchestrator import evidence
+    root = tmp_path / "evidence"
+    orphan = root / "orphaned-abc"
+    orphan.mkdir(parents=True)
+    # a dir named after a live execution id is NOT an orphan
+    pid, sid = _env(app)
+    with app.app_context():
+        s = db.session.get(Suite, sid)
+        ex = dispatch.create_execution("m", s, source_sha="x",
+                                       run_config={})
+        live = root / ex.id
+        live.mkdir()
+        live_id = ex.id
+    monkeypatch.setattr(evidence, "managed_roots", lambda: [root])
+    login(client, "admin")
+    r = client.get("/reconciliation")
+    body = r.get_data(as_text=True)
+    assert "orphaned-abc" in body
+    assert live_id not in body
+    r = client.post("/reconciliation/prune-orphans",
+                    follow_redirects=True)
+    assert r.status_code == 200
+    assert not orphan.exists()
+    assert live.exists()          # owned dir never touched
+
+
 # ---------- evidence manifest ----------
 
 def _mk_artifact_exec(app, sid, tmp_path):
