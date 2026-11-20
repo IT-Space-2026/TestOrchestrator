@@ -243,6 +243,11 @@ not yet clean-package):
   instance boots (`create_app`) with secret store intact.
 - Regression coverage: `test_absolute_symlink_restored_relative`,
   `test_absolute_link_to_outside_member_skipped` (+14 existing).
+- Orphan-evidence lifecycle (commit `ef18039`): `find_orphans` /
+  `prune_orphans` existed but were never invoked — orphan dirs are
+  now listed on `/reconciliation` with an explicit audited prune
+  action (managed-root + no-symlink + live-ref guards re-checked at
+  delete time). Live dry-run on the current instance: 0 orphans.
 
 ## Representative 2.5.1→2.6.0 upgrade — verified (13:09–13:11)
 
