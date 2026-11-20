@@ -400,3 +400,46 @@ authoring flag) — an empty-seed instance 404s/omits them.
   Windows. Procedure defined: `docs/packaged-acceptance.md`.
 - Final-head full suite — pending after project-access changes
   land (Run A at `8fc0ae5` is superseded for sign-off purposes).
+
+## Project access (membership) — implemented post-freeze under the
+## approved access change
+
+Authorization = role AND project membership (`User.allowed_projects`
+— the existing §16 seam, semantics corrected: empty = none for
+non-admins, Administrators bypass through the role). Enforcement:
+
+- `User.project_allowed`: admin → all; others → assigned list only
+  (`models.py`). No new/competing permission system introduced.
+- Portal: `_project_or_404`/`_execution_or_404` per request
+  (revocation on next request); executions list + filter dropdowns +
+  schedules/frameworks scoped at query level; reconciliation rows
+  already scoped; projects list shows a proper empty state.
+- API: `api_token_required` resolves the token owner each request —
+  deactivated owner → 401; `run`-scope token whose owner cannot run
+  → 403; project scope = token scope ∩ owner's CURRENT membership
+  (`_api_project_allowed`/`_api_project_ids`). Service tokens whose
+  owner is not a user keep their own scope.
+- Dispatch boundary (`_creator_still_allowed` in `run_execution`):
+  pending work whose submitter lost membership/was deactivated — or
+  whose `api:<name>` token was revoked/out-scoped — fails visibly
+  `error_kind='access'` + `execution.access_blocked` audit; it never
+  launches. Schedule-fired runs carry the creator's identity, so
+  member-removed users' schedules stop launching (defined policy —
+  not anonymous system work).
+- Admin UI both views: System → Users → Edit → Project access
+  (search/select-all/clear/role shown; admins see "All projects
+  through Administrator role") and Project → Access (inverse
+  matrix). Every change audited `user.project_access` with
+  before/after lists. Users page flags unassigned users — the
+  upgrade review workflow (nothing is silently re-granted; prior
+  explicit lists are preserved).
+- Backup/restore: `allowed_projects` is a users-table column —
+  covered by the existing backup path (row counts verified earlier).
+
+Acceptance: `tests/test_project_access.py` — 17 tests, 2 projects ×
+2 same-role users differing assignments, isolation via URL/API/
+export/artifact/ID-substitution, no role elevation, empty state,
+mid-session revocation, token ∩ owner semantics, dispatch-boundary
+block, admin UI roundtrips + audit. Two existing tests updated for
+the corrected semantics; runbook form-posts keep retry default via
+the hidden-field contract.

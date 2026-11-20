@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Access · {{ project.name }}{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=project.id) }}">← {{ project.name }}</a></p>
+<h1>Project access — {{ project.name }}</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+<section class="card">
+  <p>Access = <b>role permits the action</b> AND <b>user is assigned
+     to this project</b>. Membership never grants capabilities beyond
+     the user's existing role — the checkbox scopes visibility only.
+     Changes take effect on the user's next protected request.</p>
+  <form method="post" action="{{ url_for('portal.save_project_access', project_id=project.id) }}">
+    {{ plain_form.csrf_token }}
+    <div class="field">
+      <button type="button" class="button secondary sm"
+        onclick="document.querySelectorAll('.u-cb').forEach(c => c.checked = true)">Select all</button>
+      <button type="button" class="button secondary sm"
+        onclick="document.querySelectorAll('.u-cb').forEach(c => c.checked = false)">Clear</button>
+    </div>
+    <table class="audit-table">
+      <thead><tr><th>Assigned</th><th>User</th><th>Role</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          {% if u.role.value == "admin" %}
+          <td colspan="4"><b>{{ u.username }}</b> — All projects
+            through Administrator role</td>
+          {% else %}
+          <td><input type="checkbox" class="u-cb" name="user_ids"
+                     value="{{ u.id }}"
+                     {% if project.id in u.assigned_project_ids() %}checked{% endif %}></td>
+          <td>{{ u.username }}</td>
+          <td>{{ u.role.label }}</td>
+          <td>{{ "active" if u.is_active else "deactivated" }}</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit" class="button">Save access</button>
+  </form>
+</section>
+{% endblock %}

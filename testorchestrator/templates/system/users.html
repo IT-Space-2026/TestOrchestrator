@@ -9,13 +9,23 @@
 {% endwith %}
 
 <table class="audit-table">
-  <thead><tr><th>Username</th><th>Role</th><th>Active</th><th>Must change</th><th>Actions</th></tr></thead>
+  <thead><tr><th>Username</th><th>Role</th><th>Active</th><th>Must change</th><th>Project access</th><th>Actions</th></tr></thead>
   <tbody>
     {% for u in users %}
     <tr>
       <td>{{ u.username }}</td><td>{{ u.role.label }}</td>
       <td>{{ "yes" if u.is_active else "no" }}</td>
       <td>{{ "yes" if u.must_change_password else "no" }}</td>
+      <td>
+        {% if u.role.value == "admin" %}
+          all projects <small class="muted">(role)</small>
+        {% elif u.assigned_project_ids() %}
+          {{ u.assigned_project_ids()|length }} assigned
+        {% else %}
+          <b>none — needs assignment</b>
+        {% endif %}
+        <a class="button ghost sm" href="{{ url_for('system.user_access', user_id=u.id) }}">Edit</a>
+      </td>
       <td>
         <form method="post" action="{{ url_for('system.reset_user', user_id=u.id) }}" class="inline">
           {{ reset_form.csrf_token }}

@@ -936,6 +936,45 @@ credential change.
 
 ![User administration](Screenshot-Doc/admin/users.png)
 
+### 7.1a Project access (membership)
+
+Authorization is **role AND membership**: a non-Administrator sees
+and may act only inside explicitly assigned projects. Administrators
+reach every project through the role — no assignment exists (or is
+needed) for them.
+
+- New non-Administrator users start with **no projects** (the Users
+  page flags `none — needs assignment`); new projects are likewise
+  unavailable to non-administrators until assigned.
+- Manage assignments from either side of the same list:
+  **Admin → Users → user → Edit (Project access)** with search,
+  select-all/clear, and the user's role displayed; or
+  **Project → Access** with the inverse user/role matrix.
+- Membership **never grants capabilities beyond the role** — a
+  Tester with project access still cannot reach admin surfaces.
+- Changes take effect on the user's **next protected request** —
+  live sessions and API tokens included; already-running tests are
+  not killed. Pending (queued-but-unlaunched) work is rechecked at
+  the dispatch boundary: if the submitter lost membership, was
+  deactivated, or the API token was revoked, the execution fails
+  with `error_kind=access` and an audit row instead of launching.
+- **Schedules created by a user keep that user's identity**: once
+  their membership is removed, pending scheduled runs block at
+  dispatch the same way — they never become anonymous system jobs.
+  An Administrator can re-own or disable the schedule.
+- User-owned API tokens cannot exceed the owner's *current* role and
+  membership: a `run`-scope token minted by a Tester keeps working
+  only while that Tester is active and assigned; the effective
+  project list is the token's scope ∩ the owner's assignments,
+  evaluated per request.
+- Every grant/revoke is audited (`user.project_access`) with actor,
+  affected user, and before/after assignment lists. Assignments are
+  part of the database and therefore included in backup/restore.
+- **Upgrade note**: users with an explicit prior project list keep
+  it; users who previously had unrestricted (empty) scope see an
+  empty scope after upgrade until an Administrator assigns
+  projects — nothing is silently re-granted.
+
 ### 7.2 Secrets **[verified]**
 
 **Admin → Credentials** stores `git` (HTTPS token / SSH key) and

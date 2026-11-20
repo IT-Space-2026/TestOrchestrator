@@ -655,6 +655,52 @@ def deactivate_user(user_id):
     return redirect(url_for("system.users"))
 
 
+@system_bp.route("/users/<int:user_id>/access")
+@role_required(Role.ADMIN)
+def user_access(user_id):
+    """Admin → Users → Edit → Project access: one user's project
+    membership, edited as a checked list. Administrators are shown
+    'all projects through role' — no ineffective deny controls."""
+    from ..models import User
+    from ..execution import Project
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    projects = Project.query.order_by(Project.name).all()
+    return render_template(
+        "system/user_access.html", u=user, projects=projects,
+        assigned=set(user.assigned_project_ids()),
+        apply_form=ApplyForm())
+
+
+@system_bp.route("/users/<int:user_id>/access", methods=["POST"])
+@role_required(Role.ADMIN)
+def save_user_access(user_id):
+    from ..models import User
+    from ..execution import Project
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    ApplyForm().validate_on_submit()
+    if user.role == Role.ADMIN:
+        flash("Administrators access all projects through the role "
+              "— nothing to assign.", "info")
+        return redirect(url_for("system.user_access", user_id=user.id))
+    before = set(user.assigned_project_ids())
+    valid = {p.id for p in Project.query.with_entities(
+        Project.id).all()}
+    after = {pid for pid in
+             request.form.getlist("project_ids") if pid in valid}
+    user.set_assigned_projects(after)
+    db.session.commit()
+    record_audit(
+        current_user.username, "user.project_access",
+        f"{user.username}: {sorted(before)} -> {sorted(after)}")
+    flash(f"Project access for {user.username} saved "
+          f"({len(after)} assigned).", "info")
+    return redirect(url_for("system.user_access", user_id=user.id))
+
+
 # ---------- credentials (§12) ----------
 
 @system_bp.route("/secrets")

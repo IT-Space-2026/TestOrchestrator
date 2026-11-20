@@ -140,6 +140,7 @@
     <div class="field"><label for="queue_timeout_seconds">Queue deadline (s)</label>
       <input type="number" name="queue_timeout_seconds" id="queue_timeout_seconds" min="0" placeholder="unlimited"></div>
     <div class="field"><label for="retry_enabled">Interruption retry</label>
+      <input type="hidden" name="retry_enabled" value="0">
       <label><input type="checkbox" name="retry_enabled" id="retry_enabled" checked>
       relaunch after a worker interruption</label>
       <input type="number" name="max_attempts" id="max_attempts" min="1" max="10"

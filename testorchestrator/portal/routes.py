@@ -411,6 +411,54 @@ def project_detail(project_id):
 
 # ---------- git bindings ----------
 
+@portal_bp.route("/projects/<project_id>/access")
+@role_required(Role.ADMIN)
+def project_access(project_id):
+    """Project → Settings → Access: this project's assigned users
+    with their roles — the inverse view of Users → Project access.
+    Both edit the SAME membership list (User.allowed_projects);
+    Administrator rows show 'through role', not a checkbox."""
+    from ..models import User
+    project = _project_or_404(project_id)
+    users = User.query.order_by(User.username).all()
+    return render_template(
+        "portal/project_access.html", project=project, users=users,
+        plain_form=PlainForm())
+
+
+@portal_bp.route("/projects/<project_id>/access", methods=["POST"])
+@role_required(Role.ADMIN)
+def save_project_access(project_id):
+    from ..models import User
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    wanted = {int(x) for x in request.form.getlist("user_ids")
+              if x.isdigit()}
+    changes = []
+    for u in User.query.filter(User.role != Role.ADMIN).all():
+        before = set(u.assigned_project_ids())
+        after = set(before)
+        if u.id in wanted:
+            after.add(project.id)
+        else:
+            after.discard(project.id)
+        if after != before:
+            u.set_assigned_projects(after)
+            changes.append(
+                f"{u.username}: {sorted(before)} -> {sorted(after)}")
+    if changes:
+        db.session.commit()
+        for c in changes:
+            record_audit(current_user.username,
+                         "user.project_access",
+                         f"{project.name}: {c}")
+        flash(f"Access updated ({len(changes)} change(s)).", "info")
+    else:
+        flash("No changes.", "info")
+    return redirect(url_for("portal.project_access",
+                            project_id=project.id))
+
+
 @portal_bp.route("/projects/<project_id>/dashboard")
 @login_required
 def project_dashboard(project_id):
@@ -843,7 +891,11 @@ def run_discovered(item_id):
         "pytest_keyword": request.form.get("pytest_keyword", "").strip(),
         "pytest_markers": request.form.get("pytest_markers", "").strip(),
         "collection": item.kind == "collection",
-        "retry_enabled": request.form.get("retry_enabled") == "on",
+        # Checkbox contract: hidden "0" + checkbox "on". Absent key
+        # (non-form clients) = default enabled; present without "on"
+        # = explicitly disabled.
+        "retry_enabled": ("retry_enabled" not in request.form) or
+            ("on" in request.form.getlist("retry_enabled")),
         "max_attempts": int(request.form.get("max_attempts") or 3),
     }
     try:
@@ -1210,9 +1262,12 @@ def executions():
     q = Execution.query
     # visibility scoping at the QUERY level (not post-page filtering) —
     # the page count and totals stay accurate for scoped users.
-    allowed_projects = json.loads(current_user.allowed_projects or "[]")
-    if allowed_projects:
-        q = q.filter(Execution.project_id.in_(allowed_projects))
+    # Non-admins see ONLY their assigned projects — an empty
+    # membership list correctly yields an empty list, not 'all'.
+    member_ids = None
+    if current_user.role != Role.ADMIN:
+        member_ids = current_user.assigned_project_ids()
+        q = q.filter(Execution.project_id.in_(member_ids))
     args = request.args
     if args.get("q", "").strip():
         q = q.filter(Execution.id.startswith(args["q"].strip()[:32]))
@@ -1269,11 +1324,15 @@ def executions():
         states=[s.value for s in ExecutionState],
         outcomes=[o.value for o in Outcome],
         frameworks=sorted({e.framework for e in
-                           Execution.query.with_entities(
+                           q.with_entities(
                                Execution.framework).distinct()}),
-        projects=Project.query.order_by(Project.name).all(),
+        projects=[p for p in
+                  Project.query.order_by(Project.name).all()
+                  if current_user.project_allowed(p.id)],
         runners=_R.query.order_by(_R.name).all(),
-        schedules=Schedule.query.order_by(Schedule.name).all(),
+        schedules=[s for s in
+                   Schedule.query.order_by(Schedule.name).all()
+                   if current_user.project_allowed(s.project_id)],
         plain_form=PlainForm(),
         can_run=current_user.role.value in
         ("admin", "test_manager", "tester"))
@@ -1852,7 +1911,8 @@ def launch_execution(suite_id):
         "source_item": request.form.get("source_item", "").strip(),
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "kre_options": kre_options,
-        "retry_enabled": request.form.get("retry_enabled") == "on",
+        "retry_enabled": ("retry_enabled" not in request.form) or
+            ("on" in request.form.getlist("retry_enabled")),
         "max_attempts": int(request.form.get("max_attempts") or 3),
     }
     # Resolve the submitted discovered item SERVER-SIDE: kind comes

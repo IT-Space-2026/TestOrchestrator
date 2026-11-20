@@ -37,7 +37,7 @@ def _tag_list(raw) -> list:
     return out
 from .adapters.buildbot import BuildbotAdapter
 from . import buildbot_cfg
-from .execution import (Artifact, DiscoveredItem, Execution,
+from .execution import (ApiToken, Artifact, DiscoveredItem, Execution,
                         ExecutionState, GitBinding,
                         OutboxEvent, Outcome, Plan, Release,
                         ResourceReservation, Runner,
@@ -1185,6 +1185,40 @@ def _select_runner_runtime(ex: Execution):
     return runner, runtime, ""
 
 
+def _creator_still_allowed(ex: Execution) -> bool:
+    """Dispatch-time authorization recheck for pending work.
+
+    - Portal-created runs carry the creator's username: the user must
+      still exist, be active, and hold membership on the execution's
+      project. Scheduled runs stamp the schedule's creator — the same
+      rule makes a member-removed user's schedules stop launching
+      (they never become anonymous system work).
+    - API-created runs carry ``api:<token name>``: at least one live
+      token by that name must exist whose project scope covers the
+      execution — and whose owner, if a known user, is active and
+      still a member.
+    - Any other identity (system, imports, legacy rows) is not
+      portal-authorized work — no membership check applies."""
+    from .models import User
+    uname = ex.created_by or ""
+    if uname.startswith("api:"):
+        toks = ApiToken.query.filter_by(
+            name=uname[4:], revoked_at=None).all()
+        for tok in toks:
+            if not tok.project_allowed(ex.project_id or ""):
+                continue
+            owner = User.query.filter_by(username=tok.created_by).first()
+            if owner is None or (owner.is_active and
+                                 owner.project_allowed(
+                                     ex.project_id or "")):
+                return True
+        return False
+    u = User.query.filter_by(username=uname).first()
+    if u is None:
+        return True
+    return bool(u.is_active and u.project_allowed(ex.project_id or ""))
+
+
 def run_execution(execution_id: str) -> None:
     """Run one execution through the full state machine. Any infra error is
     recorded; test failures do not stop collection (§7)."""
@@ -1197,6 +1231,21 @@ def run_execution(execution_id: str) -> None:
     if ex.state not in (ExecutionState.QUEUED, ExecutionState.DISPATCHED):
         record_audit("system", "execution.dispatch_skipped",
                      f"{ex.id}: state={ex.state.value}")
+        return
+    # Authorization recheck at the dispatch boundary: work queued by a
+    # user who has since lost project membership (or been deactivated)
+    # — or by an API token that was revoked / whose owner lost access —
+    # must NOT launch. Membership removal takes effect on the next
+    # protected request; queued-but-unlaunched work IS a pending
+    # request, so it is rechecked here and fails visibly rather than
+    # running detached from any current authorization.
+    if not _creator_still_allowed(ex):
+        _fail(ex, "access",
+              "submitter no longer has access to this project "
+              "(membership removed, account deactivated, or token "
+              "revoked) — pending work blocked at dispatch")
+        record_audit("system", "execution.access_blocked",
+                     f"{ex.id}: created_by={ex.created_by}")
         return
     # Explicit execution target (run_config.requested_runner/runtime):
     # re-validate eligibility HERE — drain/disable/mismatch may have

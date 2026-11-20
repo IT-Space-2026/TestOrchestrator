@@ -33,7 +33,11 @@ def _error(status: int, kind: str, message: str):
 
 def api_token_required(write: bool = False):
     """Bearer-token gate. Tokens never exceed their stored scope and
-    project list — a leaked 'read' token cannot trigger runs."""
+    project list — a leaked 'read' token cannot trigger runs. A
+    user-owned token additionally cannot exceed its OWNER's current
+    role and project membership, evaluated on every request —
+    membership removal or deactivation revokes the token's reach
+    without touching the token row."""
     def decorator(view):
         @functools.wraps(view)
         def wrapped(*args, **kwargs):
@@ -48,21 +52,64 @@ def api_token_required(write: bool = False):
                 record_audit("api", "api.auth.denied",
                              request.path[:128])
                 return _error(401, "auth", "invalid or revoked token")
+            from ..models import Role, User
+            owner = User.query.filter_by(
+                username=row.created_by).first()
+            if owner is not None:
+                if not owner.is_active:
+                    record_audit("api", "api.auth.denied",
+                                 f"{request.path[:96]} "
+                                 "(owner deactivated)")
+                    return _error(
+                        401, "auth",
+                        "token owner is deactivated")
+                if write and owner.role not in (
+                        Role.ADMIN, Role.TEST_MANAGER, Role.TESTER):
+                    return _error(
+                        403, "scope",
+                        "token exceeds owner's role (owner cannot "
+                        "run executions)")
             if write and row.scope not in _RUN_SCOPES:
                 return _error(403, "scope",
                               "token scope 'read' cannot mutate")
             row.last_used_at = utcnow()
             db.session.commit()
             g.api_token = row
+            g.api_token_owner = owner
             return view(*args, **kwargs)
         return wrapped
     return decorator
 
 
+def _api_project_allowed(project_id: str) -> bool:
+    """Effective project scope = token scope ∩ owner's current
+    membership (owner non-admin). Owner absent (service identity) →
+    token scope alone applies."""
+    if not g.api_token.project_allowed(project_id):
+        return False
+    owner = getattr(g, "api_token_owner", None)
+    if owner is not None and not owner.project_allowed(project_id):
+        return False
+    return True
+
+
+def _api_project_ids() -> list:
+    """Effective project id list for list endpoints — the
+    intersection of token scope and owner membership."""
+    owner = getattr(g, "api_token_owner", None)
+    if owner is not None and not owner.is_admin:
+        owner_ids = set(owner.assigned_project_ids())
+        token_ids = set(json.loads(
+            g.api_token.allowed_projects or "[]"))
+        return sorted(token_ids & owner_ids) if token_ids \
+            else sorted(owner_ids)
+    return json.loads(g.api_token.allowed_projects or "[]")
+
+
 def _scope_execution(ex: Execution) -> Execution:
     if ex is None:
         abort(404)
-    if not g.api_token.project_allowed(ex.project_id or ""):
+    if not _api_project_allowed(ex.project_id or ""):
         abort(404)  # scoped-out resources are indistinguishable
     return ex
 
@@ -117,13 +164,13 @@ def ping():
 @api_token_required()
 def list_executions():
     q = Execution.query
-    allowed = json.loads(g.api_token.allowed_projects or "[]")
-    if allowed:
+    allowed = _api_project_ids()
+    if allowed or getattr(g, "api_token_owner", None) is not None:
         q = q.filter(Execution.project_id.in_(allowed))
     args = request.args
     if args.get("project_id"):
         pid = args["project_id"]
-        if not g.api_token.project_allowed(pid):
+        if not _api_project_allowed(pid):
             return _error(403, "scope", "project outside token scope")
         q = q.filter(Execution.project_id == pid)
     if args.get("state"):
@@ -164,7 +211,7 @@ def create():
             client_ref=client_ref).order_by(
             Execution.created_at.desc()).first()
         if existing is not None and \
-                g.api_token.project_allowed(existing.project_id or ""):
+                _api_project_allowed(existing.project_id or ""):
             return jsonify(execution=_exec_json(existing, detail=True),
                            idempotent_replay=True)
     run_config = dict(body.get("run_config") or {})
@@ -177,7 +224,7 @@ def create():
             item = db.session.get(DiscoveredItem, str(body["item_id"]))
             if item is None or item.kind not in ("suite", "collection"):
                 return _error(404, "target", "item not found")
-            if not g.api_token.project_allowed(item.project_id):
+            if not _api_project_allowed(item.project_id):
                 return _error(403, "scope",
                               "item outside token project scope")
             binding = db.session.get(GitBinding, item.binding_id)
@@ -191,7 +238,7 @@ def create():
             suite = db.session.get(Suite, str(body["suite_id"]))
             if suite is None:
                 return _error(404, "target", "suite not found")
-            if not g.api_token.project_allowed(suite.project_id):
+            if not _api_project_allowed(suite.project_id):
                 return _error(403, "scope",
                               "suite outside token project scope")
             binding = GitBinding.query.filter_by(
