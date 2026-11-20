@@ -558,3 +558,45 @@ def test_pytest_serial_flag(app):
     a = pytestfw.build_args(suite_path="tests/", force_serial=True)
     assert a[a.index("-n") + 1] == "0"
     assert "-n" not in pytestfw.build_args(suite_path="tests/")
+
+
+def test_slot_builders_and_pick(app):
+    """N admitted slots need N distinct builders (a builder+worker pair
+    serializes); _pick_slot hands out indices no ACTIVE sibling holds
+    and recycles freed ones."""
+    from testorchestrator.execution import (Runner, RuntimeConnection)
+    from testorchestrator import buildbot_cfg
+    sid = _env(app)
+    with app.app_context():
+        r = Runner(name="slots", connection_mode="local", max_slots=2,
+                   target_type="buildbot-worker")
+        db.session.add(r); db.session.flush()
+        rt = RuntimeConnection(name="rts", runner_id=r.id,
+                               executable_path="/usr/bin/python3",
+                               runtime_kind="pytest", enabled=True)
+        db.session.add(rt); db.session.commit()
+        assert buildbot_cfg.slot_count(r) == 2
+        assert buildbot_cfg.builder_for(r, 0) != \
+            buildbot_cfg.builder_for(r, 1)
+        mk = lambda: dispatch.create_execution(
+            "m", db.session.get(Suite, sid), source_sha="x",
+            run_config={"runtime_id": rt.id, "runner_id": r.id})
+        e1, e2 = mk(), mk()
+        assert dispatch._assign_runner(e1, r, rt)
+        s1 = dispatch._pick_slot(e1, r)
+        e1.bb_slot = s1
+        e1.state = ExecutionState.RUNNING
+        db.session.commit()
+        # busy slot is skipped
+        s2 = dispatch._pick_slot(e2, r)
+        assert s2 != s1
+        e2.bb_slot = s2
+        e2.state = ExecutionState.RUNNING
+        db.session.commit()
+        # both busy -> deterministic fallback still in range
+        e3 = mk()
+        assert 0 <= dispatch._pick_slot(e3, r) < 2
+        # freed slot is reused
+        e1.state = ExecutionState.COMPLETED
+        db.session.commit()
+        assert dispatch._pick_slot(e3, r) == s1

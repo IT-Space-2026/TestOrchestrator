@@ -877,6 +877,28 @@ def _active_count_subquery(runner: Runner, exclude_id):
             .scalar_subquery())
 
 
+def _pick_slot(ex: Execution, runner: Runner) -> int:
+    """Free slot-builder index for this runner. A (builder, worker)
+    pair serializes builds, so a runner's max_slots concurrency needs
+    one builder per slot — we pick the lowest slot no other ACTIVE
+    execution on this runner holds (hash offset spreads collisions;
+    a collision only queues inside the slot's builder — never lost)."""
+    slots = buildbot_cfg.slot_count(runner)
+    if slots <= 1:
+        return 0
+    used = {s for (s,) in db.session.query(Execution.bb_slot).filter(
+        Execution.runner_id == runner.id,
+        Execution.id != ex.id,
+        Execution.state.in_(_ACTIVE_STATES),
+        Execution.bb_slot.isnot(None))}
+    start = int(ex.id[:8], 16) % slots
+    for k in range(slots):
+        cand = (start + k) % slots
+        if cand not in used:
+            return cand
+    return start
+
+
 def requested_procs(ex: Execution) -> int:
     """Framework processes this run requests — the charge against
     runners.max_procs. It counts REQUESTED concurrency only:
@@ -1541,6 +1563,10 @@ def _submit_buildbot(ex: Execution, runner: Runner,
     _snap = ex.snapshot()
     rc = _snap.get("run_config") or {}
     _unit = _snap.get("unit") or {}
+    # Slot-builders: a (builder, worker) pair runs one build at a time,
+    # so the runner's admitted slots map to distinct builders. Pick a
+    # free slot; bb_slot is persisted with the dispatch identity.
+    slot = _pick_slot(ex, runner)
     timeout_s = int(rc.get("timeout_seconds") or 3600)
     node_kind = getattr(runtime, "runtime_kind", "") or "kre"
     if node_kind in nodefw.KINDS:
@@ -1602,12 +1628,13 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
              ).write_text(json.dumps(spec))
-        builder = buildbot_cfg.builder_for(runner)
+        builder = buildbot_cfg.builder_for(runner, slot)
         brid = adapter.submit(
             builder, ex.id,
             {"exec_spec": BuildbotAdapter.encode_props(spec),
              "exec_timeout": str(timeout_s)})
         ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
         db.session.commit()
         record_audit("system", "execution.buildbot_dispatched",
                      f"{ex.id}: {builder} ({node_kind}) brid {brid}")
@@ -1650,12 +1677,13 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
              ).write_text(json.dumps(spec))
-        builder = buildbot_cfg.builder_for(runner)
+        builder = buildbot_cfg.builder_for(runner, slot)
         brid = adapter.submit(
             builder, ex.id,
             {"exec_spec": BuildbotAdapter.encode_props(spec),
              "exec_timeout": str(timeout_s)})
         ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
         db.session.commit()
         record_audit("system", "execution.buildbot_dispatched",
                      f"{ex.id}: {builder} (robot) brid {brid}")
@@ -1712,12 +1740,13 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
              ).write_text(json.dumps(spec))
-        builder = buildbot_cfg.builder_for(runner)
+        builder = buildbot_cfg.builder_for(runner, slot)
         brid = adapter.submit(
             builder, ex.id,
             {"exec_spec": BuildbotAdapter.encode_props(spec),
              "exec_timeout": str(timeout_s)})
         ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
         db.session.commit()
         record_audit("system", "execution.buildbot_dispatched",
                      f"{ex.id}: {builder} (pytest) brid {brid}")
@@ -1772,7 +1801,7 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                 Path(__file__).resolve().parent.parent / "scripts"
                 / "to_ssh_exec.py"),
             spec_file=str(spec_file))
-        builder = buildbot_cfg.builder_for(runner)
+        builder = buildbot_cfg.builder_for(runner, slot)
     else:
         cred_file = runtime.credential_file or ""
         if not cred_file and runtime.credential_ref:
@@ -1809,13 +1838,14 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         buildbot_cfg.run_specs_dir().mkdir(parents=True, exist_ok=True)
         (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
          ).write_text(json.dumps(spec))
-        builder = buildbot_cfg.builder_for(runner)
+        builder = buildbot_cfg.builder_for(runner, slot)
 
     brid = adapter.submit(
         builder, ex.id,
         {"exec_spec": BuildbotAdapter.encode_props(spec),
          "exec_timeout": str(timeout_s)})
     ex.dispatch_id = "bb:" + str(brid)
+    ex.bb_slot = slot
     db.session.commit()
     record_audit("system", "execution.buildbot_dispatched",
                  f"{ex.id}: {builder} brid {brid}")
@@ -1866,6 +1896,7 @@ def _buildbot_assign_and_submit(ex: Execution) -> None:
             ex.runner_id = None
             ex.runtime_id = None
             ex.lease_expires_at = None
+            ex.bb_slot = None
             ex.error_text = (
                 ex.error_text + " | buildbot master unreachable; "
                 "held QUEUED for redrive")[:2000]

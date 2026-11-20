@@ -63,9 +63,33 @@ def _write_json(path: Path, data: dict, mode: int = 0o600) -> None:
 
 # ---------- naming ----------
 
-def builder_for(runner: Runner) -> str:
-    return (f"to-ssh-{runner.id}" if runner.target_type == "ssh"
+# A (builder, worker) pair runs ONE build at a time — WorkerForBuilder
+# reports busy until the build finishes and the builddir is shared. To
+# run a runner's admitted slots truly concurrently we emit one builder
+# per slot, all bound to the same worker; each gets its own builddir.
+MAX_SLOT_BUILDERS = 8
+
+
+def slot_count(runner: Runner) -> int:
+    """Number of slot-builders emitted for this runner (>=1) — mirrors
+    dispatch.capacity_limit (min of hardware slots and licence seats),
+    bounded to keep targets.json small."""
+    try:
+        slots = int(runner.max_slots or 1)
+    except (TypeError, ValueError):
+        slots = 1
+    if runner.license_slots:
+        try:
+            slots = min(slots, int(runner.license_slots))
+        except (TypeError, ValueError):
+            pass
+    return max(1, min(slots, MAX_SLOT_BUILDERS))
+
+
+def builder_for(runner: Runner, slot: int = 0) -> str:
+    base = (f"to-ssh-{runner.id}" if runner.target_type == "ssh"
             else f"to-target-{runner.id}")
+    return base if slot <= 0 else f"{base}-s{slot + 1}"
 
 
 def worker_for(runner: Runner) -> str:
@@ -114,7 +138,8 @@ def write_targets_config(app=None) -> dict:
                                  Runner.enabled.is_(True)).all():
         if r.target_type == "buildbot-worker":
             name = ensure_worker_name(r)
-            workers[name] = {"name": name}
+            workers[name] = {"name": name,
+                             "max_builds": slot_count(r)}
             sec = _worker_secret(r)
             if sec:
                 passwords[name] = sec
@@ -123,6 +148,7 @@ def write_targets_config(app=None) -> dict:
             "builder": builder_for(r),
             "worker": worker_for(r),
             "kind": ("ssh" if r.target_type == "ssh" else "kre"),
+            "slots": slot_count(r),
             "enabled": True,
         })
     _write_json(home() / "targets.json", {

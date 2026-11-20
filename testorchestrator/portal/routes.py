@@ -22,7 +22,7 @@ from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
 from ..execution import (DiscoveredItem, Execution, ExecutionState,
-                         ReleaseItem,
+                         ReleaseItem, RuntimeConnection,
                        GitBinding, OutboxEvent,
                          Outcome, Project, Release,
                          Schedule, Suite, SuiteEntry, utcnow)

@@ -448,6 +448,10 @@ class Execution(db.Model):
         "Execution",
         backref=db.backref("parent", remote_side=[id]),
         foreign_keys=[parent_id])
+    # Buildbot slot-builder index this execution was submitted to
+    # (slot-builders: one builder per admitted concurrency slot — a
+    # (builder, worker) pair serializes, so N slots need N builders).
+    bb_slot = db.Column(db.Integer, nullable=True)
     # Runner lease (§6): heartbeats keep the assignment alive; offline
     # heartbeat means UNKNOWN, never silent duplicate dispatch.
     lease_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
