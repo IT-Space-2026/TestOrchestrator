@@ -1046,3 +1046,8 @@ td .row-actions{min-width:9rem}
 body.modal-open{overflow:hidden}
 @media(max-width:720px){.modal-card{width:100vw;height:100vh;max-height:100vh;
   border-radius:0}}
+/* users table — compact inline reset control */
+.pw-mini { width: 11rem; padding: .3rem .5rem; font: inherit;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--fg); }
+.users-actions { justify-content: flex-end; }

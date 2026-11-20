@@ -695,10 +695,12 @@ def log_export_download(job_id):
 @role_required(Role.ADMIN)
 def users():
     from ..models import User
+    from ..execution import Project
     record_audit(current_user.username, "page.users")
     return render_template(
         "system/users.html",
         users=User.query.order_by(User.username).all(),
+        projects=Project.query.order_by(Project.name).all(),
         form=UserForm(), reset_form=ResetForm(), apply_form=ApplyForm())
 
 
@@ -719,9 +721,18 @@ def create_user():
             must_change_password=True,  # mandatory first change (§16)
         )
         user.set_password(form.temporary_password.data)
+        if user.role != Role.ADMIN:
+            from ..execution import Project
+            valid = {p.id for p in
+                     Project.query.with_entities(Project.id).all()}
+            user.set_assigned_projects(
+                {pid for pid in request.form.getlist("project_ids")
+                 if pid in valid})
         db.session.add(user)
         db.session.commit()
-        record_audit(current_user.username, "user.created", username)
+        record_audit(current_user.username, "user.created",
+                     f"{username} ({len(user.assigned_project_ids())} "
+                     "projects assigned)")
         flash(f"User {username} created; first login requires a password "
               "change.", "info")
     return redirect(url_for("system.users"))
@@ -766,6 +777,35 @@ def deactivate_user(user_id):
     user.session_version += 1
     db.session.commit()
     record_audit(current_user.username, "user.deactivated", user.username)
+    return redirect(url_for("system.users"))
+
+
+@system_bp.route("/users/<int:user_id>/delete", methods=["POST"])
+@role_required(Role.ADMIN)
+def delete_user(user_id):
+    """Remove the account row. Executions/audit refer to usernames, not
+    user ids, so history stays intact. Guards: never your own account,
+    never the last active Admin."""
+    from ..models import User
+    ApplyForm().validate_on_submit()
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    if user.id == current_user.id:
+        flash("Cannot delete your own account.", "error")
+        return redirect(url_for("system.users"))
+    if user.role == Role.ADMIN:
+        others = User.query.filter(
+            User.role == Role.ADMIN, User.is_active, User.id != user.id
+        ).count()
+        if others == 0:
+            flash("Cannot delete the last active Admin.", "error")
+            return redirect(url_for("system.users"))
+    name = user.username
+    db.session.delete(user)
+    db.session.commit()
+    record_audit(current_user.username, "user.deleted", name)
+    flash(f"User {name} deleted.", "info")
     return redirect(url_for("system.users"))
 
 
