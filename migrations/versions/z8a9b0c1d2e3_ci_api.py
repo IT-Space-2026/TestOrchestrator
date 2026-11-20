@@ -42,10 +42,14 @@ def upgrade() -> None:
             "notified_at", sa.DateTime(timezone=True), nullable=True))
         # Backfill: rows already terminal/UNKNOWN at upgrade predate the
         # feature — marking them notified prevents a stale-event storm
-        # against the first endpoint ever created.
-        op.execute(
-            "UPDATE executions SET notified_at = CURRENT_TIMESTAMP "
-            "WHERE state IN ('COMPLETED','FAILED','CANCELED','UNKNOWN')")
+        # against the first endpoint ever created. autocommit_block is
+        # required: this DB runs with transactional_ddl=False, so a
+        # plain op.execute DML statement never reaches commit.
+        with op.get_context().autocommit_block():
+            op.execute(
+                "UPDATE executions SET notified_at = CURRENT_TIMESTAMP "
+                "WHERE state IN ('COMPLETED','FAILED','CANCELED',"
+                "'UNKNOWN')")
     tables = _inspect(bind).get_table_names()
     if "api_tokens" not in tables:
         op.create_table(

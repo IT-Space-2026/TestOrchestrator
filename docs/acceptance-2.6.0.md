@@ -244,12 +244,34 @@ not yet clean-package):
 - Regression coverage: `test_absolute_symlink_restored_relative`,
   `test_absolute_link_to_outside_member_skipped` (+14 existing).
 
+## Representative 2.5.1→2.6.0 upgrade — verified (13:09–13:11)
+
+Real 2.5.x instance (`/tmp/to251c/data`, alembic `s9t0u1v2w3x4`)
+copied and migrated to head `z8a9b0c1d2e3` via `flask db upgrade`
+(the same `toctl db-upgrade` path the installer ExecStartPre runs):
+
+- 7 migrations applied cleanly (runtime_kind → parent/child →
+  probe_json → max_procs → bb_slot → queue policies → CI API).
+- ALL pre-existing data preserved: audit_events 40, settings 12,
+  users 1, outbox_events 5, projects 1, runners 1, secret_refs 4,
+  suites 1 + entries, executions 5, artifacts 8, runtime_connections 1.
+- All 2.6.0 structures created: resource_reservations, api_tokens,
+  webhook_endpoints, wait_reason, queue_deadline_at, client_ref,
+  notified_at, misfire_policy.
+- **Bug found + fixed**: the `notified_at` backfill's `op.execute`
+  UPDATE never committed — `transactional_ddl=False` + SA 2.x
+  autobegin means raw DML needs `autocommit_block()`. Reproduced on a
+  second copy, fixed, re-verified: all 5 pre-existing terminal rows
+  marked notified (prevents stale-event storm on first webhook).
+- Post-upgrade boot OK; ORM reads all 5 executions.
+- Note: two 2.5.x-era migrations contain the same non-committing DML
+  pattern, but only for inert settings cleanup — already applied on
+  all deployed DBs; left as-is.
+
 ## Open
 - ~~Worker PB-loss retry/orphan correctness~~ — **resolved**; see
   "PB-loss resolution — implemented + re-verified" above.
 - Windows matrix: Robot + pytest on a real Windows host — release
   blocker, unverified (no host).
-- Representative 2.5.1 upgrade acceptance (backup/restore verified
-  above; a real 2.5.1→2.6.0 instance upgrade remains).
 - Final clean-package eight-combination smoke matrix — pending all
   blockers.
