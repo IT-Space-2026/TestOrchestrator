@@ -2,7 +2,8 @@
 {% block title %}{{ item.name }} · TestOrchestrator{% endblock %}
 {% block content %}
 <p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=item.project_id) }}?tab=test&subtab={{ 'collections' if item.kind == 'collection' else 'suites' }}">← Back to Test {{ 'Collections' if item.kind == 'collection' else 'Suites' }}</a></p>
-<h1>{{ item.name }} <span class="badge">{{ item.kind }}</span></h1>
+<h1>{{ item.name }} <span class="badge">{{ item.kind }}</span>
+  <a class="button secondary sm" href="{{ url_for('portal.discovered_matrix', item_id=item.id) }}">History matrix</a></h1>
 <p class="muted">Source definition — read-only inventory; does not
   import historical executions.</p>
 <p>

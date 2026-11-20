@@ -697,6 +697,83 @@ def suite_detail(suite_id):
         workers=runners, runtimes=runtimes)
 
 
+def _history_matrix(exs):
+    """Case × execution matrix from a chronological execution list —
+    rows keyed by case_ref (source identity, not display name)."""
+    from ..execution import TestResult
+    ids = [e.id for e in exs]
+    rows = (TestResult.query.filter(TestResult.execution_id.in_(ids))
+            .all() if ids else [])
+    cases = {}
+    for r in rows:
+        cell = cases.get(r.case_ref)
+        if cell is None:
+            cell = cases[r.case_ref] = {
+                "ref": r.case_ref, "name": r.case_name or r.case_ref,
+                "cells": {}, "statuses": set(), "unresolved": False}
+        cell["cells"][r.execution_id] = r.status.value
+        cell["statuses"].add(r.status.value)
+        cell["unresolved"] = cell["unresolved"] or r.unresolved
+    for c in cases.values():
+        c["flaky"] = "passed" in c["statuses"] and \
+            len(c["statuses"] - {"skipped"}) > 1
+        c["always_failing"] = bool(c["statuses"]) and \
+            c["statuses"] <= {"failed", "error"}
+    return sorted(cases.values(),
+                  key=lambda c: (not c["flaky"],
+                                 not c["always_failing"],
+                                 c["name"].lower()))
+
+
+_TERMINAL_FOR_MATRIX = [ExecutionState.COMPLETED,
+                        ExecutionState.FAILED,
+                        ExecutionState.CANCELED]
+
+
+@portal_bp.route("/suites/<suite_id>/matrix")
+@login_required
+def suite_matrix(suite_id):
+    """Case × execution history matrix (§8). A flake shows as a mixed
+    row, a persistent regression as a uniformly-failing one. Skips
+    stay visible as skips; unresolved rows are marked, not guessed."""
+    suite = db.session.get(Suite, suite_id)
+    if suite is None:
+        abort(404)
+    _project_or_404(suite.project_id)
+    exs = (Execution.query.filter(
+        Execution.suite_id == suite_id,
+        Execution.state.in_(_TERMINAL_FOR_MATRIX))
+        .order_by(Execution.created_at.desc(), Execution.id.desc())
+        .limit(15).all())
+    exs = [e for e in reversed(exs)
+           if current_user.project_allowed(e.project_id or "")]
+    return render_template(
+        "portal/suite_matrix.html", suite=suite, item=None,
+        executions=exs, cases=_history_matrix(exs))
+
+
+@portal_bp.route("/discovered/<item_id>/matrix")
+@login_required
+def discovered_matrix(item_id):
+    """Same matrix for a repository-discovered suite/collection —
+    its own run history (flake + regression view)."""
+    from ..execution import DiscoveredItem
+    item = db.session.get(DiscoveredItem, item_id)
+    if item is None:
+        abort(404)
+    _project_or_404(item.project_id)
+    exs = (Execution.query.filter(
+        Execution.source_item_id == item_id,
+        Execution.state.in_(_TERMINAL_FOR_MATRIX))
+        .order_by(Execution.created_at.desc(), Execution.id.desc())
+        .limit(15).all())
+    exs = [e for e in reversed(exs)
+           if current_user.project_allowed(e.project_id or "")]
+    return render_template(
+        "portal/suite_matrix.html", suite=None, item=item,
+        executions=exs, cases=_history_matrix(exs))
+
+
 # ---------- executions ----------
 
 @portal_bp.route("/discovered/<item_id>")

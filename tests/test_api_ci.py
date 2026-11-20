@@ -375,3 +375,39 @@ def test_api_manifest_and_verification(app, tmp_path):
     v = r.get_json()["manifest"]["verification"]
     assert v["mismatch"] == ["junit.xml"] or \
         "junit.xml" in v["mismatch"]
+
+
+# ---------- suite history matrix ----------
+
+def test_suite_matrix_flake_and_persist(app, client):
+    """Matrix exposes a flaky row (mixed outcomes) and a persistent
+    failure (uniform red), in chronological column order."""
+    pid, sid = _env(app)
+    login(client, "admin")
+    with app.app_context():
+        from testorchestrator.execution import TestResult, CaseStatus
+        s = db.session.get(Suite, sid)
+        exs = []
+        for i in range(3):
+            e = dispatch.create_execution("m", s, source_sha="x",
+                                          run_config={})
+            e.state = ExecutionState.COMPLETED
+            exs.append(e)
+        db.session.flush()
+        # flaky case: pass, fail, pass across the three runs
+        for i, st in enumerate([CaseStatus.PASSED, CaseStatus.FAILED,
+                                CaseStatus.PASSED]):
+            db.session.add(TestResult(
+                execution_id=exs[i].id, case_ref="t.py::flaky",
+                case_name="flaky case", status=st))
+        # persistent failure: red in all three
+        for e in exs:
+            db.session.add(TestResult(
+                execution_id=e.id, case_ref="t.py::broken",
+                case_name="broken case", status=CaseStatus.FAILED))
+        db.session.commit()
+    r = client.get(f"/suites/{sid}/matrix")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "flaky case" in body and "broken case" in body
+    assert 'class="flaky"' in body or "flaky" in body

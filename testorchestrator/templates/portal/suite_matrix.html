@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}History matrix · {{ suite.name if suite else item.name }}{% endblock %}
+{% block content %}
+{% if suite %}
+<p><a class="button ghost sm" href="{{ url_for('portal.suite_detail', suite_id=suite.id) }}">← Back to suite</a></p>
+<h1>History matrix — {{ suite.name }}</h1>
+{% else %}
+<p><a class="button ghost sm" href="{{ url_for('portal.discovered_detail', item_id=item.id) }}">← Back to discovered item</a></p>
+<h1>History matrix — {{ item.name or item.path }}</h1>
+{% endif %}
+<p class="muted">Case outcomes across the suite's {{ executions|length }}
+most recent terminal executions (oldest → newest, left → right).
+A row mixing pass and fail is flaky; a uniformly red row is a
+persistent failure. Skips are shown as skips — never counted as
+passes. Unresolved case mappings are marked.</p>
+
+{% if not cases %}
+<p class="muted">No terminal executions with parsed results yet.</p>
+{% else %}
+<style>
+.mx { border-collapse: collapse; font-size: 0.85em; }
+.mx th, .mx td { border: 1px solid var(--border, #444); padding: 2px 6px;
+                 text-align: center; white-space: nowrap; }
+.mx td.case { text-align: left; max-width: 46em; overflow: hidden;
+              text-overflow: ellipsis; }
+.mx .p { background: #1c5c2e; color: #fff; }
+.mx .f { background: #8c2828; color: #fff; }
+.mx .e { background: #a05a00; color: #fff; }
+.mx .s { background: #555; color: #ccc; }
+.mx .none { color: #666; }
+.mx tr.flaky td.case::after { content: " ⚠ flaky"; color: #d99a00;
+                             font-size: 0.85em; }
+</style>
+<table class="mx">
+  <tr>
+    <th>Case</th>
+    {% for e in executions %}
+    <th><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"
+           title="{{ e.id }} — {{ e.outcome.value if e.outcome else '' }}">
+        {{ e.id[:6] }}</a><br>
+        <small>{{ e.created_at.strftime('%m-%d %H:%M') if e.created_at }}</small></th>
+    {% endfor %}
+  </tr>
+  {% for c in cases %}
+  <tr class="{{ 'flaky' if c.flaky }}">
+    <td class="case" title="{{ c.ref }}{{ ' (unresolved mapping)' if c.unresolved }}">
+      {{ c.name }}{% if c.unresolved %} <em class="muted">(unresolved)</em>{% endif %}</td>
+    {% for e in executions %}
+      {% set st = c.cells.get(e.id) %}
+      <td class="{{ {'passed':'p','failed':'f','error':'e','skipped':'s'}.get(st, 'none') }}">
+        {{ {'passed':'P','failed':'F','error':'E','skipped':'S'}.get(st, '·') }}</td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}
