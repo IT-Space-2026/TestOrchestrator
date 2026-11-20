@@ -805,7 +805,7 @@ html[data-theme="dark"] {
 .repo-actions .block-details summary { list-style: none;
   display: inline-block; }
 .repo-actions .block-details[open] { padding: .5rem;
-  border: 1px solid var(--border); border-radius: var(--radius); }
+  border: 1px solid var(--border); border-radius: 0.375rem; }
 .card-head{display:flex;align-items:center;justify-content:space-between;
   margin-bottom:.75rem}
 .card-head h2{margin:0}
@@ -1101,3 +1101,16 @@ body.modal-open{overflow:hidden}
 .tail-pill:hover { border-color: var(--accent); }
 .tail-pill:has(input:checked) { border-color: var(--accent);
   background: rgba(26,86,219,.08); color: var(--accent); }
+/* users table: expandable reset-password row (checkbox + label, no JS) */
+.reset-toggle { position: absolute; opacity: 0; width: 0; height: 0; }
+.reset-row { display: none; }
+tr:has(.reset-toggle:checked) + .reset-row { display: table-row; }
+tr:has(.reset-toggle:checked) label.button.secondary.sm { outline: 2px solid var(--accent); }
+.reset-panel { display: flex; align-items: center; gap: .7rem;
+  padding: .7rem .9rem; background: rgba(26,86,219,.05);
+  border-left: 3px solid var(--accent); border-radius: var(--radius-md); }
+.reset-panel input { min-width: 20rem; }
+.reset-panel label.button { cursor: pointer; }
+@media (prefers-color-scheme: dark) {
+  .reset-panel { background: rgba(91,157,255,.08); }
+}

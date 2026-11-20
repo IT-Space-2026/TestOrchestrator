@@ -37,19 +37,9 @@
         </td>
         <td>
           <div class="cell-actions users-actions">
-          <details class="inline-details">
-            <summary class="button secondary sm">Reset</summary>
-            <form method="post" class="edit-form"
-                  action="{{ url_for('system.reset_user', user_id=u.id) }}">
-              {{ reset_form.csrf_token }}
-              <div class="field"><label>New temporary password</label>
-                <input type="password" name="temporary_password"
-                       minlength="12" required></div>
-              <button type="submit" class="button sm">Reset password</button>
-              <button type="button" class="button danger sm"
-                      data-cancel-details>Cancel</button>
-            </form>
-          </details>
+          <input type="checkbox" class="reset-toggle"
+                 id="reset-{{ u.id }}" aria-label="Reset password panel">
+          <label for="reset-{{ u.id }}" class="button secondary sm">Reset</label>
           {% if u.is_active %}
           <form method="post" action="{{ url_for('system.deactivate_user', user_id=u.id) }}" class="inline">
             {{ apply_form.csrf_token }}
@@ -62,6 +52,20 @@
             <button type="submit" class="button danger sm">Delete</button>
           </form>
           </div>
+        </td>
+      </tr>
+      <tr class="reset-row">
+        <td colspan="5">
+          <form method="post" class="reset-panel"
+                action="{{ url_for('system.reset_user', user_id=u.id) }}">
+            {{ reset_form.csrf_token }}
+            <strong>Reset password for {{ u.username }}</strong>
+            <input type="password" name="temporary_password"
+                   minlength="12" required
+                   placeholder="New temporary password (min. 12 chars)">
+            <button type="submit" class="button sm">Reset password</button>
+            <label for="reset-{{ u.id }}" class="button sm">Cancel</label>
+          </form>
         </td>
       </tr>
       {% endfor %}
