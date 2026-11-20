@@ -1,15 +1,15 @@
 # TestOrchestrator 2.6.0 — acceptance evidence ledger
 
 **Branch**: `feature/2.6.0-node-runners` (PR #4 — draft).
-**Current head at recording**: `45aada1a90990d73a5e189bf8425c74475802582`
-(`45aada1`, 2026-11-20). Each ledger-only commit after this moves
-head again — all post-`57445bc` commits are documentation-only, so
-the application code under test has been identical since `34c2cca`.
-**Tested candidate**: `57445bc` (full-suite Run C below). Subsequent
-commits: `45aada1` + this ledger update = docs-only; no application
-code changed after Run C, so no regression rerun was triggered by
-them. A final-head full suite on the packaged release commit remains
-a required row in `docs/packaged-acceptance.md` §6.
+**Current head at recording**: `d6c14b3` — logging implementation
+(CSV export + structured output; application code). A ledger-only
+commit follows it.
+**Tested candidate**: `57445bc` (full-suite Run C below). Historical:
+all commits between `57445bc` and `34c2cca`…`adf4490` were
+documentation-only, so Run C remained the tested state until
+`d6c14b3`. **`d6c14b3` changed application code** — a new full-suite
+run is required on this head (Run E below) and the packaged-candidate
+suite stays a required row in `docs/packaged-acceptance.md` §6.
 
 **Stage 5 status: parallel + recovery scenarios exercised; PB-loss
 retry/orphan correctness implemented and re-verified (`b049fab`,
@@ -406,14 +406,28 @@ Run D — **targeted reruns at `57445bc`** of the environment-fixed
 tests: 5/5 infra pass (13s) — the whole
 `test_infra_controls_browser` module, not only the two failures.
 The batch tally stands as recorded; reruns are separate rows.
-**No application code changed after Run C** — the only post-`57445bc`
-commits are ledger updates, so Run C remains the full-suite evidence
-at head; the packaged-candidate full suite is retained as a required
-row in `docs/packaged-acceptance.md` §6. Earlier evidence stays
-attributed to its own revision (734-passed pre-retry-hardening;
+Historical note (superseded by the logging implementation): between
+Run C and `adf4490` only docs/ledger commits landed, so Run C was
+the full-suite evidence at that head. **`d6c14b3` adds application
+code (logging exports + structured output)** — Run E below carries
+the new full-suite result; Run C/D evidence stays attributed to
+`57445bc`. The packaged-candidate full suite is retained as a
+required row in `docs/packaged-acceptance.md` §6. Earlier evidence
+stays attributed to its own revision (734-passed pre-retry-hardening;
 751-passed batch at `8fc0ae5`; 71-targeted acceptance suites).
 
-## Preview-fixture recipe (reproducible)
+Run E — **batch full suite at `d6c14b3`** (logging implementation
+head; 7m18s): **806 passed, 2 failed, 1 skipped.** Per-failure
+accounting — no combined tally:
+
+| Run E failure | Cause | Outcome | Remediation |
+|---|---|---|---|
+| `test_production_key_auto_loaded` | External licence-issuer key absent — environmental by design | **still blocked** — recorded as a gap, not a pass | none possible in this environment; requires the external key |
+| `test_pipeline::test_cancel_kills_process_tree` | Transient stray-process timing (`pgrep -f slow-kre` matched a tearing-down tree) | **passed** on isolated rerun (0.65s) | none — cancel path untouched by `d6c14b3`; flake retained as evidence |
+
+Run E covers the logging acceptance tests (`test_log_exports.py`,
+20 tests — all pass inside the batch) plus every regression touched
+by `record_audit`/`emit` callers.
 
 `TO_INSTANCE_DIR=/tmp/to-preview-data`, waitress on :39995, seeded:
 User Admin/`Review-Preview-#2026!`, Project `62d2f3e1b4654e5680fd187795c454f7`,
@@ -448,6 +462,10 @@ need `can_author` (binding authoring flag) — an empty-seed instance
   3 failed (2 preview-fixture → fixed+rerun pass; 1 external-key
   gap). Recorded separately from earlier runs. Packaged-candidate
   suite remains a `packaged-acceptance.md` §6 row.
+- Logging implementation (`d6c14b3`): CSV export + structured output
+  accepted per `docs/packaged-acceptance.md` §5a; Run E below is the
+  full-suite result on that head. Windows-side logging checks fold
+  into the W-matrix row.
 
 ## Project access (membership) — implemented post-freeze under the
 ## approved access change
