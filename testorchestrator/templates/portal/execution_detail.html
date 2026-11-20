@@ -84,6 +84,37 @@
   {% endif %}
 </dl>
 
+{% if parent %}
+<section class="card">
+  <p>Unit of run <a href="{{ url_for('portal.execution_detail', execution_id=parent.id) }}"><code>{{ parent.id[:8] }}</code></a>
+     — assignment <b>{{ ex.unit_key }}</b>.</p>
+</section>
+{% endif %}
+{% if units %}
+<section class="card">
+  <h2>Unit run — {{ units|length }} units</h2>
+  <p>Requested concurrency {{ units|length }}; actual concurrent
+     units now: <b>{{ actual_concurrency }}</b>. Units marked queued
+     are waiting for a capacity slot on their target.</p>
+  <table class="audit-table">
+    <tr><th>Unit</th><th>State</th><th>Outcome</th><th>Target</th>
+        <th>Started</th><th>Finished</th><th></th></tr>
+    {% for u in units %}
+    <tr>
+      <td>{{ u.unit_key }}</td>
+      <td><span class="badge">{{ u.state.value }}</span>
+          {% if u.state.value == "queued" %}
+          <br><small>queued — capacity slot not yet free</small>{% endif %}</td>
+      <td>{{ u.outcome.value }}</td>
+      <td>{{ u.runner.name if u.runner else "—" }}</td>
+      <td>{{ u.started_at or "—" }}</td>
+      <td>{{ u.finished_at or "—" }}</td>
+      <td><a href="{{ url_for('portal.execution_detail', execution_id=u.id) }}">detail</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
 {% if ex.state.value not in ("completed", "failed", "canceled")
    and ex.origin != "imported"
    and current_user.role.value != "po" %}

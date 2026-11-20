@@ -138,6 +138,30 @@
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" placeholder="3600"></div>
     <button type="submit" class="button">Run {{ item.kind }}</button>
   </form>
+
+  <form method="post" action="{{ url_for('portal.partition_discovered', item_id=item.id) }}">
+    {{ plain_form.csrf_token }}
+    <h3>Partitioned unit run (Playwright / Cypress)</h3>
+    <div class="field"><label for="u_runtime_id">Runtime</label>
+      <select name="runtime_id" id="u_runtime_id">
+        {% for r in runtimes %}{% if r.runtime_kind in ("playwright","cypress") %}
+        <option value="{{ r.id }}">{{ r.name }} [{{ r.runtime_kind }}]</option>{% endif %}{% endfor %}
+      </select></div>
+    <div class="field"><label for="u_runner_id">Target</label>
+      <select name="runner_id" id="u_runner_id">
+        <option value="">Auto</option>
+        {% for r in workers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="unit_count">Units</label>
+      <input type="number" name="unit_count" id="unit_count" min="2" max="64" required>
+      <small>Playwright: N shards. Cypress: N spec partitions —
+      preview resolves the spec manifest first.</small></div>
+    <div class="field"><label for="spec_pattern">Cypress spec pattern</label>
+      <input type="text" name="spec_pattern" id="spec_pattern" placeholder="cypress/e2e/**/*.cy.*" size="30">
+      <input type="text" name="exclude_pattern" id="exclude_pattern" placeholder="exclude globs, comma-sep" size="24"></div>
+    <button type="submit" name="mode" value="preview" class="button secondary">Preview partition</button>
+    <button type="submit" name="mode" value="run" class="button">Queue partition run</button>
+  </form>
 </section>
 {% endif %}
 {% endblock %}

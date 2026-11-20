@@ -384,6 +384,99 @@ _UNIT_TERMINAL = (ExecutionState.COMPLETED, ExecutionState.FAILED,
                   ExecutionState.CANCELED, ExecutionState.UNKNOWN)
 
 
+# ---------- partitioned runs (Stage 4) ----------
+
+def discover_cypress_specs(binding, sha: str = "",
+                           spec_pattern: str = "",
+                           exclude_pattern: str = "",
+                           selection=()) -> list:
+    """Resolve the Cypress spec manifest at the selected revision —
+    the frozen list a partitioned run is built from. Discovery is
+    read-only on the bound worktree; a mismatched/stale revision is
+    an explicit error, never a silent re-scan of a different tree."""
+    import fnmatch
+    base = Path(binding.worktree_path or "")
+    if binding.subdirectory:
+        base = base / binding.subdirectory
+    if not base.is_dir():
+        raise DispatchError(
+            "bound worktree is missing — sync the binding before "
+            "partitioning")
+    if sha and sha != (binding.last_synced_sha or ""):
+        raise DispatchError(
+            f"spec manifest cannot be resolved at {sha[:12]} — the "
+            f"worktree is at {(binding.last_synced_sha or '?')[:12]}; "
+            "sync the binding so discovery matches the frozen "
+            "revision")
+    pat = spec_pattern.strip() or "cypress/e2e/**/*.cy.*"
+
+    def _match(rel: str, glob_pat: str) -> bool:
+        # fnmatch has no recursive-glob semantics: `**/` must also
+        # match ZERO directories (cypress glob convention).
+        if fnmatch.fnmatch(rel, glob_pat):
+            return True
+        return "**/" in glob_pat and fnmatch.fnmatch(
+            rel, glob_pat.replace("**/", ""))
+
+    specs = sorted(str(p.relative_to(base)) for p in base.glob(
+        "**/*") if p.is_file() and _match(
+            str(p.relative_to(base)), pat)
+        and not any(part.startswith(".") for part in
+                    p.relative_to(base).parts))
+    excl = [x.strip() for x in (exclude_pattern or "").split(",")
+            if x.strip()]
+    for x in excl:
+        specs = [s for s in specs if not _match(s, x)]
+    if selection:
+        sel = set(selection)
+        missing = sel - set(specs)
+        if missing:
+            raise DispatchError(
+                "selected specs are not in the resolved manifest: "
+                + ", ".join(sorted(missing)[:5]))
+        specs = [s for s in specs if s in sel]
+    if not specs:
+        raise DispatchError(
+            "spec discovery resolved an empty manifest — check the "
+            "spec pattern, exclusions and selection")
+    return specs
+
+
+def partition_units(items: list, n: int, key_prefix: str,
+                    payload_key: str) -> list:
+    """Contiguous deterministic split — every item assigned to
+    exactly one unit, assignments frozen in each child's snapshot.
+    Requesting more units than items is an explicit error, not a
+    silent empty unit."""
+    if n < 1:
+        raise DispatchError("unit count must be >= 1")
+    if n > len(items):
+        raise DispatchError(
+            f"cannot split {len(items)} item(s) into {n} units — "
+            f"at most {len(items)} non-empty units")
+    base, extra = divmod(len(items), n)
+    units, off = [], 0
+    for i in range(n):
+        take = base + (1 if i < extra else 0)
+        part = items[off:off + take]
+        off += take
+        units.append({"index": i, "key": f"{key_prefix} {i + 1}/{n}",
+                      payload_key: part})
+    return units
+
+
+def playwright_shard_units(n: int) -> list:
+    """N playwright shard units — explicit i/N assignments; the
+    framework does its own internal split, we freeze WHICH shard each
+    unit owns."""
+    if n < 2:
+        raise DispatchError("sharded run requires at least 2 shards")
+    if n > 64:
+        raise DispatchError("shard count must be <= 64")
+    return [{"index": i, "key": f"shard {i + 1}/{n}",
+             "shard": f"{i + 1}/{n}"} for i in range(n)]
+
+
 def aggregate_parent_runs() -> int:
     """Recompute parent executions from their unit children — run
     every tick so the rollup is restart-safe and idempotent (a pure
@@ -1324,8 +1417,10 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         _shard = (str(_unit.get("shard") or "")
                   or (f"{int(rc['shard_index'])}/{int(rc['shard_total'])}"
                       if rc.get("shard_index") else ""))
+        _specs = _unit.get("specs") or []
         node_args = nodefw.build_args(
             node_kind, browser_val,
+            spec=(",".join(_specs) if _specs else ""),
             workers=_pw_workers,
             shard=_shard)
         node_env = nodefw.junit_env(node_kind)

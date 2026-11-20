@@ -342,3 +342,60 @@ def test_parallel_persisted_in_snapshot(app):
         e = db.session.get(Execution, eid)
         rc = e.snapshot()["run_config"]
         assert rc["parallel_mode"] == "parallel" and rc["parallel"] == 4
+
+
+# ---------- partitioning ----------
+
+def test_partition_units_exact_assignment(app):
+    sid = _env(app)
+    with app.app_context():
+        specs = [f"spec{i}.cy.js" for i in range(7)]
+        units = dispatch.partition_units(specs, 3, "spec group", "specs")
+        flat = [s for u in units for s in u["specs"]]
+        assert sorted(flat) == sorted(specs)     # each spec exactly once
+        assert len(units) == 3 and all(u["specs"] for u in units)
+        import pytest as _pt
+        with _pt.raises(dispatch.DispatchError, match="at most"):
+            dispatch.partition_units(specs, 8, "x", "specs")
+        with _pt.raises(dispatch.DispatchError):
+            dispatch.partition_units([], 2, "x", "specs")
+
+
+def test_playwright_shard_units(app):
+    sid = _env(app)
+    with app.app_context():
+        units = dispatch.playwright_shard_units(4)
+        assert [u["shard"] for u in units] == [
+            "1/4", "2/4", "3/4", "4/4"]
+        import pytest as _pt
+        with _pt.raises(dispatch.DispatchError):
+            dispatch.playwright_shard_units(1)
+
+
+def test_discover_cypress_specs(app, tmp_path):
+    from testorchestrator.execution import GitBinding
+    with app.app_context():
+        d = tmp_path / "repo"
+        (d / "cypress" / "e2e").mkdir(parents=True)
+        for n in ("a.cy.js", "b.cy.js", "skip.spec.js"):
+            (d / "cypress" / "e2e" / n).write_text("// spec")
+        (d / "cypress" / "e2e" / "deep").mkdir()
+        (d / "cypress" / "e2e" / "deep" / "c.cy.ts").write_text("//")
+        b = GitBinding(project_id="p", name="b", url="u",
+                       worktree_path=str(d), last_synced_sha="s1")
+        specs = dispatch.discover_cypress_specs(b, sha="s1")
+        assert specs == ["cypress/e2e/a.cy.js", "cypress/e2e/b.cy.js",
+                         "cypress/e2e/deep/c.cy.ts"]
+        # exclusions + selection + stale-sha error
+        assert dispatch.discover_cypress_specs(
+            b, sha="s1", exclude_pattern="cypress/e2e/b*") == [
+            "cypress/e2e/a.cy.js", "cypress/e2e/deep/c.cy.ts"]
+        assert dispatch.discover_cypress_specs(
+            b, sha="s1", selection=["cypress/e2e/a.cy.js"]) == [
+            "cypress/e2e/a.cy.js"]
+        import pytest as _pt
+        with _pt.raises(dispatch.DispatchError, match="manifest"):
+            dispatch.discover_cypress_specs(b, sha="other-sha")
+        with _pt.raises(dispatch.DispatchError, match="empty"):
+            dispatch.discover_cypress_specs(
+                b, sha="s1", spec_pattern="nope/**/*.cy.*")

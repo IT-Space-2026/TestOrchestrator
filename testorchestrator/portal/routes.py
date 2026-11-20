@@ -781,6 +781,79 @@ def run_discovered(item_id):
     return redirect(url_for("portal.execution_detail", execution_id=ex.id))
 
 
+@portal_bp.route("/discovered/<item_id>/partition", methods=["POST"])
+@role_required(*RUN_ROLES)
+def partition_discovered(item_id):
+    """Preview or submit a partitioned unit run.
+
+    mode=preview resolves the manifest and renders the assignment;
+    mode=run freezes it into the unit children and queues them. The
+    preview is advisory — the run re-resolves and re-validates
+    everything server-side."""
+    from ..execution import DiscoveredItem
+    item = db.session.get(DiscoveredItem, item_id)
+    if item is None or item.kind not in ("suite", "collection"):
+        abort(404)
+    _project_or_404(item.project_id)
+    PlainForm().validate_on_submit()
+    binding = db.session.get(GitBinding, item.binding_id)
+    rt = db.session.get(RuntimeConnection,
+                        request.form.get("runtime_id", "").strip())
+    if rt is None or not rt.enabled:
+        flash("Select a runtime for the partition run.", "error")
+        return redirect(url_for("portal.discovered_detail",
+                                item_id=item.id))
+    kind = rt.runtime_kind or "kre"
+    try:
+        n = int(request.form.get("unit_count") or 0)
+        run_config = {
+            "runtime_id": rt.id,
+            "runner_id": request.form.get("runner_id", "").strip(),
+            "browser": request.form.get("browser_type", "").strip(),
+            "timeout_seconds":
+                int(request.form.get("timeout_seconds") or 0),
+            "suite_path": item.path,
+            "collection": item.kind == "collection",
+        }
+        if kind == "cypress":
+            specs = dispatch.discover_cypress_specs(
+                binding, sha=binding.last_synced_sha or "",
+                spec_pattern=request.form.get("spec_pattern", ""),
+                exclude_pattern=request.form.get("exclude_pattern", ""),
+                selection=[x for x in request.form.get(
+                    "selected_specs", "").splitlines() if x.strip()])
+            units = dispatch.partition_units(specs, n, "spec group",
+                                             "specs")
+        elif kind == "playwright":
+            units = dispatch.playwright_shard_units(n)
+        else:
+            raise dispatch.DispatchError(
+                f"partitioned runs support playwright and cypress "
+                f"runtimes (got {kind!r})")
+        if request.form.get("mode") == "preview":
+            return render_template(
+                "portal/partition_preview.html", item=item,
+                units=units, runtime=rt, form=request.form,
+                plain_form=PlainForm())
+        run_config.update({
+            "release_id": request.form.get("release_id") or None})
+        parent, exs = dispatch.create_unit_run(
+            current_user.username, units, binding=binding,
+            release_id=(request.form.get("release_id") or None),
+            source_sha=binding.last_synced_sha if binding else "",
+            run_config=run_config, source_item=item)
+    except dispatch.DispatchError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("portal.discovered_detail",
+                                item_id=item.id))
+    record_audit(current_user.username, "execution.unit_run_queued",
+                 parent.id)
+    flash(f"Unit run {parent.id[:8]} queued — {len(exs)} units "
+          f"dispatch independently through capacity.", "info")
+    return redirect(url_for("portal.execution_detail",
+                            execution_id=parent.id))
+
+
 @portal_bp.route("/executions/<execution_id>/delete",
              methods=["POST"])
 @role_required(*EDIT_ROLES)
@@ -1651,10 +1724,24 @@ def execution_detail(execution_id):
         counts[r.status.value] = counts.get(r.status.value, 0) + 1
         unresolved += 1 if getattr(r, "unresolved", False) else 0
     from .. import settings as settings_mod
+    units = []
+    actual_concurrency = 0
+    if ex.role == "parent":
+        units = sorted(
+            Execution.query.filter_by(parent_id=ex.id).all(),
+            key=lambda e: e.unit_index or 0)
+        from ..execution import ExecutionState as _ES
+        active = (_ES.DISPATCHED, _ES.PREPARING, _ES.RUNNING,
+                  _ES.COLLECTING, _ES.NORMALIZING)
+        actual_concurrency = sum(
+            1 for u in units if u.state in active)
+    parent = (db.session.get(Execution, ex.parent_id)
+              if ex.parent_id else None)
     return render_template(
         "portal/execution_detail.html", ex=ex, counts=counts,
         plain_form=PlainForm(), can_edit=can_edit,
-        unresolved=unresolved,
+        unresolved=unresolved, units=units, parent=parent,
+        actual_concurrency=actual_concurrency,
         rl_enabled=settings_mod.get("reportinglabs_enabled", False))
 
 
