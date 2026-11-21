@@ -1168,7 +1168,7 @@ details.adv-card ul { margin-top: .6rem; }
 /* login page: company-logo watermark behind the card */
 .login-page::before { content: ""; position: fixed; inset: 0;
   background: url('../branding/login-mosaic.png') repeat;
-  background-size: 176rem auto;
+  background-size: 215rem auto;
   opacity: .55; pointer-events: none; }
 .login-page .login-card { position: relative; z-index: 1; }
 @media (prefers-color-scheme: dark) {
@@ -1186,3 +1186,5 @@ details.adv-card ul { margin-top: .6rem; }
 @media (prefers-color-scheme: dark) {
   .brand-hero::before { filter: invert(1) brightness(1.4); }
 }
+.licence-add { display: flex; gap: .6rem; align-items: center; }
+.licence-add input[type=text] { flex: 1; min-width: 0; }

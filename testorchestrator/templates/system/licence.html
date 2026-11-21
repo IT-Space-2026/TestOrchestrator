@@ -21,11 +21,17 @@ Valid {{ best.valid_from[:10] }} → {{ best.valid_until[:10] }} (UTC — runs m
 <td>{{ l.valid_from[:10] }}</td><td>{{ l.valid_until[:10] }}</td></tr>
 {% endfor %}</table>
 {% endif %}
-<h3>Add licence</h3>
-<form method="post">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>Licence code <input type="text" name="licence_code"
-        autocomplete="off" style="width:36em"></label>
-  <button type="submit">Add licence</button>
-</form>
+<div class="card settings-card">
+  <div class="settings-row">
+    <div class="settings-info">
+      <h3 style="margin-top:0">Add licence</h3>
+      <form method="post" class="licence-add">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" name="licence_code" autocomplete="off"
+               placeholder="Paste the licence code" required>
+        <button type="submit" class="button primary">Add licence</button>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}
