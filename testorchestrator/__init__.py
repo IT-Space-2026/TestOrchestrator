@@ -150,12 +150,30 @@ def create_app(config_object=Config) -> Flask:
     except Exception:
         pass  # pre-migration DBs — next request retries anyway
 
+    # Fresh-install restore token + staged-restore cleanup: the token is
+    # issued only while the system has no users (one-time, local file,
+    # time-limited); expired staged uploads are removed on boot so a
+    # restart cannot leave them behind.
+    try:
+        with app.app_context():
+            from . import backup as _backup
+            _backup.cleanup_staging(app)
+            _backup.ensure_setup_token(app)
+            # A crash mid-restore leaves the SQLite transaction rolled
+            # back by the DB itself — clearing the gate is always safe.
+            _backup._exit_maintenance(app)
+    except Exception:
+        pass
+
     # ---- licence status (informational only) ----
     # The application licence is NOT an enforcement gate: every route and
     # operation works regardless of licence state. The only visible effect
     # of an absent/invalid licence is the "This version is not supported"
     # notice rendered on the login page (auth/routes.py).
-    app.config.setdefault("MAX_CONTENT_LENGTH", 64 * 1024)
+    # Bounded upload ceiling — settings-restore .tobackup uploads are the
+    # only portal file upload; 8 MiB is far above any realistic settings
+    # payload (backup.py enforces its own tighter parse bounds).
+    app.config.setdefault("MAX_CONTENT_LENGTH", 8 * 1024 * 1024)
 
     @app.route("/licence")
     def licence_status_page():

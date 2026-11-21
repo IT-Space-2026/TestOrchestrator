@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Confirm restore · TestOrchestrator{% endblock %}
+{% block content_class %}wide{% endblock %}
+{% block content %}
+<h1>System &rarr; Backup &amp; restore &rarr; Confirm</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+
+<section class="card">
+  <h2>Backup verified</h2>
+  <p>Format <strong>v{{ manifest.format_version }}</strong> · created by
+     app <strong>{{ manifest.app_version }}</strong> · db revision
+     <code>{{ manifest.db_revision }}</code> ·
+     <span class="badge accent">{{ manifest.created_utc }}</span> ·
+     {{ manifest.platform }}</p>
+  <p class="muted">Checksums verified for every section below; the archive
+     authentication tag is valid.</p>
+  <table class="audit-table">
+    <thead><tr><th>Section</th><th>Rows</th><th>SHA-256</th></tr></thead>
+    <tbody>
+      {% for name, meta in manifest.sections.items() %}
+      <tr><td><code>{{ name }}</code></td><td>{{ meta.count }}</td>
+          <td><code class="muted">{{ meta.sha256[:16] }}…</code></td></tr>
+      {% endfor %}
+      {% for fname, sha in manifest.files.items() %}
+      <tr><td><code>{{ fname }}</code> <span class="badge">file</span></td>
+          <td>—</td><td><code class="muted">{{ sha[:16] }}…</code></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Confirm apply</h2>
+  <p class="muted"><strong>What happens next:</strong> maintenance mode
+     pauses scheduled work; the configuration is replaced atomically;
+     all restored login sessions and API tokens are revoked; runners and
+     runtime connections are marked <em>needs verification</em>; past-due
+     schedules are re-armed instead of firing immediately. On failure the
+     previous configuration is rolled back.{% if not fresh %} A
+     pre-restore safety backup (same passphrase) is stored under
+     <code>&lt;instance&gt;/backups/</code>.{% endif %}</p>
+  <form method="post" action="{{ url_for('system.backup_restore_apply') }}">
+    {{ apply_form.hidden_tag() }}
+    {{ apply_form.staged_id }}
+    <div class="form-grid">
+      <div class="form-row">{{ apply_form.mode.label }}
+        {% for sub in apply_form.mode %}
+        <label class="radio-row">{{ sub() }} {{ sub.label.text }}</label>
+        {% endfor %}</div>
+      <div class="form-row">{{ apply_form.passphrase.label }}
+        {{ apply_form.passphrase(required=true, autocomplete="off") }}</div>
+      <div class="form-row">
+        {% if fresh %}
+          {{ apply_form.credential.label("Fresh-install setup token") }}
+        {% else %}
+          {{ apply_form.credential.label("Your password (re-authentication)") }}
+        {% endif %}
+        {{ apply_form.credential(required=true, autocomplete="off") }}</div>
+    </div>
+    <button type="submit" class="btn primary"
+            onclick="return confirm('Apply this restore? All restored sessions and API tokens will be revoked.')">
+      Apply restore</button>
+  </form>
+  <form method="post" class="inline-form"
+        action="{{ url_for('system.backup_restore_cancel', stage_id=staged_id) }}">
+    {{ apply_form.csrf_token }}
+    <button type="submit" class="btn">Cancel</button>
+  </form>
+</section>
+{% endblock %}

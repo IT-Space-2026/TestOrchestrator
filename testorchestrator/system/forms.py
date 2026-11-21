@@ -188,3 +188,41 @@ class RuntimeForm(FlaskForm):
                     "spec carries this path only — the worker's "
                     "resolver reads the value at exec time.")
     concurrency = IntegerField("Concurrency", default=1)
+
+
+class BackupCreateForm(FlaskForm):
+    """Create an encrypted settings backup — passphrase encrypts the
+    archive, password re-authenticates the acting admin."""
+    passphrase = PasswordField(
+        "Backup passphrase",
+        validators=[DataRequired(), Length(min=12, max=256)],
+        description="Min 12 characters — encrypts the archive; "
+                    "unrecoverable if lost.")
+    confirm = PasswordField(
+        "Confirm passphrase", validators=[DataRequired()])
+    password = PasswordField(
+        "Your password (re-authentication)", validators=[Optional()])
+
+
+class RestoreStageForm(FlaskForm):
+    backup_file = FileField(
+        "Backup file (.tobackup)",
+        validators=[FileRequired(), FileAllowed(["tobackup"])])
+    passphrase = PasswordField(
+        "Backup passphrase", validators=[DataRequired()])
+    credential = PasswordField(
+        "Your password / fresh-install setup token",
+        validators=[DataRequired()])
+
+
+class RestoreApplyForm(FlaskForm):
+    staged_id = StringField("", validators=[DataRequired()])
+    mode = RadioField(
+        "Restore mode", validators=[DataRequired()],
+        choices=[("fresh", "Restore into a fresh installation"),
+                 ("replace", "Replace current configuration")])
+    passphrase = PasswordField(
+        "Backup passphrase", validators=[DataRequired()])
+    credential = PasswordField(
+        "Your password / fresh-install setup token",
+        validators=[DataRequired()])

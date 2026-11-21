@@ -11,6 +11,17 @@ connections upgrade unchanged).
 
 ### Added
 
+- **Settings backup & restore** (System → Backup & restore):
+  Administrator-only, re-authenticated, fully audited encrypted
+  `.tobackup` archives (AES-256-GCM + scrypt passphrase KDF; the
+  secret-store key travels inside the encrypted payload). Settings-only
+  scope — execution history/evidence stay with the instance. Staged
+  restore (upload → validate → preview → confirm → apply → verify) with
+  fresh-install one-time local setup token, replace mode with automatic
+  pre-restore safety backup, atomic rollback, maintenance-mode gating,
+  session/API-token revocation, and needs-verification marking for
+  environment-dependent targets. See `docs/backup-restore.md`.
+
 - **Robot Framework runner.** Register a runtime with kind `robot`
   and configure the target's Python interpreter explicitly
   (`executable_path` — venv `bin/python`/`Scripts\python.exe`

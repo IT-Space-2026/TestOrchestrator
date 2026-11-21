@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Restore report · TestOrchestrator{% endblock %}
+{% block content_class %}wide{% endblock %}
+{% block content %}
+<h1>System &rarr; Backup &amp; restore &rarr; Report</h1>
+<section class="card">
+  <h2>Restore applied — {{ "fresh installation" if mode == "fresh" else "configuration replaced" }}</h2>
+  <table class="audit-table">
+    <thead><tr><th>Section</th><th>Rows restored</th></tr></thead>
+    <tbody>
+      {% for name, n in report.restored.items() %}
+      <tr><td><code>{{ name }}</code></td><td>{{ n }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if report.skipped %}
+  <h3>Skipped</h3>
+  <ul class="muted">{% for s in report.skipped %}<li>{{ s }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if report.attention %}
+  <h3>Needs attention</h3>
+  <ul class="muted">{% for a in report.attention %}<li>{{ a }}</li>{% endfor %}</ul>
+  {% endif %}
+  <h3>Post-restore state</h3>
+  <ul class="muted">
+    <li>All restored login sessions and API tokens were revoked — sign in
+        again and re-issue CI tokens.</li>
+    <li>Runners and runtime connections are marked
+        <em>needs verification</em> — re-run connection checks under
+        System &rarr; Infrastructure before scheduling work.</li>
+    <li>Host-specific settings (ports, paths, TLS certificates, instance
+        URL, service accounts) may differ on this machine — review System
+        &rarr; Network &amp; certificates.</li>
+    {% if mode == "replace" %}
+    <li>A pre-restore safety backup was saved under
+        <code>&lt;instance&gt;/backups/</code>.</li>
+    {% endif %}
+  </ul>
+  <p><a class="btn primary" href="{{ url_for('portal.projects') if not fresh else url_for('auth.login') }}">Continue</a></p>
+</section>
+{% endblock %}

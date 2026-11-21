@@ -2113,3 +2113,228 @@ def licence_resume():
     # automation/links do not 404.
     flash("Licence status is informational — dispatch is not held.", "info")
     return redirect(url_for("system.licence_admin"))
+
+
+# -------------------------------------------------------------------------
+# Admin -> System -> Backup & restore (2.6 settings-only scope).
+#
+# Every sensitive action re-verifies the acting admin's password unless a
+# re-auth happened within REAUTH_WINDOW seconds. On a FRESH install (no
+# users yet) restore is authorized instead by the one-time, local,
+# time-limited setup token in <instance>/.restore-setup-token — there is
+# no unauthenticated network restore endpoint. All actions are audited;
+# secrets and passphrases never enter logs/audit.
+# -------------------------------------------------------------------------
+
+import io
+import time as _time
+from pathlib import Path
+from flask import session as _session
+from .. import backup as _bk
+from ..models import User
+from .forms import (BackupCreateForm, RestoreApplyForm, RestoreStageForm)
+
+
+def _fresh_install() -> bool:
+    """Setup not yet completed — the bootstrap admin row already exists,
+    so 'no users' is not the right signal for first-run."""
+    return _bk.unconfigured()
+
+
+def _reauth_ok() -> bool:
+    return _time.time() - _session.get("reauth_at", 0) < _bk.REAUTH_WINDOW
+
+
+def _verify_credential(app, raw: str) -> tuple:
+    """Returns (authorized, actor). Fresh install: setup token. Otherwise:
+    admin + recent re-auth (or inline password, which sets the window)."""
+    if _fresh_install():
+        if _bk.check_setup_token(app, (raw or "").strip()):
+            return True, "setup-token(fresh-install)"
+        return False, ""
+    if not (current_user.is_authenticated
+            and current_user.role == Role.ADMIN):
+        return False, ""
+    if _reauth_ok() or (raw and current_user.check_password(raw)):
+        _session["reauth_at"] = _time.time()
+        return True, current_user.username
+    return False, current_user.username
+
+
+def _admin_or_abort():
+    if not (current_user.is_authenticated
+            and current_user.role == Role.ADMIN):
+        abort(403)
+
+
+@system_bp.route("/backup")
+def backup_page():
+    app = current_app._get_current_object()
+    fresh = _fresh_install()
+    if not fresh:
+        _admin_or_abort()
+    create_form = BackupCreateForm()
+    stage_form = RestoreStageForm()
+    return render_template(
+        "system/backup.html", fresh=fresh,
+        last=_bk.last_backup_info(app), counts=_bk.section_counts(),
+        excluded=_bk.EXCLUDED, min_pp=_bk.MIN_PASSPHRASE,
+        create_form=create_form, stage_form=stage_form,
+        setup_token_hint=_fresh_install())
+
+
+@system_bp.route("/backup/create", methods=["POST"])
+@role_required(Role.ADMIN)
+def backup_create():
+    app = current_app._get_current_object()
+    form = BackupCreateForm()
+    if not form.validate_on_submit():
+        flash("Backup request invalid — check the passphrase fields.",
+              "error")
+        return redirect(url_for("system.backup_page"))
+    if form.passphrase.data != form.confirm.data:
+        flash("Backup passphrases do not match.", "error")
+        return redirect(url_for("system.backup_page"))
+    ok, _ = _verify_credential(app, form.password.data or "")
+    if not ok:
+        record_audit(current_user.username, "backup.create_denied",
+                     "re-authentication failed")
+        db.session.commit()
+        flash("Re-authentication failed — enter your current password.",
+              "error")
+        return redirect(url_for("system.backup_page"))
+    try:
+        data = _bk.create_backup(app, form.passphrase.data)
+    except _bk.BackupError as exc:
+        record_audit(current_user.username, "backup.create_failed", str(exc))
+        db.session.commit()
+        flash(str(exc), "error")
+        return redirect(url_for("system.backup_page"))
+    header = _bk.parse_header(data)
+    _bk.record_backup_marker(app, current_user.username, header)
+    record_audit(current_user.username, "backup.created",
+                 f"format=v{header['format_version']} "
+                 f"app={header['app_version']} sections="
+                 f"{len(_bk.section_counts())}")
+    db.session.commit()
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=_bk.backup_filename(app),
+                     mimetype="application/octet-stream")
+
+
+@system_bp.route("/backup/restore/stage", methods=["POST"])
+def backup_restore_stage():
+    app = current_app._get_current_object()
+    form = RestoreStageForm()
+    ok, actor = _verify_credential(
+        app, form.credential.data if form.credential.data else "")
+    if not ok:
+        record_audit(current_user.username if current_user.is_authenticated
+                     else "anonymous", "backup.restore_denied",
+                     "authorization failed at staging")
+        db.session.commit()
+        abort(403)
+    if not form.validate_on_submit():
+        flash("Restore request invalid — a .tobackup file and its "
+              "passphrase are required.", "error")
+        return redirect(url_for("system.backup_page"))
+    data = form.backup_file.data.read(_bk.MAX_ARCHIVE_BYTES + 1)
+    try:
+        header = _bk.parse_header(data)
+        payload = _bk.decrypt_backup(data, form.passphrase.data)
+    except _bk.BackupError as exc:
+        record_audit(actor, "backup.validate_failed", str(exc))
+        db.session.commit()
+        flash(str(exc), "error")
+        return redirect(url_for("system.backup_page"))
+    record_audit(actor, "backup.validate_ok",
+                 f"format=v{header['format_version']} "
+                 f"app={header['app_version']}")
+    db.session.commit()
+    stage_id = _bk.stage_backup(app, data)
+    apply_form = RestoreApplyForm(
+        staged_id=stage_id,
+        mode="fresh" if _fresh_install() else "replace")
+    return render_template(
+        "system/backup_restore.html",
+        manifest=payload["manifest"], header=header,
+        staged_id=stage_id, apply_form=apply_form,
+        fresh=_fresh_install())
+
+
+@system_bp.route("/backup/restore/cancel/<stage_id>", methods=["POST"])
+def backup_restore_cancel(stage_id):
+    app = current_app._get_current_object()
+    try:
+        _bk.staged_path(app, stage_id).unlink(missing_ok=True)
+    except _bk.BackupError:
+        pass
+    return redirect(url_for("system.backup_page"))
+
+
+@system_bp.route("/backup/restore/apply", methods=["POST"])
+def backup_restore_apply():
+    app = current_app._get_current_object()
+    form = RestoreApplyForm()
+    ok, actor = _verify_credential(app, form.credential.data or "")
+    if not ok:
+        record_audit(current_user.username if current_user.is_authenticated
+                     else "anonymous", "backup.restore_denied",
+                     "authorization failed at apply")
+        db.session.commit()
+        abort(403)
+    if not form.validate_on_submit():
+        flash("Restore confirmation invalid.", "error")
+        return redirect(url_for("system.backup_page"))
+    was_fresh = _fresh_install()
+    mode = "fresh" if was_fresh else "replace"
+    try:
+        path = _bk.staged_path(app, form.staged_id.data)
+        data = path.read_bytes()
+        payload = _bk.decrypt_backup(data, form.passphrase.data)
+    except _bk.BackupError as exc:
+        record_audit(actor, "backup.restore_failed", str(exc))
+        db.session.commit()
+        flash(str(exc), "error")
+        return redirect(url_for("system.backup_page"))
+    if mode == "replace":
+        if _active_work_count():
+            flash("Restore deferred — executions are still active. Wait "
+                  "for them to finish or cancel them first.", "error")
+            return redirect(url_for("system.backup_page"))
+        # Automatic pre-restore safety backup, protected the same way.
+        safety = _bk.create_backup(app, form.passphrase.data)
+        sname = _bk.backup_filename(app).replace(
+            "settings-", "pre-restore-")
+        (Path(_bk.safety_backup_dir(app)) / sname).write_bytes(safety)
+        record_audit(actor, "backup.safety_created", sname)
+        db.session.commit()
+    try:
+        report = _bk.apply_restore(app, payload, mode, actor)
+    except Exception as exc:
+        flash(f"Restore failed — previous configuration kept intact. "
+              f"({exc})", "error")
+        return redirect(url_for("system.backup_page"))
+    path.unlink(missing_ok=True)
+    _bk.consume_setup_token(app)
+    # Keep the acting admin's own re-authenticated session alive; every
+    # other session was revoked by the session_version bump. The old ORM
+    # object was replaced by the restore — re-query, never dereference it.
+    if actor and not actor.startswith("setup-token"):
+        me = User.query.filter_by(username=actor).first()
+        if me is not None:
+            _session["session_version"] = me.session_version
+            _session["reauth_at"] = _time.time()
+    # Redirect (PRG): this request's current_user is a detached pre-restore
+    # row — a fresh request reloads it cleanly, and a reload can't re-apply.
+    _session["restore_report"] = {"report": report, "mode": mode,
+                                  "fresh": was_fresh}
+    return redirect(url_for("system.backup_restore_report"))
+
+
+@system_bp.route("/backup/restore/report")
+def backup_restore_report():
+    stashed = _session.pop("restore_report", None)
+    if stashed is None:
+        return redirect(url_for("system.backup_page"))
+    return render_template("system/backup_report.html", **stashed)

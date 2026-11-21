@@ -2626,6 +2626,13 @@ def _redrive_queued_remote(limit: int = 10) -> int:
 
 
 def worker_once() -> int:
+    # Maintenance gate: a settings restore in progress must not have
+    # scheduled work, dispatches, or reconciliation run against the
+    # partially-restored configuration.
+    from flask import current_app
+    from .backup import maintenance_active
+    if maintenance_active(current_app._get_current_object()):
+        return 0
     # Orchestrator reconciliation (§7) runs BEFORE the lease sweep: an
     # aborted run with a pending cancel request must resolve to
     # CANCELED from the coordinator's authoritative status — not to

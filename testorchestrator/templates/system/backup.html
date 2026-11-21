@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Backup &amp; restore · TestOrchestrator{% endblock %}
+{% block content_class %}wide{% endblock %}
+{% block content %}
+<h1>System &rarr; Backup &amp; restore</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+{% if fresh %}
+<p class="muted"><strong>Fresh installation detected.</strong> No
+   administrator exists yet — you can restore a settings backup now using
+   the one-time setup token written to
+   <code>&lt;instance&gt;/.restore-setup-token</code> on this machine
+   (valid for one hour after first boot). Otherwise proceed to bootstrap
+   normally.</p>
+{% endif %}
+
+<section class="card">
+  <h2>Last backup</h2>
+  {% if last %}
+  <p><span class="badge accent">{{ last.created_utc }}</span>
+     format <strong>v{{ last.format_version }}</strong> · created by app
+     <strong>{{ last.app_version }}</strong> · initiated by
+     <strong>{{ last.by }}</strong></p>
+  {% else %}
+  <p class="muted">No backup has been created on this instance yet.</p>
+  {% endif %}
+</section>
+
+{% if not fresh %}
+<details class="add-block card">
+  <summary>Create backup</summary>
+  <div class="add-body">
+    <p class="muted">One encrypted <code>.tobackup</code> file containing
+       the categories below. The passphrase <strong>cannot be recovered
+       if lost</strong> — without it the file cannot be restored. Anyone
+       holding both the file and the passphrase can read the included
+       secrets. The passphrase is never stored or logged.</p>
+    <table class="audit-table">
+      <thead><tr><th>Included category</th><th>Rows</th></tr></thead>
+      <tbody>
+        {% for name, count in counts.items() %}
+        <tr><td><code>{{ name }}</code></td><td>{{ count }}</td></tr>
+        {% endfor %}
+        <tr><td><code>secret.key</code> <span class="badge">file</span></td>
+            <td>encryption key — inside the encrypted payload only</td></tr>
+      </tbody>
+    </table>
+    <details class="card example-block"><summary>Excluded — and why</summary>
+      <ul class="muted">
+        {% for items, reason in excluded %}
+        <li><code>{{ items }}</code> — {{ reason }}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    <form method="post" action="{{ url_for('system.backup_create') }}">
+      {{ create_form.hidden_tag() }}
+      <div class="form-grid">
+        <div class="form-row">{{ create_form.passphrase.label }}
+          {{ create_form.passphrase(minlength=min_pp, required=true, autocomplete="new-password") }}</div>
+        <div class="form-row">{{ create_form.confirm.label }}
+          {{ create_form.confirm(required=true, autocomplete="new-password") }}</div>
+        <div class="form-row">{{ create_form.password.label }}
+          {{ create_form.password(autocomplete="current-password") }}
+          <small class="muted">Skipped if you re-authenticated in the last
+          5 minutes.</small></div>
+      </div>
+      <button type="submit" class="btn primary">Create &amp; download</button>
+    </form>
+  </div>
+</details>
+{% endif %}
+
+<section class="card">
+  <h2>Restore</h2>
+  <p class="muted">Staged flow: upload &rarr; decrypt &amp; validate &rarr;
+     preview &rarr; confirm &rarr; apply &rarr; verify. The file is checked
+     before anything changes; on any failure the previous configuration is
+     kept. {% if not fresh %}A safety backup is taken automatically before
+     replacing an existing configuration.{% endif %}</p>
+  <form method="post" enctype="multipart/form-data"
+        action="{{ url_for('system.backup_restore_stage') }}">
+    {{ stage_form.hidden_tag() }}
+    <div class="form-grid">
+      <div class="form-row">{{ stage_form.backup_file.label }}
+        {{ stage_form.backup_file(required=true, accept=".tobackup") }}</div>
+      <div class="form-row">{{ stage_form.passphrase.label }}
+        {{ stage_form.passphrase(required=true, autocomplete="off") }}</div>
+      <div class="form-row">
+        {% if fresh %}
+          {{ stage_form.credential.label("Fresh-install setup token") }}
+        {% else %}
+          {{ stage_form.credential.label("Your password (re-authentication)") }}
+        {% endif %}
+        {{ stage_form.credential(required=true, autocomplete="off") }}</div>
+    </div>
+    <button type="submit" class="btn primary">Upload &amp; validate</button>
+  </form>
+</section>
+{% endblock %}

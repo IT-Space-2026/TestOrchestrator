@@ -1398,6 +1398,23 @@ What a complete backup contains (§8.1), expanded into an end-to-end
 procedure. **[doc-env — executed: real backup → restored instance
 verified below]**
 
+### 16.0 Portal settings backup & restore (2.6)
+
+System → Backup & restore produces one encrypted
+`.tobackup` per backup — **settings only** (execution history/evidence
+stay with the instance). Administrator-only, recent re-authentication
+required, every action audited. The archive is AES-256-GCM with a
+scrypt-derived key from a user passphrase (min 12 chars, never stored or
+logged — unrecoverable if lost); the secret-store key travels inside the
+encrypted payload so restored credentials decrypt on the new host.
+Fresh installs restore via a one-time, local, time-limited setup token
+(`<instance>/.restore-setup-token`, 0600, 1 h) before setup completes —
+no unauthenticated network restore. Restores are staged
+(upload → validate → preview → confirm → apply → verify), atomic with
+automatic pre-restore safety backup, and revoke all restored sessions
+and API tokens. Full format, exclusions, restore matrix, and the
+clean-machine reinstall procedure: `docs/backup-restore.md`.
+
 ### 16.1 What to capture
 
 - `data/` **entirely** — `testorchestrator.db` (+ `-wal`/`-shm`),
