@@ -3,6 +3,8 @@
 {% block content_class %}wide{% endblock %}
 {% block content %}
 <h1>System &rarr; Changelog</h1>
+<img src="{{ url_for('static', filename='branding/login-bg.png') }}"
+     alt="IT-Space Ltd." class="changelog-logo">
 {% if changelog_html %}
 <div class="changelog rendered">{{ changelog_html|safe }}</div>
 {% else %}

@@ -1174,3 +1174,8 @@ details.adv-card ul { margin-top: .6rem; }
 @media (prefers-color-scheme: dark) {
   .login-page::before { opacity: .18; filter: invert(1) brightness(1.4); }
 }
+.changelog-logo { display: block; max-width: 26rem; height: auto;
+  margin: 0 0 1.2rem; }
+@media (prefers-color-scheme: dark) {
+  .changelog-logo { filter: invert(1) brightness(1.4); }
+}
