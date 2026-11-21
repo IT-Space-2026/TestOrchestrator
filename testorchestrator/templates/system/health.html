@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}System health · TestOrchestrator{% endblock %}
+{% block content_class %}wide{% endblock %}
 {% block content %}
 <h1>System &rarr; Health &amp; services</h1>
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -14,7 +15,7 @@
     {% if not status.managed %}
     <span class="muted">(isolated/dev mode — no service manager)</span>
     {% endif %}</p>
-  <table class="audit-table">
+  <table class="audit-table health-table">
     <thead><tr><th>Service</th><th>State</th></tr></thead>
     <tbody>
       {% for s in status.services %}
@@ -38,7 +39,7 @@
   <form method="post" action="{{ url_for('system.restart_services') }}"
         onsubmit="return confirm('Restart TestOrchestrator services? The browser will disconnect briefly.');">
     {{ restart_form.csrf_token }}
-    <button class="button" type="submit"
+    <button class="button primary" type="submit"
       {{ "disabled" if not status.managed }}>Restart services</button>
   </form>
   {% endif %}
