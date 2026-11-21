@@ -1,32 +1,55 @@
 {% extends "base.html" %}
 {% block title %}Reporting — TestOrchestrator{% endblock %}
+{% block content_class %}content wide{% endblock %}
 {% block content %}
 <h1>Reporting settings</h1>
 <p class="muted">Local native-KRE report collection is always on.
 reporting-labs is the sole enhanced report backend — a pure-Python
 single-file report with no bundled Node.js or external generator.
 Saving never regenerates reports.</p>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
 
 <form method="post" action="{{ url_for('system.reporting_save') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-  <h2>reporting-labs</h2>
-  <p class="muted">Self-contained interactive report (embedded data +
-  IT-Space branding). Works offline and in downloaded zips.
-  Generations are published atomically; the newest three generations
-  are retained for in-flight readers.</p>
-  <p><label><input type="checkbox" name="reportinglabs_enabled" value="1"
-    {% if settings.reportinglabs_enabled %}checked{% endif %}>
-    Enable reporting-labs report generation</label></p>
+  <div class="card settings-card">
+    <div class="settings-row">
+      <div class="settings-info">
+        <h2>reporting-labs</h2>
+        <p class="muted">Self-contained interactive report (embedded
+        data + IT-Space branding). Works offline and in downloaded
+        zips. Generations are published atomically; the newest three
+        generations are retained for in-flight readers.</p>
+        <p><span class="badge accent">Enabled by default</span></p>
+      </div>
+      <label class="switch" title="Enable reporting-labs report generation">
+        <input type="checkbox" name="reportinglabs_enabled" value="1"
+          {% if settings.reportinglabs_enabled %}checked{% endif %}>
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="settings-foot">
+      <small class="muted"><strong>Bundled runtime vs system
+      tools:</strong> report generation uses the package's own Python
+      runtime — no customer-installed Node, npm, or external generator
+      is needed and no extra download runs at report time.</small>
+    </div>
+  </div>
 
-  <button class="btn" type="submit">Save settings</button>
+  <div class="form-actions">
+    <button class="button primary" type="submit">Save settings</button>
+  </div>
 </form>
 
-<details><summary>Example — accepted configuration</summary><pre class="example">reportinglabs_enabled:   checked</pre>
-<p class="muted"><strong>Bundled runtime vs system tools:</strong>
-report generation uses the package's own Python runtime — no
-customer-installed Node, npm, or external generator is needed and no
-extra download runs at report time. <strong>Enablement:</strong> the
-checkbox turns generation on.</p>
+<details class="card example-block"><summary>Example — accepted
+  configuration</summary>
+  <pre class="example">reportinglabs_enabled:   checked</pre>
+  <p class="muted"><strong>Enablement:</strong> generation is on by
+  default; the switch turns it off when an installation needs to
+  skip report generation.</p>
 </details>
 {% endblock %}
