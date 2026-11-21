@@ -12,6 +12,7 @@ re-dispatch of a potentially destructive run.
 Dispatch and collection run in `flask worker`, outside request handlers.
 """
 
+import hashlib
 import json
 import os
 import time
@@ -22,11 +23,24 @@ from flask import current_app
 
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
+from .adapters import nodefw, pytestfw, robotfw
+
+
+def _tag_list(raw) -> list:
+    """Comma-separated tag list -> sanitized tokens (no empty items,
+    no shell metacharacters — argv only, never a shell)."""
+    out = []
+    for t in str(raw or "").split(","):
+        t = t.strip()
+        if t and all(c.isalnum() or c in "-_:. " for c in t):
+            out.append(t[:64])
+    return out
 from .adapters.buildbot import BuildbotAdapter
 from . import buildbot_cfg
-from .execution import (Artifact, DiscoveredItem, Execution,
+from .execution import (ApiToken, Artifact, DiscoveredItem, Execution,
                         ExecutionState, GitBinding,
-                        OutboxEvent, Outcome, Plan, Release, Runner,
+                        OutboxEvent, Outcome, Plan, Release,
+                        ResourceReservation, Runner,
                         RuntimeConnection, Schedule, Suite, SyncState,
                         TestResult, utcnow)
 from sqlalchemy.exc import OperationalError
@@ -46,6 +60,109 @@ class DispatchError(RuntimeError):
 
 # ---------- creation / snapshot ----------
 
+def _snapshot_runtime_kind(rc: dict) -> str:
+    """Runtime kind for the run_config's selected runtime — decides
+    whether the recorded browser default is KRE's or the framework's.
+    Unknown/unresolved runtime records KRE (the pre-2.6 default)."""
+    rid = str(rc.get("runtime_id") or "").strip()
+    if not rid:
+        return "kre"
+    rt = db.session.get(RuntimeConnection, rid)
+    return (getattr(rt, "runtime_kind", "") or "kre") if rt else "kre"
+
+
+def _require_probe_opt(runtime, marker: str, desc: str) -> None:
+    """Dispatch gate for optional parallel dependencies: the
+    readiness probe must have REPORTED the marker ok on this target —
+    informational absence is fine in sequential/default mode, but a
+    parallel run that needs the dependency is rejected, never
+    silently downgraded to sequential."""
+    try:
+        markers = json.loads(getattr(runtime, "probe_json", "") or "{}")
+    except Exception:
+        markers = {}
+    if markers.get(marker) != "ok":
+        raise DispatchError(
+            f"{desc} is required but readiness reported "
+            f"{marker}={markers.get(marker, 'never-probed')!r} on this "
+            "target — install it and re-run the readiness probe")
+
+
+def _gated_pabot(runtime, rc: dict) -> int:
+    n = (int(rc.get("parallel") or 0)
+         if (rc.get("parallel_mode") or "default") == "parallel"
+         else 0)
+    if n:
+        _require_probe_opt(runtime, "opt_pabot",
+                           f"pabot (parallel_mode=parallel, "
+                           f"--processes {n})")
+    return n
+
+
+_PARALLEL_MODES = ("default", "sequential", "parallel")
+
+
+def _validate_parallel(rc: dict, kind: str) -> None:
+    """Server-side parallel/shard validation — every entry path
+    (portal form, API, schedule, retry) flows through
+    create_execution, so a bad combination is REJECTED here, never
+    silently clamped or downgraded to sequential.
+
+    Semantics: parallel_mode "default" lets the framework choose;
+    "sequential" forces one process where the framework supports it;
+    "parallel" requires parallel >= 1. A worker count never implies
+    sharding; shard index/total validate as a pair and only apply to
+    Playwright (other kinds use unit-level partition manifests)."""
+    try:
+        par = int(rc.get("parallel") or 0)
+    except (TypeError, ValueError):
+        raise DispatchError("parallel must be an integer")
+    mode = str(rc.get("parallel_mode") or "").strip() or (
+        "parallel" if par > 0 else "default")
+    if mode not in _PARALLEL_MODES:
+        raise DispatchError(
+            f"unknown parallel_mode {mode!r} "
+            f"(choose from {', '.join(_PARALLEL_MODES)})")
+    if par > 64 or par < 0:
+        raise DispatchError("parallel must be between 0 and 64")
+    if mode == "sequential" and par > 0:
+        raise DispatchError(
+            "parallel_mode=sequential conflicts with parallel>0 — "
+            "pick one")
+    if mode == "parallel" and par < 1:
+        raise DispatchError(
+            "parallel_mode=parallel requires parallel >= 1")
+    if kind == "cypress" and (mode == "parallel" or par > 0):
+        raise DispatchError(
+            "parallel is not supported for cypress — Cypress has no "
+            "local in-process parallelism and Cypress Cloud is not "
+            "required; use spec partitioning (unit run) instead")
+    if kind == "kre" and (mode == "parallel" or par > 0):
+        raise DispatchError("parallel is not supported for KRE runs")
+    rc["parallel_mode"] = mode
+    rc["parallel"] = par
+    # Shard pair: both-or-neither, index within 1..total, playwright
+    # only. A shard assignment is NOT created by a worker count.
+    si, st = rc.get("shard_index"), rc.get("shard_total")
+    if bool(si) != bool(st):
+        raise DispatchError(
+            "shard_index and shard_total must be given together")
+    if si:
+        try:
+            si, st = int(si), int(st)
+        except (TypeError, ValueError):
+            raise DispatchError("shard index/total must be integers")
+        if st < 1 or not (1 <= si <= st):
+            raise DispatchError(
+                f"invalid shard {si}/{st} — index must be within "
+                "1..total")
+        if kind != "playwright":
+            raise DispatchError(
+                f"--shard is playwright-only (runtime kind {kind!r}); "
+                f"partition other frameworks via unit runs")
+        rc["shard_index"], rc["shard_total"] = si, st
+
+
 def create_execution(username: str, suite: Suite = None,
                      binding: GitBinding = None,
                      plan_id: str = "",
@@ -53,7 +170,10 @@ def create_execution(username: str, suite: Suite = None,
                      source_sha: str = "", run_config: dict = None,
                      extra_snapshot: dict = None,
                      schedule_id: str = "",
-                     source_item=None) -> Execution:
+                     source_item=None,
+                     role: str = "", parent_id: str = "",
+                     unit_index=None, unit_key: str = "",
+                     commit: bool = True) -> Execution:
     """Create an immutable execution snapshot (§4, A07). Exactly one
     target: a TO suite OR a repository DiscoveredItem — never both,
     never neither. Repo-def runs snapshot their durable identity
@@ -75,6 +195,7 @@ def create_execution(username: str, suite: Suite = None,
     if source_item is not None:
         rc.setdefault("suite_path", source_item.path)
         rc.setdefault("collection", source_item.kind == "collection")
+    _validate_parallel(rc, _snapshot_runtime_kind(rc))
     snapshot = {
         "plan_id": plan_id,
         "plan_run_id": (extra_snapshot or {}).get("plan_run_id", ""),
@@ -102,7 +223,12 @@ def create_execution(username: str, suite: Suite = None,
         ] if suite else []),
         "run_config": {
             "profile": str(rc.get("profile") or "default")[:128],
-            "browser": str(rc.get("browser") or "Chrome (headless)")[:128],
+            # KRE default applies to KRE runtimes only — node runtimes
+            # record the framework browser ("" = framework default).
+            "browser": (str(rc.get("browser")
+                            or "Chrome (headless)")[:128]
+                        if _snapshot_runtime_kind(rc) == "kre"
+                        else str(rc.get("browser") or "")[:128]),
             # Remote WebDriver (opt-in): browser runs on the WebDriver
             # service, not the KRE host — overrides -browserType=.
             "remote_webdriver_url":
@@ -114,10 +240,32 @@ def create_execution(username: str, suite: Suite = None,
             "requested_runtime": str(rc.get("runtime_id") or "")[:32],
             "collection": bool(rc.get("collection")),
             "suite_path": str(rc.get("suite_path") or "")[:512],
+            # Robot Framework selection knobs (kind=robot only —
+            # ignored by other runtime kinds).
+            "robot_suite": str(rc.get("robot_suite") or "")[:256],
+            "robot_test": str(rc.get("robot_test") or "")[:256],
+            "robot_include": str(rc.get("robot_include") or "")[:512],
+            "robot_exclude": str(rc.get("robot_exclude") or "")[:512],
+            # pytest selection knobs (kind=pytest only).
+            "pytest_keyword": str(rc.get("pytest_keyword") or "")[:256],
+            "pytest_markers": str(rc.get("pytest_markers") or "")[:256],
             # Running-time limit in seconds (process-launch clock,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
                 int(rc.get("timeout_seconds") or 0),
+            # Framework-local parallelism (2.6): validated in
+            # _validate_parallel() — mode is explicit:
+            #   default    = no flags; the framework decides
+            #   sequential = forced single process (playwright
+            #                --workers 1; others already sequential)
+            #   parallel   = playwright --workers N, pytest -n N
+            #                (xdist), robot pabot --processes N
+            "parallel_mode": rc.get("parallel_mode") or "default",
+            "parallel": int(rc.get("parallel") or 0),
+            # Playwright shard i/N — assignment only, never implied
+            # by a worker count. Validated pairwise.
+            "shard_index": int(rc.get("shard_index") or 0),
+            "shard_total": int(rc.get("shard_total") or 0),
             # Requested version-gated KRE options — applied only if the
             # detected runtime version supports them (adapters/kre.py).
             "kre_options": {
@@ -127,6 +275,13 @@ def create_execution(username: str, suite: Suite = None,
             # audited in kre-gating.log when used.
             "kre_options_allow_drop":
                 bool(rc.get("kre_options_allow_drop")),
+            # Interruption retry policy — enforced worker-side by the
+            # prep attempt counter (TO_RETRY_BLOCKED → UNKNOWN when a
+            # resubmit exceeds it). Defaults: enabled, 3 attempts
+            # including the original launch.
+            "retry_enabled": bool(rc.get("retry_enabled", True)),
+            "max_attempts":
+                max(1, min(int(rc.get("max_attempts") or 3), 10)),
         },
         "binding_id": binding.id if binding else None,
         "source_sha": source_sha,
@@ -156,6 +311,11 @@ def create_execution(username: str, suite: Suite = None,
                 and _rt.runner.target_type in (
                     "local", "buildbot-worker", "ssh"):
             snapshot["dispatch_transport"] = "buildbot"
+    # Every evidence row carries the exact deployed code it ran on —
+    # module path + git state catches stale-tree mismatches where the
+    # running process is not the tree acceptance believes was tested.
+    from . import deploy_info
+    snapshot["deployed_rev"] = deploy_info.deployed_revision()
     snapshot.update(extra_snapshot or {})
     execution = Execution(
         project_id=project_id,
@@ -172,23 +332,279 @@ def create_execution(username: str, suite: Suite = None,
         environment=(rc.get("environment") or None),
         created_by=username,
         schedule_id=schedule_id or None,
+        role=role, parent_id=parent_id or None,
+        unit_index=unit_index, unit_key=(unit_key or "")[:128],
     )
     db.session.add(execution)
+    try:
+        qd = int(rc.get("queue_timeout_seconds") or 0)
+        if qd > 0:
+            execution.queue_deadline_at = utcnow() + timedelta(
+                seconds=qd)
+    except (TypeError, ValueError):
+        pass
     db.session.flush()  # id assigned before outbox references it
 
     # Dispatch route: Buildbot is the sole orchestrator — persisted in
     # the same transaction as the execution (§7). The transport is
     # stamped so capacity-blocked QUEUED executions are redrivable —
     # their one-shot event is consumed even when no runner was
-    # eligible at that tick.
-    kind = "orchestrator-dispatch"
-    if "dispatch_transport" not in snapshot:
-        snapshot["dispatch_transport"] = "buildbot"
-        execution.snapshot_json = json.dumps(snapshot)
-    db.session.add(OutboxEvent(
-        kind=kind, payload_json=json.dumps({"execution_id": execution.id})))
-    db.session.commit()
+    # eligible at that tick. A "parent" execution owns no process —
+    # it aggregates its unit children, never dispatches itself.
+    if role != "parent":
+        # Dispatch route: the orchestrator claim is persisted in the
+        # same transaction as the execution (§7) — unless the caller
+        # is composing a larger atomic unit (create_unit_run).
+        kind = "orchestrator-dispatch"
+        if "dispatch_transport" not in snapshot:
+            snapshot["dispatch_transport"] = "buildbot"
+            execution.snapshot_json = json.dumps(snapshot)
+        db.session.add(OutboxEvent(
+            kind=kind,
+            payload_json=json.dumps({"execution_id": execution.id})))
+    if commit:
+        db.session.commit()
     return execution
+
+
+def create_unit_run(username: str, units: list[dict], **kw) -> tuple:
+    """Partitioned parallel run: a durable "parent" execution plus N
+    identifiable "unit" children. Each unit dict is the frozen child
+    assignment — {"index": i, "key": "shard 1/2", "shard": "1/2",
+    "specs": [...]} — recorded in the child's immutable snapshot.
+    Children dispatch independently through the normal capacity
+    pipeline with isolated workspaces/report dirs; the parent
+    aggregates their outcomes (aggregate_parent_runs) and propagates
+    cancellation (request_cancel)."""
+    if not units:
+        raise DispatchError(
+            "unit run requires at least one unit — an intentionally "
+            "empty selection is a config error, not a zero-unit run")
+    # ONE transaction: parent + every unit child + the expected count.
+    # A crash mid-creation leaves no parent row at all — a parent with
+    # unit_count unset can never exist, so a partially formed unit set
+    # can never aggregate as if complete.
+    parent = create_execution(username, role="parent",
+                              commit=False, **kw)
+    exs = []
+    for u in units:
+        i = int(u["index"])
+        exs.append(create_execution(
+            username, role="unit", parent_id=parent.id, unit_index=i,
+            unit_key=str(u.get("key") or f"unit {i + 1}"),
+            commit=False,
+            extra_snapshot={"parent_id": parent.id,
+                            "unit": u}, **kw))
+    parent.unit_count = len(exs)
+    db.session.commit()
+    return parent, exs
+
+
+_UNIT_TERMINAL = (ExecutionState.COMPLETED, ExecutionState.FAILED,
+                  ExecutionState.CANCELED, ExecutionState.UNKNOWN)
+
+
+# ---------- partitioned runs (Stage 4) ----------
+
+def discover_cypress_specs(binding, sha: str = "",
+                           spec_pattern: str = "",
+                           exclude_pattern: str = "",
+                           selection=()) -> list:
+    """Resolve the Cypress spec manifest at the selected revision —
+    the frozen list a partitioned run is built from. Discovery is
+    read-only on the bound worktree; a mismatched/stale revision is
+    an explicit error, never a silent re-scan of a different tree."""
+    import fnmatch
+    base = Path(binding.worktree_path or "")
+    if binding.subdirectory:
+        base = base / binding.subdirectory
+    if not base.is_dir():
+        raise DispatchError(
+            "bound worktree is missing — sync the binding before "
+            "partitioning")
+    if sha and sha != (binding.last_synced_sha or ""):
+        raise DispatchError(
+            f"spec manifest cannot be resolved at {sha[:12]} — the "
+            f"worktree is at {(binding.last_synced_sha or '?')[:12]}; "
+            "sync the binding so discovery matches the frozen "
+            "revision")
+
+    pat = spec_pattern.strip()
+    excl_from_cfg = ""
+    if not pat:
+        # Honor the project's OWN effective configuration: read
+        # specPattern/excludeSpecPattern out of cypress.config.*.
+        # Simple string literals only — arrays, functions, env-
+        # dependent config are rejected explicitly, never replaced by
+        # a guessed fallback manifest.
+        cfg_file = next(
+            (f for f in ("cypress.config.js", "cypress.config.ts",
+                         "cypress.config.mjs", "cypress.config.cjs")
+             if (base / f).is_file()), None)
+        if cfg_file:
+            import re as _re
+            txt = (base / cfg_file).read_text(errors="replace")
+            m = _re.search(r"specPattern\s*:\s*[\"\']([^\"\']+)[\"\']",
+                           txt)
+            if m:
+                pat = m.group(1)
+            elif _re.search(r"specPattern\s*:", txt):
+                raise DispatchError(
+                    f"{cfg_file} declares a non-literal specPattern "
+                    "(array/expression) — unsupported for automatic "
+                    "discovery; pass an explicit spec pattern")
+            m = _re.search(
+                r"excludeSpecPattern\s*:\s*[\"\']([^\"\']+)[\"\']",
+                txt)
+            if m and not exclude_pattern.strip():
+                excl_from_cfg = m.group(1)
+        pat = pat or "cypress/e2e/**/*.cy.*"
+
+    def _match(rel: str, glob_pat: str) -> bool:
+        # fnmatch has no recursive-glob semantics: `**/` must also
+        # match ZERO directories (cypress glob convention).
+        if fnmatch.fnmatch(rel, glob_pat):
+            return True
+        return "**/" in glob_pat and fnmatch.fnmatch(
+            rel, glob_pat.replace("**/", ""))
+
+    specs = sorted(str(p.relative_to(base)) for p in base.glob(
+        "**/*") if p.is_file() and _match(
+            str(p.relative_to(base)), pat)
+        and not any(part.startswith(".") for part in
+                    p.relative_to(base).parts))
+    excl = [x.strip() for x in (
+        exclude_pattern.strip() or excl_from_cfg).split(",")
+        if x.strip()]
+    for x in excl:
+        specs = [s for s in specs if not _match(s, x)]
+    if selection:
+        sel = set(selection)
+        missing = sel - set(specs)
+        if missing:
+            raise DispatchError(
+                "selected specs are not in the resolved manifest: "
+                + ", ".join(sorted(missing)[:5]))
+        specs = [s for s in specs if s in sel]
+    if not specs:
+        raise DispatchError(
+            "spec discovery resolved an empty manifest — check the "
+            "spec pattern, exclusions and selection")
+    # Invocation safety: Cypress --spec takes a comma-separated list
+    # inside ONE argv element — a literal comma or newline in a path
+    # would corrupt the invocation, so those paths are rejected
+    # explicitly rather than mislaunched. Spaces and POSIX
+    # separators are safe inside a single argv.
+    unsafe = [sp for sp in specs
+              if "," in sp or "\n" in sp or "\r" in sp
+              or "\x00" in sp]
+    if unsafe:
+        raise DispatchError(
+            "spec paths cannot be represented safely in a --spec "
+            "list (comma/control characters): "
+            + ", ".join(unsafe[:3]))
+    return specs
+
+
+def partition_units(items: list, n: int, key_prefix: str,
+                    payload_key: str) -> list:
+    """Contiguous deterministic split — every item assigned to
+    exactly one unit, assignments frozen in each child's snapshot.
+    Requesting more units than items is an explicit error, not a
+    silent empty unit."""
+    if n < 1:
+        raise DispatchError("unit count must be >= 1")
+    if n > len(items):
+        raise DispatchError(
+            f"cannot split {len(items)} item(s) into {n} units — "
+            f"at most {len(items)} non-empty units")
+    base, extra = divmod(len(items), n)
+    units, off = [], 0
+    for i in range(n):
+        take = base + (1 if i < extra else 0)
+        part = items[off:off + take]
+        off += take
+        units.append({"index": i, "key": f"{key_prefix} {i + 1}/{n}",
+                      payload_key: part})
+    return units
+
+
+def playwright_shard_units(n: int) -> list:
+    """N playwright shard units — explicit i/N assignments; the
+    framework does its own internal split, we freeze WHICH shard each
+    unit owns."""
+    if n < 2:
+        raise DispatchError("sharded run requires at least 2 shards")
+    if n > 64:
+        raise DispatchError("shard count must be <= 64")
+    return [{"index": i, "key": f"shard {i + 1}/{n}",
+             "shard": f"{i + 1}/{n}"} for i in range(n)]
+
+
+def aggregate_parent_runs() -> int:
+    """Recompute parent executions from their unit children — run
+    every tick so the rollup is restart-safe and idempotent (a pure
+    recompute, not a terminal-transition hook). Rules: no parent
+    success while any child is unfinished or unsuccessful; a parent
+    cancel propagates to every non-terminal child, including queued
+    ones; uncertain children make the parent INCOMPLETE, never green."""
+    n = 0
+    for p in Execution.query.filter(
+            Execution.role == "parent",
+            Execution.state.in_([ExecutionState.QUEUED,
+                                 ExecutionState.RUNNING,
+                                 ExecutionState.CANCEL_REQUESTED])).all():
+        if p.unit_count is None:
+            continue   # still forming — count is committed with the
+        # full child set; a parent without it is incomplete, never green
+        children = Execution.query.filter_by(parent_id=p.id).all()
+        if not children or len(children) < p.unit_count:
+            continue   # children not all persisted yet
+        cancel_was_requested = (
+            p.state == ExecutionState.CANCEL_REQUESTED)
+        if cancel_was_requested and not all(
+                c.state in _UNIT_TERMINAL for c in children):
+            for c in children:
+                if c.state not in _UNIT_TERMINAL \
+                        and c.state != ExecutionState.CANCEL_REQUESTED:
+                    request_cancel(c.id, "system",
+                                   "parent run cancelled")
+            continue   # next tick rolls up once children are terminal
+        if p.state == ExecutionState.QUEUED and any(
+                c.state != ExecutionState.QUEUED for c in children):
+            p.state = ExecutionState.RUNNING
+            p.started_at = p.started_at or utcnow()
+        if not all(c.state in _UNIT_TERMINAL for c in children):
+            db.session.commit()
+            n += 1
+            continue
+        # All children terminal — final rollup, exactly once.
+        if any(c.outcome == Outcome.FAILED for c in children):
+            p.outcome = Outcome.FAILED
+        elif any(c.outcome in (Outcome.INCOMPLETE, Outcome.NONE)
+                 or c.state in (ExecutionState.FAILED,
+                                ExecutionState.UNKNOWN)
+                 for c in children):
+            p.outcome = Outcome.INCOMPLETE
+        else:
+            p.outcome = Outcome.PASSED
+        p.state = ExecutionState.COMPLETED
+        if cancel_was_requested or all(
+                c.state == ExecutionState.CANCELED for c in children):
+            p.state = ExecutionState.CANCELED
+            p.outcome = Outcome.INCOMPLETE
+        p.finished_at = p.finished_at or utcnow()
+        infra = [c.id[:8] for c in children
+                 if c.state in (ExecutionState.FAILED,
+                                ExecutionState.UNKNOWN)]
+        if infra:
+            p.error_kind = "infrastructure"
+            p.error_text = (
+                "unit execution(s) ended unresolved: "
+                + ", ".join(infra))
+        db.session.commit()
+        n += 1
+    return n
 
 
 def queue_plan_executions(username: str, plan: Plan,
@@ -371,6 +787,14 @@ def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
     ex.cancel_reason = reason[:256]
     db.session.commit()
     record_audit(username, "execution.cancel_requested", execution_id)
+    # Parent cancellation owns the whole unit tree: every non-terminal
+    # child — running AND queued — is cancelled (queued children are
+    # blocked from ever launching). aggregate_parent_runs repeats this
+    # sweep each tick, so propagation is restart-safe.
+    if ex.role == "parent":
+        for c in Execution.query.filter_by(parent_id=ex.id).all():
+            if c.state not in _UNIT_TERMINAL:
+                request_cancel(c.id, username, "parent run cancelled")
     return True
 
 
@@ -398,11 +822,17 @@ def effective_slots(runner: Runner) -> int:
 
 def pick_runner(execution: Execution) -> Runner | None:
     """Enabled, non-draining runners with project scope and free slots —
-    local and remote modes both eligible (remote requires a live agent)."""
+    local and remote modes both eligible. PB workers known-unreachable
+    are skipped: a healthy alternative with capacity should win (the
+    health field is refreshed by the reconcile sweep each tick;
+    explicit picks are unaffected — master queues honestly)."""
     runners = Runner.query.filter_by(enabled=True, draining=False).all()
     for runner in runners:
         allowed = json.loads(runner.allowed_projects or "[]")
         if allowed and execution.project_id not in allowed:
+            continue
+        if runner.target_type == "buildbot-worker" \
+                and runner.health == "unreachable":
             continue
         if effective_slots(runner) <= 0:
             continue
@@ -473,6 +903,118 @@ def _active_count_subquery(runner: Runner, exclude_id):
             .scalar_subquery())
 
 
+def _pick_slot(ex: Execution, runner: Runner) -> int:
+    """Free slot-builder index for this runner. A (builder, worker)
+    pair serializes builds, so a runner's max_slots concurrency needs
+    one builder per slot — we pick the lowest slot no other ACTIVE
+    execution on this runner holds (hash offset spreads collisions;
+    a collision only queues inside the slot's builder — never lost)."""
+    slots = buildbot_cfg.slot_count(runner)
+    if slots <= 1:
+        return 0
+    used = {s for (s,) in db.session.query(Execution.bb_slot).filter(
+        Execution.runner_id == runner.id,
+        Execution.id != ex.id,
+        Execution.state.in_(_ACTIVE_STATES),
+        Execution.bb_slot.isnot(None))}
+    start = int(ex.id[:8], 16) % slots
+    for k in range(slots):
+        cand = (start + k) % slots
+        if cand not in used:
+            return cand
+    return start
+
+
+def requested_procs(ex: Execution) -> int:
+    """Framework processes this run requests — the charge against
+    runners.max_procs. It counts REQUESTED concurrency only:
+
+      sequential        -> 1
+      parallel N        -> N   (playwright --workers / pytest -n /
+                                pabot --processes)
+      framework-default -> kind-dependent: playwright auto-scales to
+                           ~cpu/2 which is UNBOUNDED — charged
+                           UNBOUNDED so a configured budget can never
+                           be bypassed through unknown concurrency;
+                           pytest/robot/cypress default is one process.
+      parent            -> 0   (an aggregation parent owns no process;
+                           only its unit children are charged)
+      unit shard        -> its own requested count (a playwright shard
+                           still launches --workers internally)
+
+    This is NOT a cap on operating-system processes — node/npx/pytest
+    helpers and browser subprocesses are outside the count."""
+    if getattr(ex, "role", "") == "parent":
+        return 0
+    try:
+        snap = ex.snapshot()
+        rc = snap.get("run_config") or {}
+    except Exception:
+        return 1
+    mode = rc.get("parallel_mode") or "default"
+    if mode == "parallel":
+        return max(1, int(rc.get("parallel") or 1))
+    if mode == "default":
+        # Kind resolves from the requested runtime (pre-assignment the
+        # execution's runtime_id is still empty).
+        rt = db.session.get(
+            RuntimeConnection, rc.get("requested_runtime") or "")
+        kind = getattr(rt, "runtime_kind", "") or ""
+        if not kind and ex.runtime_id:
+            rt = db.session.get(RuntimeConnection, ex.runtime_id)
+            kind = getattr(rt, "runtime_kind", "") or ""
+        if kind == "playwright":
+            return UNBOUNDED_PROCS
+    return 1
+
+
+UNBOUNDED_PROCS = 1 << 20
+
+
+
+
+
+def _active_procs_subquery(runner: Runner, exclude_id):
+    """Sum of requested procs across active executions on the runner.
+    Stored per execution in snapshot_json — SQLite json_extract reads
+    it directly inside the CAS."""
+    from sqlalchemy import func
+    procs = func.coalesce(func.json_extract(
+        Execution.snapshot_json,
+        "$.run_config.parallel"), 0)
+    mode = func.coalesce(func.json_extract(
+        Execution.snapshot_json,
+        "$.run_config.parallel_mode"), "default")
+    eff = db.case((mode == "parallel", procs), else_=1)
+    return (db.session.query(func.coalesce(func.sum(eff), 0))
+            .filter(Execution.runner_id == runner.id,
+                    Execution.id != exclude_id,
+                    Execution.state.in_(_ACTIVE_STATES))
+            .scalar_subquery())
+
+
+def procs_within_budget(runner: Runner, ex: Execution) -> bool:
+    """Combined-capacity rule: job slots AND the process budget are
+    independent ceilings — an admitted job must not bypass the
+    intended process budget via its own parallel setting."""
+    if not runner.max_procs:
+        return True
+    active = db.session.query(db.func.coalesce(
+        db.func.sum(db.case((
+            db.func.coalesce(db.func.json_extract(
+                Execution.snapshot_json,
+                "$.run_config.parallel_mode"), "default")
+            == "parallel",
+            db.func.coalesce(db.func.json_extract(
+                Execution.snapshot_json,
+                "$.run_config.parallel"), 0)), else_=1)), 0)
+    ).filter(
+        Execution.runner_id == runner.id,
+        Execution.id != ex.id,
+        Execution.state.in_(_ACTIVE_STATES)).scalar()
+    return int(active or 0) + requested_procs(ex) <= runner.max_procs
+
+
 def _runner_cap(runner: Runner) -> int:
     return capacity_limit(runner)
 
@@ -485,23 +1027,76 @@ def _assign_runner(ex: Execution, runner: Runner,
     runner's slots. Both the local path (then claims PREPARING) and
     the remote/agent path (agent picks up DISPATCHED) consume the slot
     here — capacity is reserved from assignment, not launch."""
-    n = db.session.query(Execution).filter(
+    conds = [
         Execution.id == ex.id,
         Execution.state == ExecutionState.QUEUED,
-        _active_count_subquery(runner, ex.id) < _runner_cap(runner),
-    ).update({"state": ExecutionState.DISPATCHED,
+        _active_count_subquery(runner, ex.id) < _runner_cap(runner)]
+    # Combined capacity: the new job's requested procs plus the
+    # already-active proc sum must fit the process budget — an
+    # admitted job can never bypass the intended budget through its
+    # own parallel setting. NULL max_procs = job slots only.
+    if runner.max_procs:
+        conds.append(
+            _active_procs_subquery(runner, ex.id)
+            + requested_procs(ex) <= runner.max_procs)
+    n = db.session.query(Execution).filter(*conds).update(
+        {"state": ExecutionState.DISPATCHED,
               "runner_id": runner.id,
               "runtime_id": runtime.id,
               "lease_expires_at": utcnow() + timedelta(
                   seconds=LEASE_SECONDS),
-              "heartbeat_at": utcnow()},
+              "heartbeat_at": utcnow(),
+              "wait_reason": ""},
              synchronize_session=False)
+    if n:
+        # Durable ownership ledger — written in the SAME transaction
+        # as the assignment: the reservation exists before the run
+        # launches, keyed to this execution, released only on a
+        # confirmed terminal state (UNKNOWN keeps it).
+        db.session.add(ResourceReservation(
+            execution_id=ex.id, runner_id=runner.id,
+            resource_kind="slot", quantity=1,
+            acquired_at=utcnow()))
+        procs = requested_procs(ex)
+        if procs:
+            db.session.add(ResourceReservation(
+                execution_id=ex.id, runner_id=runner.id,
+                resource_kind="procs", quantity=procs,
+                acquired_at=utcnow()))
     db.session.commit()
     if n:
         db.session.refresh(ex)
     else:
         db.session.rollback()
+        ex.wait_reason = _capacity_block_reason(runner, ex)
+        db.session.commit()
     return bool(n)
+
+
+def _capacity_block_reason(runner: Runner, ex: Execution) -> str:
+    """Why this runner could not admit the execution — the actionable
+    wait reason surfaced instead of a silent QUEUED stall."""
+    active = Execution.query.filter(
+        Execution.runner_id == runner.id,
+        Execution.id != ex.id,
+        Execution.state.in_(_ACTIVE_STATES)).count()
+    cap = capacity_limit(runner)
+    if active >= cap:
+        lic = (f" (licence seats {runner.license_slots})"
+               if runner.license_slots else "")
+        return (f"capacity: runner '{runner.name}' job slots full "
+                f"({active}/{cap} in use{lic})")
+    if runner.max_procs:
+        used = int(db.session.execute(
+            db.select(_active_procs_subquery(runner, ex.id))
+        ).scalar() or 0)
+        need = requested_procs(ex)
+        if used + need > runner.max_procs:
+            free = max(0, runner.max_procs - used)
+            return (f"capacity: '{runner.name}' process budget "
+                    f"{used}/{runner.max_procs} in use; this run "
+                    f"requests {need} (only {free} free)")
+    return f"capacity: assignment race on '{runner.name}' — retrying"
 
 
 def _claim_for_start(ex: Execution,
@@ -550,6 +1145,21 @@ def _select_runner_runtime(ex: Execution):
                 f"explicitly selected runner {req_runner[:12]}… is "
                 "unavailable or out of scope for this project — no "
                 "fallback to another target")
+    elif req_runtime:
+        # An explicitly selected runtime pins the runner — the
+        # runtime's target IS the requested target (§2.6.0). Only fall
+        # back to picking when no explicit selection exists.
+        _rt = db.session.get(RuntimeConnection, req_runtime)
+        runner = (_rt.runner if _rt and _rt.runner
+                  and _rt.runner.enabled and not _rt.runner.draining
+                  else None)
+        if runner is None and _rt:
+            return None, None, (
+                f"runtime {req_runtime[:12]}… target is disabled or "
+                "draining — no fallback")
+        runner = runner or ex.runner or pick_runner(ex)
+        if runner is None:
+            return None, None, ""
     else:
         runner = ex.runner or pick_runner(ex)
         if runner is None:
@@ -575,6 +1185,40 @@ def _select_runner_runtime(ex: Execution):
     return runner, runtime, ""
 
 
+def _creator_still_allowed(ex: Execution) -> bool:
+    """Dispatch-time authorization recheck for pending work.
+
+    - Portal-created runs carry the creator's username: the user must
+      still exist, be active, and hold membership on the execution's
+      project. Scheduled runs stamp the schedule's creator — the same
+      rule makes a member-removed user's schedules stop launching
+      (they never become anonymous system work).
+    - API-created runs carry ``api:<token name>``: at least one live
+      token by that name must exist whose project scope covers the
+      execution — and whose owner, if a known user, is active and
+      still a member.
+    - Any other identity (system, imports, legacy rows) is not
+      portal-authorized work — no membership check applies."""
+    from .models import User
+    uname = ex.created_by or ""
+    if uname.startswith("api:"):
+        toks = ApiToken.query.filter_by(
+            name=uname[4:], revoked_at=None).all()
+        for tok in toks:
+            if not tok.project_allowed(ex.project_id or ""):
+                continue
+            owner = User.query.filter_by(username=tok.created_by).first()
+            if owner is None or (owner.is_active and
+                                 owner.project_allowed(
+                                     ex.project_id or "")):
+                return True
+        return False
+    u = User.query.filter_by(username=uname).first()
+    if u is None:
+        return True
+    return bool(u.is_active and u.project_allowed(ex.project_id or ""))
+
+
 def run_execution(execution_id: str) -> None:
     """Run one execution through the full state machine. Any infra error is
     recorded; test failures do not stop collection (§7)."""
@@ -587,6 +1231,21 @@ def run_execution(execution_id: str) -> None:
     if ex.state not in (ExecutionState.QUEUED, ExecutionState.DISPATCHED):
         record_audit("system", "execution.dispatch_skipped",
                      f"{ex.id}: state={ex.state.value}")
+        return
+    # Authorization recheck at the dispatch boundary: work queued by a
+    # user who has since lost project membership (or been deactivated)
+    # — or by an API token that was revoked / whose owner lost access —
+    # must NOT launch. Membership removal takes effect on the next
+    # protected request; queued-but-unlaunched work IS a pending
+    # request, so it is rechecked here and fails visibly rather than
+    # running detached from any current authorization.
+    if not _creator_still_allowed(ex):
+        _fail(ex, "access",
+              "submitter no longer has access to this project "
+              "(membership removed, account deactivated, or token "
+              "revoked) — pending work blocked at dispatch")
+        record_audit("system", "execution.access_blocked",
+                     f"{ex.id}: created_by={ex.created_by}")
         return
     # Explicit execution target (run_config.requested_runner/runtime):
     # re-validate eligibility HERE — drain/disable/mismatch may have
@@ -825,20 +1484,24 @@ def _snapshot_suite_path(ex: Execution) -> str:
 
 def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
     """Evidence collection: JUnit discovery + manifest with checksums;
-    every file is registered, unmapped files stay at run level (§9)."""
+    every file is registered, unmapped files stay at run level (§9).
+    Runner logs are mirrored INTO the evidence root so every rel_path
+    resolves under report_dir — a logs/ entry is never registered for
+    a file the download path cannot reach."""
+    logs_in = report_dir / "logs"
+    try:
+        for log_path in sorted(log_dir.glob("kre-*.log")):
+            logs_in.mkdir(parents=True, exist_ok=True)
+            (logs_in / log_path.name).write_bytes(log_path.read_bytes())
+    except OSError:
+        pass  # log mirroring is best-effort; producers keep log_dir
     junit_files = set(kre_adapter.discover_reports(report_dir))
     manifest = results_mod.build_evidence_manifest(report_dir, junit_files)
-    # Runner logs are evidence too — including the recorded argv.
-    for log_path in sorted(log_dir.glob("kre-*.log")):
-        manifest.append({
-            "rel_path": f"logs/{log_path.name}",
-            "kind": "log",
-            "sha256": results_mod.sha256_file(log_path),
-            "size": log_path.stat().st_size,
-            "mime": "text/plain",
-            "active_content": False,
-        })
     for item in manifest:
+        if item["rel_path"] == "manifest.json":
+            continue  # sealed index — rewritten+registered separately
+        if item["rel_path"].startswith("logs/"):
+            item["kind"] = "log"
         db.session.add(Artifact(
             execution_id=ex.id,
             kind=item["kind"], rel_path=item["rel_path"],
@@ -846,6 +1509,7 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             mapped=item["kind"] == "junit",
         ))
     db.session.commit()
+    _write_evidence_manifest(ex, report_dir)
     # Local-report status is tracked separately from state/outcome.
     try:
         from . import reporting
@@ -857,6 +1521,65 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             pass  # reporting must never break the execution pipeline
 
 
+def _write_evidence_manifest(ex: Execution, report_dir: Path) -> None:
+    """Sealed evidence index: manifest.json lands INSIDE the report
+    dir listing every registered artifact (path/kind/sha256/size) plus
+    execution identity + deployed source state — then it is registered
+    as an artifact itself, so the standard checksum contract covers
+    the manifest too. Tampering with any artifact OR the manifest
+    breaks a recorded hash; deletion removes both honestly."""
+    try:
+        rows = [a for a in Artifact.query.filter_by(
+            execution_id=ex.id).all() if a.kind != "manifest"]
+        from .deploy_info import deployed_revision
+        snap = ex.snapshot()
+        doc = {
+            "schema": "to-evidence-manifest/1",
+            "execution_id": ex.id,
+            "generated_at": utcnow().isoformat(),
+            "deployed_rev": deployed_revision(),
+            "dispatch_id": ex.dispatch_id,
+            "bb_slot": ex.bb_slot,
+            "attempts": snap.get("bb_attempts", []),
+            "artifacts": [{
+                "rel_path": a.rel_path, "kind": a.kind,
+                "sha256": a.sha256, "size": a.size, "mime": a.mime,
+                "mapped": a.mapped,
+            } for a in sorted(rows, key=lambda r: r.rel_path)],
+        }
+        path = report_dir / "manifest.json"
+        path.write_text(json.dumps(doc, indent=2, sort_keys=True),
+                        encoding="utf-8")
+        Artifact.query.filter_by(execution_id=ex.id,
+                                 kind="manifest").delete()
+        db.session.add(Artifact(
+            execution_id=ex.id, kind="manifest",
+            rel_path="manifest.json",
+            sha256=results_mod.sha256_file(path),
+            size=path.stat().st_size, mime="application/json",
+            mapped=False))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            "evidence manifest write failed for %s", ex.id)
+
+
+def _same_report_source(a: str, b: str) -> bool:
+    """True when two collected rel_paths resolve to the same source
+    file reached through different collection layouts — one path's
+    trailing components equal the other's whole path (Reports/junit.xml
+    inside proj/src/Reports/junit.xml). Sibling unit/shard directories
+    never match, so identical reports from distinct execution units
+    stay distinct."""
+    pa = a.replace("\\", "/").split("/")
+    pb = b.replace("\\", "/").split("/")
+    if len(pa) == len(pb):
+        return pa == pb
+    longer, shorter = (pa, pb) if len(pa) > len(pb) else (pb, pa)
+    return longer[-len(shorter):] == shorter
+
+
 def _normalize(ex: Execution) -> None:
     """Canonical result rows from actual JUnit output. Discrepant producer
     totals and unmapped cases are surfaced, not guessed away (§8)."""
@@ -864,9 +1587,23 @@ def _normalize(ex: Execution) -> None:
         execution_id=ex.id, kind="junit").all()
     cases = []
     seen_names = {}
+    seen_hash = {}  # digest -> first rel_path. Identical bytes only
+                    # dedup when the paths resolve to the same source
+                    # file collected via two layouts (SSH Reports/ +
+                    # proj/src/Reports/) — identical reports from
+                    # distinct units stay distinct.
     parsed_docs = []  # each artifact parsed once — reused for dedup
     for artifact in junit_artifacts:
         path = Path(ex.report_dir) / artifact.rel_path
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        prior = seen_hash.get(digest)
+        if prior is not None and _same_report_source(
+                prior, artifact.rel_path):
+            continue
+        seen_hash.setdefault(digest, artifact.rel_path)
         try:
             parsed = parse_junit(path)
         except Exception:
@@ -991,8 +1728,199 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             return
     source = _resolve_source(ex)
     buildbot_cfg.stage_source(ex, source)
-    rc = ex.snapshot().get("run_config") or {}
+    _snap = ex.snapshot()
+    rc = _snap.get("run_config") or {}
+    _unit = _snap.get("unit") or {}
+    # Slot-builders: a (builder, worker) pair runs one build at a time,
+    # so the runner's admitted slots map to distinct builders. Pick a
+    # free slot; bb_slot is persisted with the dispatch identity.
+    slot = _pick_slot(ex, runner)
     timeout_s = int(rc.get("timeout_seconds") or 3600)
+    node_kind = getattr(runtime, "runtime_kind", "") or "kre"
+    if node_kind in nodefw.KINDS:
+        ok_b, browser_val = nodefw.validate_browser(
+            node_kind, rc.get("browser", ""))
+        if not ok_b:
+            _fail(ex, "config", browser_val)
+            return
+        _pmode = rc.get("parallel_mode") or "default"
+        _pw_workers = (1 if _pmode == "sequential"
+                       else int(rc.get("parallel") or 0)
+                       if _pmode == "parallel" else 0)
+        if node_kind == "cypress" and _pw_workers:
+            raise DispatchError(
+                "parallel is not supported for cypress — use spec "
+                "partitioning (unit run) instead")
+        _shard = (str(_unit.get("shard") or "")
+                  or (f"{int(rc['shard_index'])}/{int(rc['shard_total'])}"
+                      if rc.get("shard_index") else ""))
+        _specs = _unit.get("specs") or []
+        node_args = nodefw.build_args(
+            node_kind, browser_val,
+            spec=(",".join(_specs) if _specs else ""),
+            workers=_pw_workers,
+            shard=_shard)
+        node_env = nodefw.junit_env(node_kind)
+        win = (runner.os_arch or "").lower().startswith("win")
+        # npm sits next to npx — an explicit executable_path resolves
+        # the sibling, otherwise PATH does.
+        npx_path = runtime.executable_path or (
+            "npx.cmd" if win else "npx")
+        npm = str(Path(npx_path).with_name("npm.cmd" if win
+                                           else "npm")) \
+            if Path(npx_path).parent != Path(".") else (
+                "npm.cmd" if win else "npm")
+        deps_argv = [npm, "ci", "--no-audit", "--no-fund"]
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src", "env": node_env,
+                     "deps_argv": deps_argv,
+                     "report_rel": "proj/src/Reports"}
+            npx_dir = str(Path(npx_path).parent)
+            if Path(npx_path).is_absolute() and npx_dir != ".":
+                extra["path_prefix"] = npx_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, node_args, extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(
+                ex, npx_path, node_args, env=node_env,
+                deps_argv=deps_argv, posix=not win)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} ({node_kind}) brid {brid}")
+        return
+    if node_kind == robotfw.KIND:
+        # python -m robot under the runtime's configured interpreter —
+        # no browser concept (browsers belong to the project and its
+        # libraries), no deps step (deps live in the configured env).
+        robot_args = robotfw.build_args(
+            suite_path=(rc.get("suite_path") or "").strip(),
+            test=(rc.get("robot_test") or "").strip(),
+            suite=(rc.get("robot_suite") or "").strip(),
+            include=_tag_list(rc.get("robot_include")),
+            exclude=_tag_list(rc.get("robot_exclude")),
+            pabot_processes=(
+                _gated_pabot(runtime, rc)))
+        win = (runner.os_arch or "").lower().startswith("win")
+        py = (runtime.executable_path or "").strip() \
+            or ("python.exe" if win else "python3")
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"}
+            py_dir = str(Path(py).parent)
+            if Path(py).is_absolute() and py_dir != ".":
+                extra["path_prefix"] = py_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, robot_args, executable=py,
+                extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(
+                ex, py, robot_args, posix=not win)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (robot) brid {brid}")
+        return
+    if node_kind == pytestfw.KIND:
+        # python -m pytest under the runtime's configured interpreter —
+        # junit under Reports/, same spec/collect pipeline as robot.
+        _pmode = rc.get("parallel_mode") or "default"
+        _pprocs = (int(rc.get("parallel") or 0)
+                   if _pmode == "parallel" else 0)
+        if _pprocs:
+            _require_probe_opt(
+                runtime, "opt_xdist",
+                "pytest-xdist (parallel_mode=parallel, -n "
+                f"{_pprocs})")
+        _serial = False
+        if _pmode == "sequential":
+            # Enforce sequential even when the project's own config
+            # enables xdist: -n 0 wins — but only where xdist exists.
+            try:
+                _m = json.loads(getattr(runtime, "probe_json", "")
+                                or "{}")
+            except Exception:
+                _m = {}
+            _serial = _m.get("opt_xdist") == "ok"
+        pytest_args = pytestfw.build_args(
+            suite_path=(rc.get("suite_path") or "").strip(),
+            keyword=(rc.get("pytest_keyword") or "").strip(),
+            markers=(rc.get("pytest_markers") or "").strip(),
+            numprocesses=_pprocs, force_serial=_serial)
+        win = (runner.os_arch or "").lower().startswith("win")
+        py = (runtime.executable_path or "").strip() \
+            or ("python.exe" if win else "python3")
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"}
+            py_dir = str(Path(py).parent)
+            if Path(py).is_absolute() and py_dir != ".":
+                extra["path_prefix"] = py_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, pytest_args, executable=py,
+                extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(
+                ex, py, pytest_args, posix=not win)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (pytest) brid {brid}")
+        return
     flags, dropped = kre_adapter.gated_flags(
         runtime.detected_version, rc.get("kre_options") or {})
     if dropped and not rc.get("kre_options_allow_drop"):
@@ -1043,7 +1971,7 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                 Path(__file__).resolve().parent.parent / "scripts"
                 / "to_ssh_exec.py"),
             spec_file=str(spec_file))
-        builder = buildbot_cfg.builder_for(runner)
+        builder = buildbot_cfg.builder_for(runner, slot)
     else:
         cred_file = runtime.credential_file or ""
         if not cred_file and runtime.credential_ref:
@@ -1073,20 +2001,22 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             collection=bool(rc.get("collection")),
             extra=flags)
         spec = buildbot_cfg.kre_exec_spec(
-            ex, runtime, args[1:], credential_file=cred_file)
+            ex, runtime, args[1:], credential_file=cred_file,
+            posix=not (runner.os_arch or "").lower().startswith("win"))
         # Persist the rendered spec — collection re-renders it as the
         # kre-invocation.log evidence record (same contract the local
         # path had: the exact argv, never secret values).
         buildbot_cfg.run_specs_dir().mkdir(parents=True, exist_ok=True)
         (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
          ).write_text(json.dumps(spec))
-        builder = buildbot_cfg.builder_for(runner)
+        builder = buildbot_cfg.builder_for(runner, slot)
 
     brid = adapter.submit(
         builder, ex.id,
         {"exec_spec": BuildbotAdapter.encode_props(spec),
          "exec_timeout": str(timeout_s)})
     ex.dispatch_id = "bb:" + str(brid)
+    ex.bb_slot = slot
     db.session.commit()
     record_audit("system", "execution.buildbot_dispatched",
                  f"{ex.id}: {builder} brid {brid}")
@@ -1111,6 +2041,34 @@ def _buildbot_assign_and_submit(ex: Execution) -> None:
         _fail(ex, "infrastructure", sel_err)
         return
     if runner is None:
+        scoped = [r for r in Runner.query.filter_by(
+            enabled=True, draining=False).all()
+            if not json.loads(r.allowed_projects or "[]")
+            or ex.project_id in json.loads(
+                r.allowed_projects or "[]")]
+        unreachable = [r for r in scoped
+                       if r.target_type == "buildbot-worker"
+                       and r.health == "unreachable"]
+        if unreachable and len(unreachable) == len(scoped):
+            ex.wait_reason = (
+                "all eligible runners unreachable — workers "
+                "offline; run waits for reconnect")
+        else:
+            ex.wait_reason = (
+                "no eligible runner with free capacity (enabled, "
+                "non-draining, project scope) — retried each tick")
+        db.session.commit()
+        return
+    if runner.max_procs and requested_procs(ex) >= UNBOUNDED_PROCS:
+        # A framework-default playwright run auto-scales to ~cpu/2 —
+        # unbounded on a budgeted target. QUEUED-forever would be a
+        # silent stall; reject with an actionable config error.
+        _fail(ex, "config",
+              f"runner {runner.name!r} enforces a process budget "
+              f"(max_procs={runner.max_procs}) and this run's "
+              "framework-default concurrency is unbounded — set "
+              "parallel_mode to sequential or an explicit parallel "
+              "count")
         return
     if not _assign_runner(ex, runner, runtime):
         return
@@ -1126,9 +2084,11 @@ def _buildbot_assign_and_submit(ex: Execution) -> None:
             ex.runner_id = None
             ex.runtime_id = None
             ex.lease_expires_at = None
+            ex.bb_slot = None
             ex.error_text = (
                 ex.error_text + " | buildbot master unreachable; "
                 "held QUEUED for redrive")[:2000]
+            _release_reservations(ex, "requeued")
             db.session.commit()
             return
         _fail(ex, "infrastructure",
@@ -1173,8 +2133,152 @@ def _handle_event(event: OutboxEvent) -> None:
             runner.heartbeat_at = utcnow()
             runner.health = "ok"
             db.session.commit()
+    elif event.kind == "webhook":
+        _deliver_webhook(payload["endpoint_id"], payload["execution_id"])
     else:
         raise DispatchError(f"unknown outbox kind {event.kind!r}")
+
+
+def _deliver_webhook(endpoint_id: str, execution_id: str) -> None:
+    """POST one execution's terminal notification to one subscriber.
+    Any failure raises — the outbox retry/backoff owns the record;
+    a non-2xx is an error, never a silent drop. The HMAC signature
+    lets the subscriber verify authenticity without a shared
+    channel: X-TO-Signature = sha256=<hmac(body, key)>."""
+    import hmac as _hmac
+    import urllib.request as _req
+    from .execution import WebhookEndpoint
+    ep = db.session.get(WebhookEndpoint, endpoint_id)
+    ex = db.session.get(Execution, execution_id)
+    if ep is None or not ep.enabled or ex is None:
+        return  # endpoint deleted/disabled or exec gone — nothing owed
+    body = json.dumps({
+        "event": f"execution.{ex.state.value.lower()}",
+        "execution_id": ex.id,
+        "state": ex.state.value,
+        "outcome": ex.outcome.value if ex.outcome else None,
+        "project_id": ex.project_id,
+        "suite_id": ex.suite_id,
+        "framework": ex.framework,
+        "runner_id": ex.runner_id,
+        "created_at": ex.created_at.isoformat() if ex.created_at else None,
+        "finished_at": ex.finished_at.isoformat() if ex.finished_at else None,
+        "error_kind": ex.error_kind,
+        "error_text": ex.error_text[:500],
+        "client_ref": ex.client_ref,
+    }).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-TO-Event": f"execution.{ex.state.value.lower()}",
+        "X-TO-Execution": ex.id,
+    }
+    if ep.secret_ref:
+        from . import secrets_store
+        from flask import current_app
+        try:
+            key = secrets_store.read_secret(current_app, ep.secret_ref)
+        except Exception:
+            key = ""
+        if key:
+            headers["X-TO-Signature"] = "sha256=" + _hmac.new(
+                key.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    req = _req.Request(ep.url, data=body, headers=headers,
+                     method="POST")
+    with _req.urlopen(req, timeout=15) as resp:
+        if resp.status >= 400:
+            raise DispatchError(
+                f"webhook {ep.name!r} returned HTTP {resp.status}")
+    record_audit("system", "webhook.delivered",
+                 f"{ep.name}: {ex.id} {ex.state.value}")
+
+
+def _enqueue_terminal_notifications() -> int:
+    """Fan-out sweep: terminal or UNKNOWN executions whose webhook
+    enqueue marker is unset get one outbox event per matching enabled
+    endpoint, then notified_at — durable, so a crash between the state
+    transition and this sweep retries instead of dropping the
+    notification. Runs in the worker loop; covers transitions made by
+    any process (reconciler, UI resolve, deadline sweep)."""
+    due = Execution.query.filter(
+        Execution.state.in_(_TERMINAL_STATES + [ExecutionState.UNKNOWN]),
+        Execution.notified_at.is_(None),
+    ).limit(50).all()
+    if not due:
+        return 0
+    from .execution import WebhookEndpoint
+    endpoints = WebhookEndpoint.query.filter_by(enabled=True).all()
+    n = 0
+    for ex in due:
+        state_name = ex.state.value.lower()
+        for ep in endpoints:
+            if state_name not in ep.event_set():
+                continue
+            if not ep.project_allowed(ex.project_id):
+                continue
+            db.session.add(OutboxEvent(
+                kind="webhook",
+                payload_json=json.dumps({
+                    "endpoint_id": ep.id,
+                    "execution_id": ex.id})))
+            n += 1
+        ex.notified_at = utcnow()
+    db.session.commit()
+    return n
+
+
+_TERMINAL_STATES = [
+    ExecutionState.COMPLETED, ExecutionState.FAILED,
+    ExecutionState.CANCELED,
+]
+
+
+def _release_reservations(ex: Execution, release_state: str) -> int:
+    """Mark this execution's open reservations released — durable
+    ownership ledger. Called on confirmed terminal transitions and on
+    the connect-failure requeue (where the slot is honestly freed)."""
+    rows = ResourceReservation.query.filter_by(
+        execution_id=ex.id, released_at=None).all()
+    for r in rows:
+        r.released_at = utcnow()
+        r.release_state = release_state
+    return len(rows)
+
+
+def _release_terminal_reservations() -> int:
+    """Sweep: any reservation still open on a confirmed-terminal
+    execution is released — capacity may only be freed by a terminal
+    state, and this pass also repairs rows whose terminal transition
+    predates the ledger. UNKNOWN is deliberately NOT terminal."""
+    rows = (ResourceReservation.query
+            .join(Execution,
+                  ResourceReservation.execution_id == Execution.id)
+            .filter(ResourceReservation.released_at.is_(None),
+                    Execution.state.in_(_TERMINAL_STATES)).all())
+    for r in rows:
+        r.released_at = utcnow()
+        r.release_state = "terminal"
+    if rows:
+        db.session.commit()
+    return len(rows)
+
+
+def _expire_queue_deadlines() -> int:
+    """Queue deadline: a QUEUED execution past queue_deadline_at fails
+    with an explicit reason — capacity starvation is surfaced, never
+    an indefinite silent wait."""
+    now = utcnow()
+    due = Execution.query.filter(
+        Execution.state == ExecutionState.QUEUED,
+        Execution.queue_deadline_at.isnot(None),
+        Execution.queue_deadline_at < now).all()
+    for ex in due:
+        _fail(ex, "queue",
+              f"queue deadline exceeded — still waiting "
+              f"({ex.wait_reason or 'no eligible runner'}); "
+              "increase runner capacity or queue_timeout_seconds")
+        record_audit("system", "execution.queue_deadline_expired",
+                     ex.id)
+    return len(due)
 
 
 def reconcile_stale() -> int:
@@ -1248,6 +2352,22 @@ def fire_due_schedules(now=None) -> int:
         if not claimed:
             db.session.rollback()
             continue  # another worker claimed this fire
+        # Misfire policy ('late' default = previous behaviour): a
+        # missed interval fire runs once late. 'skip' drops an
+        # occurrence overdue past its interval — the claim above
+        # already advanced next_run_at, so a skipped fire can never
+        # catch-up storm after an outage. Evaluated on the pre-claim
+        # due time (overdue captured before the update).
+        overdue_s = 0.0
+        if sched.next_run_at:
+            nra = sched.next_run_at
+            if nra.tzinfo is None:
+                overdue_s = max(
+                    0.0, (now.replace(tzinfo=None) - nra)
+                    .total_seconds())
+            else:
+                overdue_s = max(
+                    0.0, (now - nra).total_seconds())
         try:
             # Post-claim refresh: fire the row's CURRENT config/target —
             # a concurrent edit/disable/delete between the due scan and
@@ -1255,6 +2375,17 @@ def fire_due_schedules(now=None) -> int:
             # raises here and stays unfired.
             db.session.refresh(sched)
             cfg = sched.run_config()
+            if sched.kind == "interval" \
+                    and sched.misfire_policy == "skip" \
+                    and sched.interval_minutes \
+                    and overdue_s > sched.interval_minutes * 60:
+                record_audit(
+                    "system", "schedule.misfire_skipped",
+                    f"{sched.id}: overdue {int(overdue_s)}s > "
+                    f"interval {sched.interval_minutes}m — "
+                    "occurrence dropped (misfire_policy=skip)")
+                db.session.commit()
+                continue
             # Overlap policy (interval schedules only — 'once' fires a
             # single time): skip = drop this occurrence while a previous
             # execution from THIS schedule is still active. Evaluated
@@ -1285,13 +2416,19 @@ def fire_due_schedules(now=None) -> int:
                         record_audit("worker", "schedule.target_unavailable",
                                      sched.id)
                         continue
+                    tgt_binding = (
+                        db.session.get(GitBinding,
+                                       tgt.get("binding_id"))
+                        or binding)
+                    tgt_sha = (tgt_binding.last_synced_sha
+                               if tgt_binding else sha)
                     create_execution(sched.created_by, None,
-                                     binding=binding,
-                                     source_sha=sha, run_config=cfg,
+                                     binding=tgt_binding,
+                                     source_sha=tgt_sha,
+                                     run_config=cfg,
                                      schedule_id=sched.id,
                                      source_item=d_item)
-                continue
-            if sched.target_type == "plan" and sched.plan_id:
+            elif sched.target_type == "plan" and sched.plan_id:
                 plan = db.session.get(Plan, sched.plan_id)
                 if plan is None:
                     raise DispatchError("scheduled plan no longer exists")
@@ -1426,6 +2563,40 @@ def _heartbeat_local_runners() -> int:
     return len(runners)
 
 
+def _resolve_unlaunched_cancels() -> int:
+    """A cancel that lands while an execution is still QUEUED has no
+    remote process to confirm — nothing ever launched, so the
+    cancellation is already fact. Without this the row parks in
+    CANCEL_REQUESTED forever: the dispatch boundary only
+    audits-and-skips it, the buildbot reconciler only follows
+    executions holding a brid, and a parent can never roll up while a
+    child stays non-terminal.
+    Boundary: an empty dispatch_id alone does NOT prove "never
+    launched" — a cancel racing _assign_runner->_submit_buildbot
+    leaves runner_id/bb_slot set while the buildrequest is still
+    in flight. Only a row that provably never entered assignment
+    (no runner, no slot, no brid, never started) may be resolved
+    here; anything else is ambiguous and ages out to UNKNOWN via
+    lease expiry — uncertainty is surfaced, never silently released."""
+    n = 0
+    for ex in Execution.query.filter(
+            Execution.state == ExecutionState.CANCEL_REQUESTED,
+            Execution.role != "parent",
+            Execution.runner_id.is_(None),
+            Execution.bb_slot.is_(None),
+            db.or_(Execution.dispatch_id.is_(None),
+                   Execution.dispatch_id == ""),
+            Execution.started_at.is_(None)).all():
+        ex.state = ExecutionState.CANCELED
+        ex.outcome = Outcome.INCOMPLETE
+        ex.finished_at = utcnow()
+        record_audit("system", "execution.cancel_confirmed_unlaunched",
+                     ex.id)
+        db.session.commit()
+        n += 1
+    return n
+
+
 def _redrive_queued_remote(limit: int = 10) -> int:
     """Capacity-blocked executions: their dispatch outbox event is
     consumed once — a lost capacity CAS or a no-runner tick must not
@@ -1434,10 +2605,18 @@ def _redrive_queued_remote(limit: int = 10) -> int:
     dispatch_id is empty — assignment precedes submit, so QUEUED + no
     dispatch_id proves no run was ever started; _submit_buildbot
     additionally reconciles by execution-id property before forcing a
-    new buildrequest."""
+    new buildrequest.
+    Fair ordering: oldest-first (created_at). A job that cannot fit
+    now does not starve younger ones — the scan continues past it
+    (bounded), and its wait_reason records exactly which gate blocks
+    it."""
     n = 0
     for ex in Execution.query.filter(
-            Execution.state == ExecutionState.QUEUED).limit(limit):
+            Execution.state == ExecutionState.QUEUED,
+            Execution.role != "parent").order_by(
+            Execution.created_at.asc()).limit(100):
+        if n >= limit:
+            break
         transport = ex.snapshot().get("dispatch_transport")
         if transport == "buildbot" and not ex.dispatch_id:
             _buildbot_assign_and_submit(ex)
@@ -1460,7 +2639,10 @@ def worker_once() -> int:
         except Exception:
             pass  # orchestrator unreachable — retry next cycle
     n += (reconcile_stale() + fire_due_schedules() + process_outbox()
-          + enforce_plan_policies()
+          + enforce_plan_policies() + _resolve_unlaunched_cancels()
+          + aggregate_parent_runs()
+          + _release_terminal_reservations() + _expire_queue_deadlines()
+          + _enqueue_terminal_notifications()
           + _heartbeat_local_runners() + _redrive_queued_remote())
     return n
 
@@ -1509,7 +2691,10 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
         return data
 
     import shutil as _sh
-    src_dir = buildbot_cfg.artifacts_dir() / ex.id
+    # Attempt-stamped uploads: a buildrequest retried after worker
+    # loss uploads per-build — the newest attempt dir is the terminal
+    # one; earlier attempts stay preserved beside it.
+    src_dir = buildbot_cfg.artifact_dir(ex.id)
     try:
         report_dir.mkdir(parents=True, exist_ok=True)
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -1546,8 +2731,10 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
     try:
         builds = adapter.builds_for_request(_bb_brid(ex))
         if builds:
+            # The terminal attempt's log — retries (worker loss)
+            # produce multiple builds under one buildrequest.
             (log_dir / "kre-remote-run.log").write_bytes(_scrub(
-                adapter.run_log(builds[0]["buildid"])
+                adapter.run_log(builds[-1]["buildid"])
                 .encode("utf-8", "replace")))
     except Exception:
         pass  # run log is best-effort evidence
@@ -1599,6 +2786,21 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
         # A failed build with real junit is failed TESTS — the
         # normalized outcome carries the verdict, not the step status.
         ex.state = ExecutionState.COMPLETED
+    elif (blocked := _retry_blocked_line(adapter, ex)) is not None:
+        # The retry prep step REFUSED to launch: the prior attempt's
+        # liveness could not be proven stopped, or the configured
+        # retry policy rejected the attempt. The original run may
+        # still be executing — UNKNOWN is the honest state: open
+        # reservations stay held until an operator reconciles, never
+        # a silent terminal label and never a freed slot.
+        ex.state = ExecutionState.UNKNOWN
+        ex.error_kind = "infrastructure"
+        ex.error_text = (blocked + " — automatic relaunch blocked; "
+                         "resource claims retained pending operator "
+                         "reconciliation")
+        ex.outcome = Outcome.INCOMPLETE
+        record_audit("system", "execution.retry_blocked",
+                     f"{ex.id}: {blocked}")
     else:
         ex.state = ExecutionState.FAILED
         # EXCEPTION (4) = the step never ran the test binary — an
@@ -1620,10 +2822,112 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                 + (f": {tail}" if tail else ""))
         else:
             ex.error_kind = "execution"
+            detail = ""
+            if rt0 is not None and (rt0.runtime_kind or "") \
+                    in (robotfw.KIND, pytestfw.KIND):
+                # Robot/pytest write xunit only on a valid execution —
+                # classify the console log so invalid data / missing
+                # libraries / interruptions are named, not lumped
+                # into "no result data".
+                _fw = (robotfw if (rt0.runtime_kind or "")
+                       == robotfw.KIND else pytestfw)
+                label = ""
+                for cand in (report_dir / "run.out",
+                             log_dir / "kre-remote-run.log",
+                             report_dir / "Reports" / "output.xml"):
+                    try:
+                        label = _fw.classify_log(
+                            cand.read_text(errors="replace"))
+                    except OSError:
+                        continue
+                    if label:
+                        break
+                # SSH runs drop an exit_code artifact — the recorded
+                # rc sharpens the classification (e.g. 251
+                # informational, 253 user stop, 252 invalid data).
+                if not label:
+                    for cand in (report_dir / "exit_code",
+                                 report_dir / "Reports" / "exit_code"):
+                        try:
+                            rc = int(cand.read_text().strip())
+                        except (OSError, ValueError):
+                            continue
+                        sev, label = _fw.classify_exit(rc)
+                        label = f"exit {rc}: {label}"
+                        if sev in ("config", "interrupted", "internal"):
+                            ex.error_kind = (
+                                "execution" if sev == "interrupted"
+                                else "infrastructure")
+                        break
+                detail = f" ({label})" if label else ""
             ex.error_text = (f"buildbot run {ex.dispatch_id} ended "
                              f"results={results_code} with no result "
-                             "data")
+                             f"data{detail}")
     db.session.commit()
+
+
+def _retry_blocked_line(adapter: BuildbotAdapter,
+                        ex: Execution) -> "str | None":
+    """TO_RETRY_BLOCKED marker from the LATEST attempt's prep step, or
+    None when absent/unfetchable. A resubmitted buildrequest whose
+    prep refuses (unresolvable prior attempt, retry policy exceeded)
+    fails the build before the exec step — the marker is the only
+    signal distinguishing a deliberate safety block from an ordinary
+    run failure."""
+    try:
+        builds = adapter.builds_for_request(_bb_brid(ex))
+    except Exception:
+        return None
+    if not builds:
+        return None
+    try:
+        log = adapter.run_log(builds[-1]["buildid"],
+                              step_names=("prep",))
+    except Exception:
+        return None
+    for line in (log or "").splitlines():
+        if "TO_RETRY_BLOCKED" in line:
+            return line.strip()[:400]
+    return None
+
+
+def _record_buildbot_attempts(adapter: BuildbotAdapter,
+                              ex: Execution) -> None:
+    """Track every Buildbot build spawned under this execution's
+    buildrequest in the snapshot. Buildbot resubmits a buildrequest
+    automatically after worker loss (RETRY): each new build is a
+    DISTINCT attempt with its own pidfile/workspace/artifact dir —
+    recorded here so provenance survives and a retry can never be
+    mistaken for the original run."""
+    builds = adapter.builds_for_request(_bb_brid(ex))
+    if not builds:
+        return
+    snap = ex.snapshot()
+    attempts = snap.setdefault("bb_attempts", [])
+    known = {a.get("buildid") for a in attempts}
+    for b in sorted(builds, key=lambda x: x.get("number", 0)):
+        entry = next(
+            (a for a in attempts
+             if a.get("buildid") == b.get("buildid")), None)
+        if entry is None:
+            entry = {"buildid": b.get("buildid"),
+                     "number": b.get("number"),
+                     "started_at": b.get("started_at"),
+                     "builderid": b.get("builderid"),
+                     "workerid": b.get("workerid")}
+            attempts.append(entry)
+            if b.get("number") and len(attempts) > 1:
+                record_audit(
+                    "system", "execution.buildbot_retry_attempt",
+                    f"{ex.id}: attempt build #{b.get('number')} "
+                    f"(buildid {b.get('buildid')}) started under "
+                    "the same buildrequest — prior attempt "
+                    "interrupted (worker loss)")
+        entry["complete"] = bool(b.get("complete"))
+        if b.get("complete"):
+            entry["results"] = b.get("results")
+            entry["complete_at"] = b.get("complete_at")
+    ex.snapshot_json = json.dumps(snap)
 
 
 def reconcile_buildbot_runs() -> int:
@@ -1647,6 +2951,10 @@ def reconcile_buildbot_runs() -> int:
             continue    # transient — lease expiry bounds the ambiguity
         if not br:
             continue
+        try:
+            _record_buildbot_attempts(adapter, ex)
+        except Exception:
+            pass    # attempt audit is best-effort, never blocks reconcile
         if not br.get("complete"):
             ex.lease_expires_at = utcnow() + timedelta(
                 seconds=LEASE_SECONDS)

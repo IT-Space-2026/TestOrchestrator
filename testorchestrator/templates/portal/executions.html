@@ -1,8 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Executions · TestOrchestrator{% endblock %}
+{% block content_class %}content-wide{% endblock %}
 {% block content %}
 <p><a class="button ghost sm" href="{{ url_for('portal.projects') }}">← Back to projects</a></p>
 <h1>Executions</h1>
+{% if current_user.is_admin or current_user.role.value == 'test_manager' %}
+<p><a class="button secondary sm" href="{{ url_for('portal.reconciliation') }}">Reconciliation queue</a>
+<span class="muted">— ambiguous executions holding runner capacity</span></p>
+{% endif %}
 
 <form method="get" class="filter-bar card">
   <div class="field"><label for="q">ID prefix</label>
@@ -92,7 +97,7 @@
         {% if e.origin == "imported" %}<span class="badge imported" title="imported from repository results">imported</span>{% endif %}</td>
       <td>{{ e.project.name if e.project }}</td>
       <td>{{ e.snapshot().get('suite_name', '') }}</td>
-      <td><span class="badge {{ e.state.value }}">{{ e.state.value }}</span></td>
+      <td><span class="badge {{ e.state.value }}"{% if e.wait_reason %} title="{{ e.wait_reason }}"{% endif %}>{{ e.state.value }}</span>{% if e.wait_reason %}<br><small class="muted">{{ e.wait_reason[:80] }}</small>{% endif %}</td>
       <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
       <td>{{ e.runner.name if e.runner else "—" }}</td>
       <td>{{ e.schedule.name if e.schedule else "—" }}</td>

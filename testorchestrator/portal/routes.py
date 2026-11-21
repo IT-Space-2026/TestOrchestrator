@@ -22,7 +22,7 @@ from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
 from ..execution import (DiscoveredItem, Execution, ExecutionState,
-                         ReleaseItem,
+                         ReleaseItem, RuntimeConnection,
                        GitBinding, OutboxEvent,
                          Outcome, Project, Release,
                          Schedule, Suite, SuiteEntry, utcnow)
@@ -411,6 +411,54 @@ def project_detail(project_id):
 
 # ---------- git bindings ----------
 
+@portal_bp.route("/projects/<project_id>/access")
+@role_required(Role.ADMIN)
+def project_access(project_id):
+    """Project → Settings → Access: this project's assigned users
+    with their roles — the inverse view of Users → Project access.
+    Both edit the SAME membership list (User.allowed_projects);
+    Administrator rows show 'through role', not a checkbox."""
+    from ..models import User
+    project = _project_or_404(project_id)
+    users = User.query.order_by(User.username).all()
+    return render_template(
+        "portal/project_access.html", project=project, users=users,
+        plain_form=PlainForm())
+
+
+@portal_bp.route("/projects/<project_id>/access", methods=["POST"])
+@role_required(Role.ADMIN)
+def save_project_access(project_id):
+    from ..models import User
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    wanted = {int(x) for x in request.form.getlist("user_ids")
+              if x.isdigit()}
+    changes = []
+    for u in User.query.filter(User.role != Role.ADMIN).all():
+        before = set(u.assigned_project_ids())
+        after = set(before)
+        if u.id in wanted:
+            after.add(project.id)
+        else:
+            after.discard(project.id)
+        if after != before:
+            u.set_assigned_projects(after)
+            changes.append(
+                f"{u.username}: {sorted(before)} -> {sorted(after)}")
+    if changes:
+        db.session.commit()
+        for c in changes:
+            record_audit(current_user.username,
+                         "user.project_access",
+                         f"{project.name}: {c}")
+        flash(f"Access updated ({len(changes)} change(s)).", "info")
+    else:
+        flash("No changes.", "info")
+    return redirect(url_for("portal.project_access",
+                            project_id=project.id))
+
+
 @portal_bp.route("/projects/<project_id>/dashboard")
 @login_required
 def project_dashboard(project_id):
@@ -697,6 +745,83 @@ def suite_detail(suite_id):
         workers=runners, runtimes=runtimes)
 
 
+def _history_matrix(exs):
+    """Case × execution matrix from a chronological execution list —
+    rows keyed by case_ref (source identity, not display name)."""
+    from ..execution import TestResult
+    ids = [e.id for e in exs]
+    rows = (TestResult.query.filter(TestResult.execution_id.in_(ids))
+            .all() if ids else [])
+    cases = {}
+    for r in rows:
+        cell = cases.get(r.case_ref)
+        if cell is None:
+            cell = cases[r.case_ref] = {
+                "ref": r.case_ref, "name": r.case_name or r.case_ref,
+                "cells": {}, "statuses": set(), "unresolved": False}
+        cell["cells"][r.execution_id] = r.status.value
+        cell["statuses"].add(r.status.value)
+        cell["unresolved"] = cell["unresolved"] or r.unresolved
+    for c in cases.values():
+        c["flaky"] = "passed" in c["statuses"] and \
+            len(c["statuses"] - {"skipped"}) > 1
+        c["always_failing"] = bool(c["statuses"]) and \
+            c["statuses"] <= {"failed", "error"}
+    return sorted(cases.values(),
+                  key=lambda c: (not c["flaky"],
+                                 not c["always_failing"],
+                                 c["name"].lower()))
+
+
+_TERMINAL_FOR_MATRIX = [ExecutionState.COMPLETED,
+                        ExecutionState.FAILED,
+                        ExecutionState.CANCELED]
+
+
+@portal_bp.route("/suites/<suite_id>/matrix")
+@login_required
+def suite_matrix(suite_id):
+    """Case × execution history matrix (§8). A flake shows as a mixed
+    row, a persistent regression as a uniformly-failing one. Skips
+    stay visible as skips; unresolved rows are marked, not guessed."""
+    suite = db.session.get(Suite, suite_id)
+    if suite is None:
+        abort(404)
+    _project_or_404(suite.project_id)
+    exs = (Execution.query.filter(
+        Execution.suite_id == suite_id,
+        Execution.state.in_(_TERMINAL_FOR_MATRIX))
+        .order_by(Execution.created_at.desc(), Execution.id.desc())
+        .limit(15).all())
+    exs = [e for e in reversed(exs)
+           if current_user.project_allowed(e.project_id or "")]
+    return render_template(
+        "portal/suite_matrix.html", suite=suite, item=None,
+        executions=exs, cases=_history_matrix(exs))
+
+
+@portal_bp.route("/discovered/<item_id>/matrix")
+@login_required
+def discovered_matrix(item_id):
+    """Same matrix for a repository-discovered suite/collection —
+    its own run history (flake + regression view)."""
+    from ..execution import DiscoveredItem
+    item = db.session.get(DiscoveredItem, item_id)
+    if item is None:
+        abort(404)
+    _project_or_404(item.project_id)
+    exs = (Execution.query.filter(
+        Execution.source_item_id == item_id,
+        Execution.state.in_(_TERMINAL_FOR_MATRIX))
+        .order_by(Execution.created_at.desc(), Execution.id.desc())
+        .limit(15).all())
+    exs = [e for e in reversed(exs)
+           if current_user.project_allowed(e.project_id or "")]
+    return render_template(
+        "portal/suite_matrix.html", suite=None, item=item,
+        executions=exs, cases=_history_matrix(exs))
+
+
 # ---------- executions ----------
 
 @portal_bp.route("/discovered/<item_id>")
@@ -747,12 +872,31 @@ def run_discovered(item_id):
     binding = db.session.get(GitBinding, item.binding_id)
     run_config = {
         "profile": request.form.get("execution_profile") or "default",
+        "browser": request.form.get("browser_type", "").strip(),
         "runner_id": request.form.get("runner_id", "").strip(),
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "timeout_seconds":
             int(request.form.get("timeout_seconds") or 0),
+        "queue_timeout_seconds":
+            int(request.form.get("queue_timeout_seconds") or 0),
+        "parallel":
+            min(max(int(request.form.get("parallel") or 0), 0), 64),
+        "parallel_mode": request.form.get("parallel_mode", "").strip(),
+        "shard_index": int(request.form.get("shard_index") or 0),
+        "shard_total": int(request.form.get("shard_total") or 0),
         "suite_path": item.path,
+        "robot_test": request.form.get("robot_test", "").strip(),
+        "robot_include": request.form.get("robot_include", "").strip(),
+        "robot_exclude": request.form.get("robot_exclude", "").strip(),
+        "pytest_keyword": request.form.get("pytest_keyword", "").strip(),
+        "pytest_markers": request.form.get("pytest_markers", "").strip(),
         "collection": item.kind == "collection",
+        # Checkbox contract: hidden "0" + checkbox "on". Absent key
+        # (non-form clients) = default enabled; present without "on"
+        # = explicitly disabled.
+        "retry_enabled": ("retry_enabled" not in request.form) or
+            ("on" in request.form.getlist("retry_enabled")),
+        "max_attempts": int(request.form.get("max_attempts") or 3),
     }
     try:
         ex = dispatch.create_execution(
@@ -768,6 +912,81 @@ def run_discovered(item_id):
     flash(f"Execution {ex.id[:8]} queued for "
           f"{item.kind} {item.path!r}.", "info")
     return redirect(url_for("portal.execution_detail", execution_id=ex.id))
+
+
+@portal_bp.route("/discovered/<item_id>/partition", methods=["POST"])
+@role_required(*RUN_ROLES)
+def partition_discovered(item_id):
+    """Preview or submit a partitioned unit run.
+
+    mode=preview resolves the manifest and renders the assignment;
+    mode=run freezes it into the unit children and queues them. The
+    preview is advisory — the run re-resolves and re-validates
+    everything server-side."""
+    from ..execution import DiscoveredItem
+    item = db.session.get(DiscoveredItem, item_id)
+    if item is None or item.kind not in ("suite", "collection"):
+        abort(404)
+    _project_or_404(item.project_id)
+    PlainForm().validate_on_submit()
+    binding = db.session.get(GitBinding, item.binding_id)
+    rt = db.session.get(RuntimeConnection,
+                        request.form.get("runtime_id", "").strip())
+    if rt is None or not rt.enabled:
+        flash("Select a runtime for the partition run.", "error")
+        return redirect(url_for("portal.discovered_detail",
+                                item_id=item.id))
+    kind = rt.runtime_kind or "kre"
+    try:
+        n = int(request.form.get("unit_count") or 0)
+        run_config = {
+            "runtime_id": rt.id,
+            "runner_id": request.form.get("runner_id", "").strip(),
+            "browser": request.form.get("browser_type", "").strip(),
+            "timeout_seconds":
+                int(request.form.get("timeout_seconds") or 0),
+            "queue_timeout_seconds":
+                int(request.form.get("queue_timeout_seconds") or 0),
+            "suite_path": item.path,
+            "collection": item.kind == "collection",
+        }
+        if kind == "cypress":
+            specs = dispatch.discover_cypress_specs(
+                binding, sha=binding.last_synced_sha or "",
+                spec_pattern=request.form.get("spec_pattern", ""),
+                exclude_pattern=request.form.get("exclude_pattern", ""),
+                selection=[x for x in request.form.get(
+                    "selected_specs", "").splitlines() if x.strip()])
+            units = dispatch.partition_units(specs, n, "spec group",
+                                             "specs")
+        elif kind == "playwright":
+            units = dispatch.playwright_shard_units(n)
+        else:
+            raise dispatch.DispatchError(
+                f"partitioned runs support playwright and cypress "
+                f"runtimes (got {kind!r})")
+        if request.form.get("mode") == "preview":
+            return render_template(
+                "portal/partition_preview.html", item=item,
+                units=units, runtime=rt, form=request.form,
+                plain_form=PlainForm())
+        run_config.update({
+            "release_id": request.form.get("release_id") or None})
+        parent, exs = dispatch.create_unit_run(
+            current_user.username, units, binding=binding,
+            release_id=(request.form.get("release_id") or None),
+            source_sha=binding.last_synced_sha if binding else "",
+            run_config=run_config, source_item=item)
+    except dispatch.DispatchError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("portal.discovered_detail",
+                                item_id=item.id))
+    record_audit(current_user.username, "execution.unit_run_queued",
+                 parent.id)
+    flash(f"Unit run {parent.id[:8]} queued — {len(exs)} units "
+          f"dispatch independently through capacity.", "info")
+    return redirect(url_for("portal.execution_detail",
+                            execution_id=parent.id))
 
 
 @portal_bp.route("/executions/<execution_id>/delete",
@@ -1043,9 +1262,12 @@ def executions():
     q = Execution.query
     # visibility scoping at the QUERY level (not post-page filtering) —
     # the page count and totals stay accurate for scoped users.
-    allowed_projects = json.loads(current_user.allowed_projects or "[]")
-    if allowed_projects:
-        q = q.filter(Execution.project_id.in_(allowed_projects))
+    # Non-admins see ONLY their assigned projects — an empty
+    # membership list correctly yields an empty list, not 'all'.
+    member_ids = None
+    if current_user.role != Role.ADMIN:
+        member_ids = current_user.assigned_project_ids()
+        q = q.filter(Execution.project_id.in_(member_ids))
     args = request.args
     if args.get("q", "").strip():
         q = q.filter(Execution.id.startswith(args["q"].strip()[:32]))
@@ -1102,14 +1324,97 @@ def executions():
         states=[s.value for s in ExecutionState],
         outcomes=[o.value for o in Outcome],
         frameworks=sorted({e.framework for e in
-                           Execution.query.with_entities(
+                           q.with_entities(
                                Execution.framework).distinct()}),
-        projects=Project.query.order_by(Project.name).all(),
+        projects=[p for p in
+                  Project.query.order_by(Project.name).all()
+                  if current_user.project_allowed(p.id)],
         runners=_R.query.order_by(_R.name).all(),
-        schedules=Schedule.query.order_by(Schedule.name).all(),
+        schedules=[s for s in
+                   Schedule.query.order_by(Schedule.name).all()
+                   if current_user.project_allowed(s.project_id)],
         plain_form=PlainForm(),
         can_run=current_user.role.value in
         ("admin", "test_manager", "tester"))
+
+
+@portal_bp.route("/reconciliation")
+@role_required(Role.ADMIN, Role.TEST_MANAGER)
+def reconciliation():
+    """Ambiguous-execution queue (§7/A06).
+
+    Every row here either holds runner capacity in an uncertain state
+    or needs operator attention before its resources can be trusted:
+
+    - UNKNOWN — original process may still be alive; slot+procs stay
+      charged until an admin confirms it stopped (resolve on detail).
+    - CANCEL_REQUESTED — cancel in flight; may be racing a submission
+      with no persisted Buildbot id (must NOT be force-resolved).
+    - non-terminal with an expired lease — inside the ambiguity window
+      before the lease sweep marks them UNKNOWN.
+
+    Each row shows the capacity it holds (bb slot + open reservations)
+    and how stale its heartbeat/lease is — never a silent stall."""
+    from ..execution import ResourceReservation, Runner
+    now = utcnow()
+    ambiguous = (Execution.query.filter(
+        Execution.state.in_([ExecutionState.UNKNOWN,
+                             ExecutionState.CANCEL_REQUESTED]))
+        .order_by(Execution.created_at).all())
+    expired_lease = (Execution.query.filter(
+        Execution.state.notin_([
+            ExecutionState.COMPLETED, ExecutionState.FAILED,
+            ExecutionState.CANCELED, ExecutionState.UNKNOWN,
+            ExecutionState.CANCEL_REQUESTED, ExecutionState.QUEUED]),
+        Execution.lease_expires_at.isnot(None),
+        Execution.lease_expires_at < now).all())
+    rows = []
+    for ex in ambiguous + expired_lease:
+        if not current_user.project_allowed(ex.project_id or ""):
+            continue
+        resv = ResourceReservation.query.filter_by(
+            execution_id=ex.id, released_at=None).all()
+        runner = db.session.get(Runner, ex.runner_id) \
+            if ex.runner_id else None
+        rows.append({
+            "ex": ex, "runner": runner, "reservations": resv,
+            "lease_age_s": ((now - ex.lease_expires_at).total_seconds()
+                            if ex.lease_expires_at
+                            and ex.lease_expires_at < now else 0),
+            "heartbeat_age_s": ((now - ex.heartbeat_at).total_seconds()
+                                if ex.heartbeat_at else None),
+        })
+    # Orphaned evidence dirs — top-level dirs under managed roots no
+    # Execution row owns (crashed confirms, deletion races). Listed
+    # only; removal is the explicit admin action below.
+    from .. import evidence
+    try:
+        orphan_dirs = [str(d) for d in evidence.find_orphans()]
+    except Exception:
+        orphan_dirs = []
+    return render_template("portal/reconciliation.html", rows=rows,
+                           orphan_dirs=orphan_dirs,
+                           plain_form=PlainForm())
+
+
+@portal_bp.route("/reconciliation/prune-orphans", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def prune_orphan_evidence():
+    """Remove orphaned evidence dirs — explicit admin action.
+    prune_orphans re-guards every path at delete time (managed-root
+    containment, no symlinks, no live references); it can only ever
+    touch application-owned roots."""
+    PlainForm().validate_on_submit()
+    from .. import evidence
+    res = evidence.prune_orphans(dry_run=False)
+    record_audit(current_user.username, "evidence.orphans_pruned",
+                 json.dumps({"removed": res["removed"]}))
+    if res["removed"]:
+        flash(f"Removed {len(res['removed'])} orphaned evidence "
+              f"dir(s).", "info")
+    else:
+        flash("No orphaned evidence dirs to remove.", "info")
+    return redirect(url_for("portal.reconciliation"))
 
 
 @portal_bp.route("/executions/bulk-cancel", methods=["POST"])
@@ -1511,8 +1816,7 @@ def run_release(release_id):
                                                  if src else "")}}),
             config_json=json.dumps({
                 "profile": request.form.get("profile", "default"),
-                "browser": request.form.get("browser",
-                                           "Chrome (headless)"),
+                "browser": request.form.get("browser", ""),
                 "runner_id": request.form.get("runner_id", ""),
                 "runtime_id": request.form.get("runtime_id", ""),
                 "timeout_seconds": 3600}),
@@ -1587,19 +1891,29 @@ def launch_execution(suite_id):
         kre_options["retry"] = min(3, retry_n)
     run_config = {
         "profile": request.form.get("execution_profile") or "default",
-        "browser": request.form.get("browser_type") or "Chrome (headless)",
+        "browser": request.form.get("browser_type", "").strip(),
         "remote_webdriver_url":
             request.form.get("remote_webdriver_url", "").strip(),
         "remote_webdriver_type":
             request.form.get("remote_webdriver_type", "").strip(),
         "timeout_seconds":
             int(request.form.get("timeout_seconds") or 0),
+        "queue_timeout_seconds":
+            int(request.form.get("queue_timeout_seconds") or 0),
+        "parallel":
+            min(max(int(request.form.get("parallel") or 0), 0), 64),
+        "parallel_mode": request.form.get("parallel_mode", "").strip(),
+        "shard_index": int(request.form.get("shard_index") or 0),
+        "shard_total": int(request.form.get("shard_total") or 0),
         # Explicit execution target ("" = auto). Re-validated at
         # dispatch — never falls back to another target.
         "runner_id": request.form.get("runner_id", "").strip(),
         "source_item": request.form.get("source_item", "").strip(),
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "kre_options": kre_options,
+        "retry_enabled": ("retry_enabled" not in request.form) or
+            ("on" in request.form.getlist("retry_enabled")),
+        "max_attempts": int(request.form.get("max_attempts") or 3),
     }
     # Resolve the submitted discovered item SERVER-SIDE: kind comes
     # from the record — never trust a submitted type flag.
@@ -1636,11 +1950,25 @@ def execution_detail(execution_id):
         counts[r.status.value] = counts.get(r.status.value, 0) + 1
         unresolved += 1 if getattr(r, "unresolved", False) else 0
     from .. import settings as settings_mod
+    units = []
+    actual_concurrency = 0
+    if ex.role == "parent":
+        units = sorted(
+            Execution.query.filter_by(parent_id=ex.id).all(),
+            key=lambda e: e.unit_index or 0)
+        from ..execution import ExecutionState as _ES
+        active = (_ES.DISPATCHED, _ES.PREPARING, _ES.RUNNING,
+                  _ES.COLLECTING, _ES.NORMALIZING)
+        actual_concurrency = sum(
+            1 for u in units if u.state in active)
+    parent = (db.session.get(Execution, ex.parent_id)
+              if ex.parent_id else None)
     return render_template(
         "portal/execution_detail.html", ex=ex, counts=counts,
         plain_form=PlainForm(), can_edit=can_edit,
-        unresolved=unresolved,
-        rl_enabled=settings_mod.get("reportinglabs_enabled", False))
+        unresolved=unresolved, units=units, parent=parent,
+        actual_concurrency=actual_concurrency,
+        rl_enabled=settings_mod.get("reportinglabs_enabled", True))
 
 
 @portal_bp.route("/executions/<execution_id>/cancel", methods=["POST"])
@@ -2071,9 +2399,10 @@ def create_schedule(project_id):
             interval_minutes=interval if kind == "interval" else None,
             next_run_at=run_at, enabled=True,
             overlap_policy=form.overlap_policy.data or "allow",
+            misfire_policy=form.misfire_policy.data or "late",
             run_config_json=json.dumps({
                 "profile": form.execution_profile.data or "default",
-                "browser": form.browser_type.data or "Chrome (headless)",
+                "browser": form.browser_type.data or "",
                 "remote_webdriver_url":
                     (form.remote_webdriver_url.data or "").strip(),
                 "remote_webdriver_type":

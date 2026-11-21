@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Changelog · TestOrchestrator{% endblock %}
+{% block content_class %}wide{% endblock %}
 {% block content %}
-<h1>System &rarr; Changelog</h1>
+<div class="brand-hero">
+  <h1>System &rarr; Changelog</h1>
+</div>
 {% if changelog_html %}
 <div class="changelog rendered">{{ changelog_html|safe }}</div>
 {% else %}

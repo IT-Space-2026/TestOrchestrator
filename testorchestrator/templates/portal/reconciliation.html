@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Reconciliation · TestOrchestrator{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.executions') }}">← Back to executions</a></p>
+<h1>Reconciliation</h1>
+<p class="muted">Executions in an ambiguous or attention-needed state.
+Each row may still be holding runner capacity — an UNKNOWN execution's
+slot and process budget stay charged until an admin confirms the
+original process stopped on the execution host and resolves it.
+Nothing here is resolved automatically: a row leaves this queue only
+through the reconciler's confirmed-terminal path or an explicit,
+audited operator action.</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+
+{% if not rows %}
+<p class="muted">No ambiguous executions — nothing is holding
+capacity in an uncertain state.</p>
+{% else %}
+<table>
+  <tr>
+    <th>Execution</th><th>State</th><th>Worker</th><th>Slot</th>
+    <th>Held reservations</th><th>Lease overdue</th><th>Heartbeat</th>
+    <th>Cause / error</th><th></th>
+  </tr>
+  {% for r in rows %}
+  <tr>
+    <td><a href="{{ url_for('portal.execution_detail', execution_id=r.ex.id) }}"><code>{{ r.ex.id[:8] }}</code></a></td>
+    <td><strong>{{ r.ex.state.value }}</strong></td>
+    <td>{{ r.runner.name if r.runner else '—' }}</td>
+    <td>{{ r.ex.bb_slot if r.ex.bb_slot is not none else '—' }}</td>
+    <td>
+      {% if r.reservations %}
+        {% for v in r.reservations %}{{ v.resource_kind }}{% if v.slot_index is not none %}:{{ v.slot_index }}{% endif %}{% if v.quantity > 1 %} ×{{ v.quantity }}{% endif %}{{ ' ' }}{% endfor %}
+      {% else %}—{% endif %}
+    </td>
+    <td>{% if r.lease_age_s %}{{ '%.0f'|format(r.lease_age_s) }}s{% else %}—{% endif %}</td>
+    <td>{% if r.heartbeat_age_s %}{{ '%.0f'|format(r.heartbeat_age_s) }}s ago{% else %}—{% endif %}</td>
+    <td>{{ (r.ex.error_text or r.ex.wait_reason or '')[:120] }}</td>
+    <td><a class="button secondary sm"
+           href="{{ url_for('portal.execution_detail', execution_id=r.ex.id) }}">Inspect</a></td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="muted">Resolve an UNKNOWN execution from its detail page —
+it requires an admin confirmation that the original process and its
+children stopped, and it releases the held capacity. A
+CANCEL_REQUESTED row with no persisted orchestrator id may still be
+in flight — do not force-resolve it; the reconciler owns it.</p>
+{% endif %}
+
+<h2 style="margin-top:1.5em">Orphaned evidence dirs</h2>
+<p class="muted">Top-level dirs under managed evidence roots that no
+execution owns — from crashed collects or deletion races. Only
+application-owned, unreferenced dirs are ever listed or removed.</p>
+{% if orphan_dirs %}
+<table class="data">
+  <thead><tr><th>Path</th></tr></thead>
+  {% for d in orphan_dirs %}
+  <tr><td><code>{{ d }}</code></td></tr>
+  {% endfor %}
+</table>
+<form method="post"
+      action="{{ url_for('portal.prune_orphan_evidence') }}"
+      onsubmit="return confirm('Remove {{ orphan_dirs|length }} orphaned evidence dir(s)? Only unreferenced application-owned dirs are deleted.')">
+  {{ plain_form.hidden_tag() }}
+  <button type="submit" class="button secondary">Prune orphans
+    ({{ orphan_dirs|length }})</button>
+</form>
+{% else %}
+<p class="muted">No orphaned evidence dirs.</p>
+{% endif %}
+{% endblock %}

@@ -153,13 +153,39 @@ def _prepare(client, spec) -> None:
             wrapper = (remote(spec.get("remote_cred_wrapper")
                                     or "/tmp/kre_cred_exec.py") + " "
                        + remote(cred) + " ")
+        # Node runners execute inside the untarred project root
+        # (proj/src) — exec_subdir descends into it; env carries
+        # runner vars like PLAYWRIGHT_JUNIT_OUTPUT_FILE.
+        subdir = (spec.get("exec_subdir") or "").strip("/")
+        cd_target = f"{remote(wd)}/proj/{remote(subdir)}" if subdir \
+            else f"{remote(wd)}/proj"
+        env_exports = "".join(
+            f"export {remote(k)}={remote(v)}\n"
+            for k, v in (spec.get("env") or {}).items()
+            if k.replace("_", "").isalnum() and "\n" not in str(v))
+        # Absolute CLI path (e.g. runtime.executable_path → npx) whose
+        # directory must reach PATH — env values are literal, so the
+        # prefix needs its own shell-expanded export line.
+        prefix = (spec.get("path_prefix") or "").strip()
+        if prefix:
+            env_exports += f"export PATH={remote(prefix)}:\"$PATH\"\n"
+        # Optional dependency step (node runners: npm ci — pinned
+        # project deps into the isolated staged workspace).
+        deps = spec.get("deps_argv") or []
+        deps_line = (
+            " ".join(remote(a) for a in deps)
+            + f" >>{remote(wd)}/run.out 2>&1 || "
+            f"{{ printf 124 > {remote(wd)}/exit_code; exit 124; }}\n"
+            if deps else "")
         script = (
             "#!/bin/sh\n"
             f"mkdir -p {remote(wd)}/proj && "
             f"tar -xf {remote(wd)}/source.tar -C {remote(wd)}/proj\n"
-            f"cd {remote(wd)}/proj || exit 125\n"
+            f"cd {cd_target} || exit 125\n"
+            f"{env_exports}"
+            f"{deps_line}"
             f"{wrapper}{exe} {args} "
-            f">{remote(wd)}/run.out 2>&1\n"
+            f">>{remote(wd)}/run.out 2>&1\n"
             f"printf '%s' \"$?\" > {remote(wd)}/exit_code\n")
         with sftp.open(wd + "/run.sh", "w") as fh:
             fh.write(script)

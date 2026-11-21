@@ -1,7 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Audit · TestOrchestrator{% endblock %}
+{% block content_class %}wide{% endblock %}
 {% block content %}
 <h1>System &rarr; Audit</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
 
 <form method="get" class="filter-bar" role="search">
   <div class="field"><label for="aq">Search</label>
@@ -31,9 +37,16 @@
   <div class="form-actions">
     <button type="submit" class="button">Filter</button>
     <a class="button secondary" href="{{ url_for('main.audit') }}">Clear</a>
+    <a class="button secondary"
+       href="{{ url_for('main.audit_export', q=filters.q,
+              event=filters.event, actor=filters.actor,
+              related=filters.related, **{'from': filters['from'], 'to': filters.to}) }}"
+       title="Export all matching events as CSV">Export CSV</a>
   </div>
 </form>
-<p class="muted">{{ total }} event(s) match · page {{ page }} of {{ pages }}</p>
+<p class="muted">{{ total }} event(s) match · page {{ page }} of {{ pages }}
+  · Export CSV covers <strong>all {{ total }} matching event(s)</strong>
+  (not just this page); large exports run as a background job.</p>
 
 {% if events %}
 <table class="audit-table">

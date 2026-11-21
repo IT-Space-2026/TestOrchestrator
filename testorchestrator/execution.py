@@ -190,6 +190,12 @@ class Schedule(db.Model):
     # an active execution from this schedule exists.
     overlap_policy = db.Column(db.String(16), nullable=False,
                                default="allow")
+    # late = a missed fire runs once late on the next tick (default,
+    # previous behaviour); skip = an occurrence overdue past its
+    # interval is dropped and audited — the schedule never catch-up
+    # storms after a long outage.
+    misfire_policy = db.Column(db.String(16), nullable=False,
+                               default="late")
     interval_minutes = db.Column(db.Integer, nullable=True)
     next_run_at = db.Column(db.DateTime(timezone=True), nullable=True)
     last_run_at = db.Column(db.DateTime(timezone=True), nullable=True)
@@ -232,6 +238,12 @@ class Runner(db.Model):
     # capacity) and licence seats are independent limits. NULL/0 = the
     # operator declared no licence constraint (never assumed seats).
     license_slots = db.Column(db.Integer, nullable=True)
+    # Process budget (2.6): total framework worker/processes across ALL
+    # concurrent runs on this target. A job admitted under max_slots
+    # must not bypass the intended process budget through its own
+    # parallel setting — the CAS admission counts requested parallel
+    # procs (default 1 per job). NULL = unconstrained (job slots only).
+    max_procs = db.Column(db.Integer, nullable=True)
     health = db.Column(db.String(16), nullable=False, default="unknown")
     heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
     draining = db.Column(db.Boolean, nullable=False, default=False)
@@ -297,6 +309,10 @@ class RuntimeConnection(db.Model):
     enabled = db.Column(db.Boolean, nullable=False, default=True)
     last_diagnostic = db.Column(db.Text, nullable=False, default="")
     last_check_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Machine-readable probe markers from the last completed readiness
+    # run — optional parallel deps (opt_xdist/opt_pabot) are gated on
+    # these at dispatch; the human summary lives in last_diagnostic.
+    probe_json = db.Column(db.Text, nullable=False, default="")
     # remote: the unique worker label the legacy installation was
     # bound to — empty => local (portal-host) execution.
     worker_label = db.Column(db.String(128), nullable=False, default="")
@@ -311,6 +327,13 @@ class RuntimeConnection(db.Model):
     # request can never select an arbitrary worker path.
     credential_file = db.Column(db.String(512), nullable=False,
                                 default="")
+    # Test framework this runtime drives: "kre" (existing rows),
+    # "playwright" or "cypress" (Node.js, run inside the staged
+    # project via npx — project-pinned deps, never bundled). The
+    # executable_path of a node runtime is the npx/npx.cmd binary
+    # resolved on the TARGET host.
+    runtime_kind = db.Column(db.String(16), nullable=False,
+                             default="kre")
     runner = db.relationship("Runner", backref="runtimes")
 
 
@@ -416,10 +439,45 @@ class Execution(db.Model):
     error_kind = db.Column(db.String(32), nullable=False, default="")
     error_text = db.Column(db.Text, nullable=False, default="")
     cancel_reason = db.Column(db.String(256), nullable=False, default="")
+    # Parallel execution units (2.6): a partitioned run is a "parent"
+    # execution that owns no process itself plus N "unit" children, each
+    # a real dispatchable execution with its own frozen assignment
+    # (shard/spec list) in its snapshot. role: "" ordinary | "parent" |
+    # "unit". unit_count on the parent is the expected child count.
+    role = db.Column(db.String(16), nullable=False, default="")
+    parent_id = db.Column(db.String(32), db.ForeignKey("executions.id"),
+                          nullable=True)
+    unit_index = db.Column(db.Integer, nullable=True)
+    unit_key = db.Column(db.String(128), nullable=False, default="")
+    unit_count = db.Column(db.Integer, nullable=True)
+    children = db.relationship(
+        "Execution",
+        backref=db.backref("parent", remote_side=[id]),
+        foreign_keys=[parent_id])
+    # Buildbot slot-builder index this execution was submitted to
+    # (slot-builders: one builder per admitted concurrency slot — a
+    # (builder, worker) pair serializes, so N slots need N builders).
+    bb_slot = db.Column(db.Integer, nullable=True)
     # Runner lease (§6): heartbeats keep the assignment alive; offline
     # heartbeat means UNKNOWN, never silent duplicate dispatch.
     lease_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
     heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Actionable cause while QUEUED (which capacity/policy gate blocks
+    # dispatch) — a wait is never a silent stall. Cleared on launch.
+    wait_reason = db.Column(db.String(256), nullable=False, default="")
+    # Optional queue deadline (queue_timeout_seconds in run_config):
+    # a QUEUED execution past it fails with an explicit queue reason.
+    queue_deadline_at = db.Column(db.DateTime(timezone=True),
+                                  nullable=True)
+    # CI API idempotency: a client-supplied reference; a repeated POST
+    # with the same (token, client_ref) returns this execution instead
+    # of double-launching — same contract as SubmitToken for the UI.
+    client_ref = db.Column(db.String(128), nullable=False, default="",
+                           index=True)
+    # Webhook fan-out marker: set once every enabled endpoint has been
+    # enqueued for this execution's terminal/UNKNOWN state — durable so
+    # a crash between transition and enqueue is retried, never lost.
+    notified_at = db.Column(db.DateTime(timezone=True), nullable=True)
     # Report publication to the bound source repo
     # (TestOrchestrator/Reports/<execution-id>/ at repo ROOT) —
     # distinct from evidence export and from the test outcome.
@@ -483,6 +541,32 @@ class Execution(db.Model):
             return [tuple(k) for k in json.loads(self.suite_keys_json)]
         except (TypeError, ValueError):
             return []
+
+
+class ResourceReservation(db.Model):
+    """Durable resource-ownership ledger (§6). Written atomically in
+    the assignment transaction — a held slot/proc charge has a row
+    keyed to its owning execution before the run ever launches.
+    ``released_at`` is set only when the execution reaches a
+    CONFIRMED terminal state: UNKNOWN keeps its reservation open
+    because the process may still own the resource. Capacity
+    admission still derives from execution states (proven CAS);
+    this table is the ownership record — whose resource, how much,
+    held from when until which terminal outcome."""
+
+    __tablename__ = "resource_reservations"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    execution_id = db.Column(db.String(32), db.ForeignKey("executions.id"),
+                             nullable=False, index=True)
+    runner_id = db.Column(db.String(32), nullable=False, index=True)
+    resource_kind = db.Column(db.String(16), nullable=False)  # slot|procs
+    slot_index = db.Column(db.Integer, nullable=True)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    acquired_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    released_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    release_state = db.Column(db.String(32), nullable=False, default="")
+    execution = db.relationship("Execution", backref=db.backref(
+        "reservations", cascade="all, delete-orphan"))
 
 
 class CaseStatus(str, enum.Enum):
@@ -590,6 +674,61 @@ class SubmitToken(db.Model):
     __table_args__ = (db.UniqueConstraint(
         "schedule_id", "username", "token",
         name="uq_submit_tokens"),)
+
+
+class ApiToken(db.Model):
+    """CI/CD API credential (§12). Only a SHA-256 of the token is
+    persisted — the bearer value is shown once at creation and is
+    unrecoverable afterwards. Revocation is a tombstone: the row
+    survives for audit, the credential stops working immediately."""
+    __tablename__ = "api_tokens"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    name = db.Column(db.String(128), nullable=False)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True)
+    # Portal-equivalent capability tier: 'read' (poll status/results)
+    # or 'run' (additionally trigger/cancel/retry). Tokens are never
+    # admin — infrastructure/secrets/users stay UI-only.
+    scope = db.Column(db.String(16), nullable=False, default="read")
+    # Same project-scoping contract as User.allowed_projects.
+    allowed_projects = db.Column(db.Text, nullable=False, default="[]")
+    created_by = db.Column(db.String(64), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    last_used_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    revoked_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    def project_allowed(self, project_id: str) -> bool:
+        allowed = json.loads(self.allowed_projects or "[]")
+        return not allowed or project_id in allowed
+
+
+class WebhookEndpoint(db.Model):
+    """Outbound notification subscription (§integrations). Matching
+    executions are delivered via the durable outbox — a subscriber
+    outage retries with backoff, never drops the event silently.
+    `secret_ref` names a SecretRef (kind 'webhook') holding the HMAC
+    key; the key bytes never appear in this row, logs, or audit."""
+    __tablename__ = "webhook_endpoints"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    name = db.Column(db.String(128), nullable=False)
+    url = db.Column(db.String(1024), nullable=False)
+    # Comma-separated execution states to notify on — e.g.
+    # "completed,failed,canceled"; 'unknown' is opt-in.
+    events = db.Column(db.String(256), nullable=False,
+                      default="completed,failed,canceled")
+    secret_ref = db.Column(db.String(64), nullable=False, default="")
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    # Empty = all projects; otherwise JSON list of project ids.
+    project_scope = db.Column(db.Text, nullable=False, default="[]")
+    created_by = db.Column(db.String(64), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    def event_set(self) -> set:
+        return {e.strip().lower() for e in self.events.split(",")
+                if e.strip()}
+
+    def project_allowed(self, project_id: str) -> bool:
+        allowed = json.loads(self.project_scope or "[]")
+        return not allowed or project_id in allowed
 
 
 class DiscoveredItem(db.Model):

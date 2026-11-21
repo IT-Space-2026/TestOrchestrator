@@ -2,7 +2,7 @@
 Audit trail. Admin-only; sources are allowlisted (never arbitrary fs
 paths); remote worker logs are NOT collected and are shown as
 unavailable honestly."""
-import csv, io, re
+import re
 from datetime import datetime, timedelta, timezone
 from .extensions import db
 from .settings import DEFAULTS
@@ -45,14 +45,22 @@ def emit(component: str, message: str, *, severity: str = "info",
          source: str = "portal") -> OperationalLog:
     """Append one structured operational event; prune to retention."""
     row = OperationalLog(
-        component=component[:64], message=message[:512],
+        component=component[:64],
+        message=redact(message)[:512],
         severity=severity if severity in SEVERITIES else "info",
         category=category if category in CATEGORIES else "system",
         project_id=project_id, execution_id=execution_id,
         worker_id=worker_id, correlation_id=correlation_id,
-        source=source, details=details)
+        source=source,
+        details=redact(details) if details else "")
     db.session.add(row)
     db.session.commit()
+    # Optional structured output — fail-open, never weakens the DB row.
+    try:
+        from . import log_output, logschema
+        log_output.publish(logschema.operational_event(row))
+    except Exception:
+        pass
     # Prune amortized — a full count/delete scan on every emit turns
     # hot paths (worker tick, dispatch) into O(n) per log line.
     global _emits_since_prune
@@ -81,13 +89,26 @@ def prune() -> None:
 
 
 SECRET_RE = re.compile(
-    r"(?i)(password|secret|token|apikey|api_key|private_key"
-    r"|authorization|bearer)\s*[:=]\s*\S+")
+    r"(?i)[\"']?(password|passwd|passphrase|secret|token|apikey|api_key"
+    r"|api-key|private_key|signing_key|licen[cs]e_key|client_secret"
+    r"|credential|authorization|auth_header|cookie|set-cookie"
+    r"|x-api-key|bearer)[\"']?\s*[:=]\s*[\"']?\S+")
+
+_BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}")
 
 
 def redact(text: str) -> str:
-    return SECRET_RE.sub(lambda m: m.group(0).split(m.group(1))[0]
-                         + m.group(1) + "=•••", text)
+    """Redact secret-looking values in free text — applied BEFORE
+    persistence (emit/record_audit) so local rows, CSV and JSON output
+    share the same redaction."""
+    if not text:
+        return ""
+    # Bearer first: a quote-tolerant SECRET_RE could otherwise consume
+    # the "Bearer" keyword as the value of e.g. Authorization: "Bearer…"
+    text = _BEARER_RE.sub("Bearer •••", str(text))
+    return SECRET_RE.sub(
+        lambda m: m.group(0).split(m.group(1))[0] + m.group(1) + "=•••",
+        text)
 
 
 def query(filters: dict):
@@ -114,27 +135,3 @@ def query(filters: dict):
         q = q.filter(OperationalLog.occurred_at <= v)
     return q.order_by(OperationalLog.occurred_at.desc(),
                       OperationalLog.id.desc())
-
-
-def export(rows, fmt: str) -> str:
-    """Bounded JSONL/CSV export with secrets redacted + CSV escape."""
-    if fmt == "jsonl":
-        import json
-        return "\n".join(json.dumps({
-            "ts": r.occurred_at.isoformat(), "severity": r.severity,
-            "component": r.component, "category": r.category,
-            "project": r.project_id, "execution": r.execution_id,
-            "worker": r.worker_id, "corr": r.correlation_id,
-            "source": r.source, "message": redact(r.message)})
-            for r in rows)
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(["occurred_at", "severity", "component", "category",
-                "project", "execution", "worker", "corr", "source",
-                "message"])
-    for r in rows:
-        w.writerow([r.occurred_at.isoformat(), r.severity, r.component,
-                    r.category, r.project_id, r.execution_id,
-                    r.worker_id, r.correlation_id, r.source,
-                    redact(r.message)])
-    return buf.getvalue()

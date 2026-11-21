@@ -24,6 +24,9 @@
     <label for="tab-schedexec">Schedules-Executions</label>
     <label for="tab-inventory">Inventory</label>
     <label for="tab-bindings">Git bindings</label>
+    {% if current_user.role.value == "admin" %}
+    <a class="tsub" href="{{ url_for('portal.project_access', project_id=project.id) }}">Access</a>
+    {% endif %}
   </nav>
 
 <!-- ============ PLANS ============ -->

@@ -1,6 +1,73 @@
 # Changelog
 
-Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+## [Unreleased] — 2.6.0 (draft)
+
+Feature release — Playwright Test, headless Cypress E2E and Robot
+Framework as first-class runners on the existing Buildbot/SSH
+execution paths.
+Schema change: `runtime_connections.runtime_kind`
+(`kre`|`playwright`|`cypress`|`robot`, default `kre` — existing
+connections upgrade unchanged).
+
+### Added
+
+- **Robot Framework runner.** Register a runtime with kind `robot`
+  and configure the target's Python interpreter explicitly
+  (`executable_path` — venv `bin/python`/`Scripts\python.exe`
+  works; pure argv, no shell/PATH/activation dependency). Runs
+  invoke `python -m robot` with isolated `Reports/` output —
+  `--xunit junit.xml` feeds the shared JUnit normalizer while
+  native `output.xml`, `log.html`, `report.html`, console logs and
+  project evidence upload as artifacts on pass *and* fail.
+  Project-relative suite file/directory, `--test`/`--suite` and
+  `--include`/`--exclude` tag selection are supported from the run
+  form; Robot's exit codes (1–249 failed-test count, 250–252
+  usage/data/config, 253 interrupted, 255 internal) classify
+  explicitly so invalid invocations never read as test results.
+  No browser selector applies — browsers belong to the Robot
+  project's libraries. Out of scope for 2.6.0: parallel execution
+  (pabot), custom listeners, keyword-level portal browsing.
+
+- **Node.js browser runners.** Register a runtime with kind
+  `playwright` or `cypress` on any Buildbot worker (Windows/Linux)
+  or agentless Linux SSH target. Runs stage the project under
+  `build/src` and invoke `npx playwright test --reporter=junit` /
+  `npx cypress run` (reporter `junit`, `toConsoleStandard:true`,
+  per-spec `junit-[hash].xml` names so later specs cannot overwrite
+  earlier reports). JUnit, logs, traces, screenshots and videos land
+  in the standard Reports/ upload → existing `parse_junit`
+  normalization and artifact retention — same run IDs, same
+  pipeline.
+- **Check runner readiness** action on the Infrastructure page —
+  runs a probe build on the *same target, account and transport*
+  the real run uses (remote worker via its own builder; agentless
+  SSH via the dispatcher over SSH/SFTP). Reports connectivity,
+  Node.js/framework/browser versions, and browser reachability of a
+  configured application URL. Installs nothing, runs no tests,
+  echoes no secrets; results persist on the runtime record.
+- **Browser selection** for node runtimes — validated against the
+  framework's supported set (`chromium`/`firefox`/`webkit`;
+  `chrome`/`firefox`/`edge`/`electron`/`chromium`), invalid values
+  rejected, never silently substituted.
+- **SSH run spec** gains `exec_subdir` and `env` — the generated
+  remote `run.sh` cd's to the staged project root and exports
+  framework env (e.g. `PLAYWRIGHT_JUNIT_OUTPUT_FILE`) before exec.
+- **UI guidance**: runtime-kind selector, per-target connection-
+  requirements table, and prerequisites text on the run forms and
+  Infrastructure page.
+
+### Notes
+
+- Node.js, the project's Playwright/Cypress dependencies, and the
+  browsers are **pre-provisioned on the target** — nothing is
+  bundled into the controller packages or the worker installer.
+- Unsupported browsers are rejected up front; a missing JUnit report
+  can never surface as a green run with zero tests (existing
+  `REPORTS-MISSING` sentinel unchanged).
+- In scope for 2.6.0: Playwright Test (Node.js), headless Cypress
+  E2E and standard Robot Framework only — Playwright-Python,
+  Cypress component testing, remote-browser grids, Cypress Cloud
+  and Robot parallel/listener extensions are out of scope.
 
 ## [2.5.1] — 2026-11-19
 

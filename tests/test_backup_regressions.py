@@ -83,6 +83,40 @@ def test_truncated_archive_rejected_not_half_restored(tmp_path):
         recover(trunc, dest)
 
 
+def test_absolute_symlink_restored_relative(tmp_path):
+    """Instances legitimately contain absolute symlinks (e.g. an
+    installer-generated master/master.cfg -> /abs/.../data/master.cfg).
+    tarfile's 'data' filter refuses absolute links, so such backups were
+    UNRESTORABLE. Restore must rewrite the link relative — same target
+    inside the archive, never an escape."""
+    inst = _mk_instance(tmp_path)
+    sub = inst / "buildbot" / "master"
+    sub.mkdir(parents=True)
+    (inst / "buildbot" / "master.cfg").write_text("CFG")
+    (sub / "master.cfg").symlink_to(
+        (inst / "buildbot" / "master.cfg").resolve())  # absolute link
+    out = backup_state(tmp_path / "backups", [inst])
+    dest = tmp_path / "restore3"
+    res = recover(out, dest)
+    link = dest / "instance" / "buildbot" / "master" / "master.cfg"
+    assert link.is_symlink()
+    # relative, resolves inside dest to the real config
+    assert not Path(link.readlink()).is_absolute()
+    assert link.read_text() == "CFG"
+
+
+def test_absolute_link_to_outside_member_skipped(tmp_path):
+    """A link whose target exists nowhere in the archive is machine-
+    specific — skip it rather than restore a broken/escaping link."""
+    inst = _mk_instance(tmp_path)
+    (inst / "stray").symlink_to("/etc/passwd")
+    out = backup_state(tmp_path / "backups", [inst])
+    dest = tmp_path / "restore4"
+    recover(out, dest)
+    assert not (dest / "instance" / "stray").exists()
+    assert (dest / "instance" / "db.sqlite").exists()
+
+
 def test_retention_keeps_newest_pattern_only(tmp_path):
     bd = tmp_path / "backups"
     bd.mkdir()

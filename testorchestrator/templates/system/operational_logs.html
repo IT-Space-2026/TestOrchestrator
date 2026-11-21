@@ -1,5 +1,11 @@
 {% extends "base.html" %}
+{% block content_class %}wide{% endblock %}
 {% block content %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
 <div class="card">
   <h1>Operational Logs</h1>
   <p class="muted"><small>Component events — separate from the
@@ -36,30 +42,38 @@
       <input name="q" id="f-q" value="{{ filters.q or '' }}"
              placeholder="message contains…">
     </div>
+    <div class="filter-group">
+      <label for="f-since">From</label>
+      <input type="date" name="since" id="f-since"
+             value="{{ filters.since.strftime('%Y-%m-%d') if filters.since else '' }}">
+    </div>
+    <div class="filter-group">
+      <label for="f-until">To</label>
+      <input type="date" name="until" id="f-until"
+             value="{{ filters.until.strftime('%Y-%m-%d') if filters.until else '' }}">
+    </div>
     <div class="filter-actions">
       <button type="submit" class="button primary">Apply</button>
       <a class="button" href="{{ url_for('system.operational_logs') }}">Reset</a>
     </div>
     <div class="filter-actions exports">
-      <span class="muted"><small>Export</small></span>
+      <span class="muted"><small>Export all
+        {{ page.total }} matching</small></span>
       <a class="button secondary"
-         href="{{ url_for('system.operational_logs_export', format='csv',
-            severity=filters.severity or '', component=filters.component or '',
-            category=filters.category or '', q=filters.q or '') }}">CSV</a>
+         href="{{ url_for('system.operational_logs_export') }}?format=csv&{{ filter_qs }}">CSV</a>
       <a class="button secondary"
-         href="{{ url_for('system.operational_logs_export', format='jsonl',
-            severity=filters.severity or '', component=filters.component or '',
-            category=filters.category or '', q=filters.q or '') }}">JSONL</a>
-    </div>
-    <div class="filter-actions tail-toggle">
-      <label class="check-label">
-        <input type="checkbox" id="live-tail"><span>Live tail</span></label>
-      <span id="tail-status" class="tail-status paused"><small>paused</small></span>
+         href="{{ url_for('system.operational_logs_export') }}?format=jsonl&{{ filter_qs }}">JSONL</a>
     </div>
   </form>
 </div>
 
 <div class="card">
+  <div class="log-toolbar">
+    <label class="check-label tail-pill">
+      <input type="checkbox" id="live-tail"><span>Live tail</span></label>
+    <span id="tail-status" class="tail-status paused"><small>paused</small></span>
+    <span class="muted toolbar-right"><small>{{ page.total }} rows</small></span>
+  </div>
   <table class="data-table" id="log-table">
     <thead><tr>
       <th>Time</th><th>Severity</th><th>Component</th><th>Category</th>
@@ -92,15 +106,29 @@
   {% if page.pages > 1 %}
   <nav class="pagination" aria-label="Pages">
     {% if page.has_prev %}
-      <a class="button secondary sm" href="?page={{ page.prev_num }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">&larr; Prev</a>
+      <a class="button secondary sm" href="?page={{ page.prev_num }}&{{ filter_qs }}">&larr; Prev</a>
     {% endif %}
     <span class="muted"><small>Page {{ page.page }} of {{ page.pages }}</small></span>
     {% if page.has_next %}
-      <a class="button secondary sm" href="?page={{ page.next_num }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">Next &rarr;</a>
+      <a class="button secondary sm" href="?page={{ page.next_num }}&{{ filter_qs }}">Next &rarr;</a>
     {% endif %}
   </nav>
   {% endif %}
 </div>
+
+{% if sink_status %}
+<div class="card">
+  <p class="muted"><small>Structured output (this process):
+    {{ sink_status.written }} written · {{ sink_status.dropped }} dropped
+    · {{ sink_status.rotated }} rotations
+    {% if sink_status.last_error %}· last error:
+      <code>{{ sink_status.last_error }}</code>{% endif %}
+    {% if sink_status.last_write_at %}· last write
+      {{ sink_status.last_write_at }}{% endif %}
+    — counters are per-process; file delivery is best-effort, the
+    database is authoritative.</small></p>
+</div>
+{% endif %}
 
 <script src="{{ url_for('static', filename='js/operational_logs.js') }}" defer
         data-url="{{ url_for('system.operational_logs_tail') }}"></script>

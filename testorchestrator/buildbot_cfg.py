@@ -49,6 +49,28 @@ def artifacts_dir() -> Path:
     return home() / "artifacts"
 
 
+def artifact_dir(execution_id: str) -> Path:
+    """Artifact root for one execution. Builds upload under
+    attempt-<buildnumber>/ so a buildrequest retried after worker
+    loss preserves each attempt separately — resolve the newest
+    attempt dir, falling back to the legacy flat layout for
+    executions uploaded before attempt stamping."""
+    base = artifacts_dir() / execution_id
+    try:
+        attempts = [d for d in base.iterdir()
+                    if d.is_dir() and d.name.startswith("attempt-")]
+    except OSError:
+        attempts = []
+    if attempts:
+        def _n(p):
+            try:
+                return int(p.name.split("-", 1)[1])
+            except (ValueError, IndexError):
+                return -1
+        return max(attempts, key=_n)
+    return base
+
+
 def run_specs_dir() -> Path:
     return home() / "run-specs"
 
@@ -63,9 +85,33 @@ def _write_json(path: Path, data: dict, mode: int = 0o600) -> None:
 
 # ---------- naming ----------
 
-def builder_for(runner: Runner) -> str:
-    return (f"to-ssh-{runner.id}" if runner.target_type == "ssh"
+# A (builder, worker) pair runs ONE build at a time — WorkerForBuilder
+# reports busy until the build finishes and the builddir is shared. To
+# run a runner's admitted slots truly concurrently we emit one builder
+# per slot, all bound to the same worker; each gets its own builddir.
+MAX_SLOT_BUILDERS = 8
+
+
+def slot_count(runner: Runner) -> int:
+    """Number of slot-builders emitted for this runner (>=1) — mirrors
+    dispatch.capacity_limit (min of hardware slots and licence seats),
+    bounded to keep targets.json small."""
+    try:
+        slots = int(runner.max_slots or 1)
+    except (TypeError, ValueError):
+        slots = 1
+    if runner.license_slots:
+        try:
+            slots = min(slots, int(runner.license_slots))
+        except (TypeError, ValueError):
+            pass
+    return max(1, min(slots, MAX_SLOT_BUILDERS))
+
+
+def builder_for(runner: Runner, slot: int = 0) -> str:
+    base = (f"to-ssh-{runner.id}" if runner.target_type == "ssh"
             else f"to-target-{runner.id}")
+    return base if slot <= 0 else f"{base}-s{slot + 1}"
 
 
 def worker_for(runner: Runner) -> str:
@@ -114,7 +160,8 @@ def write_targets_config(app=None) -> dict:
                                  Runner.enabled.is_(True)).all():
         if r.target_type == "buildbot-worker":
             name = ensure_worker_name(r)
-            workers[name] = {"name": name}
+            workers[name] = {"name": name,
+                             "max_builds": slot_count(r)}
             sec = _worker_secret(r)
             if sec:
                 passwords[name] = sec
@@ -123,6 +170,7 @@ def write_targets_config(app=None) -> dict:
             "builder": builder_for(r),
             "worker": worker_for(r),
             "kind": ("ssh" if r.target_type == "ssh" else "kre"),
+            "slots": slot_count(r),
             "enabled": True,
         })
     _write_json(home() / "targets.json", {
@@ -286,12 +334,44 @@ def clear_staging(execution_id: str) -> None:
             pass
 
 
+def _retry_policy(ex, posix: bool = True) -> dict:
+    """Explicit retry policy from run_config — rendered into every
+    exec spec so the worker-side prep step can enforce it. Attempt
+    attribution (bb_attempts) makes retries OBSERVABLE; these two
+    fields make them CONFIGURED:
+
+    - ``retry_enabled`` (default true): when false, a resubmitted
+      buildrequest refuses at prep — the run goes UNKNOWN for
+      reconciliation instead of relaunching.
+    - ``max_attempts`` (default 3): total launches including the
+      original — the prep counter hard-caps Buildbot's automatic
+      resubmit chain.
+
+    ``posix=False`` (Windows workers): confirmed orphan-termination is
+    not implemented there, so automatic relaunch is DISABLED
+    server-side regardless of run_config — an interrupted run goes
+    UNKNOWN for reconciliation. This cannot be overridden: a silent
+    unconditional relaunch is exactly what the policy forbids."""
+    if not posix:
+        return {"max_attempts": 1, "retry_enabled": False}
+    rc = (ex.snapshot().get("run_config") or {}) if ex is not None \
+        else {}
+    try:
+        max_attempts = int(rc.get("max_attempts") or 3)
+    except (TypeError, ValueError):
+        max_attempts = 3
+    return {"max_attempts": max(1, max_attempts),
+            "retry_enabled": bool(rc.get("retry_enabled", True))}
+
+
 def kre_exec_spec(ex, runtime, args: list,
-                  credential_file: str = "") -> dict:
+                  credential_file: str = "",
+                  posix: bool = True) -> dict:
     """Validated runner spec for local + remote worker targets — argv
     only, never a shell string and never secrets. ``credential_file``
     is a PATH: worker-local for remote targets, a portal-written 0600
-    file under staging for the controller-local worker."""
+    file under staging for the controller-local worker. ``posix=False``
+    (Windows workers) skips the pidfile wrapper — no sh there."""
     spec = {
         "executable": runtime.executable_path,
         "args": list(args),
@@ -301,6 +381,7 @@ def kre_exec_spec(ex, runtime, args: list,
         "exec_workdir": "build/src",
         # DirectoryUpload.workersrc resolves relative to the BUILDDIR.
         "report_src": "src/Reports",
+        "posix": posix,
     }
     wrapper = str(
         Path(__file__).resolve().parent.parent / "scripts"
@@ -308,6 +389,7 @@ def kre_exec_spec(ex, runtime, args: list,
     if credential_file:
         spec["credential_wrapper"] = wrapper
         spec["credential_file"] = credential_file
+    spec.update(_retry_policy(ex, posix=posix))
     return spec
 
 
@@ -322,20 +404,74 @@ def write_run_credential(execution_id: str, value: str) -> str:
     return str(path)
 
 
+def node_exec_spec(ex, executable: str, args: list,
+                   env: dict = None, deps_argv: list = None,
+                   posix: bool = True) -> dict:
+    """Validated runner spec for Node.js browser-test runtimes
+    (playwright/cypress). Same contract as kre_exec_spec — argv list
+    only, no shell, no secrets — plus an explicit env map (e.g.
+    PLAYWRIGHT_JUNIT_OUTPUT_FILE) rendered into the ShellCommand.
+    No credential wrapper: these frameworks need no TO licence key.
+    ``deps_argv`` is an optional pre-exec step (``npm ci`` — the
+    project's pinned dependencies into the isolated workspace)."""
+    spec = {
+        "executable": executable,
+        "args": list(args),
+        # tar unpacks the project to <builddir>/src — the framework
+        # CLI runs inside it (project-pinned deps via npx).
+        "exec_workdir": "build/src",
+        "report_src": "src/Reports",
+        "posix": posix,
+    }
+    if env:
+        spec["env"] = dict(env)
+    if deps_argv:
+        spec["deps_argv"] = list(deps_argv)
+    spec.update(_retry_policy(ex, posix=posix))
+    return spec
+
+
+def stage_probe_source(ex_id: str, scripts: dict) -> Path:
+    """Stage a readiness-probe run source: only the probe scripts —
+    staged under src/ like a project so the same fetch/unpack/exec
+    factory runs them under the target's account. Never installs."""
+    import tempfile
+    staging_dir().mkdir(parents=True, exist_ok=True)
+    dest = staging_dir() / f"{ex_id}.tar"
+    tmpdir = Path(tempfile.mkdtemp(prefix="bb-probe-")) / "src"
+    tmpdir.mkdir(parents=True)
+    for name, content in scripts.items():
+        (tmpdir / name).write_text(content, encoding="utf-8")
+    tmp = dest.with_suffix(".tar.tmp")
+    with tarfile.open(tmp, "w") as tar:
+        tar.add(tmpdir, arcname="src")
+    tmp.replace(dest)
+    return dest
+
+
 def ssh_exec_spec(ex, python: str, dispatcher_script: str,
                   spec_file: str) -> dict:
-    return {"python": python, "dispatcher_script": dispatcher_script,
+    spec = {"python": python, "dispatcher_script": dispatcher_script,
             "spec_file": spec_file}
+    spec.update(_retry_policy(ex))
+    return spec
 
 
 def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,
-                       credential_file: str = "") -> Path:
+                       credential_file: str = "",
+                       extra: dict = None,
+                       executable: str = None,
+                       source_tar: str = "",
+                       execution_id: str = None) -> Path:
     """Per-run dispatcher spec (0600): connection + validated runner
     argv + remote paths + the staged source archive. Key material is
-    referenced by the materialized key FILE path only."""
+    referenced by the materialized key FILE path only. ``extra``
+    carries node-runner fields (exec_subdir/env/report_rel); the
+    keyword overrides let the readiness probe reuse this writer."""
+    eid = execution_id or ex.id
     run_specs_dir().mkdir(parents=True, exist_ok=True)
     spec = {
-        "execution_id": ex.id,
+        "execution_id": eid,
         "host": runner.ssh_host,
         "port": runner.ssh_port or 22,
         "username": runner.ssh_username,
@@ -343,16 +479,17 @@ def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,
         "host_key_fingerprint": runner.ssh_host_key_fingerprint,
         "host_key_alg": runner.ssh_host_key_alg,
         "remote_workdir": (runner.ssh_workdir.rstrip("/")
-                           + "/" + ex.id),
-        "source_tar": str(staging_dir() / f"{ex.id}.tar"),
-        "executable": runtime.executable_path,
+                           + "/" + eid),
+        "source_tar": source_tar or str(staging_dir() / f"{eid}.tar"),
+        "executable": executable or runtime.executable_path,
         "args": list(args),
         "credential_file": credential_file,
         "report_rel": "Reports",
         "timeout_s": int((ex.snapshot().get("run_config") or {})
                          .get("timeout_seconds") or 3600),
     }
-    path = run_specs_dir() / f"{ex.id}.json"
+    spec.update(extra or {})
+    path = run_specs_dir() / f"{eid}.json"
     _write_json(path, spec)
     return path
 

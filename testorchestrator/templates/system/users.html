@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Users · TestOrchestrator{% endblock %}
+{% block content_class %}wide{% endblock %}
 {% block content %}
 <h1>System &rarr; Users</h1>
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -8,47 +9,97 @@
   {% endfor %}
 {% endwith %}
 
-<table class="audit-table">
-  <thead><tr><th>Username</th><th>Role</th><th>Active</th><th>Must change</th><th>Actions</th></tr></thead>
-  <tbody>
-    {% for u in users %}
-    <tr>
-      <td>{{ u.username }}</td><td>{{ u.role.label }}</td>
-      <td>{{ "yes" if u.is_active else "no" }}</td>
-      <td>{{ "yes" if u.must_change_password else "no" }}</td>
-      <td>
-        <form method="post" action="{{ url_for('system.reset_user', user_id=u.id) }}" class="inline">
-          {{ reset_form.csrf_token }}
-          <input type="password" name="temporary_password" minlength="12"
-                 placeholder="new temp password" required>
-          <button type="submit" class="button secondary">Reset</button>
-        </form>
-        {% if u.is_active %}
-        <form method="post" action="{{ url_for('system.deactivate_user', user_id=u.id) }}" class="inline">
-          {{ apply_form.csrf_token }}
-          <button type="submit" class="button secondary">Deactivate</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-
 <section class="card">
-  <h2>Create user</h2>
-  <form method="post" action="{{ url_for('system.create_user') }}">
+  <table class="audit-table users-table">
+    <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Project access</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td><strong>{{ u.username }}</strong>
+          {% if u.display_name %}<br><small class="muted">{{ u.display_name }}</small>{% endif %}</td>
+        <td><span class="badge {{ 'accent' if u.role.value == 'admin' }}">{{ u.role.label }}</span></td>
+        <td>
+          {% if u.is_active %}<span class="badge success">active</span>
+          {% else %}<span class="badge danger">disabled</span>{% endif %}
+          {% if u.must_change_password %}<span class="badge warn">must change</span>{% endif %}
+        </td>
+        <td>
+          <div class="cell-actions">
+          {% if u.role.value == "admin" %}
+            <span class="muted">All projects <small>(via role)</small></span>
+          {% elif u.assigned_project_ids() %}
+            <span class="badge">{{ u.assigned_project_ids()|length }} assigned</span>
+          {% else %}
+            <span class="badge warn">none assigned</span>
+          {% endif %}
+          <a class="button ghost sm" href="{{ url_for('system.user_access', user_id=u.id) }}">Edit</a>
+          </div>
+        </td>
+        <td>
+          <div class="cell-actions users-actions">
+          <input type="checkbox" class="reset-toggle"
+                 id="reset-{{ u.id }}" aria-label="Reset password panel">
+          <label for="reset-{{ u.id }}" class="button secondary sm">Reset</label>
+          {% if u.is_active %}
+          <form method="post" action="{{ url_for('system.deactivate_user', user_id=u.id) }}" class="inline">
+            {{ apply_form.csrf_token }}
+            <button type="submit" class="button secondary sm">Deactivate</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('system.delete_user', user_id=u.id) }}" class="inline"
+                onsubmit="return confirm('Delete user {{ u.username }}? This cannot be undone.');">
+            {{ apply_form.csrf_token }}
+            <button type="submit" class="button danger sm">Delete</button>
+          </form>
+          </div>
+        </td>
+      </tr>
+      <tr class="reset-row">
+        <td colspan="5">
+          <form method="post" class="reset-panel"
+                action="{{ url_for('system.reset_user', user_id=u.id) }}">
+            {{ reset_form.csrf_token }}
+            <strong>Reset password for {{ u.username }}</strong>
+            <input type="password" name="temporary_password"
+                   minlength="12" required
+                   placeholder="New temporary password (min. 12 chars)">
+            <button type="submit" class="button sm">Reset password</button>
+            <label for="reset-{{ u.id }}" class="button sm">Cancel</label>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<details class="add-block card">
+  <summary class="button">Create user</summary>
+  <form method="post" class="add-form" action="{{ url_for('system.create_user') }}">
     {{ form.csrf_token }}
     <div class="field">{{ form.username.label }} {{ form.username() }}</div>
     <div class="field">{{ form.display_name.label }} {{ form.display_name() }}</div>
     <fieldset class="field"><legend>{{ form.role.label }}</legend>
       {% for sub in form.role %}<div class="checkbox">{{ sub() }} {{ sub.label }}</div>{% endfor %}
     </fieldset>
+    <fieldset class="field"><legend>Project access</legend>
+      <p class="muted">Non-admin users see only assigned projects.
+         Administrators access all projects through the role.</p>
+      {% for p in projects %}
+      <div class="checkbox">
+        <input type="checkbox" name="project_ids" value="{{ p.id }}"
+               id="newproj-{{ p.id }}">
+        <label for="newproj-{{ p.id }}">{{ p.name }}</label>
+      </div>
+      {% endfor %}
+      {% if not projects %}<p class="muted">No projects exist yet.</p>{% endif %}
+    </fieldset>
     <div class="field">{{ form.temporary_password.label }} {{ form.temporary_password() }}
       <p class="muted">At least 12 characters; the user must replace it on
          first sign-in.</p>
     </div>
-    <button type="submit" class="button">Create user</button>
+    <button type="submit" class="button">Create</button>
+    <button type="button" class="button danger" data-cancel-details>Cancel</button>
   </form>
-</section>
+</details>
 {% endblock %}

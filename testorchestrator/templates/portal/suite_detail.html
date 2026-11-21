@@ -5,7 +5,8 @@
 <h1>{{ suite.name }} <small>v{{ suite.version }}</small>
   {% if can_edit and not suite.readonly %}
   <a class="button secondary sm" href="{{ url_for('portal.suite_edit', suite_id=suite.id) }}">Edit</a>
-  {% endif %}</h1>
+  {% endif %}
+  <a class="button secondary sm" href="{{ url_for('portal.suite_matrix', suite_id=suite.id) }}">History matrix</a></h1>
 <p>{{ suite.description }}</p>
 <dl class="about-facts">
   <dt>Content hash</dt><dd><code>{{ suite.content_hash[:16] }}</code></dd>
@@ -59,25 +60,48 @@
       <select name="runtime_id" id="runtime_id">
         <option value="">Auto — compatible runtime on the worker</option>
         {% for rt in runtimes %}<option value="{{ rt.id }}">{{ rt.name }}
-          — {{ rt.runner.name if rt.runner }} ({{ rt.detected_version or 'version unknown' }})</option>{% endfor %}
+          — {{ rt.runner.name if rt.runner }}{% if (rt.runtime_kind or "kre") != "kre" %} [{{ rt.runtime_kind }}]{% endif %} ({{ rt.detected_version or 'version unknown' }})</option>{% endfor %}
       </select>
       <small>Must belong to the selected worker — an incompatible
-      pairing rejects the run. Auto picks the first compatible.</small></div>
+      pairing rejects the run. Auto picks the first compatible.<br>
+      <strong>Playwright/Cypress:</strong> tests and browsers run on
+      the selected machine, not on the TestOrchestrator controller.
+      Install Node.js, the project's framework dependencies, and the
+      required browsers + system dependencies on the target. The
+      framework can be a project dependency — a global install is not
+      required, and no separate agent is needed.</small></div>
     <div class="field"><label for="timeout_seconds">Timeout (seconds)</label>
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" max="86400"
              placeholder="3600">
       <small>Running time from process launch — queue time excluded.
       Blank or 0 = 3600&nbsp;s default. No unlimited mode.</small></div>
+    <div class="field"><label for="queue_timeout_seconds">Queue deadline (seconds)</label>
+      <input type="number" name="queue_timeout_seconds" id="queue_timeout_seconds" min="0" max="86400"
+             placeholder="unlimited">
+      <small>How long the run may wait QUEUED for capacity before it
+      fails with an explicit queue reason. Blank or 0 = wait
+      indefinitely.</small></div>
     <div class="field"><label for="browser_type">Browser</label>
       <select name="browser_type" id="browser_type">
+        <optgroup label="KRE (Katalon)">
         <option>Chrome (headless)</option>
         <option>Chrome</option>
         <option>Firefox (headless)</option>
         <option>Firefox</option>
         <option>Edge</option>
         <option>Safari</option>
+        </optgroup>
+        <optgroup label="Playwright (--project) / Cypress (--browser)">
+        <option value="">framework default</option>
+        <option value="chromium">chromium</option>
+        <option value="firefox">firefox</option>
+        <option value="webkit">webkit (Playwright)</option>
+        <option value="chrome">chrome (Cypress)</option>
+        <option value="edge">edge (Cypress)</option>
+        <option value="electron">electron (Cypress)</option>
+        </optgroup>
       </select>
-      <small>Runs on the <em>KRE host</em> — ignored when a Remote
+      <small>KRE: runs on the <em>KRE host</em> — ignored when a Remote
       WebDriver URL is set below (the grid node's browser comes from
       the KRE project's desired capabilities, not this field).</small></div>
     <div class="field"><label for="remote_webdriver_url">Remote WebDriver URL (optional)</label>
@@ -94,6 +118,20 @@
       project's desired capabilities, not here.</small></div>
     <div class="field"><label for="kre_retry">KRE retry (0–3, version-gated)</label>
       <input type="number" name="kre_retry" id="kre_retry" min="0" max="3" value="0"></div>
+    <div class="field"><label for="retry_enabled">Interruption retry</label>
+      <input type="hidden" name="retry_enabled" value="0">
+      <label><input type="checkbox" name="retry_enabled" id="retry_enabled" checked>
+      relaunch after a worker interruption</label>
+      <input type="number" name="max_attempts" id="max_attempts" min="1" max="10"
+             value="3" title="max attempts including the first launch">
+      <small>Attempts including the first launch (1–10). <b>A retry repeats
+      the whole run</b> — stopping an interrupted attempt cannot undo test
+      actions already performed, and the relaunch may repeat external side
+      effects (deploys, notifications, data changes). Disable for
+      non-idempotent suites: an interrupted run then goes UNKNOWN for
+      operator reconciliation instead of silently relaunching. POSIX
+      workers confirm the prior attempt's process is terminated before
+      relaunch; Windows workers never auto-relaunch.</small></div>
     <button type="submit" class="button">Run suite</button>
   </form>
 </section>

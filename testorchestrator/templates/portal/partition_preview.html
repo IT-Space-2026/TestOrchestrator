@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Partition preview · TestOrchestrator{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.discovered_detail', item_id=item.id) }}">← Back</a></p>
+<h1>Partition preview — {{ item.path }}</h1>
+<p>Runtime <b>{{ runtime.name }}</b> ({{ runtime.runtime_kind }}).
+{{ units|length }} unit{{ 's' if units|length != 1 }}; units dispatch
+independently and queue against the target's capacity.</p>
+<table class="audit-table">
+  <tr><th>Unit</th><th>Assignment</th></tr>
+  {% for u in units %}
+  <tr><td>{{ u.key }}</td>
+      <td>{% if u.specs %}{{ u.specs|join(', ') }}{% else %}shard {{ u.shard }}{% endif %}</td></tr>
+  {% endfor %}
+</table>
+<form method="post" action="{{ url_for('portal.partition_discovered', item_id=item.id) }}">
+  {{ plain_form.csrf_token }}
+  <input type="hidden" name="mode" value="run">
+  {% for k in ['runtime_id','runner_id','browser_type','timeout_seconds','queue_timeout_seconds','unit_count','spec_pattern','exclude_pattern','selected_specs','release_id'] %}
+  <input type="hidden" name="{{ k }}" value="{{ form.get(k,'') }}">
+  {% endfor %}
+  <button class="button" type="submit">Queue this partition run</button>
+</form>
+{% endblock %}

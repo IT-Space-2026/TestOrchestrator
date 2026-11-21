@@ -8,6 +8,7 @@ from testorchestrator.execution import (Execution, ExecutionState,
                                         GitBinding, ImportSession,
                                         Outcome, Project, TestResult)
 from testorchestrator.extensions import db
+from testorchestrator.models import User
 from types import SimpleNamespace
 
 from tests.git_helpers import bare_repo, clone, seed_repo
@@ -371,6 +372,12 @@ def test_import_routes_require_auth_and_role(client, tmp_path, app):
     files = {f"Reports/20261110_093000/{k}": v
              for k, v in kre_run().items()}
     pid, bid = make_binding(tmp_path, app, files, "perm")
+    # project membership is required in addition to role (§access)
+    with app.app_context():
+        for uname in ("po", "test_manager"):
+            u = User.query.filter_by(username=uname).first()
+            u.set_assigned_projects([pid])
+        db.session.commit()
     # PO cannot preview
     login(client, "po")
     r = client.get(f"/projects/{pid}/imports/new")
@@ -392,6 +399,10 @@ def test_imported_execution_visible_in_history(client, tmp_path, app):
              for k, v in kre_run().items()}
     pid, bid = make_binding(tmp_path, app, files, "hist")
     confirm(app, preview(app, pid, bid))
+    with app.app_context():
+        u = User.query.filter_by(username="po").first()
+        u.set_assigned_projects([pid])
+        db.session.commit()
     login(client, "po")
     r = client.get(f"/executions?project_id={pid}&origin=imported")
     assert r.status_code == 200 and b"imported" in r.data

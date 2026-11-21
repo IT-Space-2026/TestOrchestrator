@@ -106,11 +106,14 @@ def create_app(config_object=Config) -> Flask:
     from .main import main_bp
     from .system import system_bp
     from .portal import portal_bp
+    from .api import api_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(system_bp)
     app.register_blueprint(portal_bp)
+    app.register_blueprint(api_bp)
+    csrf.exempt(api_bp)
     from .system.setup_routes import setup_bp
     app.register_blueprint(setup_bp)
 
@@ -136,6 +139,16 @@ def create_app(config_object=Config) -> Flask:
     from .bootstrap import install_gates
 
     install_gates(app)
+
+    # Log-export temp files from a previous life: mark stale jobs and
+    # remove their files + orphaned .part fragments at startup, so a
+    # crashed writer never leaves protected exports lying around.
+    try:
+        with app.app_context():
+            from . import logexport
+            logexport.purge_expired()
+    except Exception:
+        pass  # pre-migration DBs — next request retries anyway
 
     # ---- licence status (informational only) ----
     # The application licence is NOT an enforcement gate: every route and
@@ -405,6 +418,26 @@ def register_cli(app: Flask) -> None:
                 raise click.ClickException(
                     f"Buildbot health check failed: {exc}")
             click.echo(f"health: masters={info.get('masters')}")
+
+    @app.cli.command("diag")
+    @click.option("--root", default="",
+                  help="install root to compare payload tree against "
+                       "(default: cwd)")
+    def diag(root):
+        """Deployed-revision diagnostic: the exact code this process
+        imported vs the payload tree deploys write to. Catches the
+        stale-tree mismatch where a deployment is a no-op for the
+        running services — run this before recording acceptance
+        evidence."""
+        import json as _json
+        from . import deploy_info
+        info = deploy_info.diagnose(Path(root) if root else None)
+        click.echo(_json.dumps(info, indent=2))
+        if info["mismatch"]:
+            raise click.ClickException(
+                "deployed-revision mismatch — running code is NOT the "
+                "payload tree; sync both trees and restart before "
+                "recording evidence")
 
     @app.cli.command("network-rollback")
     def network_rollback():

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Project access · {{ u.username }}{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('system.users') }}">← Users</a></p>
+<h1>Project access — {{ u.username }}</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+<dl class="about-facts">
+  <dt>Role</dt><dd>{{ u.role.label }}</dd>
+  <dt>Status</dt><dd>{{ "active" if u.is_active else "deactivated" }}</dd>
+</dl>
+{% if u.role.value == "admin" %}
+<section class="card">
+  <p><b>All projects through Administrator role.</b> Assignment is
+     not required and cannot be denied for this user — there are no
+     checkboxes to show.</p>
+</section>
+{% else %}
+<section class="card">
+  <p>Access = <b>role permits the action</b> AND <b>user is assigned
+     to the owning project</b>. Membership never grants capabilities
+     beyond {{ u.role.label }} — it only scopes visibility.</p>
+  <form method="post" action="{{ url_for('system.save_user_access', user_id=u.id) }}">
+    {{ apply_form.csrf_token }}
+    <div class="field">
+      <input type="search" id="proj-filter" placeholder="filter projects…"
+             oninput="document.querySelectorAll('.proj-row').forEach(
+               r => r.style.display = r.dataset.name.includes(
+                 this.value.toLowerCase()) ? '' : 'none')">
+      <button type="button" class="button secondary sm"
+        onclick="document.querySelectorAll('.proj-cb').forEach(c => c.checked = true)">Select all</button>
+      <button type="button" class="button secondary sm"
+        onclick="document.querySelectorAll('.proj-cb').forEach(c => c.checked = false)">Clear</button>
+    </div>
+    <table class="audit-table">
+      <thead><tr><th>Assigned</th><th>Project</th></tr></thead>
+      <tbody>
+        {% for p in projects %}
+        <tr class="proj-row" data-name="{{ p.name.lower() }}">
+          <td><input type="checkbox" class="proj-cb" name="project_ids"
+                     value="{{ p.id }}"
+                     {% if p.id in assigned %}checked{% endif %}></td>
+          <td>{{ p.name }}</td>
+        </tr>
+        {% endfor %}
+        {% if not projects %}
+        <tr><td colspan="2" class="muted">No projects exist yet.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+    <button type="submit" class="button">Save project access</button>
+  </form>
+  {% if not assigned %}
+  <p class="flash flash-info">No projects assigned — this user sees
+     an empty scope everywhere.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

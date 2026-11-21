@@ -7,7 +7,8 @@ audited without secrets, and recoverable via previous_good_config.
 import os
 import re
 import sys
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
 
 from flask import (Response, abort, current_app, flash, redirect,
                    render_template, request, send_file, url_for)
@@ -308,11 +309,133 @@ def reporting_page():
 @system_bp.route("/integrations")
 @role_required(Role.ADMIN)
 def integrations_page():
-    """Subsystem-separated integration config (Git evidence export).
-    Each section is its own labelled card; secrets are referenced by
-    name only."""
-    return render_template("system/integrations.html",
-                           settings=settings_mod.all_settings())
+    """Subsystem-separated integration config (Git evidence export,
+    CI API tokens, webhook endpoints). Each section is its own
+    labelled card; secrets are referenced by name only."""
+    from ..execution import ApiToken, Project, WebhookEndpoint
+    return render_template(
+        "system/integrations.html",
+        settings=settings_mod.all_settings(),
+        api_tokens=ApiToken.query.order_by(ApiToken.created_at).all(),
+        webhooks=WebhookEndpoint.query.order_by(
+            WebhookEndpoint.created_at).all(),
+        projects=Project.query.order_by(Project.name).all())
+
+
+@system_bp.route("/integrations/tokens", methods=["POST"])
+@role_required(Role.ADMIN)
+def create_api_token():
+    """Mint a CI bearer credential. The plaintext token is shown ONCE
+    via flash — only its SHA-256 is stored; loss means re-mint."""
+    import hashlib
+    import json as _json
+    import secrets as _secrets
+    from ..execution import ApiToken
+    name = (request.form.get("name") or "").strip()
+    scope = request.form.get("scope") or "read"
+    if not name or scope not in ("read", "run"):
+        flash("Token name and a valid scope (read|run) are required.",
+              "error")
+        return redirect(url_for("system.integrations_page"))
+    projects = _json.dumps(request.form.getlist("project_ids"))
+    token = "to_" + _secrets.token_hex(24)
+    row = ApiToken(name=name, scope=scope, allowed_projects=projects,
+                   token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                   created_by=current_user.username)
+    db.session.add(row)
+    db.session.commit()
+    record_audit(current_user.username, "api.token.created",
+                 f"{name} scope={scope}")
+    flash(f"API token for {name!r} — store it now, it will not be "
+          f"shown again: {token}", "info")
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/tokens/<token_id>/revoke",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def revoke_api_token(token_id):
+    from ..execution import ApiToken, utcnow
+    row = db.session.get(ApiToken, token_id)
+    if row is None:
+        abort(404)
+    if row.revoked_at is None:
+        row.revoked_at = utcnow()
+        db.session.commit()
+        record_audit(current_user.username, "api.token.revoked", row.name)
+        flash(f"Token {row.name!r} revoked.", "info")
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/webhooks", methods=["POST"])
+@role_required(Role.ADMIN)
+def create_webhook():
+    """Subscribe a URL to execution-state notifications. The optional
+    HMAC key is generated into the encrypted secret store — the
+    endpoint row only references its name."""
+    import json as _json
+    import secrets as _secrets
+    from ..execution import WebhookEndpoint
+    from .. import secrets_store
+    name = (request.form.get("name") or "").strip()
+    url = (request.form.get("url") or "").strip()
+    events = ",".join(e.strip().lower() for e in
+                      (request.form.get("events") or "").split(",")
+                      if e.strip()) or "completed,failed,canceled"
+    if not name or not url.startswith(("http://", "https://")):
+        flash("Webhook name and an http(s) URL are required.", "error")
+        return redirect(url_for("system.integrations_page"))
+    ep = WebhookEndpoint(
+        name=name, url=url, events=events,
+        project_scope=_json.dumps(request.form.getlist("project_ids")),
+        created_by=current_user.username)
+    db.session.add(ep)
+    db.session.flush()
+    if request.form.get("sign"):
+        ref = f"webhook-{ep.id[:12]}"
+        secrets_store.store_secret(current_app, ref, "webhook",
+                                   _secrets.token_hex(32))
+        ep.secret_ref = ref
+    db.session.commit()
+    record_audit(current_user.username, "webhook.endpoint.created",
+                 f"{name} -> {url} events={events}")
+    flash(f"Webhook {name!r} created.", "info")
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/webhooks/<endpoint_id>/toggle",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def toggle_webhook(endpoint_id):
+    from ..execution import WebhookEndpoint
+    ep = db.session.get(WebhookEndpoint, endpoint_id)
+    if ep is None:
+        abort(404)
+    ep.enabled = not ep.enabled
+    db.session.commit()
+    record_audit(current_user.username,
+                 "webhook.endpoint." + ("enabled" if ep.enabled
+                                        else "disabled"), ep.name)
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/webhooks/<endpoint_id>/delete",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def delete_webhook(endpoint_id):
+    from ..execution import WebhookEndpoint
+    from .. import secrets_store
+    ep = db.session.get(WebhookEndpoint, endpoint_id)
+    if ep is None:
+        abort(404)
+    if ep.secret_ref:
+        secrets_store.delete_secret(ep.secret_ref)
+    db.session.delete(ep)
+    db.session.commit()
+    record_audit(current_user.username, "webhook.endpoint.deleted",
+                 ep.name)
+    flash(f"Webhook {ep.name!r} deleted.", "info")
+    return redirect(url_for("system.integrations_page"))
 
 
 @system_bp.route("/integrations/save", methods=["POST"])
@@ -370,12 +493,9 @@ def reporting_save():
     return redirect(url_for("system.reporting_page"))
 
 
-@system_bp.route("/logs")
-@role_required(Role.ADMIN)
-def operational_logs():
-    """Admin -> Operational Logs — structured events, filters, live
-    tail, bounded export. Separate from the Audit trail."""
-    from .. import logs
+def _op_log_filters():
+    """Current Operational Logs filters — shared by the page, pagination
+    and export so the exported scope always matches the view."""
     filters = {
         "severity": request.args.get("severity") or None,
         "component": request.args.get("component") or None,
@@ -386,17 +506,73 @@ def operational_logs():
         "correlation_id": request.args.get("corr") or None,
         "q": request.args.get("q") or None,
     }
+    for bound in ("since", "until"):
+        raw = (request.args.get(bound) or "").strip()
+        if raw:
+            try:
+                dt = datetime.fromisoformat(raw)
+                if bound == "until" and len(raw) == 10:
+                    dt = dt + timedelta(days=1)
+                filters[bound] = dt
+            except ValueError:
+                pass
+    return filters
+
+
+# Filter key -> query-string parameter name (page, pagination, export).
+_OP_FILTER_PARAMS = {
+    "severity": "severity", "component": "component",
+    "category": "category", "project_id": "project",
+    "execution_id": "execution", "worker_id": "worker",
+    "correlation_id": "corr", "q": "q",
+    "since": "since", "until": "until",
+}
+
+
+def _op_filter_qs(filters: dict) -> str:
+    from urllib.parse import urlencode
+    pairs = {}
+    for key, param in _OP_FILTER_PARAMS.items():
+        v = filters.get(key)
+        if v in (None, ""):
+            continue
+        pairs[param] = v.isoformat() if hasattr(v, "isoformat") else v
+    return urlencode(pairs)
+
+
+@system_bp.route("/logs")
+@role_required(Role.ADMIN)
+def operational_logs():
+    """Admin -> Operational Logs — structured events, filters, live
+    tail, CSV export of ALL matching rows. Separate from Audit."""
+    from .. import logs
+    filters = _op_log_filters()
     page = request.args.get("page", 1, type=int) or 1
     paged = logs.query(filters).paginate(
         page=page, per_page=50, error_out=False)
     components = [r[0] for r in
                   db.session.query(logs.OperationalLog.component)
                   .distinct()]
+    from .. import log_output
+    sink = log_output.status() if _sink_enabled() else None
     return render_template("system/operational_logs.html",
                            rows=paged.items, page=paged,
-                           filters=filters, components=components,
+                           filters=filters, filter_qs=_op_filter_qs(filters),
+                           components=components,
                            severities=logs.SEVERITIES,
-                           categories=logs.CATEGORIES)
+                           categories=logs.CATEGORIES,
+                           sink_status=sink)
+
+
+def _sink_enabled() -> bool:
+    """Is any structured-output sink configured? (health row only shows
+    when relevant — counters are per-process, see external-logging.md)"""
+    from .. import settings as _sm
+    try:
+        return bool(_sm.get("logs_json_enabled") or
+                    _sm.get("logs_stdout_enabled"))
+    except Exception:
+        return False
 
 
 @system_bp.route("/logs/tail")
@@ -431,38 +607,100 @@ def operational_logs_tail():
 @system_bp.route("/logs/export")
 @role_required(Role.ADMIN)
 def operational_logs_export():
-    """Bounded filtered export — JSONL or CSV, secrets redacted,
-    CSV-escape-safe. Export action is audited (no log content)."""
-    from .. import logs
+    """Export ALL rows matching the current filters — inline CSV/JSONL
+    when bounded, a background job for large exports. Audited with
+    filters + count (never content); nothing is silently truncated."""
+    from .. import logexport
     from ..models import record_audit
     fmt = request.args.get("format", "csv")
     if fmt not in ("csv", "jsonl"):
         fmt = "csv"
-    filters = {
-        "severity": request.args.get("severity") or None,
-        "component": request.args.get("component") or None,
-        "category": request.args.get("category") or None,
-        "q": request.args.get("q") or None,
-    }
-    rows = logs.query(filters).limit(10000).all()
-    record_audit(current_user.username, "logs.export",
-                 f"{fmt} {len(rows)} rows")
-    mime = ("application/x-ndjson" if fmt == "jsonl"
-            else "text/csv")
-    return Response(logs.export(rows, fmt),
-                    mimetype=mime,
-                    headers={"Content-Disposition":
-                             f"attachment; filename=oplog.{fmt}"})
+    filters = _op_log_filters()
+    try:
+        mode, job, count, cutoff, max_id = logexport.request_export(
+            "operational", filters, current_user.username)
+    except logexport.TooManyRowsError as exc:
+        record_audit(current_user.username, "logs.export.denied",
+                     f"operational export refused: {exc}")
+        flash(f"Export refused: {exc}. Narrow the filters.", "error")
+        return redirect(url_for("system.operational_logs",
+                                **request.args))
+    except logexport.BusyError:
+        flash("Another large export is still running — retry shortly.",
+              "error")
+        return redirect(url_for("system.operational_logs",
+                                **request.args))
+    record_audit(
+        current_user.username, "logs.export",
+        f"operational {fmt} export: {count} rows, cutoff "
+        f"{cutoff.isoformat()}, filters {json.dumps(filters, default=str)}"
+        + (f", job {job.id}" if job else ""))
+    if mode == "job":
+        return redirect(url_for("system.log_export_status",
+                                job_id=job.id))
+    fname = logexport.export_filename("operational", "inline", cutoff)
+    app = current_app._get_current_object()
+    if fmt == "jsonl":
+        return Response(
+            logexport.stream_jsonl(app, "operational", filters, cutoff,
+                                   max_id),
+            mimetype="application/x-ndjson",
+            headers={"Content-Disposition":
+                     f"attachment; filename={fname}l"})
+    return Response(
+        logexport.stream_csv(app, "operational", filters, cutoff, max_id),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition":
+                 f"attachment; filename={fname}"})
+
+
+@system_bp.route("/log-exports/<job_id>")
+@role_required(Role.ADMIN)
+def log_export_status(job_id):
+    """Export-job status — scope, count, download when ready."""
+    from .. import logexport
+    logexport.purge_expired()
+    job = logexport.get_job(job_id)
+    if job is None:
+        abort(404)
+    return render_template("system/log_export.html", job=job)
+
+
+@system_bp.route("/log-exports/<job_id>/download")
+@role_required(Role.ADMIN)
+def log_export_download(job_id):
+    """Protected download — Administrator role rechecked by the
+    decorator, job must be complete and unexpired."""
+    from .. import logexport
+    from ..models import record_audit
+    logexport.purge_expired()
+    job = logexport.get_job(job_id)
+    if job is None:
+        abort(404)
+    expires = job.expires_at
+    if expires is not None and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if job.status != "done" or expires < datetime.now(timezone.utc):
+        abort(410)
+    path = logexport.job_file(job)
+    if path is None:
+        abort(404)
+    record_audit(current_user.username, "logs.export.download",
+                 f"{job.kind} export {job.id[:8]}: {job.row_count} rows")
+    return send_file(path, mimetype="text/csv",
+                     as_attachment=True, download_name=job.file_name)
 
 
 @system_bp.route("/users")
 @role_required(Role.ADMIN)
 def users():
     from ..models import User
+    from ..execution import Project
     record_audit(current_user.username, "page.users")
     return render_template(
         "system/users.html",
         users=User.query.order_by(User.username).all(),
+        projects=Project.query.order_by(Project.name).all(),
         form=UserForm(), reset_form=ResetForm(), apply_form=ApplyForm())
 
 
@@ -483,9 +721,18 @@ def create_user():
             must_change_password=True,  # mandatory first change (§16)
         )
         user.set_password(form.temporary_password.data)
+        if user.role != Role.ADMIN:
+            from ..execution import Project
+            valid = {p.id for p in
+                     Project.query.with_entities(Project.id).all()}
+            user.set_assigned_projects(
+                {pid for pid in request.form.getlist("project_ids")
+                 if pid in valid})
         db.session.add(user)
         db.session.commit()
-        record_audit(current_user.username, "user.created", username)
+        record_audit(current_user.username, "user.created",
+                     f"{username} ({len(user.assigned_project_ids())} "
+                     "projects assigned)")
         flash(f"User {username} created; first login requires a password "
               "change.", "info")
     return redirect(url_for("system.users"))
@@ -531,6 +778,81 @@ def deactivate_user(user_id):
     db.session.commit()
     record_audit(current_user.username, "user.deactivated", user.username)
     return redirect(url_for("system.users"))
+
+
+@system_bp.route("/users/<int:user_id>/delete", methods=["POST"])
+@role_required(Role.ADMIN)
+def delete_user(user_id):
+    """Remove the account row. Executions/audit refer to usernames, not
+    user ids, so history stays intact. Guards: never your own account,
+    never the last active Admin."""
+    from ..models import User
+    ApplyForm().validate_on_submit()
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    if user.id == current_user.id:
+        flash("Cannot delete your own account.", "error")
+        return redirect(url_for("system.users"))
+    if user.role == Role.ADMIN:
+        others = User.query.filter(
+            User.role == Role.ADMIN, User.is_active, User.id != user.id
+        ).count()
+        if others == 0:
+            flash("Cannot delete the last active Admin.", "error")
+            return redirect(url_for("system.users"))
+    name = user.username
+    db.session.delete(user)
+    db.session.commit()
+    record_audit(current_user.username, "user.deleted", name)
+    flash(f"User {name} deleted.", "info")
+    return redirect(url_for("system.users"))
+
+
+@system_bp.route("/users/<int:user_id>/access")
+@role_required(Role.ADMIN)
+def user_access(user_id):
+    """Admin → Users → Edit → Project access: one user's project
+    membership, edited as a checked list. Administrators are shown
+    'all projects through role' — no ineffective deny controls."""
+    from ..models import User
+    from ..execution import Project
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    projects = Project.query.order_by(Project.name).all()
+    return render_template(
+        "system/user_access.html", u=user, projects=projects,
+        assigned=set(user.assigned_project_ids()),
+        apply_form=ApplyForm())
+
+
+@system_bp.route("/users/<int:user_id>/access", methods=["POST"])
+@role_required(Role.ADMIN)
+def save_user_access(user_id):
+    from ..models import User
+    from ..execution import Project
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    ApplyForm().validate_on_submit()
+    if user.role == Role.ADMIN:
+        flash("Administrators access all projects through the role "
+              "— nothing to assign.", "info")
+        return redirect(url_for("system.user_access", user_id=user.id))
+    before = set(user.assigned_project_ids())
+    valid = {p.id for p in Project.query.with_entities(
+        Project.id).all()}
+    after = {pid for pid in
+             request.form.getlist("project_ids") if pid in valid}
+    user.set_assigned_projects(after)
+    db.session.commit()
+    record_audit(
+        current_user.username, "user.project_access",
+        f"{user.username}: {sorted(before)} -> {sorted(after)}")
+    flash(f"Project access for {user.username} saved "
+          f"({len(after)} assigned).", "info")
+    return redirect(url_for("system.user_access", user_id=user.id))
 
 
 # ---------- credentials (§12) ----------
@@ -1085,6 +1407,11 @@ def _pb_endpoint_hints() -> list:
 
 def _render_infrastructure(runner_form, runtime_form):
     from ..execution import Runner, RuntimeConnection
+    try:
+        from .. import runner_readiness
+        runner_readiness.poll_all_pending()
+    except Exception:
+        pass  # readiness reconcile must never break the page
     from ..execution import Project
     runner_form.allowed_projects.choices = [
         (p.id, p.name) for p in Project.query.all()]
@@ -1484,7 +1811,13 @@ def create_runtime():
             os_arch="local",
             max_slots=4)
         db.session.add(_runner); db.session.flush()
-    if form.validate_on_submit():
+    _kind = (request.form.get("runtime_kind") or "kre").strip()[:16]
+    if _kind not in ("kre", "playwright", "cypress", "robot", "pytest"):
+        _kind = "kre"
+    kre_missing_path = (
+        _kind in ("kre", "robot", "pytest")
+        and not (form.executable_path.data or "").strip())
+    if form.validate_on_submit() and not kre_missing_path:
         db.session.add(RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
@@ -1498,6 +1831,7 @@ def create_runtime():
             credential_file=(form.credential_file.data or "").strip(),
 
             concurrency=form.concurrency.data or 1,
+            runtime_kind=_kind,
         ))
         db.session.commit()
         record_audit(current_user.username, "runtime.registered",
@@ -1508,6 +1842,11 @@ def create_runtime():
             for k, v in form.errors.items())
         if errs:
             flash(f"Runtime not registered — {errs}", "error")
+        if kre_missing_path:
+            flash("KRE and Robot runtimes require the executable "
+                  "path on the selected worker (KRE binary or "
+                  "Python interpreter).", "error")
+        if errs or kre_missing_path:
             from ..execution import Project as _P
             runner_form = RunnerForm()
             runner_form.allowed_projects.choices = [
@@ -1553,6 +1892,39 @@ def probe_runtime(runtime_id):
     return redirect(url_for("system.infrastructure"))
 
 
+@system_bp.route("/infrastructure/runtimes/<runtime_id>/readiness",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def runtime_readiness(runtime_id):
+    """Check runner readiness on the TARGET — submits the probe on the
+    runtime's own builder under the run account (§2.6.0-3). Installs
+    nothing, runs no tests. The result lands in last_diagnostic on the
+    next poll — the infrastructure page polls pending probes."""
+    from ..execution import RuntimeConnection
+    from .. import runner_readiness
+    ApplyForm().validate_on_submit()
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt is None:
+        abort(404)
+    if (rt.runtime_kind or "kre") == "kre" \
+            or not rt.runner or rt.runner.connection_mode == "local":
+        flash("Runner readiness applies to Playwright/Cypress/Robot "
+              "runtimes on remote targets — KRE uses the local "
+              "executable probe instead.", "error")
+        return redirect(url_for("system.infrastructure"))
+    if runner_readiness.pending(rt):
+        flash("A readiness check is already running for this "
+              "runtime.", "info")
+        return redirect(url_for("system.infrastructure"))
+    ok, msg = runner_readiness.submit(
+        rt, request.form.get("app_url", ""),
+        required_libs=request.form.get("required_libs", ""))
+    flash(f"Readiness check submitted (run {msg}) — the result "
+          "appears here once the probe completes."
+          if ok else f"Readiness check failed to submit: {msg}",
+          "info" if ok else "error")
+    record_audit(current_user.username, "runtime.readiness", rt.name)
+    return redirect(url_for("system.infrastructure"))
 
 
 @system_bp.route("/runners/<runner_id>/edit", methods=["POST"])
@@ -1576,6 +1948,9 @@ def edit_runner(runner_id):
     ms = request.form.get("max_slots")
     if ms:
         runner.max_slots = int(ms)
+    mp = request.form.get("max_procs")
+    if mp is not None:
+        runner.max_procs = int(mp) if mp.strip() else None
     ls = request.form.get("license_slots")
     if ls is not None:
         runner.license_slots = int(ls) if ls.strip() else None
@@ -1646,8 +2021,10 @@ def edit_runtime(runtime_id):
     rt.description = request.form.get("description", rt.description)
     ep = request.form.get("executable_path")
     wr = request.form.get("workspace_root")
-    probe_changed = (ep is not None and ep != rt.executable_path) or (
-        wr is not None and wr != rt.workspace_root)
+    rn = request.form.get("runner_id")
+    probe_changed = ((ep is not None and ep != rt.executable_path) or (
+        wr is not None and wr != rt.workspace_root) or (
+        rn is not None and rn != (rt.runner_id or "")))
     if ep is not None:
         rt.executable_path = ep
     if wr is not None:
@@ -1662,10 +2039,16 @@ def edit_runtime(runtime_id):
     conc = request.form.get("concurrency")
     if conc:
         rt.concurrency = int(conc)
+    if rn is not None and rn:
+        rt.runner_id = rn
     if probe_changed:
         rt.detected_version = ""
         from ..execution import utcnow
         rt.last_check_at = utcnow()
+        # Machine-readable markers are invalidated too — a stale
+        # opt_xdist/opt_pabot must never authorize a parallel run
+        # against changed interpreter/workspace/target.
+        rt.probe_json = ""
         rt.last_diagnostic = (
             "re-check required — probe-relevant config changed")
     db.session.commit()

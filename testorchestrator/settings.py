@@ -65,9 +65,22 @@ DEFAULTS = {
     "buildbot_www_port": 8010,
     # Reporting settings (Admin -> Reporting page). reporting-labs is
     # the sole enhanced backend in 2.0; native-KRE reporting always on.
-    "reportinglabs_enabled": False,
+    "reportinglabs_enabled": True,
     "logs_retention_days": 30,
     "logs_max_rows": 20000,
+    # CSV export (Admin -> Audit / Operational Logs). Exports never
+    # silently truncate — above logs_export_max_rows the request fails
+    # and the admin narrows filters. Files expire + mode 0600.
+    "logs_export_inline_max": 10000,
+    "logs_export_max_rows": 250000,
+    "logs_export_ttl_minutes": 60,
+    # Optional structured output (docs/external-logging.md) — disabled
+    # until configured; env TO_LOGS_JSON_* overrides for installers.
+    "logs_json_enabled": False,
+    "logs_json_dir": "",
+    "logs_json_max_bytes": 10485760,
+    "logs_json_max_files": 5,
+    "logs_stdout_enabled": False,
     "git_export_repo": "",
     "git_export_credential_ref": "",
     "git_export_ref": "main",

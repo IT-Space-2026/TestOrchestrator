@@ -818,6 +818,111 @@ kept as SecretRefs in the encrypted secret store — never in runner
 rows, logs, build properties, or exported configuration. Rotating or
 replacing a stored secret never reveals the current value.
 
+### 6.6 Node.js browser runtimes (Playwright / Cypress)
+
+Register **Playwright Test** or **Cypress** as a runtime kind on any
+Buildbot worker (Windows/Linux) or agentless Linux SSH target. Runs
+stage the project under `build/src` and invoke
+`npx playwright test --reporter=junit` or `npx cypress run` —
+results upload through the same Reports/ pipeline and normalize
+into TestResult rows. Cypress emits per-spec `junit-[hash].xml`
+files so later specs cannot overwrite earlier reports.
+
+**Prerequisites on the target host** (pre-provisioned — nothing is
+bundled into the packages or worker installer):
+
+- Node.js (and `npx` on PATH, or set the runtime's executable path)
+- the project's Playwright/Cypress dependencies
+- the required browsers and system dependencies — for Playwright
+  `npx playwright install --with-deps` once per host
+- a writable remote workspace (SSH targets)
+- the target's service/SSH account must be able to launch Node.js
+  and the browser and write results
+
+The framework can be a project dependency — no global install, no
+separate Playwright/Cypress agent. On SSH targets nothing is
+installed on the host beyond those prerequisites; the controller's
+dispatcher reaches it over SSH and retrieves results over SFTP.
+
+**Connectivity is not reachability.** A connected worker or a
+working SSH session proves only that the *target* is reachable —
+not that the browser on that host can reach the application under
+test. Use **Check runner readiness** on the Infrastructure page:
+it runs a probe on the same target, account and transport the real
+run uses, and reports Node.js/framework/browser versions and —
+when an application URL is supplied — whether the browser can reach
+it. Readiness installs nothing, runs no tests, and never echoes
+secrets; results persist on the runtime row (Playwright and Cypress
+are checked separately — a host can be ready for one and not the
+other). Typical failures and where to fix them:
+
+| Symptom | Where to fix |
+| --- | --- |
+| `node`/`npx` missing | Install Node.js on the **target** host |
+| framework version "not detected" | Add `playwright`/`cypress` to the project deps on the target |
+| browser launch fails | `npx playwright install` / verify browser on the target |
+| `app_url UNREACHABLE` | Network/firewall between target host and the app under test |
+| SFTP errors (SSH targets) | Enable the SFTP subsystem and a writable workdir on the host |
+
+Browsers are validated against each framework's supported set —
+Playwright: `chromium`, `firefox`, `webkit`; Cypress: `chrome`,
+`firefox`, `edge`, `electron`, `chromium`. An unsupported value
+fails the launch rather than being substituted.
+
+
+### 6.7 Robot Framework runtime
+
+Register **Robot Framework** as a runtime kind (`robot`) on any
+Buildbot worker (Windows/Linux) or agentless Linux SSH target.
+Configure the runtime's **executable path** as the target's Python
+interpreter — a venv `bin/python` (POSIX) or `Scripts\python.exe`
+(Windows) is the recommended form. Execution is pure argv
+(`python -m robot`): no Bash, no PATH, no activation scripts, and
+paths containing spaces are safe. Runs stage the project under
+`build/src` and produce `Reports/junit.xml` (shared normalizer)
+plus native `output.xml`, `log.html`, `report.html` and the console
+log — all uploaded as artifacts on pass *and* fail.
+
+**Prerequisites:** Robot Framework and the project's required
+Python libraries must be installed in the selected target's Python
+environment. Any required browsers, drivers, or external tools must
+also be available to the execution account. Tests run on the
+target, which must be able to reach the system under test and write
+reports and artifacts. No separate Robot Framework agent is
+required. There is no portal browser selector for Robot — browser
+configuration belongs to the Robot project and its libraries.
+
+Run forms expose a project-relative suite file or directory plus
+optional `--test`, `--suite`, `--include`/`--exclude` tag fields.
+Robot exit codes classify explicitly: 1–249 is the failed-test
+count, 250–252 are usage/data/configuration problems, 253 is
+interruption, 255 internal — an invalid invocation is never shown
+as ordinary test failures, and a missing `junit.xml` can never
+pass as a zero-test run. Out of scope for 2.6.0: parallel
+execution (pabot), custom listeners, keyword-level browsing.
+
+**Check runner readiness** probes — under the real execution
+account — the configured interpreter, Robot version, configured
+required-library imports, workspace write access, and application
+reachability (external tools when configured). Checks that cannot
+run report as *not checked*; nothing is installed and no tests run.
+
+**Interruption and recovery differ by transport and by what was
+lost.** On agentless SSH targets the remote run is detached
+(`run.sh`/`run.pid`): losing the SSH *session* mid-run lets the
+dispatcher reconnect, reattach to the same run, and collect its
+results — the CLI was launched exactly once in the tested scenario
+(bb:259). A Buildbot **master restart** aborts worker-side runs
+instead: the in-flight build is cancelled, the worker kills the
+running CLI, and the run is not resumed or automatically relaunched
+— partial artifacts are retained and the run requires resubmission
+(tested: bb:279, one launch). A master restart also cancels any
+in-flight SSH *dispatch step*; in that case the detached remote run
+may complete unobserved and its results are abandoned (bb:278 —
+verified leaving only leftover files, no active process). Plan long
+browser runs accordingly and keep the master reachable during
+executions.
+
 
 ## 7. Security and administration
 
@@ -830,6 +935,45 @@ argon2-hashed; a session-version counter invalidates sessions on
 credential change.
 
 ![User administration](Screenshot-Doc/admin/users.png)
+
+### 7.1a Project access (membership)
+
+Authorization is **role AND membership**: a non-Administrator sees
+and may act only inside explicitly assigned projects. Administrators
+reach every project through the role — no assignment exists (or is
+needed) for them.
+
+- New non-Administrator users start with **no projects** (the Users
+  page flags `none — needs assignment`); new projects are likewise
+  unavailable to non-administrators until assigned.
+- Manage assignments from either side of the same list:
+  **Admin → Users → user → Edit (Project access)** with search,
+  select-all/clear, and the user's role displayed; or
+  **Project → Access** with the inverse user/role matrix.
+- Membership **never grants capabilities beyond the role** — a
+  Tester with project access still cannot reach admin surfaces.
+- Changes take effect on the user's **next protected request** —
+  live sessions and API tokens included; already-running tests are
+  not killed. Pending (queued-but-unlaunched) work is rechecked at
+  the dispatch boundary: if the submitter lost membership, was
+  deactivated, or the API token was revoked, the execution fails
+  with `error_kind=access` and an audit row instead of launching.
+- **Schedules created by a user keep that user's identity**: once
+  their membership is removed, pending scheduled runs block at
+  dispatch the same way — they never become anonymous system jobs.
+  An Administrator can re-own or disable the schedule.
+- User-owned API tokens cannot exceed the owner's *current* role and
+  membership: a `run`-scope token minted by a Tester keeps working
+  only while that Tester is active and assigned; the effective
+  project list is the token's scope ∩ the owner's assignments,
+  evaluated per request.
+- Every grant/revoke is audited (`user.project_access`) with actor,
+  affected user, and before/after assignment lists. Assignments are
+  part of the database and therefore included in backup/restore.
+- **Upgrade note**: users with an explicit prior project list keep
+  it; users who previously had unrestricted (empty) scope see an
+  empty scope after upgrade until an Administrator assigns
+  projects — nothing is silently re-granted.
 
 ### 7.2 Secrets **[verified]**
 
@@ -869,9 +1013,36 @@ tokens for `agent`-mode connections.
 ### 7.5 Logging and sensitive data
 
 Application logs (Admin → Operational Logs) avoid secrets by
-construction — credential values are never written to logs or
-exports. Audit events record administrative actions (logins,
+construction — credential values are redacted **before persistence**,
+so local rows, CSV exports and the optional structured output share
+the same redaction (passwords, tokens, API keys, private/signing/
+licence keys, client secrets, credentials, authorization/cookie/
+bearer values). Audit events record administrative actions (logins,
 config changes, deletions) without payloads.
+
+**CSV export** — both **Admin → Audit** and **Admin → Operational
+Logs** offer *Export CSV* covering **all records matching the current
+filters** (never just the rendered page), against a fixed UTC cutoff,
+in stable order, UTF-8 with headers and spreadsheet-formula
+protection. Exports up to `logs_export_inline_max` stream directly;
+larger ones run as background jobs with a status page and a
+time-limited (mode-0600) download that re-checks the Administrator
+role. Above `logs_export_max_rows` the request is refused — narrow
+the filters. Nothing is ever silently truncated, and every request,
+completion/failure and download is itself audited (filters, count,
+actor, export id — never exported content).
+
+**External logging** — an optional vendor-neutral JSON output feeds
+one schema-versioned NDJSON event per record to a rotating file
+(`logs_json_*` settings / `TO_LOGS_JSON_*` env) or stdout
+(`logs_stdout_enabled`), ready for a customer-managed collector.
+See `docs/external-logging.md` for the schema, rotation/retention
+bounds, delivery guarantees, and the reference OpenTelemetry
+Collector configuration (`deploy/otel-collector.example.yaml`).
+The database stays authoritative; sink failures are counted, never
+hide audit records, and never affect test dispatch. Raw framework
+stdout/stderr is not forwarded — execution output stays in the run
+evidence download.
 
 ## 8. Backup, restore, and upgrades
 
@@ -1182,8 +1353,10 @@ flags (one-time, at `install.sh`).
 | `buildbot_endpoint` | Portal → Buildbot REST URL (loopback) | `http://127.0.0.1:8010` | install-provisioned |
 | `buildbot_credential_ref` / `buildbot_username` | Credential reference (secret name) + API user — value lives in **Credentials**, not here | `buildbot-api` / `to-api` | install-provisioned |
 | `buildbot_pb_port` | Worker-facing PB port | `9989` | install-provisioned |
-| `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `false` | **Reporting** |
+| `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `true` | **Reporting** |
 | `logs_retention_days` / `logs_max_rows` | Operational-log pruning bounds | `30` / `20000` | **Reporting** / logs |
+| `logs_export_inline_max` / `logs_export_max_rows` / `logs_export_ttl_minutes` | CSV export: stream-vs-job threshold, hard cap (refused beyond), temp-file lifetime | `10000` / `250000` / `60` | **System** / logs |
+| `logs_json_enabled` / `logs_json_dir` / `logs_json_max_bytes` / `logs_json_max_files` / `logs_stdout_enabled` | Optional structured NDJSON output for external collectors — off until configured | `false` / `""` / `10485760` / `5` / `false` | env `TO_LOGS_JSON_*` / settings |
 | `git_export_repo` / `git_export_credential_ref` / `git_export_ref` | Optional evidence-export target repo + credential ref + branch | `""` / `""` / `main` | **Reporting** |
 
 Unknown keys are rejected (`KeyError`), upgrades never reset these,
@@ -1333,6 +1506,49 @@ restore; export publishes selected evidence to a repo; pruning
 Not implemented: automatic worker updates, auto-drain on version
 mismatch, re-dispatch of `UNKNOWN` executions — each is a manual,
 audited decision by design.
+
+### 18.1 Retry policy after worker loss
+
+When a worker connection drops mid-run, Buildbot resubmits the
+buildrequest automatically — TestOrchestrator does not allow an
+uncontrolled relaunch. Before any retry build runs, the `prep` step:
+
+1. **Counts the attempt** in a per-execution ledger
+   (`.to_exec_attempt_<id>` in the builddir) and enforces the
+   configured policy — `retry_enabled` (default true) and
+   `max_attempts` (default 3, counting the original launch), settable
+   per run in `run_config`.
+2. **Resolves the prior attempt**: the recorded exec pid is checked
+   against `TO_EXEC_ID` in `/proc/<pid>/environ`. A matching orphan is
+   terminated and its death is **confirmed** (procfs gone) before the
+   build proceeds. A live pid whose marker mismatches or is
+   unreadable blocks the build — no relaunch while the original
+   attempt's liveness is unresolved.
+3. **Blocks** with `TO_RETRY_BLOCKED` (exit 70) on any violation:
+   the execution becomes `UNKNOWN`, keeps its reservations, and
+   appears on the **Reconciliation** queue — never a silent relaunch,
+   never a freed slot.
+
+**Warning — retries can repeat side effects.** Stopping an
+interrupted attempt cannot undo test actions it already performed
+(releases created, emails sent, records written, external systems
+mutated). A retried run may execute some or all of those actions
+again. For suites with non-idempotent side effects, set
+`retry_enabled: false` in the run configuration — an interrupted
+attempt then always lands on Reconciliation for a human decision
+rather than re-running automatically.
+
+**Windows workers never auto-relaunch.** Confirmed-termination of an
+orphaned prior attempt cannot be implemented safely on Windows (no
+`/proc` environ contract), so automatic retry is *disabled* there by
+policy — enforced twice: the exec spec forces
+`retry_enabled=false / max_attempts=1` regardless of run_config, and
+the Windows `prep` step (PowerShell attempt counter,
+`.to_exec_attempt_<id>`) exits 70 with `TO_RETRY_BLOCKED` on ANY
+attempt > 1. An interrupted Windows run therefore becomes `UNKNOWN`
+with reservations held — reconcile it in the portal; the interrupted
+process may need manual termination on the worker host. This is a
+deliberate fail-closed choice, not a missing feature.
 
 ## 19. Credential and certificate lifecycle
 

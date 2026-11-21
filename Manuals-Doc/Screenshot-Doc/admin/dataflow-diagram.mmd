@@ -3,7 +3,7 @@ flowchart LR
         U["End user / administrator<br/>web browser"]
         GIT["Git repository<br/>suite sources"]
         KLS["Katalon licence service<br/>(optional, KRE activation)"]
-        SSHH["Agentless SSH host<br/>sshd + KRE + run dir"]
+        SSHH["Agentless SSH host<br/>sshd + KRE or Node.js<br/>+ browser + run dir<br/>(no agent installed)"]
     end
 
     subgraph PH["Portal host"]
@@ -27,8 +27,11 @@ flowchart LR
     subgraph WH["Remote worker host"]
         WKR["buildbot-worker<br/>(offline installer)"]
         KRE["KRE runtime<br/>katalonc subprocess"]
+        NODE["Node.js runtime<br/>npx playwright test /<br/>npx cypress run"]
+        ROB["Python runtime<br/>python -m robot"]
+        BRW["target-local browser<br/>Chromium · Firefox ·<br/>WebKit · Electron"]
         WWS["job workspace +<br/>worker credential file"]
-        OUT["Katalon Reports/<br/>test output"]
+        OUT["Katalon Reports/ +<br/>JUnit · traces ·<br/>screenshots · videos"]
     end
 
     U -->|"① HTTPS :443"| CHR
@@ -39,14 +42,19 @@ flowchart LR
     BBM -->|"⑥ assign to builder's worker"| BBL
     WKR -->|"⑦ outbound PB +<br/>worker password"| BBM
     BBM -->|"⑧ run step commands<br/>(local or remote)"| BBL
-    BBL -->|"⑨ spawn katalonc"| KRE
+    BBL -->|"⑨ spawn katalonc / npm ci +<br/>npx --no-install CLI"| KRE
+    BBL --> NODE
+    BBL --> ROB
     KRE -.->|"⑩ optional licence activation"| KLS
-    KRE -->|"⑪ writes"| OUT
-    BBL -->|"⑫ upload artifacts<br/>(junit, logs)"| BBM
-    BBS -->|"⑬ SSH exec launch/monitor<br/>+ SFTP collect"| SSHH
+    NODE -->|"⑪ launch under<br/>worker account"| BRW
+    KRE -->|"⑫ writes"| OUT
+    NODE --> OUT
+    ROB --> OUT
+    BBL -->|"⑬ upload artifacts<br/>(junit, logs, trace, video)"| BBM
+    BBS -->|"⑭ SSH exec launch/monitor<br/>+ SFTP collect<br/>(npx run on host, no agent)"| SSHH
     SSHH --> BBS
-    APP -->|"⑭ REST poll state, reconcile<br/>download artifacts"| BBM
-    APP -->|"⑮ normalize results +<br/>store evidence"| EV
+    APP -->|"⑮ REST poll state, reconcile<br/>download artifacts"| BBM
+    APP -->|"⑯ normalize JUnit → case rows<br/>+ store evidence"| EV
     APP -->|"⑯ generate report"| RLAB
     RLAB --> GEN
     APP -->|"⑰ clone/fetch<br/>SSH or HTTPS + stored credential"| GIT
@@ -55,6 +63,7 @@ flowchart LR
     APP -.->|"⑳ pages, status, logs, reports,<br/>evidence links"| CHR
     APP --> KEY
     KRE --> WWS
+    NODE --> WWS
 
     classDef actor fill:#dbeafe,stroke:#1e40af,color:#0f172a
     classDef proc fill:#f1f5f9,stroke:#334155,color:#0f172a
@@ -63,4 +72,4 @@ flowchart LR
     class U,GIT,KLS,SSHH actor
     class CHR,APP,BBM,BBL,BBS,RLAB proc
     class DB,EV,WS,STG,GEN,KEY store
-    class WKR,KRE,OUT,WWS worker
+    class WKR,KRE,NODE,ROB,BRW,OUT,WWS worker

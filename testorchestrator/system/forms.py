@@ -170,7 +170,7 @@ class RuntimeForm(FlaskForm):
     runner_id = StringField("Worker", validators=[DataRequired()])
     executable_path = StringField(
         "KRE path on the selected worker",
-        validators=[DataRequired(), Length(max=512)],
+        validators=[Optional(), Length(max=512)],
     )
     git_ssh_key_path = StringField(
         "Worker-side SSH key path (for ssh:// bindings)",

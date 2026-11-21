@@ -26,6 +26,7 @@
 </section>
 {% endif %}
 {% endblock %}
+{% block content_class %}content-wide{% endblock %}
 {% block content %}
 <p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=ex.project_id) }}">← Back to project</a></p>
 <h1>Execution <code>{{ ex.id[:8] }}</code></h1>
@@ -39,6 +40,9 @@
   <dt>Suite</dt><dd>{{ ex.snapshot().get('suite_name') }} (v{{ ex.snapshot().get('suite_version') }})</dd>
   <dt>Source SHA</dt><dd><code>{{ ex.source_sha or "—" }}</code></dd>
   <dt>State</dt><dd><strong>{{ ex.state.value }}</strong></dd>
+  {% if ex.wait_reason %}
+  <dt>Waiting because</dt><dd>{{ ex.wait_reason }}</dd>
+  {% endif %}
   <dt>Outcome</dt><dd>{{ ex.outcome.value }}</dd>
   <dt>Orchestrator run</dt><dd><code>{{ ex.dispatch_id or "—" }}</code></dd>
   {% if ex.snapshot().get('attempt', 1) > 1 or ex.snapshot().get('retry_of') %}
@@ -61,6 +65,11 @@
   <dt>Timeout</dt><dd>{{ rc.timeout_seconds }}s (running time from
     process launch)</dd>
   {% endif %}
+  <dt>Retry policy</dt><dd>
+    {% if rc.get('retry_enabled', True) %}enabled — up to
+    {{ rc.get('max_attempts') or 3 }} attempt(s) total after a confirmed
+    worker interruption{% else %}disabled — an interrupted attempt goes
+    UNKNOWN for reconciliation, no automatic relaunch{% endif %}</dd>
   <dt>Started</dt><dd>{{ ex.started_at or "—" }}</dd>
   <dt>Finished</dt><dd>{{ ex.finished_at or "—" }}</dd>
   <dt>Exit status</dt><dd>{{ ex.exit_status if ex.exit_status is not none else "—" }}</dd>
@@ -84,6 +93,37 @@
   {% endif %}
 </dl>
 
+{% if parent %}
+<section class="card">
+  <p>Unit of run <a href="{{ url_for('portal.execution_detail', execution_id=parent.id) }}"><code>{{ parent.id[:8] }}</code></a>
+     — assignment <b>{{ ex.unit_key }}</b>.</p>
+</section>
+{% endif %}
+{% if units %}
+<section class="card">
+  <h2>Unit run — {{ units|length }} units</h2>
+  <p>Requested concurrency {{ units|length }}; actual concurrent
+     units now: <b>{{ actual_concurrency }}</b>. Units marked queued
+     are waiting for a capacity slot on their target.</p>
+  <table class="audit-table">
+    <tr><th>Unit</th><th>State</th><th>Outcome</th><th>Target</th>
+        <th>Started</th><th>Finished</th><th></th></tr>
+    {% for u in units %}
+    <tr>
+      <td>{{ u.unit_key }}</td>
+      <td><span class="badge">{{ u.state.value }}</span>
+          {% if u.state.value == "queued" %}
+          <br><small>queued — capacity slot not yet free</small>{% endif %}</td>
+      <td>{{ u.outcome.value }}</td>
+      <td>{{ u.runner.name if u.runner else "—" }}</td>
+      <td>{{ u.started_at or "—" }}</td>
+      <td>{{ u.finished_at or "—" }}</td>
+      <td><a href="{{ url_for('portal.execution_detail', execution_id=u.id) }}">detail</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
 {% if ex.state.value not in ("completed", "failed", "canceled")
    and ex.origin != "imported"
    and current_user.role.value != "po" %}

@@ -47,7 +47,11 @@ class User(UserMixin, db.Model):
     # Bumped on Admin reset/deactivate — sessions carrying an older version
     # are invalidated at load time (reset revokes sessions).
     session_version = db.Column(db.Integer, nullable=False, default=1)
-    # Server-side project scope (§16): JSON list of project IDs; empty = all.
+    # Explicit project membership (§16): JSON list of project IDs.
+    # Administrators reach every project through the role — this list
+    # is ignored for them. Every other role starts with NO projects
+    # (empty list) and sees only explicitly assigned ones; membership
+    # never grants capabilities beyond the role itself.
     allowed_projects = db.Column(db.Text, nullable=False, default="[]")
     created_at = db.Column(
         db.DateTime(timezone=True),
@@ -69,9 +73,23 @@ class User(UserMixin, db.Model):
         return self.role == Role.ADMIN
 
     def project_allowed(self, project_id: str) -> bool:
+        if self.role == Role.ADMIN:
+            return True
         import json as _json
         allowed = _json.loads(self.allowed_projects or "[]")
-        return not allowed or project_id in allowed
+        return project_id in allowed
+
+    def assigned_project_ids(self) -> list:
+        import json as _json
+        try:
+            return list(_json.loads(self.allowed_projects or "[]"))
+        except ValueError:
+            return []
+
+    def set_assigned_projects(self, project_ids) -> None:
+        import json as _json
+        self.allowed_projects = _json.dumps(
+            sorted({str(p) for p in project_ids if p}))
 
 
 class AuditEvent(db.Model):
@@ -95,5 +113,16 @@ class AuditEvent(db.Model):
 
 
 def record_audit(username: str, event: str, detail: str = "") -> None:
-    db.session.add(AuditEvent(username=username, event=event, detail=detail))
+    # Secrets are redacted before persistence — local rows, CSV exports
+    # and the optional structured output all share the same redaction.
+    from .logs import redact
+    row = AuditEvent(username=username, event=event,
+                     detail=redact(detail)[:256])
+    db.session.add(row)
     db.session.commit()
+    # Optional structured output — fail-open, never weakens the DB row.
+    try:
+        from . import log_output, logschema
+        log_output.publish(logschema.audit_event(row))
+    except Exception:
+        pass

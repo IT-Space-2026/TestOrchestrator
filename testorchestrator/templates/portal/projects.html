@@ -30,6 +30,15 @@
   </div>
 </form>
 
+{% if not cards and not q and current_user.role.value != "admin" %}
+<section class="card">
+  <h2>No projects assigned</h2>
+  <p class="muted">Your account has no project assignments yet —
+     project data, executions, and reports stay empty until an
+     Administrator grants access (Admin → Users → Project access, or
+     the project's Access page).</p>
+</section>
+{% endif %}
 {% if cards %}
 <div class="proj-grid">
   {% for c in cards %}

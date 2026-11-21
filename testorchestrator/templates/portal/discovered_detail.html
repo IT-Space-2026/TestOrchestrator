@@ -2,7 +2,8 @@
 {% block title %}{{ item.name }} · TestOrchestrator{% endblock %}
 {% block content %}
 <p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=item.project_id) }}?tab=test&subtab={{ 'collections' if item.kind == 'collection' else 'suites' }}">← Back to Test {{ 'Collections' if item.kind == 'collection' else 'Suites' }}</a></p>
-<h1>{{ item.name }} <span class="badge">{{ item.kind }}</span></h1>
+<h1>{{ item.name }} <span class="badge">{{ item.kind }}</span>
+  <a class="button secondary sm" href="{{ url_for('portal.discovered_matrix', item_id=item.id) }}">History matrix</a></h1>
 <p class="muted">Source definition — read-only inventory; does not
   import historical executions.</p>
 <p>
@@ -80,11 +81,101 @@
     <div class="field"><label for="runtime_id">Runtime</label>
       <select name="runtime_id" id="runtime_id">
         <option value="">Auto</option>
-        {% for rt in runtimes %}<option value="{{ rt.id }}">{{ rt.name }}</option>{% endfor %}
+        {% for rt in runtimes %}<option value="{{ rt.id }}">{{ rt.name }}{% if (rt.runtime_kind or "kre") != "kre" %} [{{ rt.runtime_kind }}]{% endif %}</option>{% endfor %}
+      </select>
+      <small>Playwright/Cypress run on the selected target via npx —
+      Node.js, project deps and browsers must be installed there;
+      no agent needed.</small></div>
+    <div class="field"><label for="browser_type">Browser</label>
+      <select name="browser_type" id="browser_type">
+        <optgroup label="KRE (Katalon)">
+        <option>Chrome (headless)</option>
+        <option>Chrome</option>
+        <option>Firefox (headless)</option>
+        <option>Firefox</option>
+        <option>Edge</option>
+        <option>Safari</option>
+        </optgroup>
+        <optgroup label="Playwright / Cypress">
+        <option value="">framework default</option>
+        <option value="chromium">chromium</option>
+        <option value="firefox">firefox</option>
+        <option value="webkit">webkit (Playwright)</option>
+        <option value="chrome">chrome (Cypress)</option>
+        <option value="edge">edge (Cypress)</option>
+        <option value="electron">electron (Cypress)</option>
+        </optgroup>
       </select></div>
+    <div class="field"><label for="robot_test">Robot options</label>
+      <input type="text" name="robot_test" id="robot_test" placeholder="test name (optional)" size="18">
+      <input type="text" name="robot_include" id="robot_include" placeholder="include tags, comma-sep" size="18">
+      <input type="text" name="robot_exclude" id="robot_exclude" placeholder="exclude tags, comma-sep" size="18">
+      <small>Robot Framework only — suite/test selection and tag filters. Browser is configured in the Robot project, not here.</small></div>
+    <div class="field"><label for="pytest_keyword">pytest options</label>
+      <input type="text" name="pytest_keyword" id="pytest_keyword" placeholder="-k expression (optional)" size="18">
+      <input type="text" name="pytest_markers" id="pytest_markers" placeholder="-m marker expr (optional)" size="18">
+      <small>pytest only — keyword (-k) and marker (-m) selection expressions.</small></div>
+    <div class="field"><label for="parallel_mode">Parallelism</label>
+      <select name="parallel_mode" id="parallel_mode">
+        <option value="default" selected>framework default</option>
+        <option value="sequential">force sequential</option>
+        <option value="parallel">parallel</option>
+      </select>
+      <input type="number" name="parallel" id="parallel" min="1" max="64" placeholder="N">
+      <small><b>default</b>: the framework decides (Playwright uses its
+      own worker auto-count). <b>sequential</b>: one process
+      (Playwright <code>--workers=1</code>). <b>parallel</b>:
+      Playwright <code>--workers=N</code>, pytest <code>-n=N</code>
+      (xdist), Robot Pabot <code>--processes=N</code> — the optional
+      dep must have probed <i>ok</i> on the target or dispatch is
+      rejected. Not supported for Cypress — use spec partitioning.
+      A worker count never creates shards.</small></div>
+    <div class="field"><label for="shard_index">Playwright shard</label>
+      <input type="number" name="shard_index" id="shard_index" min="1" max="64" placeholder="i" size="3"> /
+      <input type="number" name="shard_total" id="shard_total" min="1" max="64" placeholder="N" size="3">
+      <small>Both fields together, index 1..total, Playwright only —
+      each shard is a separate unit of a partitioned run.</small></div>
     <div class="field"><label for="timeout_seconds">Timeout (s)</label>
       <input type="number" name="timeout_seconds" id="timeout_seconds" min="0" placeholder="3600"></div>
+    <div class="field"><label for="queue_timeout_seconds">Queue deadline (s)</label>
+      <input type="number" name="queue_timeout_seconds" id="queue_timeout_seconds" min="0" placeholder="unlimited"></div>
+    <div class="field"><label for="retry_enabled">Interruption retry</label>
+      <input type="hidden" name="retry_enabled" value="0">
+      <label><input type="checkbox" name="retry_enabled" id="retry_enabled" checked>
+      relaunch after a worker interruption</label>
+      <input type="number" name="max_attempts" id="max_attempts" min="1" max="10"
+             value="3" title="max attempts including the first launch">
+      <small>Attempts including the first launch (1–10). <b>A retry repeats
+      the whole run</b> — stopping an interrupted attempt cannot undo test
+      actions already performed, and the relaunch may repeat external side
+      effects. Disable for non-idempotent suites: an interrupted run then
+      goes UNKNOWN for reconciliation instead of silently relaunching.
+      Windows workers never auto-relaunch.</small></div>
     <button type="submit" class="button">Run {{ item.kind }}</button>
+  </form>
+
+  <form method="post" action="{{ url_for('portal.partition_discovered', item_id=item.id) }}">
+    {{ plain_form.csrf_token }}
+    <h3>Partitioned unit run (Playwright / Cypress)</h3>
+    <div class="field"><label for="u_runtime_id">Runtime</label>
+      <select name="runtime_id" id="u_runtime_id">
+        {% for r in runtimes %}{% if r.runtime_kind in ("playwright","cypress") %}
+        <option value="{{ r.id }}">{{ r.name }} [{{ r.runtime_kind }}]</option>{% endif %}{% endfor %}
+      </select></div>
+    <div class="field"><label for="u_runner_id">Target</label>
+      <select name="runner_id" id="u_runner_id">
+        <option value="">Auto</option>
+        {% for r in workers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="unit_count">Units</label>
+      <input type="number" name="unit_count" id="unit_count" min="2" max="64" required>
+      <small>Playwright: N shards. Cypress: N spec partitions —
+      preview resolves the spec manifest first.</small></div>
+    <div class="field"><label for="spec_pattern">Cypress spec pattern</label>
+      <input type="text" name="spec_pattern" id="spec_pattern" placeholder="cypress/e2e/**/*.cy.*" size="30">
+      <input type="text" name="exclude_pattern" id="exclude_pattern" placeholder="exclude globs, comma-sep" size="24"></div>
+    <button type="submit" name="mode" value="preview" class="button secondary">Preview partition</button>
+    <button type="submit" name="mode" value="run" class="button">Queue partition run</button>
   </form>
 </section>
 {% endif %}
