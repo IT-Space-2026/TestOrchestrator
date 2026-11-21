@@ -1,7 +1,5 @@
 # Changelog
 
-Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-
 ## [Unreleased] — 2.6.0 (draft)
 
 Feature release — Playwright Test, headless Cypress E2E and Robot
