@@ -1201,3 +1201,18 @@ details.adv-card ul { margin-top: .6rem; }
 .credit-links a { color: var(--accent); text-decoration: none;
   font-weight: 500; }
 .credit-links a:hover { text-decoration: underline; }
+/* credentials table — same treatment as .users-table */
+.secrets-table { border-collapse: separate; border-spacing: 0; }
+.secrets-table thead th { background: rgba(26,86,219,.06);
+  color: var(--accent); font-size: .78rem; text-transform: uppercase;
+  letter-spacing: .04em; border-bottom: 2px solid var(--accent);
+  padding: .6rem .7rem; }
+.secrets-table tbody td { padding: .55rem .7rem;
+  border-bottom: 1px solid var(--border); }
+.secrets-table tbody tr:hover td { background: rgba(26,86,219,.04); }
+.secrets-table .actions-head { text-align: right; }
+.secrets-table .cell-actions { justify-content: flex-end; }
+@media (prefers-color-scheme: dark) {
+  .secrets-table thead th { background: rgba(91,157,255,.09); }
+  .secrets-table tbody tr:hover td { background: rgba(91,157,255,.06); }
+}
