@@ -138,7 +138,8 @@ def _md_to_html(text: str) -> str:
     from markupsafe import escape
     if not text:
         return ""
-    out, in_list = [], False
+    out, in_list, para, li = [], False, [], None
+
     def _inline(line: str) -> str:
         line = re.sub(r"`([^`]+)`", r"<code>\1</code>", line)
         line = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", line)
@@ -146,31 +147,57 @@ def _md_to_html(text: str) -> str:
             r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
             r'<a href="\2" rel="noopener noreferrer">\1</a>', line)
         return line
+
+    def _flush_li():
+        nonlocal li
+        if li is not None:
+            out.append(f"<li>{_inline(li)}</li>")
+            li = None
+
+    def _flush_para():
+        nonlocal para
+        if para:
+            out.append(f"<p>{_inline(' '.join(para))}</p>")
+            para = []
+
+    def _flush_list():
+        nonlocal in_list
+        if in_list:
+            out.append("</ul>")
+            in_list = False
+
     for raw in text.splitlines():
         line = escape(raw)
+        if not line.strip():
+            _flush_li(); _flush_para(); _flush_list()
+            continue
         m = re.match(r"^(#{1,3})\s+(.*)", line)
         if m:
-            if in_list:
-                out.append("</ul>"); in_list = False
+            _flush_li(); _flush_para(); _flush_list()
             lvl = len(m.group(1)) + 1
             out.append(f"<h{lvl}>{_inline(m.group(2))}</h{lvl}>")
-        elif re.match(r"^---+\s*$", line):
-            if in_list:
-                out.append("</ul>"); in_list = False
+            continue
+        if re.match(r"^---+\s*$", line):
+            _flush_li(); _flush_para(); _flush_list()
             out.append("<hr>")
-        elif re.match(r"^\s*[-*]\s+(.*)", line):
+            continue
+        bm = re.match(r"^\s*[-*]\s+(.*)", line)
+        if bm:
+            _flush_li(); _flush_para()
             if not in_list:
                 out.append("<ul>"); in_list = True
-            out.append(f"<li>{_inline(re.match(r'^\s*[-*]\s+(.*)', line).group(1))}</li>")
-        elif not line.strip():
-            if in_list:
-                out.append("</ul>"); in_list = False
+            li = bm.group(1).strip()
+            continue
+        # Continuation: soft-wrapped text joins the open bullet item if
+        # one is open, otherwise accumulates into the paragraph — a
+        # blank line (or new block) is what ends either. str() keeps
+        # Markup.__radd__ from re-escaping the already-escaped left
+        # operand (& -> &amp; -> &amp;amp;).
+        if li is not None:
+            li += " " + str(line).strip()
         else:
-            if in_list:
-                out.append("</ul>"); in_list = False
-            out.append(f"<p>{_inline(line)}</p>")
-    if in_list:
-        out.append("</ul>")
+            para.append(str(line).strip())
+    _flush_li(); _flush_para(); _flush_list()
     return "".join(out)
 
 

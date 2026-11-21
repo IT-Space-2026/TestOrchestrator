@@ -674,7 +674,7 @@ a.link-card h2::after { content: " →"; }
   gap: var(--space-3); align-items: stretch;
 }
 .case-panel {
-  border: 1px solid var(--border); border-radius: var(--radius-md);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
   background: var(--panel); display: flex; flex-direction: column;
   min-height: 18rem;
 }
@@ -1046,3 +1046,45 @@ td .row-actions{min-width:9rem}
 body.modal-open{overflow:hidden}
 @media(max-width:720px){.modal-card{width:100vw;height:100vh;max-height:100vh;
   border-radius:0}}
+/* login page: company-logo mosaic background */
+.login-page::before { content: ""; position: fixed; inset: 0;
+  background: url('../branding/login-mosaic.png') repeat;
+  background-size: 285rem auto;
+  opacity: .55; pointer-events: none; }
+.login-page .login-card { position: relative; z-index: 1; }
+@media (prefers-color-scheme: dark) {
+  .login-page::before { opacity: .25; filter: invert(.92); }
+}
+/* branded hero header (changelog / licence) */
+.brand-hero { position: relative; width: 100%;
+  aspect-ratio: 1128 / 191; margin: 0 0 1.2rem;
+  display: flex; align-items: center; overflow: hidden;
+  border-radius: var(--radius-md); }
+.brand-hero::before { content: ""; position: absolute; inset: 0;
+  background: url('../branding/login-bg.png') no-repeat center;
+  background-size: 100% 100%; }
+.brand-hero h1 { position: relative; margin: 0;
+  padding: 0 1.5rem; }
+@media (prefers-color-scheme: dark) {
+  .brand-hero::before { filter: invert(1) brightness(1.4); }
+}
+.licence-add { display: flex; gap: .6rem; align-items: center; }
+.licence-add input[type=text] { flex: 1; min-width: 0; }
+/* licence page: vendor credit footer */
+.credit-footer { display: flex; align-items: center; gap: .8rem;
+  margin-top: 2rem; padding: .9rem 1.25rem;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius-md); }
+.credit-logo { width: 2.4rem; height: 2.4rem; object-fit: contain; }
+.credit-text { display: flex; flex-direction: column; line-height: 1.25; }
+.credit-label { font-size: .8rem; color: var(--muted); }
+.credit-links { margin-left: auto; display: flex; gap: 1.1rem;
+  align-items: center; }
+.credit-links a { color: var(--accent); text-decoration: none;
+  font-weight: 500; }
+.credit-links a:hover { text-decoration: underline; }
+/* settings card rows used by the licence add form */
+.settings-card { padding: 0; }
+.settings-row { display: flex; align-items: flex-start;
+  justify-content: space-between; gap: 1.5rem; padding: 1.1rem 1.25rem; }
+.settings-info { flex: 1; min-width: 0; }
