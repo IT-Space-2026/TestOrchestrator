@@ -1168,7 +1168,7 @@ details.adv-card ul { margin-top: .6rem; }
 /* login page: company-logo watermark behind the card */
 .login-page::before { content: ""; position: fixed; inset: 0;
   background: url('../branding/login-mosaic.png') repeat;
-  background-size: 52rem auto;
+  background-size: 141rem auto;
   opacity: .55; pointer-events: none; }
 .login-page .login-card { position: relative; z-index: 1; }
 @media (prefers-color-scheme: dark) {
