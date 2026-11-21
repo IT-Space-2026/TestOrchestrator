@@ -1114,3 +1114,12 @@ tr:has(.reset-toggle:checked) label.button.secondary.sm { outline: 2px solid var
 @media (prefers-color-scheme: dark) {
   .reset-panel { background: rgba(91,157,255,.08); }
 }
+/* Settings hub: Advanced card styled like the link-cards */
+details.adv-card summary { list-style: none; cursor: pointer; }
+details.adv-card summary::-webkit-details-marker { display: none; }
+details.adv-card summary h2 { color: var(--accent); }
+details.adv-card summary h2::after { content: " →"; }
+details.adv-card[open] summary h2::after { content: " ↓"; }
+details.adv-card:hover { border-color: var(--accent);
+  box-shadow: var(--shadow-md); }
+details.adv-card ul { margin-top: .6rem; }
