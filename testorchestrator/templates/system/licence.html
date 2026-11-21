@@ -34,4 +34,18 @@ Valid {{ best.valid_from[:10] }} → {{ best.valid_until[:10] }} (UTC — runs m
     </div>
   </div>
 </div>
+
+<footer class="credit-footer">
+  <img src="{{ url_for('static', filename='branding/iT-space-logo.png') }}"
+       alt="IT-Space Ltd." class="credit-logo">
+  <div class="credit-text">
+    <span class="credit-label">Created by</span>
+    <strong>IT-Space Ltd</strong>
+  </div>
+  <div class="credit-links">
+    <a href="mailto:info@it-space.info">info@it-space.info</a>
+    <a href="https://it-space.info" target="_blank"
+       rel="noopener noreferrer">it-space.info</a>
+  </div>
+</footer>
 {% endblock %}

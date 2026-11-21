@@ -1188,3 +1188,16 @@ details.adv-card ul { margin-top: .6rem; }
 }
 .licence-add { display: flex; gap: .6rem; align-items: center; }
 .licence-add input[type=text] { flex: 1; min-width: 0; }
+/* licence page: vendor credit footer */
+.credit-footer { display: flex; align-items: center; gap: .8rem;
+  margin-top: 2rem; padding: .9rem 1.25rem;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius-md); }
+.credit-logo { width: 2.4rem; height: 2.4rem; object-fit: contain; }
+.credit-text { display: flex; flex-direction: column; line-height: 1.25; }
+.credit-label { font-size: .8rem; color: var(--muted); }
+.credit-links { margin-left: auto; display: flex; gap: 1.1rem;
+  align-items: center; }
+.credit-links a { color: var(--accent); text-decoration: none;
+  font-weight: 500; }
+.credit-links a:hover { text-decoration: underline; }
