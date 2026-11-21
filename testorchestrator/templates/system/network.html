@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Network & certificates · TestOrchestrator{% endblock %}
+{% block content_class %}content wide{% endblock %}
 {% block content %}
 <h1>System &rarr; Network &amp; certificates</h1>
 
@@ -17,7 +18,8 @@
     <dt>External URL</dt>
     <dd>
       {% if links.external %}<code>{{ links.external }}</code>
-      {% else %}<span class="muted">disabled — enable below after setup completes</span>{% endif %}
+      {% else %}<span class="badge">disabled</span>
+      <span class="muted">— enable below after setup completes</span>{% endif %}
     </dd>
     <dt>HTTP redirect</dt>
     <dd>
@@ -25,8 +27,10 @@
       {% else %}<span class="muted">no HTTP listener for the external address</span>{% endif %}
     </dd>
     <dt>Setup</dt>
-    <dd>{{ "complete" if settings.setup_completed else "pending — Admin password still bootstrap" }}</dd>
-    <dt>Config version</dt><dd>v{{ settings.network_config_version }}</dd>
+    <dd>{% if settings.setup_completed %}<span class="badge success">complete</span>
+      {% else %}<span class="badge warn">pending</span>
+      <span class="muted">— Admin password still bootstrap</span>{% endif %}</dd>
+    <dt>Config version</dt><dd><span class="badge">v{{ settings.network_config_version }}</span></dd>
   </dl>
 </section>
 
@@ -47,18 +51,20 @@
   {% endif %}
   <form method="post" action="{{ url_for('system.save_address') }}">
     {{ address_form.csrf_token }}
-    <div class="field checkbox">
-      {{ address_form.external_enabled() }}
-      {{ address_form.external_enabled.label }}
+    <div class="addr-enable">
+      <label class="switch">
+        {{ address_form.external_enabled() }}
+        <span class="slider"></span>
+      </label>
+      <span>{{ address_form.external_enabled.label.text }}</span>
     </div>
     {% for c in candidates %}
-    <div class="field checkbox">
+    <label class="addr-option" for="cand-{{ loop.index }}">
       <input type="radio" name="candidate" id="cand-{{ loop.index }}"
              value="{{ c.address }}">
-      <label for="cand-{{ loop.index }}">
-        <code>{{ c.address }}</code> ({{ c.kind }}{% if c.is_private %}, private{% endif %}, {{ c.source }})
-      </label>
-    </div>
+      <code>{{ c.address }}</code>
+      <span class="muted">({{ c.kind }}{% if c.is_private %}, private{% endif %}, {{ c.source }})</span>
+    </label>
     {% endfor %}
     <div class="field">
       {{ address_form.external_host.label }} — or enter manually
@@ -68,7 +74,7 @@
       scheme). Required when external access is enabled; affects the
       generated certificate and links, applies on next save/apply.</small>
     </div>
-    <button type="submit" class="button">Save address</button>
+    <button type="submit" class="button primary">Save address</button>
   </form>
 </section>
 
@@ -83,16 +89,18 @@
   (insecure — local networks only).</p>
   <form method="post" action="{{ url_for('system.save_ports') }}">
     {{ ports_form.csrf_token }}
-    <div class="field">{{ ports_form.https_port.label }} {{ ports_form.https_port() }}</div>
-    <div class="field">{{ ports_form.http_port.label }} {{ ports_form.http_port() }}</div>
-    <div class="field">{{ ports_form.internal_app_port.label }} {{ ports_form.internal_app_port() }}</div>
+    <div class="field-grid">
+      <div class="field">{{ ports_form.https_port.label }} {{ ports_form.https_port() }}</div>
+      <div class="field">{{ ports_form.http_port.label }} {{ ports_form.http_port() }}</div>
+      <div class="field">{{ ports_form.internal_app_port.label }} {{ ports_form.internal_app_port() }}</div>
+    </div>
     <fieldset class="field">
       <legend>{{ ports_form.http_mode.label }}</legend>
       {% for sub in ports_form.http_mode %}
       <div class="checkbox">{{ sub() }} {{ sub.label }}</div>
       {% endfor %}
     </fieldset>
-    <button type="submit" class="button">Save ports</button>
+    <button type="submit" class="button primary">Save ports</button>
   </form>
 </section>
 
@@ -100,13 +108,14 @@
   <h2 id="cert-h">Certificate</h2>
   {% if cert_meta %}
   <dl class="about-facts">
-    <dt>Mode</dt><dd>{{ cert_meta.mode }}</dd>
+    <dt>Mode</dt><dd><span class="badge">{{ cert_meta.mode }}</span></dd>
     <dt>Subject</dt><dd>{{ cert_meta.subject }}</dd>
     <dt>Issuer</dt><dd>{{ cert_meta.issuer }}</dd>
     <dt>SANs</dt><dd>{{ cert_meta.sans | join(', ') }}</dd>
     <dt>Valid until</dt>
-    <dd>{{ cert_meta.not_after }}{% if cert_meta.expired %} (expired){% endif %}
-        — {{ cert_meta.days_until_expiry }} days left</dd>
+    <dd>{{ cert_meta.not_after }}
+        {% if cert_meta.expired %}<span class="badge danger">expired</span>
+        {% else %}<span class="badge success">{{ cert_meta.days_until_expiry }} days left</span>{% endif %}</dd>
     <dt>SHA-256 fingerprint</dt><dd><code class="fingerprint">{{ cert_meta.fingerprint_sha256 }}</code></dd>
   </dl>
   {% if settings.certificate_mode == "local" %}
@@ -119,48 +128,56 @@
      internal CA until you generate or import one.</p>
   {% endif %}
 
-  <h3>Generate locally</h3>
-  <form method="post" action="{{ url_for('system.generate_certificate') }}">
-    {{ generate_form.csrf_token }}
-    <div class="field">
-      {{ generate_form.san_hosts.label }}
-      {{ generate_form.san_hosts(size=6) }}
-      <p class="muted">Hold Ctrl/Cmd to select multiple. A unique per-install
-         CA signs a leaf for these SANs; clients must trust the CA.</p>
+  <div class="cert-actions">
+    <div class="cert-block">
+      <h3>Generate locally</h3>
+      <form method="post" action="{{ url_for('system.generate_certificate') }}">
+        {{ generate_form.csrf_token }}
+        <div class="field">
+          {{ generate_form.san_hosts.label }}
+          {{ generate_form.san_hosts(size=6) }}
+          <p class="muted">Hold Ctrl/Cmd to select multiple. A unique per-install
+             CA signs a leaf for these SANs; clients must trust the CA.</p>
+        </div>
+        <button type="submit" class="button">Generate local certificate</button>
+      </form>
     </div>
-    <button type="submit" class="button">Generate local certificate</button>
-  </form>
 
-  <h3>Import existing</h3>
-  <form method="post" action="{{ url_for('system.import_certificate') }}"
-        enctype="multipart/form-data">
-    {{ import_form.csrf_token }}
-    <div class="field">{{ import_form.certificate.label }} {{ import_form.certificate() }}</div>
-    <div class="field">{{ import_form.private_key.label }} {{ import_form.private_key() }}</div>
-    <div class="field">{{ import_form.intermediates.label }} {{ import_form.intermediates() }}</div>
-    <p class="muted">PEM only. The key must match the certificate; SANs must
-       cover the advertised host; the chain must be complete. Keys are stored
-       with restrictive permissions and never appear in logs or exports.
-       PKCS#12/PFX is not supported.</p>
-    <button type="submit" class="button">Validate &amp; import</button>
-  </form>
+    <div class="cert-block">
+      <h3>Import existing</h3>
+      <form method="post" action="{{ url_for('system.import_certificate') }}"
+            enctype="multipart/form-data">
+        {{ import_form.csrf_token }}
+        <div class="field">{{ import_form.certificate.label }} {{ import_form.certificate() }}</div>
+        <div class="field">{{ import_form.private_key.label }} {{ import_form.private_key() }}</div>
+        <div class="field">{{ import_form.intermediates.label }} {{ import_form.intermediates() }}</div>
+        <p class="muted">PEM only. The key must match the certificate; SANs must
+           cover the advertised host; the chain must be complete. Keys are stored
+           with restrictive permissions and never appear in logs or exports.
+           PKCS#12/PFX is not supported.</p>
+        <button type="submit" class="button">Validate &amp; import</button>
+      </form>
+    </div>
+  </div>
 </section>
 
 <section class="card" aria-labelledby="apply-h">
   <h2 id="apply-h">Apply &amp; recovery</h2>
-  <form method="post" action="{{ url_for('system.apply') }}" class="inline">
-    {{ apply_form.csrf_token }}
-    <button type="submit" class="button">Apply network configuration</button>
-  </form>
-  <form method="post" action="{{ url_for('system.rollback') }}" class="inline">
-    {{ apply_form.csrf_token }}
-    <button type="submit" class="button secondary"
-            {% if not settings.previous_good_config %}disabled{% endif %}>
-      Roll back to last known good
-    </button>
-  </form>
   <p class="muted">Listener changes take effect on the next service
      restart; certificate changes reload live. A failed apply keeps the
      current configuration.</p>
+  <div class="form-actions">
+    <form method="post" action="{{ url_for('system.apply') }}" class="inline">
+      {{ apply_form.csrf_token }}
+      <button type="submit" class="button primary">Apply network configuration</button>
+    </form>
+    <form method="post" action="{{ url_for('system.rollback') }}" class="inline">
+      {{ apply_form.csrf_token }}
+      <button type="submit" class="button secondary"
+              {% if not settings.previous_good_config %}disabled{% endif %}>
+        Roll back to last known good
+      </button>
+    </form>
+  </div>
 </section>
 {% endblock %}

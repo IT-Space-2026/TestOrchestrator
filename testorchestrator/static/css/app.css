@@ -1146,3 +1146,22 @@ details.adv-card ul { margin-top: .6rem; }
 .settings-info p { margin: .3rem 0; }
 .settings-foot { padding: .8rem 1.25rem;
   border-top: 1px solid var(--border); }
+/* network page: field grid, detected-address options, cert columns */
+.field-grid { display: grid; gap: .8rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+.addr-enable { display: flex; align-items: center; gap: .7rem;
+  margin: .7rem 0; font-weight: 600; }
+.addr-option { display: flex; align-items: center; gap: .6rem;
+  padding: .5rem .8rem; margin-bottom: .4rem;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  cursor: pointer; transition: border-color .15s, background .15s; }
+.addr-option:hover { border-color: var(--accent); }
+.addr-option:has(input:checked) { border-color: var(--accent);
+  background: rgba(26,86,219,.07); }
+@media (prefers-color-scheme: dark) {
+  .addr-option:has(input:checked) { background: rgba(91,157,255,.1); }
+}
+.cert-actions { display: grid; gap: 1.2rem;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  margin-top: 1rem; }
+.cert-block h3 { margin-top: 0; }
