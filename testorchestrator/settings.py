@@ -65,7 +65,7 @@ DEFAULTS = {
     "buildbot_www_port": 8010,
     # Reporting settings (Admin -> Reporting page). reporting-labs is
     # the sole enhanced backend in 2.0; native-KRE reporting always on.
-    "reportinglabs_enabled": False,
+    "reportinglabs_enabled": True,
     "logs_retention_days": 30,
     "logs_max_rows": 20000,
     # CSV export (Admin -> Audit / Operational Logs). Exports never

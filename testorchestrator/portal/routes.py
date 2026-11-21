@@ -1968,7 +1968,7 @@ def execution_detail(execution_id):
         plain_form=PlainForm(), can_edit=can_edit,
         unresolved=unresolved, units=units, parent=parent,
         actual_concurrency=actual_concurrency,
-        rl_enabled=settings_mod.get("reportinglabs_enabled", False))
+        rl_enabled=settings_mod.get("reportinglabs_enabled", True))
 
 
 @portal_bp.route("/executions/<execution_id>/cancel", methods=["POST"])

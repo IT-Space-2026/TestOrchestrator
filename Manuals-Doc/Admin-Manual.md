@@ -1353,7 +1353,7 @@ flags (one-time, at `install.sh`).
 | `buildbot_endpoint` | Portal → Buildbot REST URL (loopback) | `http://127.0.0.1:8010` | install-provisioned |
 | `buildbot_credential_ref` / `buildbot_username` | Credential reference (secret name) + API user — value lives in **Credentials**, not here | `buildbot-api` / `to-api` | install-provisioned |
 | `buildbot_pb_port` | Worker-facing PB port | `9989` | install-provisioned |
-| `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `false` | **Reporting** |
+| `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `true` | **Reporting** |
 | `logs_retention_days` / `logs_max_rows` | Operational-log pruning bounds | `30` / `20000` | **Reporting** / logs |
 | `logs_export_inline_max` / `logs_export_max_rows` / `logs_export_ttl_minutes` | CSV export: stream-vs-job threshold, hard cap (refused beyond), temp-file lifetime | `10000` / `250000` / `60` | **System** / logs |
 | `logs_json_enabled` / `logs_json_dir` / `logs_json_max_bytes` / `logs_json_max_files` / `logs_stdout_enabled` | Optional structured NDJSON output for external collectors — off until configured | `false` / `""` / `10485760` / `5` / `false` | env `TO_LOGS_JSON_*` / settings |
